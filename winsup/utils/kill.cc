@@ -1,7 +1,6 @@
 /* kill.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007,
-   2009, 2011 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -17,10 +16,9 @@ details. */
 #include <errno.h>
 #include <windows.h>
 #include <sys/cygwin.h>
-#include <cygwin/version.h>
 #include <getopt.h>
-#include <limits.h>
 
+static const char version[] = "$Revision$";
 static char *prog_name;
 
 static struct option longopts[] =
@@ -29,52 +27,52 @@ static struct option longopts[] =
   {"list", optional_argument, NULL, 'l'},
   {"force", no_argument, NULL, 'f'},
   {"signal", required_argument, NULL, 's'},
-  {"version", no_argument, NULL, 'V'},
+  {"version", no_argument, NULL, 'v'},
   {NULL, 0, NULL, 0}
 };
 
-static char opts[] = "hl::fs:V";
+static char opts[] = "hl::fs:v";
+
+extern "C" const char *strsigno (int);
 
 static void
 usage (FILE *where = stderr)
 {
   fprintf (where , ""
-	"Usage: %1$s [-f] [-signal] [-s signal] pid1 [pid2 ...]\n"
-	"       %1$s -l [signal]\n"
-	"\n"
+	"Usage: %s [-f] [-signal] [-s signal] pid1 [pid2 ...]\n"
+	"       %s -l [signal]\n"
 	"Send signals to processes\n"
 	"\n"
 	" -f, --force     force, using win32 interface if necessary\n"
 	" -l, --list      print a list of signal names\n"
-	" -s, --signal    send signal (use %1$s --list for a list)\n"
+	" -s, --signal    send signal (use %s --list for a list)\n"
 	" -h, --help      output usage information and exit\n"
-	" -V, --version   output version information and exit\n"
-	"\n", prog_name);
+	" -v, --version   output version information and exit\n"
+	"", prog_name, prog_name, prog_name);
   exit (where == stderr ? 1 : 0);
 }
 
 static void
 print_version ()
 {
-  printf ("kill (cygwin) %d.%d.%d\n"
-	  "Process Signaller\n"
-	  "Copyright (C) 1996 - %s Red Hat, Inc.\n"
-	  "This is free software; see the source for copying conditions.  There is NO\n"
-	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-	  CYGWIN_VERSION_DLL_MAJOR / 1000,
-	  CYGWIN_VERSION_DLL_MAJOR % 1000,
-	  CYGWIN_VERSION_DLL_MINOR,
-	  strrchr (__DATE__, ' ') + 1);
-}
-
-static const char *
-strsigno (int signo)
-{
-  if (signo >= 0 && signo < NSIG)
-    return sys_sigabbrev[signo];
-  static char buf[sizeof ("Unknown signal") + 32];
-  sprintf (buf, "Unknown signal %d", signo);
-  return buf;
+  const char *v = strchr (version, ':');
+  int len;
+  if (!v)
+    {
+      v = "?";
+      len = 1;
+    }
+  else
+    {
+      v += 2;
+      len = strchr (v, ' ') - v;
+    }
+  printf ("\
+%s (cygwin) %.*s\n\
+Process Signaller\n\
+Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.\n\
+Compiled on %s\n\
+", prog_name, len, v, __DATE__);
 }
 
 static int
@@ -88,7 +86,7 @@ getsig (const char *in_sig)
     sig = in_sig;
   else
     {
-      sprintf (buf, "SIG%-.20s", in_sig);
+      sprintf (buf, "SIG%s", in_sig);
       sig = buf;
     }
   intsig = strtosigno (sig) ?: atoi (in_sig);
@@ -103,9 +101,8 @@ test_for_unknown_sig (int sig, const char *sigstr)
 {
   if (sig < 0 || sig > NSIG)
     {
-      fprintf (stderr, "%1$s: unknown signal: %2$s\n"
-		       "Try `%1$s --help' for more information.\n",
-	       prog_name, sigstr);
+      fprintf (stderr, "%s: unknown signal: %s\n", prog_name, sigstr);
+      usage ();
       exit (1);
     }
 }
@@ -115,7 +112,7 @@ listsig (const char *in_sig)
 {
   int sig;
   if (!in_sig)
-    for (sig = 1; sig < NSIG - 1; sig++)
+    for (sig = 1; sig < NSIG; sig++)
       printf ("%s%c", strsigno (sig) + 3, (sig < NSIG - 1) ? ' ' : '\n');
   else
     {
@@ -128,56 +125,22 @@ listsig (const char *in_sig)
     }
 }
 
-static void
-get_debug_priv (void)
-{
-  HANDLE tok;
-  LUID luid;
-  TOKEN_PRIVILEGES tkp;
-
-  if (!OpenProcessToken (GetCurrentProcess (),
-			 TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &tok))
-    return;
-
-  if (!LookupPrivilegeValue (NULL, SE_DEBUG_NAME, &luid))
-    {
-      CloseHandle (tok);
-      return;
-    }
-
-  tkp.PrivilegeCount = 1;
-  tkp.Privileges[0].Luid = luid;
-  tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-  AdjustTokenPrivileges (tok, FALSE, &tkp, sizeof tkp, NULL, NULL);
-
-  CloseHandle (tok);
-}
-
 static void __stdcall
 forcekill (int pid, int sig, int wait)
 {
-  // try to acquire SeDebugPrivilege
-  get_debug_priv();
-
-  external_pinfo *p = NULL;
-  /* cygwin_internal misinterprets negative pids (Win9x pids) */
-  if (pid > 0)
-    p = (external_pinfo *) cygwin_internal (CW_GETPINFO_FULL, pid);
+  external_pinfo *p = (external_pinfo *) cygwin_internal (CW_GETPINFO_FULL, pid);
   DWORD dwpid = p ? p->dwProcessId : (DWORD) pid;
   HANDLE h = OpenProcess (PROCESS_TERMINATE, FALSE, (DWORD) dwpid);
   if (!h)
     {
-      if (!wait || GetLastError () != ERROR_INVALID_PARAMETER)
-	fprintf (stderr, "%s: couldn't open pid %u\n",
-		 prog_name, (unsigned) dwpid);
+      fprintf (stderr, "couldn't open pid %u\n", (unsigned) dwpid);
       return;
     }
   if (!wait || WaitForSingleObject (h, 200) != WAIT_OBJECT_0)
-    if (sig && !TerminateProcess (h, sig << 8)
+    if (!TerminateProcess (h, sig << 8)
 	&& WaitForSingleObject (h, 200) != WAIT_OBJECT_0)
-      fprintf (stderr, "%s: couldn't kill pid %u, %lu\n",
-	       prog_name, (unsigned) dwpid, GetLastError ());
+      fprintf (stderr, "couldn't kill pid %u, %u\n", (unsigned) dwpid,
+	       (unsigned) GetLastError ());
   CloseHandle (h);
 }
 
@@ -189,7 +152,13 @@ main (int argc, char **argv)
   int ret = 0;
   char *gotasig = NULL;
 
-  prog_name = program_invocation_short_name;
+  prog_name = strrchr (argv[0], '/');
+  if (prog_name == NULL)
+    prog_name = strrchr (argv[0], '\\');
+  if (prog_name == NULL)
+    prog_name = argv[0];
+  else
+    prog_name++;
 
   if (argc == 1)
     usage ();
@@ -197,7 +166,7 @@ main (int argc, char **argv)
   opterr = 0;
 
   char *p;
-  long long int pid = 0;
+  int pid = 0;
 
   for (;;)
     {
@@ -231,14 +200,16 @@ main (int argc, char **argv)
 	case 'h':
 	  usage (stdout);
 	  break;
-	case 'V':
+	case 'v':
 	  print_version ();
 	  break;
 	case '?':
 	  if (gotasig)
 	    {
-	      --optind;
-	      goto out;
+	      pid = strtol (argv[optind], &p, 10);
+	      if (pid < 0)
+		goto out;
+	      usage ();
 	    }
 	  optreset = 1;
 	  optind = 1 + av - argv;
@@ -258,25 +229,23 @@ out:
   while (*argv != NULL)
     {
       if (!pid)
-	pid = strtoll (*argv, &p, 10);
-      if (*p != '\0'
-	  || (!force && (pid < LONG_MIN || pid > LONG_MAX))
-	  || (force && (pid <= 0 || pid > ULONG_MAX)))
+	pid = strtol (*argv, &p, 10);
+      if (*p != '\0')
 	{
 	  fprintf (stderr, "%s: illegal pid: %s\n", prog_name, *argv);
 	  ret = 1;
 	}
-      else if (pid <= LONG_MAX && kill ((pid_t) pid, sig) == 0)
+      else if (kill (pid, sig) == 0)
 	{
 	  if (force)
-	    forcekill ((pid_t) pid, sig, 1);
+	    forcekill (pid, sig, 1);
 	}
-      else if (force)
-	forcekill ((pid_t) pid, sig, 0);
+      else if (force && sig != 0)
+	forcekill (pid, sig, 0);
       else
 	{
 	  char buf[1000];
-	  sprintf (buf, "%s: %lld", prog_name, pid);
+	  sprintf (buf, "%s %d", prog_name, pid);
 	  perror (buf);
 	  ret = 1;
 	}
@@ -285,4 +254,3 @@ out:
     }
   return ret;
 }
-
