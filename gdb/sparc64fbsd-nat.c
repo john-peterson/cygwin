@@ -1,12 +1,12 @@
 /* Native-dependent code for FreeBSD/sparc64.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,50 +15,54 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
-#include "regcache.h"
-#include "target.h"
 
-#include "fbsd-nat.h"
 #include "sparc64-tdep.h"
-#include "sparc-nat.h"
-
+#include "sparcbsd-nat.h"
 
-/* Support for debugging kernel virtual memory images.  */
-
-#include <sys/types.h>
-#include <machine/pcb.h>
-
-#include "bsd-kvm.h"
+/* Determine whether `struct reg' contains register REGNUM.  */
 
 static int
-sparc64fbsd_kvm_supply_pcb (struct regcache *regcache, struct pcb *pcb)
+sparc64fbsd_reg_supplies_p (int regnum)
 {
-  /* The following is true for FreeBSD 5.4:
+  /* Integer registers.  */
+  if ((regnum >= SPARC_G0_REGNUM && regnum <= SPARC_G7_REGNUM)
+      || (regnum >= SPARC_O0_REGNUM && regnum <= SPARC_O7_REGNUM)
+      || (regnum >= SPARC_L0_REGNUM && regnum <= SPARC_L7_REGNUM)
+      || (regnum >= SPARC_I0_REGNUM && regnum <= SPARC_I7_REGNUM))
+    return 1;
 
-     The pcb contains %sp and %pc.  Since the register windows are
-     explicitly flushed, we can find the `local' and `in' registers on
-     the stack.  */
+  /* Control registers.  */
+  if (regnum == SPARC64_PC_REGNUM
+      || regnum == SPARC64_NPC_REGNUM
+      || regnum == SPARC64_STATE_REGNUM
+      || regnum == SPARC64_FPRS_REGNUM
+      || regnum == SPARC64_Y_REGNUM)
+    return 1;
 
-  /* The stack pointer shouldn't be zero.  */
-  if (pcb->pcb_sp == 0)
-    return 0;
-
-  regcache_raw_supply (regcache, SPARC_SP_REGNUM, &pcb->pcb_sp);
-  regcache_raw_supply (regcache, SPARC64_PC_REGNUM, &pcb->pcb_pc);
-
-  /* Synthesize %npc.  */
-  pcb->pcb_pc += 4;
-  regcache_raw_supply (regcache, SPARC64_NPC_REGNUM, &pcb->pcb_pc);
-
-  /* Read `local' and `in' registers from the stack.  */
-  sparc_supply_rwindow (regcache, pcb->pcb_sp, -1);
-
-  return 1;
+  return 0;
 }
-
+
+/* Determine whether `struct fpreg' contains register REGNUM.  */
+
+static int
+sparc64fbsd_fpreg_supplies_p (int regnum)
+{
+  /* Floating-point registers.  */
+  if ((regnum >= SPARC_F0_REGNUM && regnum <= SPARC_F31_REGNUM)
+      || (regnum >= SPARC64_F32_REGNUM && regnum <= SPARC64_F62_REGNUM))
+    return 1;
+
+  /* Control registers.  */
+  if (regnum == SPARC64_FSR_REGNUM)
+    return 1;
+
+  return 0;
+}
 
 /* Provide a prototype to silence -Wmissing-prototypes.  */
 void _initialize_sparc64fbsd_nat (void);
@@ -66,17 +70,11 @@ void _initialize_sparc64fbsd_nat (void);
 void
 _initialize_sparc64fbsd_nat (void)
 {
-  struct target_ops *t;
+  sparcbsd_supply_reg = sparc64fbsd_supply_reg;
+  sparcbsd_fill_reg = sparc64fbsd_fill_reg;
+  sparcbsd_supply_fpreg = sparc64fbsd_supply_fpreg;
+  sparcbsd_fill_fpreg = sparc64fbsd_fill_fpreg;
 
-  /* Add some extra features to the generic SPARC target.  */
-  t = sparc_target ();
-  t->to_pid_to_exec_file = fbsd_pid_to_exec_file;
-  t->to_find_memory_regions = fbsd_find_memory_regions;
-  t->to_make_corefile_notes = fbsd_make_corefile_notes;
-  add_target (t);
-
-  sparc_gregset = &sparc64fbsd_gregset;
-
-  /* Support debugging kernel virtual memory images.  */
-  bsd_kvm_add_target (sparc64fbsd_kvm_supply_pcb);
+  sparcbsd_reg_supplies_p = sparc64fbsd_reg_supplies_p;
+  sparcbsd_fpreg_supplies_p = sparc64fbsd_fpreg_supplies_p;
 }

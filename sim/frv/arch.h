@@ -2,22 +2,23 @@
 
 THIS FILE IS MACHINE GENERATED WITH CGEN.
 
-Copyright 1996-2013 Free Software Foundation, Inc.
+Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Free Software Foundation, Inc.
 
 This file is part of the GNU simulators.
 
-   This file is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License along
-   with this program; if not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 */
 
@@ -29,7 +30,7 @@ This file is part of the GNU simulators.
 /* Enum declaration for model types.  */
 typedef enum model_type {
   MODEL_FRV, MODEL_FR550, MODEL_FR500, MODEL_TOMCAT
- , MODEL_FR400, MODEL_FR450, MODEL_SIMPLE, MODEL_MAX
+ , MODEL_FR400, MODEL_SIMPLE, MODEL_MAX
 } MODEL_TYPE;
 
 #define MAX_MODELS ((int) MODEL_MAX)
@@ -73,19 +74,7 @@ typedef enum unit_type {
  , UNIT_FR400_U_SWAP, UNIT_FR400_U_FR_STORE, UNIT_FR400_U_FR_LOAD, UNIT_FR400_U_GR_STORE
  , UNIT_FR400_U_GR_LOAD, UNIT_FR400_U_SET_HILO, UNIT_FR400_U_CHECK, UNIT_FR400_U_TRAP
  , UNIT_FR400_U_BRANCH, UNIT_FR400_U_IDIV, UNIT_FR400_U_IMUL, UNIT_FR400_U_INTEGER
- , UNIT_FR400_U_EXEC, UNIT_FR450_U_DCUL, UNIT_FR450_U_ICUL, UNIT_FR450_U_DCPL
- , UNIT_FR450_U_ICPL, UNIT_FR450_U_DCF, UNIT_FR450_U_DCI, UNIT_FR450_U_ICI
- , UNIT_FR450_U_MEMBAR, UNIT_FR450_U_BARRIER, UNIT_FR450_U_MEDIA_DUAL_HTOB, UNIT_FR450_U_MEDIA_DUAL_EXPAND
- , UNIT_FR450_U_MEDIA_7, UNIT_FR450_U_MEDIA_6, UNIT_FR450_U_MEDIA_4_MCLRACCA, UNIT_FR450_U_MEDIA_4_ACC_DUAL
- , UNIT_FR450_U_MEDIA_4_ACCG, UNIT_FR450_U_MEDIA_4, UNIT_FR450_U_MEDIA_3_QUAD, UNIT_FR450_U_MEDIA_3_DUAL
- , UNIT_FR450_U_MEDIA_3, UNIT_FR450_U_MEDIA_2_ADD_SUB_DUAL, UNIT_FR450_U_MEDIA_2_ADD_SUB, UNIT_FR450_U_MEDIA_2_ACC_DUAL
- , UNIT_FR450_U_MEDIA_2_ACC, UNIT_FR450_U_MEDIA_2_QUAD, UNIT_FR450_U_MEDIA_2, UNIT_FR450_U_MEDIA_HILO
- , UNIT_FR450_U_MEDIA_1_QUAD, UNIT_FR450_U_MEDIA_1, UNIT_FR450_U_GR2SPR, UNIT_FR450_U_GR2FR
- , UNIT_FR450_U_SPR2GR, UNIT_FR450_U_FR2GR, UNIT_FR450_U_SWAP, UNIT_FR450_U_FR_STORE
- , UNIT_FR450_U_FR_LOAD, UNIT_FR450_U_GR_STORE, UNIT_FR450_U_GR_LOAD, UNIT_FR450_U_SET_HILO
- , UNIT_FR450_U_CHECK, UNIT_FR450_U_TRAP, UNIT_FR450_U_BRANCH, UNIT_FR450_U_IDIV
- , UNIT_FR450_U_IMUL, UNIT_FR450_U_INTEGER, UNIT_FR450_U_EXEC, UNIT_SIMPLE_U_EXEC
- , UNIT_MAX
+ , UNIT_FR400_U_EXEC, UNIT_SIMPLE_U_EXEC, UNIT_MAX
 } UNIT_TYPE;
 
 #define MAX_UNITS (1)

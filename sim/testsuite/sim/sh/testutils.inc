@@ -205,19 +205,6 @@ main:
 	bra	mfail
 	nop
 	.endm
-	# Branch if false -- 8k range
-	.macro bf8k label
-	bt	.Lbf8k\@
-	bra	\label
-.Lbf8k\@:
-	.endm
-
-	# Branch if true -- 8k range
-	.macro bt8k label
-	bf	.Lbt8k\@
-	bra	\label
-.Lbt8k\@:
-	.endm
 
 	# Assert value of register (any general register but r0)
 	# Preserves r0 on stack, restores it on success.
@@ -486,7 +473,7 @@ set_greg\@:
 	pop	r0
 	.endm
 
-	.macro	set_sr_bit val
+	.macro	set_sr_bit
 	push	r0
 	push	r1
 	get_sr	r0
@@ -498,9 +485,9 @@ set_greg\@:
 	bra	.Lsrbit\@
 	nop
 	.align 2
-.Lsrbitval\@:
+.Lsrbitval:
 	.long	\val
-.Lsrbit\@:
+.Lsrbit:
 	.endm
 
 	.macro	test_sr_bit_set val
@@ -545,7 +532,6 @@ set_greg\@:
 	pop	r0
 	bra	.Lssr\@
 	nop
-	.align 2
 .Lssrval\@:
 	.long	\val
 .Lssr\@:
@@ -564,7 +550,6 @@ set_greg\@:
 	pop	r0
 	bra	.Lssr2_\@
 	nop
-	.align 2
 .Lssr2val\@:
 	.long	\val
 .Lssr2_\@:
@@ -572,14 +557,13 @@ set_greg\@:
 
 
 	.macro set_creg val reg
-	# [gbr, vbr, ssr, spc, sgr, dbr... ]
+	# 
 	push	r0
 	mov.l	.Lscrval\@, r0
 	ldc	r0, \reg
 	pop	r0
 	bra	.Lscr\@
 	nop
-	.align 2
 .Lscrval\@:
 	.long	\val
 .Lscr\@:
@@ -601,17 +585,4 @@ set_greg\@:
 	not	r0, r0
 	lds	r0, dsr
 	pop	r0
-	.endm
-
-	.macro	assertmem addr val
-	push	r0
-	mov.l	.Laddr\@, r0
-	mov.l	@r0, r0
-	assertreg0 \val
-	bra	.Lam\@
-	nop
-	.align	2
-.Laddr\@:
-	.long	\addr
-.Lam\@:	pop	r0
 	.endm

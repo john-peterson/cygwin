@@ -1,13 +1,12 @@
 /* BFD library support routines for the MSP architecture.
-   Copyright (C) 2002, 2003, 2005, 2007, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2002, 2003 Free Software Foundation, Inc.
    Contributed by Dmitry Diky <diwil@mail.ru>
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,30 +16,14 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 
-/* This routine is provided two arch_infos and works out which MSP
-   machine which would be compatible with both and returns a pointer
-   to its info structure.  */
-
-static const bfd_arch_info_type *
-compatible (const bfd_arch_info_type * a,
-	    const bfd_arch_info_type * b)
-{
-  /* If a & b are for different architectures we can do nothing.  */
-  if (a->arch != b->arch)
-    return NULL;
-
-  if (a->mach <= b->mach)
-    return b;
-
-  return a;
-}
+static const bfd_arch_info_type *compatible
+  PARAMS ((const bfd_arch_info_type *, const bfd_arch_info_type *));
 
 #define N(addr_bits, machine, print, default, next)		\
 {								\
@@ -55,7 +38,6 @@ compatible (const bfd_arch_info_type * a,
   default,			/* The default machine.  */	\
   compatible,							\
   bfd_default_scan,						\
-  bfd_arch_default_fill,					\
   next								\
 }
 
@@ -78,30 +60,27 @@ static const bfd_arch_info_type arch_info_struct[] =
 
   /* msp430x15x.  */
   N (16, bfd_mach_msp15, "msp:15", FALSE, & arch_info_struct[6]),
-
+  
   /* msp430x16x.  */
   N (16, bfd_mach_msp16, "msp:16", FALSE, & arch_info_struct[7]),
 
-  /* msp430x21x.  */
-  N (16, bfd_mach_msp21, "msp:21", FALSE, & arch_info_struct[8]),
-
   /* msp430x31x.  */
-  N (16, bfd_mach_msp31, "msp:31", FALSE, & arch_info_struct[9]),
+  N (16, bfd_mach_msp31, "msp:31", FALSE, & arch_info_struct[8]), 
 
   /* msp430x32x.  */
-  N (16, bfd_mach_msp32, "msp:32", FALSE, & arch_info_struct[10]),
+  N (16, bfd_mach_msp32, "msp:32", FALSE, & arch_info_struct[9]), 
 
   /* msp430x33x.  */
-  N (16, bfd_mach_msp33, "msp:33", FALSE, & arch_info_struct[11]),
-
+  N (16, bfd_mach_msp33, "msp:33", FALSE, & arch_info_struct[10]),
+  
   /* msp430x41x.  */
-  N (16, bfd_mach_msp41, "msp:41", FALSE, & arch_info_struct[12]),
+  N (16, bfd_mach_msp41, "msp:41", FALSE, & arch_info_struct[11]),
 
   /* msp430x42x.  */
-  N (16, bfd_mach_msp42, "msp:42", FALSE, & arch_info_struct[13]),
+  N (16, bfd_mach_msp42, "msp:42", FALSE, & arch_info_struct[12]),
 
   /* msp430x43x.  */
-  N (16, bfd_mach_msp43, "msp:43", FALSE, & arch_info_struct[14]),
+  N (16, bfd_mach_msp43, "msp:43", FALSE, & arch_info_struct[13]),
 
   /* msp430x44x.  */
   N (16, bfd_mach_msp43, "msp:44", FALSE, NULL)
@@ -110,3 +89,21 @@ static const bfd_arch_info_type arch_info_struct[] =
 const bfd_arch_info_type bfd_msp430_arch =
   N (16, bfd_mach_msp14, "msp:14", TRUE, & arch_info_struct[0]);
 
+/* This routine is provided two arch_infos and works out which MSP
+   machine which would be compatible with both and returns a pointer
+   to its info structure.  */
+
+static const bfd_arch_info_type *
+compatible (a,b)
+     const bfd_arch_info_type * a;
+     const bfd_arch_info_type * b;
+{
+  /* If a & b are for different architectures we can do nothing.  */
+  if (a->arch != b->arch)
+    return NULL;
+
+  if (a->mach <= b->mach)
+    return b;
+
+  return a;
+}

@@ -1,6 +1,6 @@
 /* Routines for name->symbol lookups in GDB.
    
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    Contributed by David Carlton <carlton@bactrian.org> and by Kealia,
    Inc.
@@ -9,21 +9,21 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 2 of the License, or (at
+   your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef DICTIONARY_H
 #define DICTIONARY_H
-
-#include "symfile.h"
 
 /* An opaque type for dictionaries; only dictionary.c should know
    about its innards.  */
@@ -85,11 +85,6 @@ extern void dict_free (struct dictionary *dict);
 
 extern void dict_add_symbol (struct dictionary *dict, struct symbol *sym);
 
-/* Utility to add a list of symbols to a dictionary.  */
-
-extern void dict_add_pending (struct dictionary *dict,
-			      const struct pending *symbol_list);
-
 /* Is the dictionary empty?  */
 
 extern int dict_empty (struct dictionary *dict);
@@ -123,7 +118,7 @@ extern struct symbol *dict_iterator_first (const struct dictionary *dict,
 extern struct symbol *dict_iterator_next (struct dict_iterator *iterator);
 
 /* Initialize ITERATOR to point at the first symbol in DICT whose
-   SYMBOL_SEARCH_NAME is NAME (as tested using strcmp_iw), and return
+   SYMBOL_BEST_NAME is NAME (as tested using strcmp_iw), and return
    that first symbol, or NULL if there are no such symbols.  */
 
 extern struct symbol *dict_iter_name_first (const struct dictionary *dict,
@@ -131,7 +126,7 @@ extern struct symbol *dict_iter_name_first (const struct dictionary *dict,
 					    struct dict_iterator *iterator);
 
 /* Advance ITERATOR to point at the next symbol in DICT whose
-   SYMBOL_SEARCH_NAME is NAME (as tested using strcmp_iw), or NULL if
+   SYMBOL_BEST_NAME is NAME (as tested using strcmp_iw), or NULL if
    there are no more such symbols.  Don't call this if you've
    previously received NULL from dict_iterator_first or
    dict_iterator_next on this iteration.  And don't call it unless
@@ -140,29 +135,6 @@ extern struct symbol *dict_iter_name_first (const struct dictionary *dict,
 
 extern struct symbol *dict_iter_name_next (const char *name,
 					   struct dict_iterator *iterator);
-
-/* Initialize ITERATOR to point at the first symbol in DICT whose
-   SYMBOL_SEARCH_NAME is NAME, as tested using COMPARE (which must use
-   the same conventions as strcmp_iw and be compatible with any
-   dictionary hashing function), and return that first symbol, or NULL
-   if there are no such symbols.  */
-
-extern struct symbol *dict_iter_match_first (const struct dictionary *dict,
-					     const char *name,
-					     symbol_compare_ftype *compare,
-					     struct dict_iterator *iterator);
-
-/* Advance ITERATOR to point at the next symbol in DICT whose
-   SYMBOL_SEARCH_NAME is NAME, as tested using COMPARE (see
-   dict_iter_match_first), or NULL if there are no more such symbols.
-   Don't call this if you've previously received NULL from 
-   dict_iterator_match_first or dict_iterator_match_next on this
-   iteration.  And don't call it unless ITERATOR was created by a
-   previous call to dict_iter_match_first with the same NAME and COMPARE.  */
-
-extern struct symbol *dict_iter_match_next (const char *name,
-					    symbol_compare_ftype *compare,
-					    struct dict_iterator *iterator);
 
 /* Return some notion of the size of the dictionary: the number of
    symbols if we have that, the number of hash buckets otherwise.  */

@@ -1,6 +1,6 @@
 /* The common simulator framework for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney and Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #ifndef SIM_IO_H
@@ -75,19 +77,11 @@ void sim_io_evprintf (SIM_DESC sd, const char *fmt, va_list ap);
 
 void sim_io_error (SIM_DESC sd,
 		   const char *fmt,
-		   ...)
-  __attribute__ ((format (printf, 2, 3)))
-  __attribute__ ((__noreturn__));
+		   ...) __attribute__ ((format (printf, 2, 3)));
 
 void sim_io_poll_quit (SIM_DESC sd);
 
 /* Returns -1 and sets (host) EAGAIN if not ready. */
 int sim_io_poll_read (SIM_DESC sd, int, char *, int);
 
-#include <sys/types.h>
-#include <sys/stat.h>
-
-int sim_io_stat (SIM_DESC sd, const char *path, struct stat *buf);
-
-int sim_io_fstat (SIM_DESC sd, int fd, struct stat *buf);
 #endif

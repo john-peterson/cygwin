@@ -1,21 +1,22 @@
 /* Main simulator entry points specific to the M32R.
-   Copyright (C) 1996-2013 Free Software Foundation, Inc.
+   Copyright (C) 1996, 1997, 1998, 1999, 2003 Free Software Foundation, Inc.
    Contributed by Cygnus Support.
 
    This file is part of GDB, the GNU debugger.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 2, or (at your option)
+   any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   You should have received a copy of the GNU General Public License along
+   with this program; if not, write to the Free Software Foundation, Inc.,
+   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sim-main.h"
 #include "sim-options.h"
@@ -213,13 +214,6 @@ sim_create_inferior (sd, abfd, argv, envp)
     addr = 0;
   sim_pc_set (current_cpu, addr);
 
-#ifdef M32R_LINUX
-  m32rbf_h_cr_set (current_cpu,
-                    m32r_decode_gdb_ctrl_regnum(SPI_REGNUM), 0x1f00000);
-  m32rbf_h_cr_set (current_cpu,
-                    m32r_decode_gdb_ctrl_regnum(SPU_REGNUM), 0x1f00000);
-#endif
-
 #if 0
   STATE_ARGV (sd) = sim_copy_argv (argv);
   STATE_ENVP (sd) = sim_copy_argv (envp);
@@ -254,4 +248,52 @@ print_m32r_misc_cpu (SIM_CPU *cpu, int verbose)
 		       sim_add_commas (buf, sizeof (buf),
 				       CPU_M32R_MISC_PROFILE (cpu)->parallel_count));
     }
+}
+
+void
+sim_do_command (sd, cmd)
+     SIM_DESC sd;
+     char *cmd;
+{ 
+  char **argv;
+
+  if (cmd == NULL)
+    return;
+
+  argv = buildargv (cmd);
+
+  if (argv[0] != NULL
+      && strcasecmp (argv[0], "info") == 0
+      && argv[1] != NULL
+      && strncasecmp (argv[1], "reg", 3) == 0)
+    {
+      SI val;
+
+      /* We only support printing bbpsw,bbpc here as there is no equivalent
+	 functionality in gdb.  */
+      if (argv[2] == NULL)
+	sim_io_eprintf (sd, "Missing register in `%s'\n", cmd);
+      else if (argv[3] != NULL)
+	sim_io_eprintf (sd, "Too many arguments in `%s'\n", cmd);
+      else if (strcasecmp (argv[2], "bbpsw") == 0)
+	{
+	  val = m32rbf_h_cr_get (STATE_CPU (sd, 0), H_CR_BBPSW);
+	  sim_io_printf (sd, "bbpsw 0x%x %d\n", val, val);
+	}
+      else if (strcasecmp (argv[2], "bbpc") == 0)
+	{
+	  val = m32rbf_h_cr_get (STATE_CPU (sd, 0), H_CR_BBPC);
+	  sim_io_printf (sd, "bbpc 0x%x %d\n", val, val);
+	}
+      else
+	sim_io_eprintf (sd, "Printing of register `%s' not supported with `sim info'\n",
+			argv[2]);
+    }
+  else
+    {
+      if (sim_args_command (sd, cmd) != SIM_RC_OK)
+	sim_io_eprintf (sd, "Unknown sim command `%s'\n", cmd);
+    }
+
+  freeargv (argv);
 }

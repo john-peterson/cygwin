@@ -1,5 +1,6 @@
 /* Pthreads test program.
-   Copyright 1996-2013 Free Software Foundation, Inc.
+   Copyright 1996, 2002, 2003
+   Free Software Foundation, Inc.
 
    Written by Fred Fish of Cygnus Support
    Contributed by Cygnus Support
@@ -8,19 +9,20 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
-
+   
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+   
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <pthread.h>
 
 /* Under OSF 2.0 & 3.0 and HPUX 10, the second arg of pthread_create
@@ -72,10 +74,10 @@ thread1 (void *arg)
   int i;
   int z = 0;
 
-  if (verbose) printf ("thread1 (%0lx) ; pid = %d\n", (long) arg, getpid ());
+  if (verbose) printf ("thread1 (%0x) ; pid = %d\n", arg, getpid ());
   for (i=1; i <= 10000000; i++)
     {
-      if (verbose) printf("thread1 %ld\n", (long) pthread_self ());
+      if (verbose) printf("thread1 %d\n", pthread_self ());
       z += i;
       common_routine (1);
       sleep(1);
@@ -89,10 +91,10 @@ thread2 (void * arg)
   int i;
   int k = 0;
 
-  if (verbose) printf ("thread2 (%0lx) ; pid = %d\n", (long) arg, getpid ());
+  if (verbose) printf ("thread2 (%0x) ; pid = %d\n", arg, getpid ());
   for (i=1; i <= 10000000; i++)
     {
-      if (verbose) printf("thread2 %ld\n", (long) pthread_self ());
+      if (verbose) printf("thread2 %d\n", pthread_self ());
       k += i;
       common_routine (2);
       sleep(1);
@@ -145,7 +147,7 @@ main(argc, argv)
       perror ("pthread_create 1");
       exit (1);
     }
-  if (verbose) printf ("Made thread %ld\n", (long) tid1);
+  if (verbose) printf ("Made thread %d\n", tid1);
   sleep (1);
 
   if (pthread_create (&tid2, PTHREAD_CREATE_NULL_ARG2, thread2, (void *) 0xdeadbeef))
@@ -153,13 +155,13 @@ main(argc, argv)
       perror ("pthread_create 2");
       exit (1);
     }
-  if (verbose) printf("Made thread %ld\n", (long) tid2);
+  if (verbose) printf("Made thread %d\n", tid2);
 
   sleep (1);
 
   for (j = 1; j <= 10000000; j++)
     {
-      if (verbose) printf("top %ld\n", (long) pthread_self ());
+      if (verbose) printf("top %d\n", pthread_self ());
       common_routine (0);
       sleep(1);
       t += j;

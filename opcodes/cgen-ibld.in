@@ -1,26 +1,25 @@
 /* Instruction building/extraction support for @arch@. -*- C -*-
 
-   THIS FILE IS MACHINE GENERATED WITH CGEN: Cpu tools GENerator.
-   - the resultant file is machine generated, cgen-ibld.in isn't
+THIS FILE IS MACHINE GENERATED WITH CGEN: Cpu tools GENerator.
+- the resultant file is machine generated, cgen-ibld.in isn't
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2005, 2006, 2007,
-   2008, 2010  Free Software Foundation, Inc.
+Copyright 1996, 1997, 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
-   This file is part of libopcodes.
+This file is part of the GNU Binutils and GDB, the GNU debugger.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software Foundation, Inc.,
-   51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* ??? Eventually more and more of this stuff can go to cpu-independent files.
    Keep that in mind.  */
@@ -33,13 +32,12 @@
 #include "symcat.h"
 #include "@prefix@-desc.h"
 #include "@prefix@-opc.h"
-#include "cgen/basic-modes.h"
 #include "opintl.h"
 #include "safe-ctype.h"
 
-#undef  min
+#undef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
-#undef  max
+#undef max
 #define max(a,b) ((a) > (b) ? (a) : (b))
 
 /* Used by the ifield rtx function.  */
@@ -138,7 +136,13 @@ insert_normal (CGEN_CPU_DESC cd,
   if (length == 0)
     return NULL;
 
-  if (word_length > 8 * sizeof (CGEN_INSN_INT))
+#if 0
+  if (CGEN_INT_INSN_P
+      && word_offset != 0)
+    abort ();
+#endif
+
+  if (word_length > 32)
     abort ();
 
   /* For architectures with insns smaller than the base-insn-bitsize,
@@ -169,21 +173,13 @@ insert_normal (CGEN_CPU_DESC cd,
   else if (! CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGNED))
     {
       unsigned long maxval = mask;
-      unsigned long val = (unsigned long) value;
-
-      /* For hosts with a word size > 32 check to see if value has been sign
-	 extended beyond 32 bits.  If so then ignore these higher sign bits
-	 as the user is attempting to store a 32-bit signed value into an
-	 unsigned 32-bit field which is allowed.  */
-      if (sizeof (unsigned long) > 4 && ((value >> 32) == -1))
-	val &= 0xFFFFFFFF;
-
-      if (val > maxval)
+      
+      if ((unsigned long) value > maxval)
 	{
 	  /* xgettext:c-format */
 	  sprintf (errbuf,
-		   _("operand out of range (0x%lx not between 0 and 0x%lx)"),
-		   val, maxval);
+		   _("operand out of range (%lu not between 0 and %lu)"),
+		   value, maxval);
 	  return errbuf;
 	}
     }
@@ -290,7 +286,7 @@ insert_insn_normal (CGEN_CPU_DESC cd,
 
 #if CGEN_INT_INSN_P
 /* Cover function to store an insn value into an integral insn.  Must go here
-   because it needs <prefix>-desc.h for CGEN_INT_INSN_P.  */
+ because it needs <prefix>-desc.h for CGEN_INT_INSN_P.  */
 
 static void
 put_insn_int_value (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
@@ -308,7 +304,6 @@ put_insn_int_value (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
       int shift = insn_length - length;
       /* Written this way to avoid undefined behaviour.  */
       CGEN_INSN_INT mask = (((1L << (length - 1)) - 1) << 1) | 1;
-
       *buf = (*buf & ~(mask << shift)) | ((value & mask) << shift);
     }
 }
@@ -379,7 +374,9 @@ extract_1 (CGEN_CPU_DESC cd,
 {
   unsigned long x;
   int shift;
-
+#if 0
+  int big_p = CGEN_CPU_INSN_ENDIAN (cd) == CGEN_ENDIAN_BIG;
+#endif
   x = cgen_get_insn_value (cd, bufp, word_length);
 
   if (CGEN_INSN_LSB0_P)
@@ -442,15 +439,22 @@ extract_normal (CGEN_CPU_DESC cd,
       return 1;
     }
 
-  if (word_length > 8 * sizeof (CGEN_INSN_INT))
+#if 0
+  if (CGEN_INT_INSN_P
+      && word_offset != 0)
+    abort ();
+#endif
+
+  if (word_length > 32)
     abort ();
 
   /* For architectures with insns smaller than the insn-base-bitsize,
      word_length may be too big.  */
   if (cd->min_insn_bitsize < cd->base_insn_bitsize)
     {
-      if (word_offset + word_length > total_length)
-	word_length = total_length - word_offset;
+      if (word_offset == 0
+	  && word_length > total_length)
+	word_length = total_length;
     }
 
   /* Does the value reside in INSN_VALUE, and at the right alignment?  */
@@ -469,7 +473,7 @@ extract_normal (CGEN_CPU_DESC cd,
     {
       unsigned char *bufp = ex_info->insn_bytes + word_offset / 8;
 
-      if (word_length > 8 * sizeof (CGEN_INSN_INT))
+      if (word_length > 32)
 	abort ();
 
       if (fill_cache (cd, ex_info, word_offset / 8, word_length / 8, pc) == 0)
@@ -535,4 +539,4 @@ extract_insn_normal (CGEN_CPU_DESC cd,
   return CGEN_INSN_BITSIZE (insn);
 }
 
-/* Machine generated code added here.  */
+/* machine generated code added here */

@@ -1,12 +1,14 @@
 /* Perform an inferior function call, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994,
+   1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Free Software
+   Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,11 +17,12 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "breakpoint.h"
-#include "tracepoint.h"
 #include "target.h"
 #include "regcache.h"
 #include "inferior.h"
@@ -27,21 +30,11 @@
 #include "block.h"
 #include "gdbcore.h"
 #include "language.h"
-#include "objfiles.h"
+#include "symfile.h"
 #include "gdbcmd.h"
 #include "command.h"
 #include "gdb_string.h"
 #include "infcall.h"
-#include "dummy-frame.h"
-#include "ada-lang.h"
-#include "gdbthread.h"
-#include "exceptions.h"
-
-/* If we can't find a function's name from its address,
-   we print this instead.  */
-#define RAW_FUNCTION_ADDRESS_FORMAT "at 0x%s"
-#define RAW_FUNCTION_ADDRESS_SIZE (sizeof (RAW_FUNCTION_ADDRESS_FORMAT) \
-                                   + 2 * sizeof (CORE_ADDR))
 
 /* NOTE: cagney/2003-04-16: What's the future of this code?
 
@@ -71,104 +64,41 @@
    with "set coerce-float-to-double 0".  */
 
 static int coerce_float_to_double_p = 1;
-static void
-show_coerce_float_to_double_p (struct ui_file *file, int from_tty,
-			       struct cmd_list_element *c, const char *value)
-{
-  fprintf_filtered (file,
-		    _("Coercion of floats to doubles "
-		      "when calling functions is %s.\n"),
-		    value);
-}
 
 /* This boolean tells what gdb should do if a signal is received while
    in a function called from gdb (call dummy).  If set, gdb unwinds
    the stack and restore the context to what as it was before the
    call.
 
-   The default is to stop in the frame where the signal was received.  */
+   The default is to stop in the frame where the signal was received. */
 
-static int unwind_on_signal_p = 0;
-static void
-show_unwind_on_signal_p (struct ui_file *file, int from_tty,
-			 struct cmd_list_element *c, const char *value)
-{
-  fprintf_filtered (file,
-		    _("Unwinding of stack if a signal is "
-		      "received while in a call dummy is %s.\n"),
-		    value);
-}
-
-/* This boolean tells what gdb should do if a std::terminate call is
-   made while in a function called from gdb (call dummy).
-   As the confines of a single dummy stack prohibit out-of-frame
-   handlers from handling a raised exception, and as out-of-frame
-   handlers are common in C++, this can lead to no handler being found
-   by the unwinder, and a std::terminate call.  This is a false positive.
-   If set, gdb unwinds the stack and restores the context to what it
-   was before the call.
-
-   The default is to unwind the frame if a std::terminate call is
-   made.  */
-
-static int unwind_on_terminating_exception_p = 1;
-
-static void
-show_unwind_on_terminating_exception_p (struct ui_file *file, int from_tty,
-					struct cmd_list_element *c,
-					const char *value)
-
-{
-  fprintf_filtered (file,
-		    _("Unwind stack if a C++ exception is "
-		      "unhandled while in a call dummy is %s.\n"),
-		    value);
-}
+int unwind_on_signal_p = 0;
 
 /* Perform the standard coercions that are specified
-   for arguments to be passed to C or Ada functions.
+   for arguments to be passed to C functions.
 
    If PARAM_TYPE is non-NULL, it is the expected parameter type.
-   IS_PROTOTYPED is non-zero if the function declaration is prototyped.
-   SP is the stack pointer were additional data can be pushed (updating
-   its value as needed).  */
+   IS_PROTOTYPED is non-zero if the function declaration is prototyped.  */
 
 static struct value *
-value_arg_coerce (struct gdbarch *gdbarch, struct value *arg,
-		  struct type *param_type, int is_prototyped, CORE_ADDR *sp)
+value_arg_coerce (struct value *arg, struct type *param_type,
+		  int is_prototyped)
 {
-  const struct builtin_type *builtin = builtin_type (gdbarch);
-  struct type *arg_type = check_typedef (value_type (arg));
+  struct type *arg_type = check_typedef (VALUE_TYPE (arg));
   struct type *type
     = param_type ? check_typedef (param_type) : arg_type;
-
-  /* Perform any Ada-specific coercion first.  */
-  if (current_language->la_language == language_ada)
-    arg = ada_convert_actual (arg, type);
-
-  /* Force the value to the target if we will need its address.  At
-     this point, we could allocate arguments on the stack instead of
-     calling malloc if we knew that their addresses would not be
-     saved by the called function.  */
-  arg = value_coerce_to_target (arg);
 
   switch (TYPE_CODE (type))
     {
     case TYPE_CODE_REF:
-      {
-	struct value *new_value;
-
-	if (TYPE_CODE (arg_type) == TYPE_CODE_REF)
-	  return value_cast_pointers (type, arg, 0);
-
-	/* Cast the value to the reference's target type, and then
-	   convert it back to a reference.  This will issue an error
-	   if the value was not previously in memory - in some cases
-	   we should clearly be allowing this, but how?  */
-	new_value = value_cast (TYPE_TARGET_TYPE (type), arg);
-	new_value = value_ref (new_value);
-	return new_value;
-      }
+      if (TYPE_CODE (arg_type) != TYPE_CODE_REF
+	  && TYPE_CODE (arg_type) != TYPE_CODE_PTR)
+	{
+	  arg = value_addr (arg);
+	  VALUE_TYPE (arg) = param_type;
+	  return arg;
+	}
+      break;
     case TYPE_CODE_INT:
     case TYPE_CODE_CHAR:
     case TYPE_CODE_BOOL:
@@ -176,22 +106,22 @@ value_arg_coerce (struct gdbarch *gdbarch, struct value *arg,
       /* If we don't have a prototype, coerce to integer type if necessary.  */
       if (!is_prototyped)
 	{
-	  if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin->builtin_int))
-	    type = builtin->builtin_int;
+	  if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin_type_int))
+	    type = builtin_type_int;
 	}
       /* Currently all target ABIs require at least the width of an integer
          type for an argument.  We may have to conditionalize the following
          type coercion for future targets.  */
-      if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin->builtin_int))
-	type = builtin->builtin_int;
+      if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin_type_int))
+	type = builtin_type_int;
       break;
     case TYPE_CODE_FLT:
       if (!is_prototyped && coerce_float_to_double_p)
 	{
-	  if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin->builtin_double))
-	    type = builtin->builtin_double;
-	  else if (TYPE_LENGTH (type) > TYPE_LENGTH (builtin->builtin_double))
-	    type = builtin->builtin_long_double;
+	  if (TYPE_LENGTH (type) < TYPE_LENGTH (builtin_type_double))
+	    type = builtin_type_double;
+	  else if (TYPE_LENGTH (type) > TYPE_LENGTH (builtin_type_double))
+	    type = builtin_type_long_double;
 	}
       break;
     case TYPE_CODE_FUNC:
@@ -213,9 +143,9 @@ value_arg_coerce (struct gdbarch *gdbarch, struct value *arg,
     case TYPE_CODE_SET:
     case TYPE_CODE_RANGE:
     case TYPE_CODE_STRING:
+    case TYPE_CODE_BITSTRING:
     case TYPE_CODE_ERROR:
-    case TYPE_CODE_MEMBERPTR:
-    case TYPE_CODE_METHODPTR:
+    case TYPE_CODE_MEMBER:
     case TYPE_CODE_METHOD:
     case TYPE_CODE_COMPLEX:
     default:
@@ -225,219 +155,205 @@ value_arg_coerce (struct gdbarch *gdbarch, struct value *arg,
   return value_cast (type, arg);
 }
 
-/* Return the return type of a function with its first instruction exactly at
-   the PC address.  Return NULL otherwise.  */
-
-static struct type *
-find_function_return_type (CORE_ADDR pc)
-{
-  struct symbol *sym = find_pc_function (pc);
-
-  if (sym != NULL && BLOCK_START (SYMBOL_BLOCK_VALUE (sym)) == pc
-      && SYMBOL_TYPE (sym) != NULL)
-    return TYPE_TARGET_TYPE (SYMBOL_TYPE (sym));
-
-  return NULL;
-}
-
 /* Determine a function's address and its return type from its value.
    Calls error() if the function is not valid for calling.  */
 
 CORE_ADDR
 find_function_addr (struct value *function, struct type **retval_type)
 {
-  struct type *ftype = check_typedef (value_type (function));
-  struct gdbarch *gdbarch = get_type_arch (ftype);
-  struct type *value_type = NULL;
-  /* Initialize it just to avoid a GCC false warning.  */
-  CORE_ADDR funaddr = 0;
+  struct type *ftype = check_typedef (VALUE_TYPE (function));
+  enum type_code code = TYPE_CODE (ftype);
+  struct type *value_type;
+  CORE_ADDR funaddr;
 
   /* If it's a member function, just look at the function
      part of it.  */
 
   /* Determine address to call.  */
-  if (TYPE_CODE (ftype) == TYPE_CODE_FUNC
-      || TYPE_CODE (ftype) == TYPE_CODE_METHOD)
-    funaddr = value_address (function);
-  else if (TYPE_CODE (ftype) == TYPE_CODE_PTR)
+  if (code == TYPE_CODE_FUNC || code == TYPE_CODE_METHOD)
+    {
+      funaddr = VALUE_ADDRESS (function);
+      value_type = TYPE_TARGET_TYPE (ftype);
+    }
+  else if (code == TYPE_CODE_PTR)
     {
       funaddr = value_as_address (function);
       ftype = check_typedef (TYPE_TARGET_TYPE (ftype));
       if (TYPE_CODE (ftype) == TYPE_CODE_FUNC
 	  || TYPE_CODE (ftype) == TYPE_CODE_METHOD)
-	funaddr = gdbarch_convert_from_func_ptr_addr (gdbarch, funaddr,
-						      &current_target);
-    }
-  if (TYPE_CODE (ftype) == TYPE_CODE_FUNC
-      || TYPE_CODE (ftype) == TYPE_CODE_METHOD)
-    {
-      value_type = TYPE_TARGET_TYPE (ftype);
-
-      if (TYPE_GNU_IFUNC (ftype))
 	{
-	  funaddr = gnu_ifunc_resolve_addr (gdbarch, funaddr);
-
-	  /* Skip querying the function symbol if no RETVAL_TYPE has been
-	     asked for.  */
-	  if (retval_type)
-	    value_type = find_function_return_type (funaddr);
+	  funaddr = gdbarch_convert_from_func_ptr_addr (current_gdbarch,
+							funaddr,
+							&current_target);
+	  value_type = TYPE_TARGET_TYPE (ftype);
 	}
+      else
+	value_type = builtin_type_int;
     }
-  else if (TYPE_CODE (ftype) == TYPE_CODE_INT)
+  else if (code == TYPE_CODE_INT)
     {
       /* Handle the case of functions lacking debugging info.
-         Their values are characters since their addresses are char.  */
+         Their values are characters since their addresses are char */
       if (TYPE_LENGTH (ftype) == 1)
 	funaddr = value_as_address (value_addr (function));
       else
-	{
-	  /* Handle function descriptors lacking debug info.  */
-	  int found_descriptor = 0;
+	/* Handle integer used as address of a function.  */
+	funaddr = (CORE_ADDR) value_as_long (function);
 
-	  funaddr = 0;	/* pacify "gcc -Werror" */
-	  if (VALUE_LVAL (function) == lval_memory)
-	    {
-	      CORE_ADDR nfunaddr;
-
-	      funaddr = value_as_address (value_addr (function));
-	      nfunaddr = funaddr;
-	      funaddr = gdbarch_convert_from_func_ptr_addr (gdbarch, funaddr,
-							    &current_target);
-	      if (funaddr != nfunaddr)
-		found_descriptor = 1;
-	    }
-	  if (!found_descriptor)
-	    /* Handle integer used as address of a function.  */
-	    funaddr = (CORE_ADDR) value_as_long (function);
-	}
+      value_type = builtin_type_int;
     }
   else
-    error (_("Invalid data type for function to be called."));
+    error ("Invalid data type for function to be called.");
 
-  if (retval_type != NULL)
-    *retval_type = value_type;
-  return funaddr + gdbarch_deprecated_function_start_offset (gdbarch);
+  *retval_type = value_type;
+  return funaddr;
 }
 
-/* For CALL_DUMMY_ON_STACK, push a breakpoint sequence that the called
-   function returns to.  */
+/* Call breakpoint_auto_delete on the current contents of the bpstat
+   pointed to by arg (which is really a bpstat *).  */
+
+static void
+breakpoint_auto_delete_contents (void *arg)
+{
+  breakpoint_auto_delete (*(bpstat *) arg);
+}
+
+static CORE_ADDR
+legacy_push_dummy_code (struct gdbarch *gdbarch,
+			CORE_ADDR sp, CORE_ADDR funaddr, int using_gcc,
+			struct value **args, int nargs,
+			struct type *value_type,
+			CORE_ADDR *real_pc, CORE_ADDR *bp_addr)
+{
+  /* CALL_DUMMY is an array of words (DEPRECATED_REGISTER_SIZE), but
+     each word is in host byte order.  Before calling
+     DEPRECATED_FIX_CALL_DUMMY, we byteswap it and remove any extra
+     bytes which might exist because ULONGEST is bigger than
+     DEPRECATED_REGISTER_SIZE.  */
+  /* NOTE: This is pretty wierd, as the call dummy is actually a
+     sequence of instructions.  But CISC machines will have to pack
+     the instructions into DEPRECATED_REGISTER_SIZE units (and so will
+     RISC machines for which INSTRUCTION_SIZE is not
+     DEPRECATED_REGISTER_SIZE).  */
+  /* NOTE: This is pretty stupid.  CALL_DUMMY should be in strict
+     target byte order. */
+  CORE_ADDR start_sp;
+  ULONGEST *dummy = alloca (DEPRECATED_SIZEOF_CALL_DUMMY_WORDS);
+  int sizeof_dummy1 = (DEPRECATED_REGISTER_SIZE
+		       * DEPRECATED_SIZEOF_CALL_DUMMY_WORDS
+		       / sizeof (ULONGEST));
+  char *dummy1 = alloca (sizeof_dummy1);
+  memcpy (dummy, DEPRECATED_CALL_DUMMY_WORDS,
+	  DEPRECATED_SIZEOF_CALL_DUMMY_WORDS);
+  if (INNER_THAN (1, 2))
+    {
+      /* Stack grows down */
+      sp -= sizeof_dummy1;
+      start_sp = sp;
+    }
+  else
+    {
+      /* Stack grows up */
+      start_sp = sp;
+      sp += sizeof_dummy1;
+    }
+  /* NOTE: cagney/2002-09-10: Don't bother re-adjusting the stack
+     after allocating space for the call dummy.  A target can specify
+     a SIZEOF_DUMMY1 (via DEPRECATED_SIZEOF_CALL_DUMMY_WORDS) such
+     that all local alignment requirements are met.  */
+  /* Create a call sequence customized for this function and the
+     number of arguments for it.  */
+  {
+    int i;
+    for (i = 0; i < (int) (DEPRECATED_SIZEOF_CALL_DUMMY_WORDS / sizeof (dummy[0]));
+	 i++)
+      store_unsigned_integer (&dummy1[i * DEPRECATED_REGISTER_SIZE],
+			      DEPRECATED_REGISTER_SIZE,
+			      (ULONGEST) dummy[i]);
+  }
+  /* NOTE: cagney/2003-04-22: This computation of REAL_PC, BP_ADDR and
+     DUMMY_ADDR is pretty messed up.  It comes from constant tinkering
+     with the values.  Instead a DEPRECATED_FIX_CALL_DUMMY replacement
+     (PUSH_DUMMY_BREAKPOINT?) should just do everything.  */
+#ifdef GDB_TARGET_IS_HPPA
+  (*real_pc) = DEPRECATED_FIX_CALL_DUMMY (dummy1, start_sp, funaddr, nargs,
+					  args, value_type, using_gcc);
+#else
+  if (DEPRECATED_FIX_CALL_DUMMY_P ())
+    {
+      /* gdb_assert (CALL_DUMMY_LOCATION == ON_STACK) true?  */
+      DEPRECATED_FIX_CALL_DUMMY (dummy1, start_sp, funaddr, nargs, args,
+				 value_type, using_gcc);
+    }
+  (*real_pc) = start_sp;
+#endif
+  /* Yes, the offset is applied to the real_pc and not the dummy addr.
+     Ulgh!  Blame the HP/UX target.  */
+  (*bp_addr) = (*real_pc) + DEPRECATED_CALL_DUMMY_BREAKPOINT_OFFSET;
+  /* Yes, the offset is applied to the real_pc and not the
+     dummy_addr.  Ulgh!  Blame the HP/UX target.  */
+  (*real_pc) += DEPRECATED_CALL_DUMMY_START_OFFSET;
+  write_memory (start_sp, (char *) dummy1, sizeof_dummy1);
+  if (DEPRECATED_USE_GENERIC_DUMMY_FRAMES)
+    generic_save_call_dummy_addr (start_sp, start_sp + sizeof_dummy1);
+  return sp;
+}
+
+static CORE_ADDR
+generic_push_dummy_code (struct gdbarch *gdbarch,
+			 CORE_ADDR sp, CORE_ADDR funaddr, int using_gcc,
+			 struct value **args, int nargs,
+			 struct type *value_type,
+			 CORE_ADDR *real_pc, CORE_ADDR *bp_addr)
+{
+  /* Something here to findout the size of a breakpoint and then
+     allocate space for it on the stack.  */
+  int bplen;
+  /* This code assumes frame align.  */
+  gdb_assert (gdbarch_frame_align_p (gdbarch));
+  /* Force the stack's alignment.  The intent is to ensure that the SP
+     is aligned to at least a breakpoint instruction's boundary.  */
+  sp = gdbarch_frame_align (gdbarch, sp);
+  /* Allocate space for, and then position the breakpoint on the
+     stack.  */
+  if (gdbarch_inner_than (gdbarch, 1, 2))
+    {
+      CORE_ADDR bppc = sp;
+      gdbarch_breakpoint_from_pc (gdbarch, &bppc, &bplen);
+      sp = gdbarch_frame_align (gdbarch, sp - bplen);
+      (*bp_addr) = sp;
+      /* Should the breakpoint size/location be re-computed here?  */
+    }      
+  else
+    {
+      (*bp_addr) = sp;
+      gdbarch_breakpoint_from_pc (gdbarch, bp_addr, &bplen);
+      sp = gdbarch_frame_align (gdbarch, sp + bplen);
+    }
+  /* Inferior resumes at the function entry point.  */
+  (*real_pc) = funaddr;
+  return sp;
+}
+
+/* Provide backward compatibility.  Once DEPRECATED_FIX_CALL_DUMMY is
+   eliminated, this can be simplified.  */
 
 static CORE_ADDR
 push_dummy_code (struct gdbarch *gdbarch,
-		 CORE_ADDR sp, CORE_ADDR funaddr,
+		 CORE_ADDR sp, CORE_ADDR funaddr, int using_gcc,
 		 struct value **args, int nargs,
 		 struct type *value_type,
-		 CORE_ADDR *real_pc, CORE_ADDR *bp_addr,
-		 struct regcache *regcache)
+		 CORE_ADDR *real_pc, CORE_ADDR *bp_addr)
 {
-  gdb_assert (gdbarch_push_dummy_code_p (gdbarch));
-
-  return gdbarch_push_dummy_code (gdbarch, sp, funaddr,
-				  args, nargs, value_type, real_pc, bp_addr,
-				  regcache);
-}
-
-/* Fetch the name of the function at FUNADDR.
-   This is used in printing an error message for call_function_by_hand.
-   BUF is used to print FUNADDR in hex if the function name cannot be
-   determined.  It must be large enough to hold formatted result of
-   RAW_FUNCTION_ADDRESS_FORMAT.  */
-
-static const char *
-get_function_name (CORE_ADDR funaddr, char *buf, int buf_size)
-{
-  {
-    struct symbol *symbol = find_pc_function (funaddr);
-
-    if (symbol)
-      return SYMBOL_PRINT_NAME (symbol);
-  }
-
-  {
-    /* Try the minimal symbols.  */
-    struct minimal_symbol *msymbol = lookup_minimal_symbol_by_pc (funaddr);
-
-    if (msymbol)
-      return SYMBOL_PRINT_NAME (msymbol);
-  }
-
-  {
-    char *tmp = xstrprintf (_(RAW_FUNCTION_ADDRESS_FORMAT),
-                            hex_string (funaddr));
-
-    gdb_assert (strlen (tmp) + 1 <= buf_size);
-    strcpy (buf, tmp);
-    xfree (tmp);
-    return buf;
-  }
-}
-
-/* Subroutine of call_function_by_hand to simplify it.
-   Start up the inferior and wait for it to stop.
-   Return the exception if there's an error, or an exception with
-   reason >= 0 if there's no error.
-
-   This is done inside a TRY_CATCH so the caller needn't worry about
-   thrown errors.  The caller should rethrow if there's an error.  */
-
-static struct gdb_exception
-run_inferior_call (struct thread_info *call_thread, CORE_ADDR real_pc)
-{
-  volatile struct gdb_exception e;
-  int saved_in_infcall = call_thread->control.in_infcall;
-  ptid_t call_thread_ptid = call_thread->ptid;
-
-  call_thread->control.in_infcall = 1;
-
-  clear_proceed_status ();
-
-  disable_watchpoints_before_interactive_call_start ();
-
-  /* We want stop_registers, please...  */
-  call_thread->control.proceed_to_finish = 1;
-
-  TRY_CATCH (e, RETURN_MASK_ALL)
-    {
-      proceed (real_pc, GDB_SIGNAL_0, 0);
-
-      /* Inferior function calls are always synchronous, even if the
-	 target supports asynchronous execution.  Do here what
-	 `proceed' itself does in sync mode.  */
-      if (target_can_async_p () && is_running (inferior_ptid))
-	{
-	  wait_for_inferior ();
-	  normal_stop ();
-	}
-    }
-
-  /* At this point the current thread may have changed.  Refresh
-     CALL_THREAD as it could be invalid if its thread has exited.  */
-  call_thread = find_thread_ptid (call_thread_ptid);
-
-  enable_watchpoints_after_interactive_call_stop ();
-
-  /* Call breakpoint_auto_delete on the current contents of the bpstat
-     of inferior call thread.
-     If all error()s out of proceed ended up calling normal_stop
-     (and perhaps they should; it already does in the special case
-     of error out of resume()), then we wouldn't need this.  */
-  if (e.reason < 0)
-    {
-      if (call_thread != NULL)
-	breakpoint_auto_delete (call_thread->control.stop_bpstat);
-    }
-
-  if (call_thread != NULL)
-    call_thread->control.in_infcall = saved_in_infcall;
-
-  return e;
-}
-
-/* A cleanup function that calls delete_std_terminate_breakpoint.  */
-static void
-cleanup_delete_std_terminate_breakpoint (void *ignore)
-{
-  delete_std_terminate_breakpoint ();
+  if (gdbarch_push_dummy_code_p (gdbarch))
+    return gdbarch_push_dummy_code (gdbarch, sp, funaddr, using_gcc,
+				    args, nargs, value_type, real_pc, bp_addr);
+  else if (DEPRECATED_FIX_CALL_DUMMY_P ())
+    return legacy_push_dummy_code (gdbarch, sp, funaddr, using_gcc,
+				   args, nargs, value_type, real_pc, bp_addr);
+  else    
+    return generic_push_dummy_code (gdbarch, sp, funaddr, using_gcc,
+				    args, nargs, value_type, real_pc, bp_addr);
 }
 
 /* All this stuff with a dummy frame may seem unnecessarily complicated
@@ -456,81 +372,88 @@ cleanup_delete_std_terminate_breakpoint (void *ignore)
    May fail to return, if a breakpoint or signal is hit
    during the execution of the function.
 
-   ARGS is modified to contain coerced values.  */
+   ARGS is modified to contain coerced values. */
 
 struct value *
 call_function_by_hand (struct value *function, int nargs, struct value **args)
 {
   CORE_ADDR sp;
-  struct type *values_type, *target_values_type;
-  unsigned char struct_return = 0, hidden_first_param_p = 0;
+  CORE_ADDR dummy_addr;
+  struct type *value_type;
+  unsigned char struct_return;
   CORE_ADDR struct_addr = 0;
-  struct infcall_control_state *inf_status;
+  struct regcache *retbuf;
+  struct cleanup *retbuf_cleanup;
+  struct inferior_status *inf_status;
   struct cleanup *inf_status_cleanup;
-  struct infcall_suspend_state *caller_state;
   CORE_ADDR funaddr;
+  int using_gcc;		/* Set to version of gcc in use, or zero if not gcc */
   CORE_ADDR real_pc;
-  struct type *ftype = check_typedef (value_type (function));
+  struct type *ftype = check_typedef (SYMBOL_TYPE (function));
   CORE_ADDR bp_addr;
-  struct frame_id dummy_id;
-  struct cleanup *args_cleanup;
-  struct frame_info *frame;
-  struct gdbarch *gdbarch;
-  struct cleanup *terminate_bp_cleanup;
-  ptid_t call_thread_ptid;
-  struct gdb_exception e;
-  char name_buf[RAW_FUNCTION_ADDRESS_SIZE];
-
-  if (TYPE_CODE (ftype) == TYPE_CODE_PTR)
-    ftype = check_typedef (TYPE_TARGET_TYPE (ftype));
 
   if (!target_has_execution)
     noprocess ();
 
-  if (get_traceframe_number () >= 0)
-    error (_("May not call functions while looking at trace frames."));
+  /* Create a cleanup chain that contains the retbuf (buffer
+     containing the register values).  This chain is create BEFORE the
+     inf_status chain so that the inferior status can cleaned up
+     (restored or discarded) without having the retbuf freed.  */
+  retbuf = regcache_xmalloc (current_gdbarch);
+  retbuf_cleanup = make_cleanup_regcache_xfree (retbuf);
 
-  if (execution_direction == EXEC_REVERSE)
-    error (_("Cannot call functions in reverse mode."));
+  /* A cleanup for the inferior status.  Create this AFTER the retbuf
+     so that this can be discarded or applied without interfering with
+     the regbuf.  */
+  inf_status = save_inferior_status (1);
+  inf_status_cleanup = make_cleanup_restore_inferior_status (inf_status);
 
-  frame = get_current_frame ();
-  gdbarch = get_frame_arch (frame);
+  if (DEPRECATED_PUSH_DUMMY_FRAME_P ())
+    {
+      /* DEPRECATED_PUSH_DUMMY_FRAME is responsible for saving the
+	 inferior registers (and frame_pop() for restoring them).  (At
+	 least on most machines) they are saved on the stack in the
+	 inferior.  */
+      DEPRECATED_PUSH_DUMMY_FRAME;
+    }
+  else
+    {
+      /* FIXME: cagney/2003-02-26: Step zero of this little tinker is
+      to extract the generic dummy frame code from the architecture
+      vector.  Hence this direct call.
 
-  if (!gdbarch_push_dummy_call_p (gdbarch))
-    error (_("This target does not support function calls."));
+      A follow-on change is to modify this interface so that it takes
+      thread OR frame OR ptid as a parameter, and returns a dummy
+      frame handle.  The handle can then be used further down as a
+      parameter to generic_save_dummy_frame_tos().  Hmm, thinking
+      about it, since everything is ment to be using generic dummy
+      frames, why not even use some of the dummy frame code to here -
+      do a regcache dup and then pass the duped regcache, along with
+      all the other stuff, at one single point.
 
-  /* A cleanup for the inferior status.
-     This is only needed while we're preparing the inferior function call.  */
-  inf_status = save_infcall_control_state ();
-  inf_status_cleanup
-    = make_cleanup_restore_infcall_control_state (inf_status);
-
-  /* Save the caller's registers and other state associated with the
-     inferior itself so that they can be restored once the
-     callee returns.  To allow nested calls the registers are (further
-     down) pushed onto a dummy frame stack.  Include a cleanup (which
-     is tossed once the regcache has been pushed).  */
-  caller_state = save_infcall_suspend_state ();
-  make_cleanup_restore_infcall_suspend_state (caller_state);
+      In fact, you can even save the structure's return address in the
+      dummy frame and fix one of those nasty lost struct return edge
+      conditions.  */
+      generic_push_dummy_frame ();
+    }
 
   /* Ensure that the initial SP is correctly aligned.  */
   {
-    CORE_ADDR old_sp = get_frame_sp (frame);
-
-    if (gdbarch_frame_align_p (gdbarch))
+    CORE_ADDR old_sp = read_sp ();
+    if (gdbarch_frame_align_p (current_gdbarch))
       {
-	sp = gdbarch_frame_align (gdbarch, old_sp);
+	sp = gdbarch_frame_align (current_gdbarch, old_sp);
 	/* NOTE: cagney/2003-08-13: Skip the "red zone".  For some
 	   ABIs, a function can use memory beyond the inner most stack
 	   address.  AMD64 called that region the "red zone".  Skip at
 	   least the "red zone" size before allocating any space on
 	   the stack.  */
-	if (gdbarch_inner_than (gdbarch, 1, 2))
-	  sp -= gdbarch_frame_red_zone_size (gdbarch);
+	if (INNER_THAN (1, 2))
+	  sp -= gdbarch_frame_red_zone_size (current_gdbarch);
 	else
-	  sp += gdbarch_frame_red_zone_size (gdbarch);
+	  sp += gdbarch_frame_red_zone_size (current_gdbarch);
 	/* Still aligned?  */
-	gdb_assert (sp == gdbarch_frame_align (gdbarch, sp));
+	gdb_assert (sp == gdbarch_frame_align (current_gdbarch, sp));
 	/* NOTE: cagney/2002-09-18:
 	   
 	   On a RISC architecture, a void parameterless generic dummy
@@ -553,16 +476,15 @@ call_function_by_hand (struct value *function, int nargs, struct value **args)
 	   to pay :-).  */
 	if (sp == old_sp)
 	  {
-	    if (gdbarch_inner_than (gdbarch, 1, 2))
+	    if (INNER_THAN (1, 2))
 	      /* Stack grows down.  */
-	      sp = gdbarch_frame_align (gdbarch, old_sp - 1);
+	      sp = gdbarch_frame_align (current_gdbarch, old_sp - 1);
 	    else
 	      /* Stack grows up.  */
-	      sp = gdbarch_frame_align (gdbarch, old_sp + 1);
+	      sp = gdbarch_frame_align (current_gdbarch, old_sp + 1);
 	  }
-	/* SP may have underflown address zero here from OLD_SP.  Memory access
-	   functions will probably fail in such case but that is a target's
-	   problem.  */
+	gdb_assert ((INNER_THAN (1, 2) && sp <= old_sp)
+		    || (INNER_THAN (2, 1) && sp >= old_sp));
       }
     else
       /* FIXME: cagney/2002-09-18: Hey, you loose!
@@ -572,44 +494,27 @@ call_function_by_hand (struct value *function, int nargs, struct value **args)
 	 If the generic dummy frame ends up empty (because nothing is
 	 pushed) GDB won't be able to correctly perform back traces.
 	 If a target is having trouble with backtraces, first thing to
-	 do is add FRAME_ALIGN() to the architecture vector.  If that
-	 fails, try dummy_id().
+	 do is add FRAME_ALIGN() to the architecture vector. If that
+	 fails, try unwind_dummy_id().
 
          If the ABI specifies a "Red Zone" (see the doco) the code
          below will quietly trash it.  */
       sp = old_sp;
   }
 
-  funaddr = find_function_addr (function, &values_type);
-  if (!values_type)
-    values_type = builtin_type (gdbarch)->builtin_int;
+  funaddr = find_function_addr (function, &value_type);
+  CHECK_TYPEDEF (value_type);
 
-  CHECK_TYPEDEF (values_type);
+  {
+    struct block *b = block_for_pc (funaddr);
+    /* If compiled without -g, assume GCC 2.  */
+    using_gcc = (b == NULL ? 2 : BLOCK_GCC_COMPILED (b));
+  }
 
-  /* Are we returning a value using a structure return (passing a
-     hidden argument pointing to storage) or a normal value return?
-     There are two cases: language-mandated structure return and
-     target ABI structure return.  The variable STRUCT_RETURN only
-     describes the latter.  The language version is handled by passing
-     the return location as the first parameter to the function,
-     even preceding "this".  This is different from the target
-     ABI version, which is target-specific; for instance, on ia64
-     the first argument is passed in out0 but the hidden structure
-     return pointer would normally be passed in r8.  */
+  /* Are we returning a value using a structure return or a normal
+     value return? */
 
-  if (gdbarch_return_in_first_hidden_param_p (gdbarch, values_type))
-    {
-      hidden_first_param_p = 1;
-
-      /* Tell the target specific argument pushing routine not to
-	 expect a value.  */
-      target_values_type = builtin_type (gdbarch)->builtin_void;
-    }
-  else
-    {
-      struct_return = using_struct_return (gdbarch, function, values_type);
-      target_values_type = values_type;
-    }
+  struct_return = using_struct_return (value_type, using_gcc);
 
   /* Determine the location of the breakpoint (and possibly other
      stuff) that the called function will return to.  The SPARC, for a
@@ -617,64 +522,93 @@ call_function_by_hand (struct value *function, int nargs, struct value **args)
      not just the breakpoint but also an extra word containing the
      size (?) of the structure being passed.  */
 
-  switch (gdbarch_call_dummy_location (gdbarch))
+  /* The actual breakpoint (at BP_ADDR) is inserted separatly so there
+     is no need to write that out.  */
+
+  switch (CALL_DUMMY_LOCATION)
     {
     case ON_STACK:
-      {
-	const gdb_byte *bp_bytes;
-	CORE_ADDR bp_addr_as_address;
-	int bp_size;
-
-	/* Be careful BP_ADDR is in inferior PC encoding while
-	   BP_ADDR_AS_ADDRESS is a plain memory address.  */
-
-	sp = push_dummy_code (gdbarch, sp, funaddr, args, nargs,
-			      target_values_type, &real_pc, &bp_addr,
-			      get_current_regcache ());
-
-	/* Write a legitimate instruction at the point where the infcall
-	   breakpoint is going to be inserted.  While this instruction
-	   is never going to be executed, a user investigating the
-	   memory from GDB would see this instruction instead of random
-	   uninitialized bytes.  We chose the breakpoint instruction
-	   as it may look as the most logical one to the user and also
-	   valgrind 3.7.0 needs it for proper vgdb inferior calls.
-
-	   If software breakpoints are unsupported for this target we
-	   leave the user visible memory content uninitialized.  */
-
-	bp_addr_as_address = bp_addr;
-	bp_bytes = gdbarch_breakpoint_from_pc (gdbarch, &bp_addr_as_address,
-					       &bp_size);
-	if (bp_bytes != NULL)
-	  write_memory (bp_addr_as_address, bp_bytes, bp_size);
-      }
+      /* "dummy_addr" is here just to keep old targets happy.  New
+	 targets return that same information via "sp" and "bp_addr".  */
+      if (INNER_THAN (1, 2))
+	{
+	  sp = push_dummy_code (current_gdbarch, sp, funaddr,
+				using_gcc, args, nargs, value_type,
+				&real_pc, &bp_addr);
+	  dummy_addr = sp;
+	}
+      else
+	{
+	  dummy_addr = sp;
+	  sp = push_dummy_code (current_gdbarch, sp, funaddr,
+				using_gcc, args, nargs, value_type,
+				&real_pc, &bp_addr);
+	}
       break;
     case AT_ENTRY_POINT:
+      if (DEPRECATED_FIX_CALL_DUMMY_P ())
+	{
+	  /* Sigh.  Some targets use DEPRECATED_FIX_CALL_DUMMY to
+             shove extra stuff onto the stack or into registers.  That
+             code should be in PUSH_DUMMY_CALL, however, in the mean
+             time ...  */
+	  /* If the target is manipulating DUMMY1, it looses big time.  */
+	  void *dummy1 = NULL;
+	  DEPRECATED_FIX_CALL_DUMMY (dummy1, sp, funaddr, nargs, args,
+				     value_type, using_gcc);
+	}
+      real_pc = funaddr;
+      dummy_addr = entry_point_address ();
+      if (DEPRECATED_CALL_DUMMY_ADDRESS_P ())
+	/* Override it.  */
+	dummy_addr = DEPRECATED_CALL_DUMMY_ADDRESS ();
+      /* Make certain that the address points at real code, and not a
+         function descriptor.  */
+      dummy_addr = gdbarch_convert_from_func_ptr_addr (current_gdbarch,
+						       dummy_addr,
+						       &current_target);
+      /* A call dummy always consists of just a single breakpoint, so
+         it's address is the same as the address of the dummy.  */
+      bp_addr = dummy_addr;
+      break;
+    case AT_SYMBOL:
+      /* Some executables define a symbol __CALL_DUMMY_ADDRESS whose
+	 address is the location where the breakpoint should be
+	 placed.  Once all targets are using the overhauled frame code
+	 this can be deleted - ON_STACK is a better option.  */
       {
-	CORE_ADDR dummy_addr;
+	struct minimal_symbol *sym;
 
+	sym = lookup_minimal_symbol ("__CALL_DUMMY_ADDRESS", NULL, NULL);
 	real_pc = funaddr;
-	dummy_addr = entry_point_address ();
-
-	/* A call dummy always consists of just a single breakpoint, so
-	   its address is the same as the address of the dummy.
-
-	   The actual breakpoint is inserted separatly so there is no need to
-	   write that out.  */
+	if (sym)
+	  dummy_addr = SYMBOL_VALUE_ADDRESS (sym);
+	else
+	  dummy_addr = entry_point_address ();
+	/* Make certain that the address points at real code, and not
+	   a function descriptor.  */
+	dummy_addr = gdbarch_convert_from_func_ptr_addr (current_gdbarch,
+							 dummy_addr,
+							 &current_target);
+	/* A call dummy always consists of just a single breakpoint,
+	   so it's address is the same as the address of the dummy.  */
 	bp_addr = dummy_addr;
 	break;
       }
     default:
-      internal_error (__FILE__, __LINE__, _("bad switch"));
+      internal_error (__FILE__, __LINE__, "bad switch");
     }
 
+  if (DEPRECATED_USE_GENERIC_DUMMY_FRAMES)
+    /* Save where the breakpoint is going to be inserted so that the
+       dummy-frame code is later able to re-identify it.  */
+    generic_save_call_dummy_addr (bp_addr, bp_addr + 1);
+
   if (nargs < TYPE_NFIELDS (ftype))
-    error (_("Too few arguments in function call."));
+    error ("too few arguments in function call");
 
   {
     int i;
-
     for (i = nargs - 1; i >= 0; i--)
       {
 	int prototyped;
@@ -693,320 +627,425 @@ call_function_by_hand (struct value *function, int nargs, struct value **args)
 	  param_type = TYPE_FIELD_TYPE (ftype, i);
 	else
 	  param_type = NULL;
+	
+	args[i] = value_arg_coerce (args[i], param_type, prototyped);
 
-	args[i] = value_arg_coerce (gdbarch, args[i],
-				    param_type, prototyped, &sp);
+	/* elz: this code is to handle the case in which the function
+	   to be called has a pointer to function as parameter and the
+	   corresponding actual argument is the address of a function
+	   and not a pointer to function variable.  In aCC compiled
+	   code, the calls through pointers to functions (in the body
+	   of the function called by hand) are made via
+	   $$dyncall_external which requires some registers setting,
+	   this is taken care of if we call via a function pointer
+	   variable, but not via a function address.  In cc this is
+	   not a problem. */
 
-	if (param_type != NULL && language_pass_by_reference (param_type))
-	  args[i] = value_addr (args[i]);
+	if (using_gcc == 0)
+	  {
+	    if (param_type != NULL && TYPE_CODE (ftype) != TYPE_CODE_METHOD)
+	      {
+		/* if this parameter is a pointer to function.  */
+		if (TYPE_CODE (param_type) == TYPE_CODE_PTR)
+		  if (TYPE_CODE (TYPE_TARGET_TYPE (param_type)) == TYPE_CODE_FUNC)
+		    /* elz: FIXME here should go the test about the
+		       compiler used to compile the target. We want to
+		       issue the error message only if the compiler
+		       used was HP's aCC.  If we used HP's cc, then
+		       there is no problem and no need to return at
+		       this point.  */
+		    /* Go see if the actual parameter is a variable of
+		       type pointer to function or just a function.  */
+		    if (args[i]->lval == not_lval)
+		      {
+			char *arg_name;
+			if (find_pc_partial_function ((CORE_ADDR) args[i]->aligner.contents[0], &arg_name, NULL, NULL))
+			  error ("\
+You cannot use function <%s> as argument. \n\
+You must use a pointer to function type variable. Command ignored.", arg_name);
+		      }
+	      }
+	  }
       }
   }
 
+  if (DEPRECATED_REG_STRUCT_HAS_ADDR_P ())
+    {
+      int i;
+      /* This is a machine like the sparc, where we may need to pass a
+	 pointer to the structure, not the structure itself.  */
+      for (i = nargs - 1; i >= 0; i--)
+	{
+	  struct type *arg_type = check_typedef (VALUE_TYPE (args[i]));
+	  if ((TYPE_CODE (arg_type) == TYPE_CODE_STRUCT
+	       || TYPE_CODE (arg_type) == TYPE_CODE_UNION
+	       || TYPE_CODE (arg_type) == TYPE_CODE_ARRAY
+	       || TYPE_CODE (arg_type) == TYPE_CODE_STRING
+	       || TYPE_CODE (arg_type) == TYPE_CODE_BITSTRING
+	       || TYPE_CODE (arg_type) == TYPE_CODE_SET
+	       || (TYPE_CODE (arg_type) == TYPE_CODE_FLT
+		   && TYPE_LENGTH (arg_type) > 8)
+	       )
+	      && DEPRECATED_REG_STRUCT_HAS_ADDR (using_gcc, arg_type))
+	    {
+	      CORE_ADDR addr;
+	      int len;		/*  = TYPE_LENGTH (arg_type); */
+	      int aligned_len;
+	      arg_type = check_typedef (VALUE_ENCLOSING_TYPE (args[i]));
+	      len = TYPE_LENGTH (arg_type);
+
+	      if (DEPRECATED_STACK_ALIGN_P ())
+		/* MVS 11/22/96: I think at least some of this
+		   stack_align code is really broken.  Better to let
+		   PUSH_ARGUMENTS adjust the stack in a target-defined
+		   manner.  */
+		aligned_len = DEPRECATED_STACK_ALIGN (len);
+	      else
+		aligned_len = len;
+	      if (INNER_THAN (1, 2))
+		{
+		  /* stack grows downward */
+		  sp -= aligned_len;
+		  /* ... so the address of the thing we push is the
+		     stack pointer after we push it.  */
+		  addr = sp;
+		}
+	      else
+		{
+		  /* The stack grows up, so the address of the thing
+		     we push is the stack pointer before we push it.  */
+		  addr = sp;
+		  sp += aligned_len;
+		}
+	      /* Push the structure.  */
+	      write_memory (addr, VALUE_CONTENTS_ALL (args[i]), len);
+	      /* The value we're going to pass is the address of the
+		 thing we just pushed.  */
+	      /*args[i] = value_from_longest (lookup_pointer_type (value_type),
+		(LONGEST) addr); */
+	      args[i] = value_from_pointer (lookup_pointer_type (arg_type),
+					    addr);
+	    }
+	}
+    }
+
+
   /* Reserve space for the return structure to be written on the
      stack, if necessary.  Make certain that the value is correctly
-     aligned.  */
+     aligned. */
 
-  if (struct_return || hidden_first_param_p)
+  if (struct_return)
     {
-      if (gdbarch_inner_than (gdbarch, 1, 2))
+      int len = TYPE_LENGTH (value_type);
+      if (DEPRECATED_STACK_ALIGN_P ())
+	/* NOTE: cagney/2003-03-22: Should rely on frame align, rather
+           than stack align to force the alignment of the stack.  */
+	len = DEPRECATED_STACK_ALIGN (len);
+      if (INNER_THAN (1, 2))
 	{
 	  /* Stack grows downward.  Align STRUCT_ADDR and SP after
              making space for the return value.  */
-	  sp -= TYPE_LENGTH (values_type);
-	  if (gdbarch_frame_align_p (gdbarch))
-	    sp = gdbarch_frame_align (gdbarch, sp);
+	  sp -= len;
+	  if (gdbarch_frame_align_p (current_gdbarch))
+	    sp = gdbarch_frame_align (current_gdbarch, sp);
 	  struct_addr = sp;
 	}
       else
 	{
 	  /* Stack grows upward.  Align the frame, allocate space, and
-             then again, re-align the frame???  */
-	  if (gdbarch_frame_align_p (gdbarch))
-	    sp = gdbarch_frame_align (gdbarch, sp);
+             then again, re-align the frame??? */
+	  if (gdbarch_frame_align_p (current_gdbarch))
+	    sp = gdbarch_frame_align (current_gdbarch, sp);
 	  struct_addr = sp;
-	  sp += TYPE_LENGTH (values_type);
-	  if (gdbarch_frame_align_p (gdbarch))
-	    sp = gdbarch_frame_align (gdbarch, sp);
+	  sp += len;
+	  if (gdbarch_frame_align_p (current_gdbarch))
+	    sp = gdbarch_frame_align (current_gdbarch, sp);
 	}
     }
 
-  if (hidden_first_param_p)
+  /* elz: on HPPA no need for this extra alignment, maybe it is needed
+     on other architectures. This is because all the alignment is
+     taken care of in the above code (ifdef DEPRECATED_REG_STRUCT_HAS_ADDR)
+     and in hppa_push_arguments */
+  /* NOTE: cagney/2003-03-24: The below code is very broken.  Given an
+     odd sized parameter the below will mis-align the stack.  As was
+     suggested back in '96, better to let PUSH_ARGUMENTS handle it.  */
+  if (DEPRECATED_EXTRA_STACK_ALIGNMENT_NEEDED)
     {
-      struct value **new_args;
-
-      /* Add the new argument to the front of the argument list.  */
-      new_args = xmalloc (sizeof (struct value *) * (nargs + 1));
-      new_args[0] = value_from_pointer (lookup_pointer_type (values_type),
-					struct_addr);
-      memcpy (&new_args[1], &args[0], sizeof (struct value *) * nargs);
-      args = new_args;
-      nargs++;
-      args_cleanup = make_cleanup (xfree, args);
+      /* MVS 11/22/96: I think at least some of this stack_align code
+	 is really broken.  Better to let push_dummy_call() adjust the
+	 stack in a target-defined manner.  */
+      if (DEPRECATED_STACK_ALIGN_P () && INNER_THAN (1, 2))
+	{
+	  /* If stack grows down, we must leave a hole at the top. */
+	  int len = 0;
+	  int i;
+	  for (i = nargs - 1; i >= 0; i--)
+	    len += TYPE_LENGTH (VALUE_ENCLOSING_TYPE (args[i]));
+	  if (DEPRECATED_CALL_DUMMY_STACK_ADJUST_P ())
+	    len += DEPRECATED_CALL_DUMMY_STACK_ADJUST;
+	  sp -= DEPRECATED_STACK_ALIGN (len) - len;
+	}
     }
-  else
-    args_cleanup = make_cleanup (null_cleanup, NULL);
 
   /* Create the dummy stack frame.  Pass in the call dummy address as,
      presumably, the ABI code knows where, in the call dummy, the
      return address should be pointed.  */
-  sp = gdbarch_push_dummy_call (gdbarch, function, get_current_regcache (),
-				bp_addr, nargs, args,
-				sp, struct_return, struct_addr);
+  if (gdbarch_push_dummy_call_p (current_gdbarch))
+    /* When there is no push_dummy_call method, should this code
+       simply error out.  That would the implementation of this method
+       for all ABIs (which is probably a good thing).  */
+    sp = gdbarch_push_dummy_call (current_gdbarch, funaddr, current_regcache,
+				  bp_addr, nargs, args, sp, struct_return,
+				  struct_addr);
+  else  if (DEPRECATED_PUSH_ARGUMENTS_P ())
+    /* Keep old targets working.  */
+    sp = DEPRECATED_PUSH_ARGUMENTS (nargs, args, sp, struct_return,
+				    struct_addr);
+  else
+    sp = legacy_push_arguments (nargs, args, sp, struct_return, struct_addr);
 
-  do_cleanups (args_cleanup);
+  if (DEPRECATED_PUSH_RETURN_ADDRESS_P ())
+    /* for targets that use no CALL_DUMMY */
+    /* There are a number of targets now which actually don't write
+       any CALL_DUMMY instructions into the target, but instead just
+       save the machine state, push the arguments, and jump directly
+       to the callee function.  Since this doesn't actually involve
+       executing a JSR/BSR instruction, the return address must be set
+       up by hand, either by pushing onto the stack or copying into a
+       return-address register as appropriate.  Formerly this has been
+       done in PUSH_ARGUMENTS, but that's overloading its
+       functionality a bit, so I'm making it explicit to do it here.  */
+    /* NOTE: cagney/2003-04-22: The first parameter ("real_pc") has
+       been replaced with zero, it turns out that no implementation
+       used that parameter.  This occured because the value being
+       supplied - the address of the called function's entry point
+       instead of the address of the breakpoint that the called
+       function should return to - wasn't useful.  */
+    sp = DEPRECATED_PUSH_RETURN_ADDRESS (0, sp);
 
-  /* Set up a frame ID for the dummy frame so we can pass it to
-     set_momentary_breakpoint.  We need to give the breakpoint a frame
-     ID so that the breakpoint code can correctly re-identify the
-     dummy breakpoint.  */
-  /* Sanity.  The exact same SP value is returned by PUSH_DUMMY_CALL,
-     saved as the dummy-frame TOS, and used by dummy_id to form
-     the frame ID's stack address.  */
-  dummy_id = frame_id_build (sp, bp_addr);
+  /* NOTE: cagney/2003-03-23: Diable this code when there is a
+     push_dummy_call() method.  Since that method will have already
+     handled any alignment issues, the code below is entirely
+     redundant.  */
+  if (!gdbarch_push_dummy_call_p (current_gdbarch)
+      && DEPRECATED_STACK_ALIGN_P () && !INNER_THAN (1, 2))
+    {
+      /* If stack grows up, we must leave a hole at the bottom, note
+         that sp already has been advanced for the arguments!  */
+      if (DEPRECATED_CALL_DUMMY_STACK_ADJUST_P ())
+	sp += DEPRECATED_CALL_DUMMY_STACK_ADJUST;
+      sp = DEPRECATED_STACK_ALIGN (sp);
+    }
 
+/* XXX This seems wrong.  For stacks that grow down we shouldn't do
+   anything here!  */
+  /* MVS 11/22/96: I think at least some of this stack_align code is
+     really broken.  Better to let PUSH_ARGUMENTS adjust the stack in
+     a target-defined manner.  */
+  if (DEPRECATED_CALL_DUMMY_STACK_ADJUST_P ())
+    if (INNER_THAN (1, 2))
+      {
+	/* stack grows downward */
+	sp -= DEPRECATED_CALL_DUMMY_STACK_ADJUST;
+      }
+
+  /* Store the address at which the structure is supposed to be
+     written.  */
+  /* NOTE: 2003-03-24: Since PUSH_ARGUMENTS can (and typically does)
+     store the struct return address, this call is entirely redundant.  */
+  if (struct_return && DEPRECATED_STORE_STRUCT_RETURN_P ())
+    DEPRECATED_STORE_STRUCT_RETURN (struct_addr, sp);
+
+  /* Write the stack pointer.  This is here because the statements
+     above might fool with it.  On SPARC, this write also stores the
+     register window into the right place in the new stack frame,
+     which otherwise wouldn't happen (see store_inferior_registers in
+     sparc-nat.c).  */
+  /* NOTE: cagney/2003-03-23: Since the architecture method
+     push_dummy_call() should have already stored the stack pointer
+     (as part of creating the fake call frame), and none of the code
+     following that call adjusts the stack-pointer value, the below
+     call is entirely redundant.  */
+  if (DEPRECATED_DUMMY_WRITE_SP_P ())
+    DEPRECATED_DUMMY_WRITE_SP (sp);
+
+  if (gdbarch_unwind_dummy_id_p (current_gdbarch))
+    {
+      /* Sanity.  The exact same SP value is returned by
+	 PUSH_DUMMY_CALL, saved as the dummy-frame TOS, and used by
+	 unwind_dummy_id to form the frame ID's stack address.  */
+      gdb_assert (DEPRECATED_USE_GENERIC_DUMMY_FRAMES);
+      generic_save_dummy_frame_tos (sp);
+    }
+  else if (DEPRECATED_SAVE_DUMMY_FRAME_TOS_P ())
+    DEPRECATED_SAVE_DUMMY_FRAME_TOS (sp);
+
+  /* Now proceed, having reached the desired place.  */
+  clear_proceed_status ();
+    
   /* Create a momentary breakpoint at the return address of the
      inferior.  That way it breaks when it returns.  */
 
   {
-    struct breakpoint *bpt, *longjmp_b;
+    struct breakpoint *bpt;
     struct symtab_and_line sal;
-
+    struct frame_id frame;
     init_sal (&sal);		/* initialize to zeroes */
-    sal.pspace = current_program_space;
     sal.pc = bp_addr;
     sal.section = find_pc_overlay (sal.pc);
-    /* Sanity.  The exact same SP value is returned by
-       PUSH_DUMMY_CALL, saved as the dummy-frame TOS, and used by
-       dummy_id to form the frame ID's stack address.  */
-    bpt = set_momentary_breakpoint (gdbarch, sal, dummy_id, bp_call_dummy);
-
-    /* set_momentary_breakpoint invalidates FRAME.  */
-    frame = NULL;
-
-    bpt->disposition = disp_del;
-    gdb_assert (bpt->related_breakpoint == bpt);
-
-    longjmp_b = set_longjmp_breakpoint_for_call_dummy ();
-    if (longjmp_b)
+    /* Set up a frame ID for the dummy frame so we can pass it to
+       set_momentary_breakpoint.  We need to give the breakpoint a
+       frame ID so that the breakpoint code can correctly re-identify
+       the dummy breakpoint.  */
+    if (gdbarch_unwind_dummy_id_p (current_gdbarch))
       {
-	/* Link BPT into the chain of LONGJMP_B.  */
-	bpt->related_breakpoint = longjmp_b;
-	while (longjmp_b->related_breakpoint != bpt->related_breakpoint)
-	  longjmp_b = longjmp_b->related_breakpoint;
-	longjmp_b->related_breakpoint = bpt;
+	/* Sanity.  The exact same SP value is returned by
+	 PUSH_DUMMY_CALL, saved as the dummy-frame TOS, and used by
+	 unwind_dummy_id to form the frame ID's stack address.  */
+	gdb_assert (DEPRECATED_USE_GENERIC_DUMMY_FRAMES);
+	frame = frame_id_build (sp, sal.pc);
       }
+    else
+      {
+	/* The assumption here is that push_dummy_call() returned the
+	   stack part of the frame ID.  Unfortunately, many older
+	   architectures were, via a convoluted mess, relying on the
+	   poorly defined and greatly overloaded
+	   DEPRECATED_TARGET_READ_FP or DEPRECATED_FP_REGNUM to supply
+	   the value.  */
+	if (DEPRECATED_TARGET_READ_FP_P ())
+	  frame = frame_id_build (DEPRECATED_TARGET_READ_FP (), sal.pc);
+	else if (DEPRECATED_FP_REGNUM >= 0)
+	  frame = frame_id_build (read_register (DEPRECATED_FP_REGNUM), sal.pc);
+	else
+	  frame = frame_id_build (sp, sal.pc);
+      }
+    bpt = set_momentary_breakpoint (sal, frame, bp_call_dummy);
+    bpt->disposition = disp_del;
   }
 
-  /* Create a breakpoint in std::terminate.
-     If a C++ exception is raised in the dummy-frame, and the
-     exception handler is (normally, and expected to be) out-of-frame,
-     the default C++ handler will (wrongly) be called in an inferior
-     function call.  This is wrong, as an exception can be  normally
-     and legally handled out-of-frame.  The confines of the dummy frame
-     prevent the unwinder from finding the correct handler (or any
-     handler, unless it is in-frame).  The default handler calls
-     std::terminate.  This will kill the inferior.  Assert that
-     terminate should never be called in an inferior function
-     call.  Place a momentary breakpoint in the std::terminate function
-     and if triggered in the call, rewind.  */
-  if (unwind_on_terminating_exception_p)
-    set_std_terminate_breakpoint ();
+  /* Execute a "stack dummy", a piece of code stored in the stack by
+     the debugger to be executed in the inferior.
 
-  /* Everything's ready, push all the info needed to restore the
-     caller (and identify the dummy-frame) onto the dummy-frame
-     stack.  */
-  dummy_frame_push (caller_state, &dummy_id);
+     The dummy's frame is automatically popped whenever that break is
+     hit.  If that is the first time the program stops,
+     call_function_by_hand returns to its caller with that frame
+     already gone and sets RC to 0.
+   
+     Otherwise, set RC to a non-zero value.  If the called function
+     receives a random signal, we do not allow the user to continue
+     executing it as this may not work.  The dummy frame is poped and
+     we return 1.  If we hit a breakpoint, we leave the frame in place
+     and return 2 (the frame will eventually be popped when we do hit
+     the dummy end breakpoint).  */
 
-  /* Discard both inf_status and caller_state cleanups.
-     From this point on we explicitly restore the associated state
-     or discard it.  */
-  discard_cleanups (inf_status_cleanup);
-
-  /* Register a clean-up for unwind_on_terminating_exception_breakpoint.  */
-  terminate_bp_cleanup = make_cleanup (cleanup_delete_std_terminate_breakpoint,
-				       NULL);
-
-  /* - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP - SNIP -
-     If you're looking to implement asynchronous dummy-frames, then
-     just below is the place to chop this function in two..  */
-
-  /* TP is invalid after run_inferior_call returns, so enclose this
-     in a block so that it's only in scope during the time it's valid.  */
   {
-    struct thread_info *tp = inferior_thread ();
+    struct cleanup *old_cleanups = make_cleanup (null_cleanup, 0);
+    int saved_async = 0;
 
-    /* Save this thread's ptid, we need it later but the thread
-       may have exited.  */
-    call_thread_ptid = tp->ptid;
+    /* If all error()s out of proceed ended up calling normal_stop
+       (and perhaps they should; it already does in the special case
+       of error out of resume()), then we wouldn't need this.  */
+    make_cleanup (breakpoint_auto_delete_contents, &stop_bpstat);
 
-    /* Run the inferior until it stops.  */
+    disable_watchpoints_before_interactive_call_start ();
+    proceed_to_finish = 1;	/* We want stop_registers, please... */
 
-    e = run_inferior_call (tp, real_pc);
+    if (target_can_async_p ())
+      saved_async = target_async_mask (0);
+    
+    proceed (real_pc, TARGET_SIGNAL_0, 0);
+    
+    if (saved_async)
+      target_async_mask (saved_async);
+    
+    enable_watchpoints_after_interactive_call_stop ();
+      
+    discard_cleanups (old_cleanups);
   }
 
-  /* Rethrow an error if we got one trying to run the inferior.  */
-
-  if (e.reason < 0)
+  if (stopped_by_random_signal || !stop_stack_dummy)
     {
-      const char *name = get_function_name (funaddr,
-                                            name_buf, sizeof (name_buf));
-
-      discard_infcall_control_state (inf_status);
-
-      /* We could discard the dummy frame here if the program exited,
-         but it will get garbage collected the next time the program is
-         run anyway.  */
-
-      switch (e.reason)
-	{
-	case RETURN_ERROR:
-	  throw_error (e.error, _("%s\n\
-An error occurred while in a function called from GDB.\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned.\n\
-When the function is done executing, GDB will silently stop."),
-		       e.message, name);
-	case RETURN_QUIT:
-	default:
-	  throw_exception (e);
-	}
-    }
-
-  /* If the program has exited, or we stopped at a different thread,
-     exit and inform the user.  */
-
-  if (! target_has_execution)
-    {
-      const char *name = get_function_name (funaddr,
-					    name_buf, sizeof (name_buf));
-
-      /* If we try to restore the inferior status,
-	 we'll crash as the inferior is no longer running.  */
-      discard_infcall_control_state (inf_status);
-
-      /* We could discard the dummy frame here given that the program exited,
-         but it will get garbage collected the next time the program is
-         run anyway.  */
-
-      error (_("The program being debugged exited while in a function "
-	       "called from GDB.\n"
-	       "Evaluation of the expression containing the function\n"
-	       "(%s) will be abandoned."),
-	     name);
-    }
-
-  if (! ptid_equal (call_thread_ptid, inferior_ptid))
-    {
-      const char *name = get_function_name (funaddr,
-					    name_buf, sizeof (name_buf));
-
-      /* We've switched threads.  This can happen if another thread gets a
-	 signal or breakpoint while our thread was running.
-	 There's no point in restoring the inferior status,
-	 we're in a different thread.  */
-      discard_infcall_control_state (inf_status);
-      /* Keep the dummy frame record, if the user switches back to the
-	 thread with the hand-call, we'll need it.  */
-      if (stopped_by_random_signal)
-	error (_("\
-The program received a signal in another thread while\n\
-making a function call from GDB.\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned.\n\
-When the function is done executing, GDB will silently stop."),
-	       name);
-      else
-	error (_("\
-The program stopped in another thread while making a function call from GDB.\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned.\n\
-When the function is done executing, GDB will silently stop."),
-	       name);
-    }
-
-  if (stopped_by_random_signal || stop_stack_dummy != STOP_STACK_DUMMY)
-    {
-      const char *name = get_function_name (funaddr,
-					    name_buf, sizeof (name_buf));
-
+      /* Find the name of the function we're about to complain about.  */
+      const char *name = NULL;
+      {
+	struct symbol *symbol = find_pc_function (funaddr);
+	if (symbol)
+	  name = SYMBOL_PRINT_NAME (symbol);
+	else
+	  {
+	    /* Try the minimal symbols.  */
+	    struct minimal_symbol *msymbol = lookup_minimal_symbol_by_pc (funaddr);
+	    if (msymbol)
+	      name = SYMBOL_PRINT_NAME (msymbol);
+	  }
+	if (name == NULL)
+	  {
+	    /* Can't use a cleanup here.  It is discarded, instead use
+               an alloca.  */
+	    char *tmp = xstrprintf ("at %s", local_hex_string (funaddr));
+	    char *a = alloca (strlen (tmp) + 1);
+	    strcpy (a, tmp);
+	    xfree (tmp);
+	    name = a;
+	  }
+      }
       if (stopped_by_random_signal)
 	{
 	  /* We stopped inside the FUNCTION because of a random
 	     signal.  Further execution of the FUNCTION is not
-	     allowed.  */
+	     allowed. */
 
 	  if (unwind_on_signal_p)
 	    {
-	      /* The user wants the context restored.  */
+	      /* The user wants the context restored. */
 
 	      /* We must get back to the frame we were before the
-		 dummy call.  */
-	      dummy_frame_pop (dummy_id);
-
-	      /* We also need to restore inferior status to that before the
-		 dummy call.  */
-	      restore_infcall_control_state (inf_status);
+		 dummy call. */
+	      frame_pop (get_current_frame ());
 
 	      /* FIXME: Insert a bunch of wrap_here; name can be very
 		 long if it's a C++ name with arguments and stuff.  */
-	      error (_("\
+	      error ("\
 The program being debugged was signaled while in a function called from GDB.\n\
 GDB has restored the context to what it was before the call.\n\
-To change this behavior use \"set unwindonsignal off\".\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned."),
+To change this behavior use \"set unwindonsignal off\"\n\
+Evaluation of the expression containing the function (%s) will be abandoned.",
 		     name);
 	    }
 	  else
 	    {
 	      /* The user wants to stay in the frame where we stopped
-		 (default).
-		 Discard inferior status, we're not at the same point
-		 we started at.  */
-	      discard_infcall_control_state (inf_status);
-
+                 (default).*/
+	      /* If we restored the inferior status (via the cleanup),
+		 we would print a spurious error message (Unable to
+		 restore previously selected frame), would write the
+		 registers from the inf_status (which is wrong), and
+		 would do other wrong things.  */
+	      discard_cleanups (inf_status_cleanup);
+	      discard_inferior_status (inf_status);
 	      /* FIXME: Insert a bunch of wrap_here; name can be very
 		 long if it's a C++ name with arguments and stuff.  */
-	      error (_("\
+	      error ("\
 The program being debugged was signaled while in a function called from GDB.\n\
 GDB remains in the frame where the signal was received.\n\
-To change this behavior use \"set unwindonsignal on\".\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned.\n\
-When the function is done executing, GDB will silently stop."),
+To change this behavior use \"set unwindonsignal on\"\n\
+Evaluation of the expression containing the function (%s) will be abandoned.",
 		     name);
 	    }
 	}
 
-      if (stop_stack_dummy == STOP_STD_TERMINATE)
+      if (!stop_stack_dummy)
 	{
-	  /* We must get back to the frame we were before the dummy
-	     call.  */
-	  dummy_frame_pop (dummy_id);
-
-	  /* We also need to restore inferior status to that before
-	     the dummy call.  */
-	  restore_infcall_control_state (inf_status);
-
-	  error (_("\
-The program being debugged entered a std::terminate call, most likely\n\
-caused by an unhandled C++ exception.  GDB blocked this call in order\n\
-to prevent the program from being terminated, and has restored the\n\
-context to its original state before the call.\n\
-To change this behaviour use \"set unwind-on-terminating-exception off\".\n\
-Evaluation of the expression containing the function (%s)\n\
-will be abandoned."),
-		 name);
-	}
-      else if (stop_stack_dummy == STOP_NONE)
-	{
-
-	  /* We hit a breakpoint inside the FUNCTION.
-	     Keep the dummy frame, the user may want to examine its state.
-	     Discard inferior status, we're not at the same point
-	     we started at.  */
-	  discard_infcall_control_state (inf_status);
-
+	  /* We hit a breakpoint inside the FUNCTION. */
+	  /* If we restored the inferior status (via the cleanup), we
+	     would print a spurious error message (Unable to restore
+	     previously selected frame), would write the registers
+	     from the inf_status (which is wrong), and would do other
+	     wrong things.  */
+	  discard_cleanups (inf_status_cleanup);
+	  discard_inferior_status (inf_status);
 	  /* The following error message used to say "The expression
 	     which contained the function call has been discarded."
 	     It is a hard concept to explain in a few words.  Ideally,
@@ -1015,117 +1054,87 @@ will be abandoned."),
 	     someday this will be implemented (it would not be easy).  */
 	  /* FIXME: Insert a bunch of wrap_here; name can be very long if it's
 	     a C++ name with arguments and stuff.  */
-	  error (_("\
+	  error ("\
 The program being debugged stopped while in a function called from GDB.\n\
-Evaluation of the expression containing the function\n\
-(%s) will be abandoned.\n\
-When the function is done executing, GDB will silently stop."),
-		 name);
+When the function (%s) is done executing, GDB will silently\n\
+stop (instead of continuing to evaluate the expression containing\n\
+the function call).", name);
 	}
 
       /* The above code errors out, so ...  */
-      internal_error (__FILE__, __LINE__, _("... should not be here"));
+      internal_error (__FILE__, __LINE__, "... should not be here");
     }
 
-  do_cleanups (terminate_bp_cleanup);
+  /* If we get here the called FUNCTION run to completion. */
 
-  /* If we get here the called FUNCTION ran to completion,
-     and the dummy frame has already been popped.  */
+  /* On normal return, the stack dummy has been popped already.  */
+  regcache_cpy_no_passthrough (retbuf, stop_registers);
 
-  {
-    struct address_space *aspace = get_regcache_aspace (stop_registers);
-    struct regcache *retbuf = regcache_xmalloc (gdbarch, aspace);
-    struct cleanup *retbuf_cleanup = make_cleanup_regcache_xfree (retbuf);
-    struct value *retval = NULL;
+  /* Restore the inferior status, via its cleanup.  At this stage,
+     leave the RETBUF alone.  */
+  do_cleanups (inf_status_cleanup);
 
-    regcache_cpy_no_passthrough (retbuf, stop_registers);
-
-    /* Inferior call is successful.  Restore the inferior status.
-       At this stage, leave the RETBUF alone.  */
-    restore_infcall_control_state (inf_status);
-
-    /* Figure out the value returned by the function.  */
-    retval = allocate_value (values_type);
-
-    if (hidden_first_param_p)
-      read_value_memory (retval, 0, 1, struct_addr,
-			 value_contents_raw (retval),
-			 TYPE_LENGTH (values_type));
-    else if (TYPE_CODE (target_values_type) != TYPE_CODE_VOID)
-      {
-	/* If the function returns void, don't bother fetching the
-	   return value.  */
-	switch (gdbarch_return_value (gdbarch, function, target_values_type,
-				      NULL, NULL, NULL))
-	  {
-	  case RETURN_VALUE_REGISTER_CONVENTION:
-	  case RETURN_VALUE_ABI_RETURNS_ADDRESS:
-	  case RETURN_VALUE_ABI_PRESERVES_ADDRESS:
-	    gdbarch_return_value (gdbarch, function, values_type,
-				  retbuf, value_contents_raw (retval), NULL);
-	    break;
-	  case RETURN_VALUE_STRUCT_CONVENTION:
-	    read_value_memory (retval, 0, 1, struct_addr,
-			       value_contents_raw (retval),
-			       TYPE_LENGTH (values_type));
-	    break;
-	  }
-      }
-
-    do_cleanups (retbuf_cleanup);
-
-    gdb_assert (retval);
-    return retval;
-  }
+  /* Figure out the value returned by the function.  */
+  if (struct_return)
+    {
+      /* NOTE: cagney/2003-09-27: This assumes that PUSH_DUMMY_CALL
+	 has correctly stored STRUCT_ADDR in the target.  In the past
+	 that hasn't been the case, the old MIPS PUSH_ARGUMENTS
+	 (PUSH_DUMMY_CALL precursor) would silently move the location
+	 of the struct return value making STRUCT_ADDR bogus.  If
+	 you're seeing problems with values being returned using the
+	 "struct return convention", check that PUSH_DUMMY_CALL isn't
+	 playing tricks.  */
+      struct value *retval = value_at (value_type, struct_addr, NULL);
+      do_cleanups (retbuf_cleanup);
+      return retval;
+    }
+  else
+    {
+      /* The non-register case was handled above.  */
+      struct value *retval = register_value_being_returned (value_type,
+							    retbuf);
+      do_cleanups (retbuf_cleanup);
+      return retval;
+    }
 }
-
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
 void _initialize_infcall (void);
 
 void
 _initialize_infcall (void)
 {
   add_setshow_boolean_cmd ("coerce-float-to-double", class_obscure,
-			   &coerce_float_to_double_p, _("\
-Set coercion of floats to doubles when calling functions."), _("\
-Show coercion of floats to doubles when calling functions"), _("\
+			   &coerce_float_to_double_p, "\
+Set coercion of floats to doubles when calling functions\n\
 Variables of type float should generally be converted to doubles before\n\
 calling an unprototyped function, and left alone when calling a prototyped\n\
 function.  However, some older debug info formats do not provide enough\n\
 information to determine that a function is prototyped.  If this flag is\n\
 set, GDB will perform the conversion for a function it considers\n\
 unprototyped.\n\
-The default is to perform the conversion.\n"),
-			   NULL,
-			   show_coerce_float_to_double_p,
-			   &setlist, &showlist);
+The default is to perform the conversion.\n", "\
+Show coercion of floats to doubles when calling functions\n\
+Variables of type float should generally be converted to doubles before\n\
+calling an unprototyped function, and left alone when calling a prototyped\n\
+function.  However, some older debug info formats do not provide enough\n\
+information to determine that a function is prototyped.  If this flag is\n\
+set, GDB will perform the conversion for a function it considers\n\
+unprototyped.\n\
+The default is to perform the conversion.\n",
+			   NULL, NULL, &setlist, &showlist);
 
   add_setshow_boolean_cmd ("unwindonsignal", no_class,
-			   &unwind_on_signal_p, _("\
-Set unwinding of stack if a signal is received while in a call dummy."), _("\
-Show unwinding of stack if a signal is received while in a call dummy."), _("\
+			   &unwind_on_signal_p, "\
+Set unwinding of stack if a signal is received while in a call dummy.\n\
 The unwindonsignal lets the user determine what gdb should do if a signal\n\
 is received while in a function called from gdb (call dummy).  If set, gdb\n\
 unwinds the stack and restore the context to what as it was before the call.\n\
-The default is to stop in the frame where the signal was received."),
-			   NULL,
-			   show_unwind_on_signal_p,
-			   &setlist, &showlist);
-
-  add_setshow_boolean_cmd ("unwind-on-terminating-exception", no_class,
-			   &unwind_on_terminating_exception_p, _("\
-Set unwinding of stack if std::terminate is called while in call dummy."), _("\
-Show unwinding of stack if std::terminate() is called while in a call dummy."),
-			   _("\
-The unwind on terminating exception flag lets the user determine\n\
-what gdb should do if a std::terminate() call is made from the\n\
-default exception handler.  If set, gdb unwinds the stack and restores\n\
-the context to what it was before the call.  If unset, gdb allows the\n\
-std::terminate call to proceed.\n\
-The default is to unwind the frame."),
-			   NULL,
-			   show_unwind_on_terminating_exception_p,
-			   &setlist, &showlist);
-
+The default is to stop in the frame where the signal was received.", "\
+Set unwinding of stack if a signal is received while in a call dummy.\n\
+The unwindonsignal lets the user determine what gdb should do if a signal\n\
+is received while in a function called from gdb (call dummy).  If set, gdb\n\
+unwinds the stack and restore the context to what as it was before the call.\n\
+The default is to stop in the frame where the signal was received.",
+			   NULL, NULL, &setlist, &showlist);
 }

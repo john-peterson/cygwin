@@ -1,12 +1,13 @@
 /* Machine independent GDB support for core files on systems using "regsets".
 
-   Copyright (C) 1993-2013 Free Software Foundation, Inc.
+   Copyright 1993, 1994, 1995, 1996, 1998, 1999, 2000, 2003
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* This file is used by most systems that use ELF for their core
    dumps.  This includes most systems that have SVR4-ish variant of
@@ -31,7 +34,6 @@
 #include "gdbcore.h"
 #include "inferior.h"
 #include "target.h"
-#include "regcache.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -57,38 +59,32 @@
    REG_ADDR is ignored.  */
 
 static void
-fetch_core_registers (struct regcache *regcache,
-		      char *core_reg_sect,
-		      unsigned core_reg_size,
-		      int which,
+fetch_core_registers (char *core_reg_sect, unsigned core_reg_size, int which,
 		      CORE_ADDR reg_addr)
 {
   gdb_gregset_t gregset;
   gdb_fpregset_t fpregset;
-  gdb_gregset_t *gregset_p = &gregset;
-  gdb_fpregset_t *fpregset_p = &fpregset;
 
   switch (which)
     {
     case 0:
       if (core_reg_size != sizeof (gregset))
-	warning (_("Wrong size gregset in core file."));
+	warning ("Wrong size gregset in core file.");
       else
 	{
 	  memcpy (&gregset, core_reg_sect, sizeof (gregset));
-	  supply_gregset (regcache, (const gdb_gregset_t *) gregset_p);
+	  supply_gregset (&gregset);
 	}
       break;
 
     case 2:
       if (core_reg_size != sizeof (fpregset))
-	warning (_("Wrong size fpregset in core file."));
+	warning ("Wrong size fpregset in core file.");
       else
 	{
 	  memcpy (&fpregset, core_reg_sect, sizeof (fpregset));
-	  if (gdbarch_fp0_regnum (get_regcache_arch (regcache)) >= 0)
-	    supply_fpregset (regcache,
-			     (const gdb_fpregset_t *) fpregset_p);
+	  if (FP0_REGNUM >= 0)
+	    supply_fpregset (&fpregset);
 	}
       break;
 
@@ -119,5 +115,5 @@ extern void _initialize_core_regset (void);
 void
 _initialize_core_regset (void)
 {
-  deprecated_add_core_fns (&regset_core_fns);
+  add_core_fns (&regset_core_fns);
 }

@@ -1,6 +1,6 @@
 /* The common simulator framework for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney and Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #ifndef HW_PROPERTIES_H
@@ -26,8 +28,7 @@
 /* The following are valid property types.  The property `array' is
    for generic untyped data. */
 
-typedef enum
-{
+typedef enum {
   array_property,
   boolean_property,
 #if 0
@@ -40,8 +41,7 @@ typedef enum
   string_array_property,
 } hw_property_type;
 
-struct hw_property
-{
+struct hw_property {
   struct hw *owner;
   const char *name;
   hw_property_type type;
@@ -122,7 +122,7 @@ const struct hw_property *hw_find_array_property
 void hw_add_boolean_property
 (struct hw *me,
  const char *property,
- int boolean);
+ int bool);
 
 int hw_find_boolean_property
 (struct hw *me,
@@ -131,8 +131,7 @@ int hw_find_boolean_property
 
 
 #if 0
-typedef struct _ihandle_runtime_property_spec
-{
+typedef struct _ihandle_runtime_property_spec {
   const char *full_path;
 } ihandle_runtime_property_spec;
 
@@ -174,8 +173,7 @@ int hw_find_integer_array_property
 
 
 
-typedef struct _range_property_spec
-{
+typedef struct _range_property_spec {
   hw_unit child_address;
   hw_unit parent_address;
   hw_unit size;
@@ -195,8 +193,7 @@ int hw_find_range_array_property
 
 
 
-typedef struct _reg_property_spec
-{
+typedef struct _reg_property_spec {
   hw_unit address;
   hw_unit size;
 } reg_property_spec;

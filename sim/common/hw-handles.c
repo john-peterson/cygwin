@@ -1,6 +1,6 @@
 /* The common simulator framework for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney and Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,15 +17,16 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #include "hw-main.h"
 #include "hw-base.h"
 
 
-struct hw_handle_mapping
-{
+struct hw_handle_mapping {
   cell_word external;
   struct hw *phandle;
   struct hw_instance *ihandle;
@@ -33,8 +34,7 @@ struct hw_handle_mapping
 };
 
 
-struct hw_handle_data
-{
+struct hw_handle_data {
   int nr_mappings;
   struct hw_handle_mapping *mappings;
 };
@@ -157,7 +157,7 @@ hw_handle_add_ihandle (struct hw *hw,
 		       struct hw_instance *internal)
 {
   struct hw_handle_data *db = hw->handles_of_hw;
-  if (hw_handle_2ihandle (hw, internal) != 0)
+  if (hw_handle_2ihandle (hw, internal) != 0) 
     {
       hw_abort (hw, "attempting to add an ihandle already in the data base");
     }
@@ -179,7 +179,7 @@ hw_handle_add_phandle (struct hw *hw,
 		       struct hw *internal)
 {
   struct hw_handle_data *db = hw->handles_of_hw;
-  if (hw_handle_2phandle (hw, internal) != 0)
+  if (hw_handle_2phandle (hw, internal) != 0) 
     {
       hw_abort (hw, "attempting to add a phandle already in the data base");
     }
@@ -208,7 +208,7 @@ hw_handle_remove_ihandle (struct hw *hw,
 	{
 	  struct hw_handle_mapping *delete = *current_map;
 	  *current_map = delete->next;
-	  free (delete);
+	  zfree (delete);
 	  return;
 	}
       current_map = &(*current_map)->next;
@@ -229,10 +229,12 @@ hw_handle_remove_phandle (struct hw *hw,
 	{
 	  struct hw_handle_mapping *delete = *current_map;
 	  *current_map = delete->next;
-	  free (delete);
+	  zfree (delete);
 	  return;
 	}
       current_map = &(*current_map)->next;
     }
   hw_abort (hw, "attempt to remove nonexistant phandle");
 }
+
+

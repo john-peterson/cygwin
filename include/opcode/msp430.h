@@ -1,11 +1,11 @@
 /* Opcode table for the TI MSP430 microcontrollers
 
-   Copyright 2002, 2004, 2010 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
    Contributed by Dmitry Diky <diwil@mail.ru>
    
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,8 +15,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #ifndef __MSP430_H_
 #define __MSP430_H_
@@ -104,20 +103,6 @@ static struct msp430_opcode_s msp430_opcodes[] =
   MSP_INSN (rra,   2, 1, 0x1100, 0xff80),
   MSP_INSN (swpb,  2, 1, 0x1080, 0xffc0),
   MSP_INSN (rrc,   2, 1, 0x1000, 0xff80),
-  /* Simple polymorphs.  */
-  MSP_INSN (beq,   4, 0, 0, 0xffff),
-  MSP_INSN (bne,   4, 1, 0, 0xffff),
-  MSP_INSN (blt,   4, 2, 0, 0xffff),
-  MSP_INSN (bltu,  4, 3, 0, 0xffff),
-  MSP_INSN (bge,   4, 4, 0, 0xffff),
-  MSP_INSN (bgeu,  4, 5, 0, 0xffff),
-  MSP_INSN (bltn,  4, 6, 0, 0xffff),
-  MSP_INSN (jump,  4, 7, 0, 0xffff),
-  /* Long polymorphs.  */
-  MSP_INSN (bgt,   5, 0, 0, 0xffff),
-  MSP_INSN (bgtu,  5, 1, 0, 0xffff),
-  MSP_INSN (bleu,  5, 2, 0, 0xffff),
-  MSP_INSN (ble,   5, 3, 0, 0xffff),
 
   /* End of instruction set.  */
   { NULL, 0, 0, 0, 0 }

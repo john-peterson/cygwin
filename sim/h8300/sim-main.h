@@ -1,6 +1,5 @@
 /* Main header for the Hitachi h8/300 architecture.  */
 
-#include "config.h"
 #include "bfd.h"
 
 #ifndef SIM_MAIN_H
@@ -28,7 +27,7 @@
 /* avolkov: 
    Next 2 macros are ugly for any workstation, but while they're work.
    Memory size MUST be configurable.  */
-#define H8300H_MSIZE (1 << 24) 
+#define H8300H_MSIZE (1 << 18) 
 #define H8300S_MSIZE (1 << 24) 
 
 #define CSIZE 1024

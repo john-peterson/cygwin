@@ -1,12 +1,13 @@
 # Host: Intel 386 running GNU/Linux.
 
-NAT_FILE= config/nm-linux.h
-NATDEPFILES= inf-ptrace.o fork-child.o \
-	i386-nat.o i386-linux-nat.o \
-	proc-service.o linux-thread-db.o \
-	linux-nat.o linux-osdata.o linux-fork.o linux-procfs.o linux-ptrace.o
-NAT_CDEPS = $(srcdir)/proc-service.list
+XM_FILE= xm-i386.h
+
+NAT_FILE= nm-linux.h
+NATDEPFILES= infptrace.o inftarg.o fork-child.o corelow.o linux-proc.o \
+	core-aout.o i386-nat.o i386-linux-nat.o \
+	proc-service.o thread-db.o lin-lwp.o linux-proc.o gcore.o \
+	linux-nat.o
 
 # The dynamically loaded libthread_db needs access to symbols in the
 # gdb executable.
-LOADLIBES = -ldl $(RDYNAMIC)
+LOADLIBES = -ldl -rdynamic

@@ -1,24 +1,25 @@
 /* Machine independent support for SVR4 /proc (process file system) for GDB.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
 
    Written by Michael Snyder at Cygnus Solutions.
    Based on work by Fred Fish, Stu Grossman, Geoff Noer, and others.
 
-   This file is part of GDB.
+This file is part of GDB.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software Foundation, 
+Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /*
  * Pretty-print trace of api calls to the /proc api
@@ -43,7 +44,7 @@
 #ifdef HAVE_SYS_USER_H
 #include <sys/user.h>	/* for struct user */
 #endif
-#include <fcntl.h>	/* for O_RDWR etc.  */
+#include <fcntl.h>	/* for O_RDWR etc. */
 #include "gdb_wait.h"
 
 #include "proc-utils.h"
@@ -51,7 +52,7 @@
 /*  Much of the information used in the /proc interface, particularly for
     printing status information, is kept as tables of structures of the
     following form.  These tables can be used to map numeric values to
-    their symbolic names and to a string that describes their specific use.  */
+    their symbolic names and to a string that describes their specific use. */
 
 struct trans {
   long value;                   /* The numeric value */
@@ -160,7 +161,7 @@ static struct trans ioctl_table[] = {
   { PIOCLDT,       "PIOCLDT",      "get LDT" },
   { PIOCNLDT,      "PIOCNLDT",     "get number of LDT entries" },
 #endif
-#ifdef PIOCLSTATUS			/* solaris */
+#ifdef PIOCLSTATUS			/* solaris and unixware */
   { PIOCLSTATUS,   "PIOCLSTATUS",  "get status of all lwps" },
   { PIOCLUSAGE,    "PIOCLUSAGE",   "get resource usage of all lwps" },
   { PIOCOPENLWP,   "PIOCOPENLWP",  "get lwp file descriptor" },
@@ -409,6 +410,9 @@ static struct trans rw_table[] = {
   { PCREAD,   "PCREAD",   "read from the address space" },
   { PCWRITE,  "PCWRITE",  "write to the address space" },
 #endif
+#ifdef PCRESET			/* unixware */
+  { PCRESET,  "PCRESET",  "unset modes" },
+#endif
   { PCRUN,    "PCRUN",    "make process/lwp runnable" },
 #ifdef PCSASRS			/* solaris 2.7 only */
   { PCSASRS,  "PCSASRS",  "set ancillary state registers" },
@@ -455,7 +459,7 @@ static off_t lseek_offset;
 int
 write_with_trace (int fd, void *varg, size_t len, char *file, int line)
 {
-  int i = ARRAY_SIZE (rw_table) - 1;
+  int  i;
   int ret;
   procfs_ctl_t *arg = (procfs_ctl_t *) varg;
 
@@ -743,7 +747,7 @@ procfs_note (char *msg, char *file, int line)
       if (info_verbose)
 	fprintf (procfs_file ? procfs_file : stdout, 
 		 "%s:%d -- ", file, line);
-      fprintf (procfs_file ? procfs_file : stdout, "%s", msg);
+      fprintf (procfs_file ? procfs_file : stdout, msg);
       if (procfs_file)
 	fflush (procfs_file);
     }
@@ -771,25 +775,23 @@ proc_prettyfprint_status (long flags, int why, int what, int thread)
 }
 
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern void _initialize_proc_api (void);
-
 void
 _initialize_proc_api (void)
 {
   struct cmd_list_element *c;
 
-  add_setshow_boolean_cmd ("procfs-trace", no_class, &procfs_trace, _("\
-Set tracing for /proc api calls."), _("\
-Show tracing for /proc api calls."), NULL,
-			   set_procfs_trace_cmd,
-			   NULL, /* FIXME: i18n: */
-			   &setlist, &showlist);
+  c = add_set_cmd ("procfs-trace", no_class,
+		   var_boolean, (char *) &procfs_trace, 
+		   "Set tracing for /proc api calls.\n", &setlist);
 
-  add_setshow_filename_cmd ("procfs-file", no_class, &procfs_filename, _("\
-Set filename for /proc tracefile."), _("\
-Show filename for /proc tracefile."), NULL,
-			    set_procfs_file_cmd,
-			    NULL, /* FIXME: i18n: */
-			    &setlist, &showlist);
+  add_show_from_set (c, &showlist);
+  set_cmd_sfunc (c, set_procfs_trace_cmd);
+  set_cmd_completer (c, filename_completer);
+
+  c = add_set_cmd ("procfs-file", no_class, var_filename,
+		   (char *) &procfs_filename, 
+		   "Set filename for /proc tracefile.\n", &setlist);
+
+  add_show_from_set (c, &showlist);
+  set_cmd_sfunc (c, set_procfs_file_cmd);
 }

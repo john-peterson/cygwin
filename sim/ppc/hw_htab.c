@@ -1,10 +1,10 @@
 /*  This file is part of the program psim.
 
-    Copyright 1994, 1995, 1996, 2003, 2004 Andrew Cagney
+    Copyright 1994, 1995, 1996, 2003 Andrew Cagney
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -390,8 +391,9 @@ htab_sum_binary(bfd *abfd,
 		PTR data)
 {
   htab_binary_sizes *sizes = (htab_binary_sizes*)data;
-  unsigned_word size = bfd_get_section_size (sec);
+  unsigned_word size = bfd_get_section_size_before_reloc (sec);
   unsigned_word vma = bfd_get_section_vma (abfd, sec);
+#define bfd_get_section_lma(abfd, sec) ((sec)->lma + 0)
   unsigned_word ra = bfd_get_section_lma (abfd, sec);
 
   /* skip the section if no memory to allocate */
@@ -435,7 +437,7 @@ htab_dma_binary(bfd *abfd,
     return;
 
   /* check/ignore any sections of size zero */
-  section_size = bfd_get_section_size (sec);
+  section_size = bfd_get_section_size_before_reloc(sec);
   if (section_size == 0)
     return;
 
@@ -485,7 +487,7 @@ htab_dma_binary(bfd *abfd,
 			      1 /*violate_read_only*/)
       != section_size)
     device_error(me, "broken dma transfer");
-  free(section_init); /* only free if load */
+  zfree(section_init); /* only free if load */
 }
 
 /* create a memory map from a binaries virtual addresses to a copy of

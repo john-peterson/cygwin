@@ -1,12 +1,11 @@
 /* BFD support for the M32R processor.
-   Copyright 1996, 1999, 2000, 2002, 2003, 2005, 2007
-   Free Software Foundation, Inc.
+   Copyright 1996, 1999, 2000, 2002, 2003 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,16 +15,15 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 
 #define N(number, print, default, next)  \
 {  32, 32, 8, bfd_arch_m32r, number, "m32r", print, 4, default, \
-     bfd_default_compatible, bfd_default_scan, bfd_arch_default_fill, next }
+     bfd_default_compatible, bfd_default_scan, next }
 
 #define M32R2_NEXT   & arch_info_struct [1]
 #define NEXT         & arch_info_struct [0]

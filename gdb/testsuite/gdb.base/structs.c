@@ -1,19 +1,23 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 1996-2013 Free Software Foundation, Inc.
+   Copyright 1996, 1999, 2003 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+ 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+   Please email any bugs, comments, and/or additions to this file to:
+   bug-gdb@prep.ai.mit.edu  */
 
 /* Useful abreviations.  */
 typedef void t;
@@ -396,15 +400,13 @@ zed ()
   L18.r = 'Z';
 }
 
-static struct { char c; } chartest[256];
-
 int main()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   int i;
-
-  for (i = 0; i < 256; i++)
-    chartest[i].c = i;
-  chartest[0].c = 0;  /* chartest-done */
 
   Fun1(foo1);	
   Fun2(foo2);	
@@ -428,7 +430,7 @@ int main()
   /* An infinite loop that first clears all the variables and then
      calls each function.  This "hack" is to make testing random
      functions easier - "advance funN" is guaranteed to have always
-     been preceded by a global variable clearing zed call.  */
+     been preceeded by a global variable clearing zed call.  */
 
   while (1)
     {

@@ -1,12 +1,13 @@
 /* Dynamic architecture support for GDB, the GNU debugger.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2002, 2003 Free Software Foundation,
+   Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef GDBARCH_UTILS_H
 #define GDBARCH_UTILS_H
@@ -26,98 +29,124 @@ struct minimal_symbol;
 struct type;
 struct gdbarch_info;
 
-/* An implementation of gdbarch_displaced_step_copy_insn for
-   processors that don't need to modify the instruction before
-   single-stepping the displaced copy.
+/* gdbarch trace variable */
+extern int gdbarch_debug;
 
-   Simply copy gdbarch_max_insn_length (ARCH) bytes from FROM to TO.
-   The closure is an array of that many bytes containing the
-   instruction's bytes, allocated with xmalloc.  */
-extern struct displaced_step_closure *
-  simple_displaced_step_copy_insn (struct gdbarch *gdbarch,
-                                   CORE_ADDR from, CORE_ADDR to,
-                                   struct regcache *regs);
+/* Fallback for register convertible. */
+extern gdbarch_deprecated_register_convertible_ftype deprecated_register_convertible_not;
 
-/* Simple implementation of gdbarch_displaced_step_free_closure: Call
-   xfree.
-   This is appropriate for use with simple_displaced_step_copy_insn.  */
-extern void
-  simple_displaced_step_free_closure (struct gdbarch *gdbarch,
-                                      struct displaced_step_closure *closure);
+/* Implementation of extract return value that grubs around in the
+   register cache.  */
+extern gdbarch_extract_return_value_ftype legacy_extract_return_value;
 
-/* Default implementation of gdbarch_displaced_hw_singlestep.  */
-extern int
-  default_displaced_step_hw_singlestep (struct gdbarch *,
-					struct displaced_step_closure *);
+/* Implementation of store return value that grubs the register cache.  */
+extern gdbarch_store_return_value_ftype legacy_store_return_value;
 
-/* Possible value for gdbarch_displaced_step_location:
-   Place displaced instructions at the program's entry point,
-   leaving space for inferior function call return breakpoints.  */
-extern CORE_ADDR displaced_step_at_entry_point (struct gdbarch *gdbarch);
+/* To return any structure or union type by value, store it at the
+   address passed as an invisible first argument to the function.  */
+extern gdbarch_use_struct_convention_ftype always_use_struct_convention;
 
-/* The only possible cases for inner_than.  */
+/* Frameless functions not identifable. */
+extern gdbarch_frameless_function_invocation_ftype generic_frameless_function_invocation_not;
+
+/* Only structures, unions, and arrays are returned using the struct
+   convention.  Note that arrays are never passed by value in the C
+   language family, so that case is irrelevant for C.  */
+extern gdbarch_return_value_on_stack_ftype generic_return_value_on_stack_not;
+
+/* Backward compatible call_dummy_words. */
+extern LONGEST legacy_call_dummy_words[];
+extern int legacy_sizeof_call_dummy_words;
+
+/* Typical remote_translate_xfer_address */
+extern gdbarch_remote_translate_xfer_address_ftype generic_remote_translate_xfer_address;
+
+/* Generic implementation of prologue_frameless_p.  Just calls
+   SKIP_PROLOG and checks the return value to see if it actually
+   changed. */
+extern gdbarch_prologue_frameless_p_ftype generic_prologue_frameless_p;
+
+/* The only possible cases for inner_than. */
 extern int core_addr_lessthan (CORE_ADDR lhs, CORE_ADDR rhs);
 extern int core_addr_greaterthan (CORE_ADDR lhs, CORE_ADDR rhs);
 
+/* Floating point values. */
+extern const struct floatformat *default_float_format (struct gdbarch *gdbarch);
+extern const struct floatformat *default_double_format (struct gdbarch *gdbarch);
+
 /* Identity functions on a CORE_ADDR.  Just return the "addr".  */
 
-extern CORE_ADDR core_addr_identity (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern CORE_ADDR core_addr_identity (CORE_ADDR addr);
 extern gdbarch_convert_from_func_ptr_addr_ftype convert_from_func_ptr_addr_identity;
 
-/* No-op conversion of reg to regnum.  */
+/* No-op conversion of reg to regnum. */
 
-extern int no_op_reg_to_regnum (struct gdbarch *gdbarch, int reg);
+extern int no_op_reg_to_regnum (int reg);
 
-/* Do nothing version of elf_make_msymbol_special.  */
+/* Versions of init_frame_pc().  Do nothing; do the default. */
 
-void default_elf_make_msymbol_special (asymbol *sym,
-				       struct minimal_symbol *msym);
+extern CORE_ADDR deprecated_init_frame_pc_default (int fromleaf, struct frame_info *prev);
 
-/* Do nothing version of coff_make_msymbol_special.  */
+/* Do nothing version of elf_make_msymbol_special. */
+
+void default_elf_make_msymbol_special (asymbol *sym, struct minimal_symbol *msym);
+
+/* Do nothing version of coff_make_msymbol_special. */
 
 void default_coff_make_msymbol_special (int val, struct minimal_symbol *msym);
 
 /* Version of cannot_fetch_register() / cannot_store_register() that
-   always fails.  */
+   always fails. */
 
-int cannot_register_not (struct gdbarch *gdbarch, int regnum);
+int cannot_register_not (int regnum);
 
 /* Legacy version of target_virtual_frame_pointer().  Assumes that
-   there is an gdbarch_deprecated_fp_regnum and that it is the same, cooked or
+   there is an DEPRECATED_FP_REGNUM and that it is the same, cooked or
    raw.  */
 
 extern gdbarch_virtual_frame_pointer_ftype legacy_virtual_frame_pointer;
 
-extern CORE_ADDR generic_skip_trampoline_code (struct frame_info *frame,
-					       CORE_ADDR pc);
+extern CORE_ADDR generic_skip_trampoline_code (CORE_ADDR pc);
 
 extern CORE_ADDR generic_skip_solib_resolver (struct gdbarch *gdbarch,
 					      CORE_ADDR pc);
 
-extern int generic_in_solib_return_trampoline (struct gdbarch *gdbarch,
-					       CORE_ADDR pc, const char *name);
+extern int generic_in_solib_call_trampoline (CORE_ADDR pc, char *name);
 
-extern int generic_in_function_epilogue_p (struct gdbarch *gdbarch,
-					   CORE_ADDR pc);
+extern int generic_in_solib_return_trampoline (CORE_ADDR pc, char *name);
 
-/* By default, registers are not convertible.  */
-extern int generic_convert_register_p (struct gdbarch *gdbarch, int regnum,
-				       struct type *type);
+extern int generic_in_function_epilogue_p (struct gdbarch *gdbarch, CORE_ADDR pc);
+
+/* Assume that the world is sane, a registers raw and virtual size
+   both match its type.  */
+
+extern int generic_register_size (int regnum);
+
+/* Assume that the world is sane, the registers are all adjacent.  */
+extern int generic_register_byte (int regnum);
+
+/* Prop up old targets that use various IN_SIGTRAMP() macros.  */
+extern int legacy_pc_in_sigtramp (CORE_ADDR pc, char *name);
+
+/* The orginal register_convert*() functions were overloaded.  They
+   were used to both: convert between virtual and raw register formats
+   (something that is discouraged); and to convert a register to the
+   type of a corresponding variable.  These legacy functions preserve
+   that overloaded behavour in existing targets.  */
+extern int legacy_convert_register_p (int regnum, struct type *type);
+extern void legacy_register_to_value (struct frame_info *frame, int regnum,
+				      struct type *type, void *to);
+extern void legacy_value_to_register (struct frame_info *frame, int regnum,
+				      struct type *type, const void *from);
 
 extern int default_stabs_argument_has_addr (struct gdbarch *gdbarch,
 					    struct type *type);
-
-extern int generic_instruction_nullified (struct gdbarch *gdbarch,
-					  struct regcache *regcache);
-
-int default_remote_register_number (struct gdbarch *gdbarch,
-				    int regno);
 
 /* For compatibility with older architectures, returns
    (LEGACY_SIM_REGNO_IGNORE) when the register doesn't have a valid
    name.  */
 
-extern int legacy_register_sim_regno (struct gdbarch *gdbarch, int regnum);
+extern int legacy_register_sim_regno (int regnum);
 
 /* Return the selected byte order, or BFD_ENDIAN_UNKNOWN if no byte
    order was explicitly selected.  */
@@ -132,42 +161,18 @@ extern const char *selected_architecture_name (void);
    information and fills in any unspecified fields.  */
 
 extern void gdbarch_info_init (struct gdbarch_info *info);
+extern void gdbarch_info_fill (struct gdbarch *gdbarch,
+			       struct gdbarch_info *info);
 
 /* Similar to init, but this time fill in the blanks.  Information is
-   obtained from the global "set ..." options and explicitly
-   initialized INFO fields.  */
-extern void gdbarch_info_fill (struct gdbarch_info *info);
+   obtained from the specified architecture, global "set ..." options,
+   and explicitly initialized INFO fields.  */
+extern void gdbarch_info_fill (struct gdbarch *gdbarch,
+			       struct gdbarch_info *info);
 
 /* Return the architecture for ABFD.  If no suitable architecture
    could be find, return NULL.  */
 
 extern struct gdbarch *gdbarch_from_bfd (bfd *abfd);
 
-/* Return "current" architecture.  If the target is running, this is the
-   architecture of the selected frame.  Otherwise, the "current" architecture
-   defaults to the target architecture.
-
-   This function should normally be called solely by the command interpreter
-   routines to determine the architecture to execute a command in.  */
-extern struct gdbarch *get_current_arch (void);
-
-extern int default_has_shared_address_space (struct gdbarch *);
-
-extern int default_fast_tracepoint_valid_at (struct gdbarch *gdbarch,
-					     CORE_ADDR addr,
-					     int *isize, char **msg);
-
-extern void default_remote_breakpoint_from_pc (struct gdbarch *,
-					       CORE_ADDR *pcptr, int *kindptr);
-
-extern void default_gen_return_address (struct gdbarch *gdbarch,
-					struct agent_expr *ax,
-					struct axs_value *value,
-					CORE_ADDR scope);
-
-extern const char *default_auto_charset (void);
-extern const char *default_auto_wide_charset (void);
-
-extern int default_return_in_first_hidden_param_p (struct gdbarch *,
-						   struct type *);
 #endif

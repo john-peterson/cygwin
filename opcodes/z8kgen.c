@@ -1,27 +1,26 @@
-/* Copyright 2001, 2002, 2003, 2005, 2007, 2009, 2012
-   Free Software Foundation, Inc.
+/* Copyright 2001, 2002, 2003 Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
+   This file is part of GNU Binutils.
 
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+   USA.  */
 
-/* This program generates z8k-opc.h.  */
+/* This program generates z8k-opc.h.  Compile with -fwritable-strings.  */
 
-#include "sysdep.h"
 #include <stdio.h>
+#include "sysdep.h"
 #include "libiberty.h"
 
 #define BYTE_INFO_LEN 10
@@ -33,8 +32,7 @@ struct op
   char type;
   char *bits;
   char *name;
-  /* Unique number for stable sorting.  */
-  int id;
+  char *flavor;
 };
 
 #define iswhite(x) ((x) == ' ' || (x) == '\t')
@@ -514,14 +512,15 @@ static struct op opt[] =
   {"-ZS---", 17, 32, "0101 1100 ddN0 1000 address_dst", "testl address_dst(rd)", 0},
   {"-ZS---", 13, 32, "1001 1100 dddd 1000", "testl rrd", 0},
 
-  {"---V--", 25, 8, "1011 1000 ddN0 1000 0000 rrrr ssN0 0000", "trdb @rd,@rs,rr", 0},
-  {"---V--", 25, 8, "1011 1000 ddN0 1100 0000 rrrr ssN0 0000", "trdrb @rd,@rs,rr", 0},
-  {"---V--", 25, 8, "1011 1000 ddN0 0000 0000 rrrr ssN0 0000", "trib @rd,@rs,rr", 0},
-  {"---V--", 25, 8, "1011 1000 ddN0 0100 0000 rrrr ssN0 0000", "trirb @rd,@rs,rr", 0},
-  {"-Z-V--", 25, 8, "1011 1000 aaN0 1010 0000 rrrr bbN0 0000", "trtdb @ra,@rb,rr", 0},
-  {"-Z-V--", 25, 8, "1011 1000 aaN0 1110 0000 rrrr bbN0 1110", "trtdrb @ra,@rb,rr", 0},
-  {"-Z-V--", 25, 8, "1011 1000 aaN0 0010 0000 rrrr bbN0 0000", "trtib @ra,@rb,rr", 0},
-  {"-Z-V--", 25, 8, "1011 1000 aaN0 0110 0000 rrrr bbN0 1110", "trtirb @ra,@rb,rr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 ddN0 1000 0000 aaaa ssN0 0000", "trdb @rd,@rs,rba", 0},
+  {"-ZSV--", 25, 8, "1011 1000 ddN0 1100 0000 aaaa ssN0 0000", "trdrb @rd,@rs,rba", 0},
+  {"-ZSV--", 25, 8, "1011 1000 ddN0 0000 0000 rrrr ssN0 0000", "trib @rd,@rs,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 ddN0 0100 0000 rrrr ssN0 0000", "trirb @rd,@rs,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 aaN0 1010 0000 rrrr bbN0 0000", "trtdb @ra,@rb,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 aaN0 1110 0000 rrrr bbN0 1110", "trtdrb @ra,@rb,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 aaN0 0010 0000 rrrr bbN0 0000", "trtib @ra,@rb,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 aaN0 0110 0000 rrrr bbN0 1110", "trtirb @ra,@rb,rbr", 0},
+  {"-ZSV--", 25, 8, "1011 1000 aaN0 1010 0000 rrrr bbN0 0000", "trtrb @ra,@rb,rbr", 0},
 
   {"--S---", 11, 16, "0000 1101 ddN0 0110", "tset @rd", 0},
   {"--S---", 14, 16, "0100 1101 0000 0110 address_dst", "tset address_dst", 0},
@@ -548,6 +547,7 @@ static struct op opt[] =
   {"------", 7, 32, "1000 1100 dddd 0001", "ldctlb rbd,ctrl", 0},
   {"CZSVDH", 7, 32, "1000 1100 ssss 1001", "ldctlb ctrl,rbs", 0},
 
+  {"*", 4, 8, "1000 1000 ssss dddd", "xorb rbd,rbs", 0},
   {"*", 0, 0, 0, 0, 0}
 };
 
@@ -567,14 +567,9 @@ count (void)
 }
 
 static int
-func (const void *p1, const void *p2)
+func (struct op *a, struct op *b)
 {
-  const struct op *a = p1;
-  const struct op *b = p2;
-  int ret = strcmp (a->name, b->name);
-  if (ret != 0)
-    return ret;
-  return a->id > b->id ? 1 : -1;
+  return strcmp ((a)->name, (b)->name);
 }
 
 
@@ -826,12 +821,9 @@ chewname (char **name)
   return nargs;
 }
 
-static char *
+static void
 sub (char *x, char c)
 {
-  /* Create copy.  */
-  char *ret = xstrdup (x);
-  x = ret;
   while (*x)
     {
       if (x[0] == c && x[1] == c &&
@@ -842,7 +834,6 @@ sub (char *x, char c)
 	}
       x++;
     }
-  return ret;
 }
 
 
@@ -913,19 +904,14 @@ static void
 internal (void)
 {
   int c = count ();
-  int id;
-  struct op *new_op = xmalloc (sizeof (struct op) * (c + 1));
+  struct op *new = (struct op *) xmalloc (sizeof (struct op) * c);
   struct op *p = opt;
-  memcpy (new_op, p, (c + 1) * sizeof (struct op));
-
-  /* Assign unique id.  */
-  for (id = 0; id < c; id++)
-    new_op[id].id = id;
+  memcpy (new, p, c * sizeof (struct op));
 
   /* Sort all names in table alphabetically.  */
-  qsort (new_op, c, sizeof (struct op), func);
+  qsort (new, c, sizeof (struct op), (int (*)(const void *, const void *))func);
 
-  p = new_op;
+  p = new;
   while (p->flags && p->flags[0] != '*')
   {
     /* If there are any @rs, sub the ssss into a ssn0, (rs), (ssn0).  */
@@ -946,15 +932,15 @@ internal (void)
 	  /* Skip the r and sub the string.  */
 	  s++;
 	  c = s[1];
-	  p->bits = sub (p->bits, c);
+	  sub (p->bits, c);
 	}
 	if (s[0] == '(' && s[3] == ')')
 	{
-	  p->bits = sub (p->bits, s[2]);
+	  sub (p->bits, s[2]);
 	}
 	if (s[0] == '(')
 	{
-	  p->bits = sub (p->bits, s[-1]);
+	  sub (p->bits, s[-1]);
 	}
 
 	s++;
@@ -971,41 +957,18 @@ static void
 gas (void)
 {
   int c = count ();
-  int id;
   struct op *p = opt;
   int idx = -1;
   char *oldname = "";
-  struct op *new_op = xmalloc (sizeof (struct op) * (c + 1));
+  struct op *new = (struct op *) xmalloc (sizeof (struct op) * c);
 
-  memcpy (new_op, p, (c + 1) * sizeof (struct op));
-
-  /* Assign unique id.  */
-  for (id = 0; id < c; id++)
-    new_op[id].id = id;
+  memcpy (new, p, c * sizeof (struct op));
 
   /* Sort all names in table alphabetically.  */
-  qsort (new_op, c, sizeof (struct op), func);
+  qsort (new, c, sizeof (struct op), (int (*)(const void *, const void *))func);
 
   printf ("/* DO NOT EDIT!  -*- buffer-read-only: t -*-\n");
   printf ("   This file is automatically generated by z8kgen.  */\n\n");
-  printf ("/* Copyright 2007, 2009 Free Software Foundation, Inc.\n\
-\n\
-   This file is part of the GNU opcodes library.\n\
-\n\
-   This library is free software; you can redistribute it and/or modify\n\
-   it under the terms of the GNU General Public License as published by\n\
-   the Free Software Foundation; either version 3, or (at your option)\n\
-   any later version.\n\
-\n\
-   It is distributed in the hope that it will be useful, but WITHOUT\n\
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY\n\
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public\n\
-   License for more details.\n\
-\n\
-   You should have received a copy of the GNU General Public License\n\
-   along with this file; see the file COPYING.  If not, write to the\n\
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,\n\
-   MA 02110-1301, USA.  */\n\n");
 
   printf ("#define ARG_MASK         0x0f\n");
 
@@ -1288,7 +1251,7 @@ gas (void)
   printf ("#endif\n");
   printf ("  const char *name;\n");
   printf ("  unsigned char opcode;\n");
-  printf ("  void (*func) (void);\n");
+  printf ("  void (*func) PARAMS ((void));\n");
   printf ("  unsigned int arg_info[4];\n");
   printf ("  unsigned int byte_info[%d];\n", BYTE_INFO_LEN);
   printf ("  int noperands;\n");
@@ -1298,19 +1261,19 @@ gas (void)
   printf ("#ifdef DEFINE_TABLE\n");
   printf ("const opcode_entry_type z8k_table[] = {\n");
 
-  while (new_op->flags && new_op->flags[0] != '*')
+  while (new->flags && new->flags[0])
     {
       int nargs;
       int length;
 
-      printf ("\n/* %s *** %s */\n", new_op->bits, new_op->name);
+      printf ("\n/* %s *** %s */\n", new->bits, new->name);
       printf ("{\n");
 
       printf ("#ifdef NICENAMES\n");
-      printf ("\"%s\",%d,%d,", new_op->name, new_op->type, new_op->cycles);
+      printf ("\"%s\",%d,%d,", new->name, new->type, new->cycles);
       {
 	int answer = 0;
-	char *p = new_op->flags;
+	char *p = new->flags;
 
 	while (*p)
 	  {
@@ -1325,20 +1288,20 @@ gas (void)
 
       printf ("#endif\n");
 
-      nargs = chewname (&new_op->name);
+      nargs = chewname (&new->name);
 
       printf ("\n\t");
-      chewbits (new_op->bits, &length);
+      chewbits (new->bits, &length);
       length /= 2;
       if (length & 1)
 	abort();
 
-      if (strcmp (oldname, new_op->name) != 0)
+      if (strcmp (oldname, new->name) != 0)
 	idx++;
       printf (",%d,%d,%d", nargs, length, idx);
-      oldname = new_op->name;
+      oldname = new->name;
       printf ("},\n");
-      new_op++;
+      new++;
     }
   printf ("\n/* end marker */\n");
   printf ("{\n#ifdef NICENAMES\nNULL,0,0,\n0,\n#endif\n");

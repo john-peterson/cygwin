@@ -1,23 +1,22 @@
 /* CGEN generic assembler support code.
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007,
-   2011  Free Software Foundation, Inc.
 
-   This file is part of libopcodes.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
-   This library is free software; you can redistribute it and/or modify
+   This file is part of the GNU Binutils and GDB, the GNU debugger.
+
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
-
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License along
    with this program; if not, write to the Free Software Foundation, Inc.,
-   51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
+   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sysdep.h"
 #include <stdio.h>
@@ -268,23 +267,7 @@ cgen_parse_signed_integer (CGEN_CPU_DESC cd,
      &result, &value);
   /* FIXME: Examine `result'.  */
   if (!errmsg)
-    {
-      /* Handle the case where a hex value is parsed on a 64-bit host.
-	 A value like 0xffffe000 is clearly intended to be a negative
-	 16-bit value, but on a 64-bit host it will be parsed by gas
-	 as 0x00000000ffffe000.
-
-	 The shifts below are designed not to produce compile time
-	 warnings on a 32-bit host.  */
-      if (sizeof (value) > 4
-	  && result == CGEN_PARSE_OPERAND_RESULT_NUMBER
-	  && value > 0
-	  && (value & 0x80000000)
-	  && ((value >> 31) == 1))
-	value |= -1 << 31;
-
-      *valuep = value;
-    }
+    *valuep = value;
   return errmsg;
 }
 

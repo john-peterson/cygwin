@@ -1,21 +1,3 @@
-/* This test script is part of GDB, the GNU debugger.
-
-   Copyright 1993-2013 Free Software Foundation, Inc.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-   */
-
 // Pls try the following program on virtual functions and try to do print on
 //  most of the code in main().  Almost none of them works !
 
@@ -110,7 +92,6 @@ D   d;
 E   e;
 V   v;
 VB  vb;
-VA  va;
 
 
 A* 	pAa	= 	&a;
@@ -182,9 +163,19 @@ void test_calls()
         TEST(pEe->D::vg(), 102);
 	printf("Did %d tests, of which %d failed.\n", all_count, failed_count);
 }
+#ifdef usestubs
+extern "C" {
+  void set_debug_traps();
+  void breakpoint();
+};
+#endif
 
 int main()
 {
+#ifdef usestubs
+   set_debug_traps();
+   breakpoint();
+#endif
     init();
 
     e.w = 7;

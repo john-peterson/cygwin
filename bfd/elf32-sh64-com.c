@@ -1,12 +1,11 @@
 /* SuperH SH64-specific support for 32-bit ELF
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2007
-   Free Software Foundation, Inc.
+   Copyright 2000, 2001, 2002, 2003 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,13 +15,12 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #define SH64_ELF
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "elf-bfd.h"
 #include "elf/sh.h"
@@ -101,7 +99,7 @@ sh64_address_in_cranges (asection *cranges, bfd_vma addr,
 {
   bfd_byte *cranges_contents;
   bfd_byte *found_rangep;
-  bfd_size_type cranges_size = cranges->size;
+  bfd_size_type cranges_size = bfd_section_size (cranges->owner, cranges);
 
   /* If the size is not a multiple of the cranges entry size, then
      something is badly wrong.  */
@@ -119,8 +117,15 @@ sh64_address_in_cranges (asection *cranges, bfd_vma addr,
     cranges_contents = cranges->contents;
   else
     {
-      if (!bfd_malloc_and_get_section (cranges->owner, cranges,
-				       &cranges_contents))
+      cranges_contents
+	= bfd_malloc (cranges->_cooked_size != 0
+		      ? cranges->_cooked_size : cranges->_raw_size);
+      if (cranges_contents == NULL)
+	return FALSE;
+
+      if (! bfd_get_section_contents (cranges->owner, cranges,
+				      cranges_contents, (file_ptr) 0,
+				      cranges_size))
 	goto error_return;
 
       /* Is it sorted?  */
@@ -177,8 +182,7 @@ sh64_address_in_cranges (asection *cranges, bfd_vma addr,
   return FALSE;
 
 error_return:
-  if (cranges_contents != NULL)
-    free (cranges_contents);
+  free (cranges_contents);
   return FALSE;
 }
 
@@ -195,7 +199,7 @@ sh64_get_contents_type (asection *sec, bfd_vma addr, sh64_elf_crange *rangep)
       && elf_elfheader (sec->owner)->e_type == ET_EXEC)
     {
       rangep->cr_addr = bfd_get_section_vma (sec->owner, sec);
-      rangep->cr_size = sec->size;
+      rangep->cr_size = bfd_section_size (sec->owner, sec);
       rangep->cr_type = CRT_NONE;
     }
   else

@@ -1,12 +1,12 @@
 /* Remote debugging interface for DINK32 (PowerPC) ROM monitor for
    GDB, the GNU debugger.
-   Copyright (C) 1997-2013 Free Software Foundation, Inc.
+   Copyright 1997, 1999, 2000, 2001 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "gdbcore.h"
@@ -23,14 +25,13 @@
 #include "monitor.h"
 #include "serial.h"
 #include "symfile.h" /* For generic_load() */
-#include "inferior.h"
+#include "inferior.h" /* For write_pc() */
 #include "regcache.h"
 
 static void dink32_open (char *args, int from_tty);
 
 static void
-dink32_supply_register (struct regcache *regcache, char *regname,
-			int regnamelen, char *val, int vallen)
+dink32_supply_register (char *regname, int regnamelen, char *val, int vallen)
 {
   int regno = 0;
 
@@ -92,13 +93,26 @@ dink32_supply_register (struct regcache *regcache, char *regname,
       return;
     }
 
-  monitor_supply_register (regcache, regno, val);
+  monitor_supply_register (regno, val);
 }
 
-/* This array of registers needs to match the indexes used by GDB.
-   The whole reason this exists is because the various ROM monitors
-   use different names than GDB does, and don't support all the
-   registers either.  */
+static void
+dink32_load (struct monitor_ops *monops, char *filename, int from_tty)
+{
+  generic_load (filename, from_tty);
+
+  /* Finally, make the PC point at the start address */
+  if (exec_bfd)
+    write_pc (bfd_get_start_address (exec_bfd));
+
+  inferior_ptid = null_ptid;		/* No process now */
+}
+
+
+/* This array of registers needs to match the indexes used by GDB. The
+   whole reason this exists is because the various ROM monitors use
+   different names than GDB does, and don't support all the registers
+   either.  */
 
 static char *dink32_regnames[] =
 {
@@ -133,17 +147,13 @@ extern initialize_file_ftype _initialize_dink32_rom; /* -Wmissing-prototypes */
 void
 _initialize_dink32_rom (void)
 {
-  dink32_cmds.flags = MO_HEX_PREFIX | MO_GETMEM_NEEDS_RANGE
-    | MO_FILL_USES_ADDR | MO_HANDLE_NL | MO_32_REGS_PAIRED
-    | MO_SETREG_INTERACTIVE | MO_SETMEM_INTERACTIVE
-    | MO_GETMEM_16_BOUNDARY | MO_CLR_BREAK_1_BASED | MO_SREC_ACK
-    | MO_SREC_ACK_ROTATE;
+  dink32_cmds.flags = MO_HEX_PREFIX | MO_GETMEM_NEEDS_RANGE | MO_FILL_USES_ADDR | MO_HANDLE_NL | MO_32_REGS_PAIRED | MO_SETREG_INTERACTIVE | MO_SETMEM_INTERACTIVE | MO_GETMEM_16_BOUNDARY | MO_CLR_BREAK_1_BASED | MO_SREC_ACK | MO_SREC_ACK_ROTATE;
   dink32_cmds.init = dink32_inits;
   dink32_cmds.cont = "go +\r";
   dink32_cmds.step = "tr +\r";
   dink32_cmds.set_break = "bp 0x%x\r";
   dink32_cmds.clr_break = "bp %d\r";
-#if 0			/* Would need to follow strict alignment rules..  */
+#if 0				/* Would need to follow strict alignment rules.. */
   dink32_cmds.fill = "mf %x %x %x\r";
 #endif
   dink32_cmds.setmem.cmdb = "mm -b %x\r";
@@ -162,6 +172,9 @@ _initialize_dink32_rom (void)
   /* S-record download, via "keyboard port".  */
   dink32_cmds.load = "dl -k\r";
   dink32_cmds.loadresp = "Set Input Port : set to Keyboard Port\r";
+#if 0				/* slow load routine not needed if S-records work... */
+  dink32_cmds.load_routine = dink32_load;
+#endif
   dink32_cmds.prompt = "DINK32_603 >>";
   dink32_cmds.line_term = "\r";
   dink32_cmds.target = &dink32_ops;

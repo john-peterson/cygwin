@@ -1,5 +1,4 @@
 	comment "subroutine declare"
-	.purgem gdbasm_declare
 	.macro gdbasm_declare name
 	.ent	\name
 \name:
@@ -23,7 +22,6 @@
 	.endm
 
 	comment "subroutine end"
-	.purgem gdbasm_end
 	.macro gdbasm_end name
 	.end	\name
 	.endm
@@ -57,7 +55,6 @@
 	.endm
 
 	comment "Declare a data variable"
-	.purgem gdbasm_datavar
 	.macro gdbasm_datavar name value
 	.data
 \name:

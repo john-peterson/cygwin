@@ -1,26 +1,25 @@
 /* run front end support for all the simulators.
-   Copyright (C) 1992-2013 Free Software Foundation, Inc.
+   Copyright (C) 1992, 93-96, 1997, 2002 Free Software Foundation, Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* Steve Chamberlain sac@cygnus.com,
    and others at Cygnus.  */
 
-#ifdef HAVE_CONFIG_H
-#include "cconfig.h"
+#include "config.h"
 #include "tconfig.h"
-#endif
 
 #include <signal.h>
 #include <stdio.h>
@@ -48,10 +47,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "gdb/remote-sim.h"
 #include "ansidecl.h"
 #include "run-sim.h"
-#include "version.h"
 
-static void usage PARAMS ((int help));
-static void print_version PARAMS ((void));
+static void usage PARAMS ((void));
 extern int optind;
 extern char *optarg;
 
@@ -63,7 +60,7 @@ extern int getopt ();
 
 #ifdef NEED_UI_LOOP_HOOK
 /* Gdb foolery. This is only needed for gdb using a gui.  */
-int (*deprecated_ui_loop_hook) PARAMS ((int signo));
+int (*ui_loop_hook) PARAMS ((int signo));
 #endif
 
 static SIM_DESC sd;
@@ -118,19 +115,6 @@ main (ac, av)
 #ifdef SIM_TARGET_SWITCHES
   ac = sim_target_parse_command_line (ac, av);
 #endif
-
-  for (i = 1; av[i]; ++i)
-    {
-      if (strcmp (av[i], "--help") == 0)
-        {
-          usage (1);
-        }
-      else if (strcmp (av[i], "--version") == 0)
-        {
-          print_version ();
-          return 0;
-        }
-    }
 
   /* FIXME: This is currently being rewritten to have each simulator
      do all argv processing.  */
@@ -189,13 +173,13 @@ main (ac, av)
 	break;
 	/* FIXME: Quick hack, to be replaced by more general facility.  */
       default:
-	usage (0);
+	usage ();
       }
 
   ac -= optind;
   av += optind;
   if (ac <= 0)
-    usage (0);
+    usage ();
 
   name = *av;
   prog_args = av;
@@ -315,43 +299,31 @@ main (ac, av)
 }
 
 static void
-usage (int help)
+usage ()
 {
-  FILE *stream = help ? stdout : stderr;
-
-  fprintf (stream, "Usage: %s [options] program [program args]\n", myname);
-  fprintf (stream, "Options:\n");
-  fprintf (stream, "-a args         Pass `args' to simulator.\n");
+  fprintf (stderr, "Usage: %s [options] program [program args]\n", myname);
+  fprintf (stderr, "Options:\n");
+  fprintf (stderr, "-a args         Pass `args' to simulator.\n");
 #ifdef SIM_HAVE_SIMCACHE
-  fprintf (stream, "-c size         Set simulator cache size to `size'.\n");
+  fprintf (stderr, "-c size         Set simulator cache size to `size'.\n");
 #endif
-  fprintf (stream, "-m size         Set memory size of simulator, in bytes.\n");
+  fprintf (stderr, "-m size         Set memory size of simulator, in bytes.\n");
 #ifdef SIM_HAVE_ENVIRONMENT
-  fprintf (stream, "-o              Select operating (kernel) environment.\n");
+  fprintf (stderr, "-o              Select operating (kernel) environment.\n");
 #endif
 #ifdef SIM_HAVE_PROFILE
-  fprintf (stream, "-p freq         Set profiling frequency.\n");
-  fprintf (stream, "-s size         Set profiling size.\n");
+  fprintf (stderr, "-p freq         Set profiling frequency.\n");
+  fprintf (stderr, "-s size         Set profiling size.\n");
 #endif
-  fprintf (stream, "-t              Perform instruction tracing.\n");
-  fprintf (stream, "                Note: Very few simulators support tracing.\n");
-  fprintf (stream, "-v              Verbose output.\n");
-  fprintf (stream, "\n");
-  fprintf (stream, "program args    Arguments to pass to simulated program.\n");
-  fprintf (stream, "                Note: Very few simulators support this.\n");
+  fprintf (stderr, "-t              Perform instruction tracing.\n");
+  fprintf (stderr, "                Note: Very few simulators support tracing.\n");
+  fprintf (stderr, "-v              Verbose output.\n");
+  fprintf (stderr, "\n");
+  fprintf (stderr, "program args    Arguments to pass to simulated program.\n");
+  fprintf (stderr, "                Note: Very few simulators support this.\n");
 #ifdef SIM_TARGET_SWITCHES
-  fprintf (stream, "\nTarget specific options:\n");
-  sim_target_display_usage (help);
+  fprintf (stderr, "\nTarget specific options:\n");
+  sim_target_display_usage ();
 #endif
-
-  if (help && REPORT_BUGS_TO[0])
-    printf ("Report bugs to %s\n", REPORT_BUGS_TO);
-
-  exit (help ? 0 : 1);
-}
-
-static void
-print_version ()
-{
-  printf ("GNU simulator %s%s\n", PKGVERSION, version);
+  exit (1);
 }

@@ -1,6 +1,6 @@
 /* Remote debugging interface for PPCbug (PowerPC) Rom monitor
    for GDB, the GNU debugger.
-   Copyright (C) 1995-2013 Free Software Foundation, Inc.
+   Copyright 1995, 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
    Written by Stu Grossman of Cygnus Support
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "gdbcore.h"
@@ -27,8 +29,7 @@
 #include "regcache.h"
 
 static void
-ppcbug_supply_register (struct regcache *regcache, char *regname,
-			int regnamelen, char *val, int vallen)
+ppcbug_supply_register (char *regname, int regnamelen, char *val, int vallen)
 {
   int regno = 0;
 
@@ -90,14 +91,14 @@ ppcbug_supply_register (struct regcache *regcache, char *regname,
       return;
     }
 
-  monitor_supply_register (regcache, regno, val);
+  monitor_supply_register (regno, val);
 }
 
 /*
- * This array of registers needs to match the indexes used by GDB.  The
+ * This array of registers needs to match the indexes used by GDB. The
  * whole reason this exists is because the various ROM monitors use
  * different names than GDB does, and don't support all the
- * registers either.  So, typing "info reg sp" becomes an "A7".
+ * registers either. So, typing "info reg sp" becomes an "A7".
  */
 
 static char *ppcbug_regnames[] =
@@ -117,9 +118,9 @@ static char *ppcbug_regnames[] =
 };
 
 /*
- * Define the monitor command strings.  Since these are passed directly
+ * Define the monitor command strings. Since these are passed directly
  * through to a printf style function, we need can include formatting
- * strings.  We also need a CR or LF on the end.
+ * strings. We also need a CR or LF on the end.
  */
 
 static struct target_ops ppcbug_ops0;
@@ -164,9 +165,8 @@ init_ppc_cmds (char *LOAD_CMD,
   OPS->getreg.resp_delim = "=";	/* getreg.resp_delim */
   OPS->getreg.term = NULL;	/* getreg.term */
   OPS->getreg.term_cmd = NULL;	/* getreg.term_cmd */
-				/* register_pattern */
-  OPS->register_pattern = "\\(\\w+\\) +=\\([0-9a-fA-F]+\\b\\)";
-  OPS->supply_register = ppcbug_supply_register;
+  OPS->register_pattern = "\\(\\w+\\) +=\\([0-9a-fA-F]+\\b\\)";		/* register_pattern */
+  OPS->supply_register = ppcbug_supply_register;	/* supply_register */
   OPS->dump_registers = "rd\r";	/* dump all registers */
   OPS->load_routine = NULL;	/* load_routine (defaults to SRECs) */
   OPS->load = LOAD_CMD;		/* download command */

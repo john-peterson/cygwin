@@ -1,6 +1,6 @@
 /* Per-frame user registers, for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002, 2003 Free Software Foundation, Inc.
 
    Contributed by Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef USER_REGS_H
 #define USER_REGS_H
@@ -29,8 +31,7 @@
    specific registers are present when the architecture is selected.
 
    These registers are assigned register numbers outside the
-   architecture's register range
-   [0 .. gdbarch_num_regs + gdbarch_num_pseudo_regs].
+   architecture's register range [0 .. NUM_REGS + NUM_PSEUDO_REGS).
    Their values should be constructed using per-frame information.  */
 
 /* TODO: cagney/2003-06-27: Need to think more about how these
@@ -56,17 +57,15 @@ extern const char *user_reg_map_regnum_to_name (struct gdbarch *gdbarch,
    bytes as, at the time the register is being added, the type needed
    to describe the register has not bee initialized.  */
 
-typedef struct value *(user_reg_read_ftype) (struct frame_info *frame,
-					     const void *baton);
+typedef struct value *(user_reg_read_ftype) (struct frame_info *frame);
 extern struct value *value_of_user_reg (int regnum, struct frame_info *frame);
 
 /* Add a builtin register (present in all architectures).  */
 extern void user_reg_add_builtin (const char *name,
-				  user_reg_read_ftype *read,
-				  const void *baton);
+				  user_reg_read_ftype *read);
 
 /* Add a per-architecture frame register.  */
 extern void user_reg_add (struct gdbarch *gdbarch, const char *name, 
-			  user_reg_read_ftype *read, const void *baton);
+			  user_reg_read_ftype *read);
 
 #endif

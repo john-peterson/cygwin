@@ -1,6 +1,6 @@
 /* The common simulator framework for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney and Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #ifndef SIM_CORE_C
@@ -28,9 +30,6 @@
 
 #if (WITH_HW)
 #include "sim-hw.h"
-#define device_error(client, ...) device_error ((device *)(client), __VA_ARGS__)
-#define device_io_read_buffer(client, ...) device_io_read_buffer ((device *)(client), __VA_ARGS__)
-#define device_io_write_buffer(client, ...) device_io_write_buffer ((device *)(client), __VA_ARGS__)
 #endif
 
 /* "core" module install handler.
@@ -65,7 +64,7 @@ sim_core_install (SIM_DESC sd)
 static void
 sim_core_uninstall (SIM_DESC sd)
 {
-  sim_core *core = STATE_CORE (sd);
+  sim_core *core = STATE_CORE(sd);
   unsigned map;
   /* blow away any mappings */
   for (map = 0; map < nr_maps; map++) {
@@ -74,10 +73,10 @@ sim_core_uninstall (SIM_DESC sd)
       sim_core_mapping *tbd = curr;
       curr = curr->next;
       if (tbd->free_buffer != NULL) {
-	SIM_ASSERT (tbd->buffer != NULL);
-	free (tbd->free_buffer);
+	SIM_ASSERT(tbd->buffer != NULL);
+	zfree(tbd->free_buffer);
       }
-      free (tbd);
+      zfree(tbd);
     }
     core->common.map[map].first = NULL;
   }
@@ -150,7 +149,7 @@ new_sim_core_mapping (SIM_DESC sd,
 		      void *buffer,
 		      void *free_buffer)
 {
-  sim_core_mapping *new_mapping = ZALLOC (sim_core_mapping);
+  sim_core_mapping *new_mapping = ZALLOC(sim_core_mapping);
   /* common */
   new_mapping->level = level;
   new_mapping->space = space;
@@ -198,7 +197,7 @@ sim_core_map_attach (SIM_DESC sd,
   if (nr_bytes == 0)
     {
 #if (WITH_DEVICES)
-      device_error (client, "called on sim_core_map_attach with size zero");
+      device_error(client, "called on sim_core_map_attach with size zero");
 #endif
 #if (WITH_HW)
       sim_hw_abort (sd, client, "called on sim_core_map_attach with size zero");
@@ -209,7 +208,7 @@ sim_core_map_attach (SIM_DESC sd,
   /* find the insertion point (between last/next) */
   next_mapping = access_map->first;
   last_mapping = &access_map->first;
-  while (next_mapping != NULL
+  while(next_mapping != NULL
 	&& (next_mapping->level < level
 	    || (next_mapping->level == level
 		&& next_mapping->bound < addr)))
@@ -220,7 +219,7 @@ sim_core_map_attach (SIM_DESC sd,
       last_mapping = &next_mapping->next;
       next_mapping = next_mapping->next;
     }
-
+  
   /* check insertion point correct */
   SIM_ASSERT (next_mapping == NULL || next_mapping->level >= level);
   if (next_mapping != NULL && next_mapping->level == level
@@ -260,10 +259,10 @@ sim_core_map_attach (SIM_DESC sd,
   }
 
   /* create/insert the new mapping */
-  *last_mapping = new_sim_core_mapping (sd,
-					level,
-					space, addr, nr_bytes, modulo,
-					client, buffer, free_buffer);
+  *last_mapping = new_sim_core_mapping(sd,
+				       level,
+				       space, addr, nr_bytes, modulo,
+				       client, buffer, free_buffer);
   (*last_mapping)->next = next_mapping;
 }
 #endif
@@ -289,7 +288,7 @@ sim_core_attach (SIM_DESC sd,
 #endif
 		 void *optional_buffer)
 {
-  sim_core *memory = STATE_CORE (sd);
+  sim_core *memory = STATE_CORE(sd);
   unsigned map;
   void *buffer;
   void *free_buffer;
@@ -376,7 +375,7 @@ sim_core_attach (SIM_DESC sd,
     }
 
   /* attach the region to all applicable access maps */
-  for (map = 0;
+  for (map = 0; 
        map < nr_maps;
        map++)
     {
@@ -388,7 +387,7 @@ sim_core_attach (SIM_DESC sd,
 	  free_buffer = NULL;
 	}
     }
-
+  
   /* Just copy this map to each of the processor specific data structures.
      FIXME - later this will be replaced by true processor specific
      maps. */
@@ -424,8 +423,8 @@ sim_core_map_detach (SIM_DESC sd,
 	  sim_core_mapping *dead = (*entry);
 	  (*entry) = dead->next;
 	  if (dead->free_buffer != NULL)
-	    free (dead->free_buffer);
-	  free (dead);
+	    zfree (dead->free_buffer);
+	  zfree (dead);
 	  return;
 	}
     }
@@ -463,14 +462,14 @@ sim_core_detach (SIM_DESC sd,
 
 STATIC_INLINE_SIM_CORE\
 (sim_core_mapping *)
-sim_core_find_mapping (sim_core_common *core,
-		       unsigned map,
-		       address_word addr,
-		       unsigned nr_bytes,
-		       transfer_type transfer,
-		       int abort, /*either 0 or 1 - hint to inline/-O */
-		       sim_cpu *cpu, /* abort => cpu != NULL */
-		       sim_cia cia)
+sim_core_find_mapping(sim_core_common *core,
+		      unsigned map,
+		      address_word addr,
+		      unsigned nr_bytes,
+		      transfer_type transfer,
+		      int abort, /*either 0 or 1 - hint to inline/-O */
+		      sim_cpu *cpu, /* abort => cpu != NULL */
+		      sim_cia cia)
 {
   sim_core_mapping *mapping = core->map[map].first;
   ASSERT ((addr & (nr_bytes - 1)) == 0); /* must be aligned */
@@ -519,7 +518,7 @@ sim_core_read_buffer (SIM_DESC sd,
   unsigned count = 0;
   while (count < len)
  {
-    address_word raddr = addr + count;
+    unsigned_word raddr = addr + count;
     sim_core_mapping *mapping =
       sim_core_find_mapping (core, map,
 			    raddr, /*nr-bytes*/1,
@@ -538,9 +537,9 @@ sim_core_read_buffer (SIM_DESC sd,
 				   (unsigned_1*)buffer + count,
 				   mapping->space,
 				   raddr,
-				   nr_bytes,
+				   nr_bytes, 
 				   sd,
-				   cpu,
+				   cpu, 
 				   cia) != nr_bytes)
 	  break;
 	count += nr_bytes;
@@ -564,7 +563,7 @@ sim_core_read_buffer (SIM_DESC sd,
       }
 #endif
     ((unsigned_1*)buffer)[count] =
-      *(unsigned_1*)sim_core_translate (mapping, raddr);
+      *(unsigned_1*)sim_core_translate(mapping, raddr);
     count += 1;
  }
   return count;
@@ -585,7 +584,7 @@ sim_core_write_buffer (SIM_DESC sd,
   unsigned count = 0;
   while (count < len)
     {
-      address_word raddr = addr + count;
+      unsigned_word raddr = addr + count;
       sim_core_mapping *mapping =
 	sim_core_find_mapping (core, map,
 			       raddr, /*nr-bytes*/1,
@@ -607,7 +606,7 @@ sim_core_write_buffer (SIM_DESC sd,
 				      raddr,
 				      nr_bytes,
 				      sd,
-				      cpu,
+				      cpu, 
 				      cia) != nr_bytes)
 	    break;
 	  count += nr_bytes;
@@ -631,7 +630,7 @@ sim_core_write_buffer (SIM_DESC sd,
 	  continue;
 	}
 #endif
-      *(unsigned_1*)sim_core_translate (mapping, raddr) =
+      *(unsigned_1*)sim_core_translate(mapping, raddr) =
 	((unsigned_1*)buffer)[count];
       count += 1;
     }
@@ -672,7 +671,7 @@ sim_core_set_xor (SIM_DESC sd,
 	    core->byte_xor = WITH_XOR_ENDIAN - 1;
 	  else
 	    core->byte_xor = 0;
-	}
+	}	  
     }
   }
   else {
@@ -749,8 +748,8 @@ sim_core_xor_read_buffer (SIM_DESC sd,
     }
 }
 #endif
-
-
+  
+  
 #if EXTERN_SIM_CORE_P
 unsigned
 sim_core_xor_write_buffer (SIM_DESC sd,
@@ -799,25 +798,6 @@ sim_core_xor_write_buffer (SIM_DESC sd,
 	return nr_transfered;
       return nr_bytes;
     }
-}
-#endif
-
-#if EXTERN_SIM_CORE_P
-void *
-sim_core_trans_addr (SIM_DESC sd,
-                     sim_cpu *cpu,
-                     unsigned map,
-                     address_word addr)
-{
-  sim_core_common *core = (cpu == NULL ? &STATE_CORE (sd)->common : &CPU_CORE (cpu)->common);
-  sim_core_mapping *mapping =
-    sim_core_find_mapping (core, map,
-                           addr, /*nr-bytes*/1,
-                           write_transfer,
-                           0 /*dont-abort*/, NULL, NULL_CIA);
-  if (mapping == NULL)
-    return NULL;
-  return sim_core_translate (mapping, addr);
 }
 #endif
 

@@ -1,21 +1,22 @@
 /* frv trap support
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
 This file is part of the GNU simulators.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #define WANT_CPU frvbf
 #define WANT_CPU_FRVBF
@@ -29,7 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "bfd.h"
 #include "libiberty.h"
 
-CGEN_ATTR_VALUE_ENUM_TYPE frv_current_fm_slot;
+CGEN_ATTR_VALUE_TYPE frv_current_fm_slot;
 
 /* The semantic code invokes this for invalid (unrecognized) instructions.  */
 
@@ -49,8 +50,7 @@ frv_core_signal (SIM_DESC sd, SIM_CPU *current_cpu, sim_cia cia,
 {
   if (sig == sim_core_unaligned_signal)
     {
-      if (STATE_ARCHITECTURE (sd)->mach == bfd_mach_fr400
-	  || STATE_ARCHITECTURE (sd)->mach == bfd_mach_fr450)
+      if (STATE_ARCHITECTURE (sd)->mach == bfd_mach_fr400)
 	frv_queue_data_access_error_interrupt (current_cpu, addr);
       else
 	frv_queue_mem_address_not_aligned_interrupt (current_cpu, addr);
@@ -591,13 +591,7 @@ frvbf_media_cr_not_aligned (SIM_CPU *current_cpu)
   /* On some machines this generates an illegal_instruction interrupt.  */
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
-      /* Note: there is a discrepancy between V2.2 of the FR400
-	 instruction manual and the various FR4xx LSI specs.  The former
-	 claims that unaligned registers cause an mp_exception while the
-	 latter say it's an illegal_instruction.  The LSI specs appear
-	 to be correct since MTT is fixed at 1.  */
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
     case bfd_mach_fr550:
       frv_queue_program_interrupt (current_cpu, FRV_ILLEGAL_INSTRUCTION);
       break;
@@ -616,9 +610,7 @@ frvbf_media_acc_not_aligned (SIM_CPU *current_cpu)
   /* On some machines this generates an illegal_instruction interrupt.  */
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
-      /* See comment in frvbf_cr_not_aligned().  */
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
     case bfd_mach_fr550:
       frv_queue_program_interrupt (current_cpu, FRV_ILLEGAL_INSTRUCTION);
       break;
@@ -637,9 +629,7 @@ frvbf_media_register_not_aligned (SIM_CPU *current_cpu)
   /* On some machines this generates an illegal_instruction interrupt.  */
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
-      /* See comment in frvbf_cr_not_aligned().  */
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
     case bfd_mach_fr550:
       frv_queue_program_interrupt (current_cpu, FRV_ILLEGAL_INSTRUCTION);
       break;

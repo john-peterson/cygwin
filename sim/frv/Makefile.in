@@ -1,10 +1,10 @@
 # Makefile template for Configure for the frv simulator
-# Copyright (C) 1998-2013 Free Software Foundation, Inc.
+# Copyright (C) 1998, 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
 # Contributed by Red Hat.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -12,8 +12,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 ## COMMON_PRE_CONFIG_FRAG
 
@@ -34,7 +35,7 @@ SIM_OBJS = \
 	sim-if.o arch.o \
 	$(FRV_OBJS) \
 	traps.o interrupts.o memory.o cache.o pipeline.o \
-	profile.o profile-fr400.o profile-fr450.o profile-fr500.o profile-fr550.o options.o \
+	profile.o profile-fr400.o profile-fr500.o profile-fr550.o options.o \
 	devices.o reset.o registers.o \
 	$(CONFIG_DEVICES)
 
@@ -79,7 +80,6 @@ reset.o: reset.c $(FRVBF_INCLUDE_DEPS)
 registers.o: registers.c $(FRVBF_INCLUDE_DEPS)
 profile.o: profile.c profile-fr400.h profile-fr500.h profile-fr550.h $(FRVBF_INCLUDE_DEPS)
 profile-fr400.o: profile-fr400.c profile-fr400.h $(FRVBF_INCLUDE_DEPS)
-profile-fr450.o: profile-fr450.c $(FRVBF_INCLUDE_DEPS)
 profile-fr500.o: profile-fr500.c profile-fr500.h $(FRVBF_INCLUDE_DEPS)
 profile-fr550.o: profile-fr550.c profile-fr550.h $(FRVBF_INCLUDE_DEPS)
 sim-if.o: sim-if.c $(FRVBF_INCLUDE_DEPS) $(srcdir)/../common/sim-core.h eng.h
@@ -88,7 +88,7 @@ sim-if.o: sim-if.c $(FRVBF_INCLUDE_DEPS) $(srcdir)/../common/sim-core.h eng.h
 # FIXME: Use of `mono' is wip.
 mloop.c eng.h: stamp-mloop
 stamp-mloop: $(srcdir)/../common/genmloop.sh mloop.in Makefile
-	$(SHELL) $(srccom)/genmloop.sh -shell $(SHELL) \
+	$(SHELL) $(srccom)/genmloop.sh \
 		-mono -scache -parallel-generic-write -parallel-only \
 		-cpu frvbf -infile $(srcdir)/mloop.in
 	$(SHELL) $(srcroot)/move-if-change eng.hin eng.h
@@ -121,7 +121,7 @@ arch.h arch.c cpuall.h: $(CGEN_MAINT) stamp-arch
 
 stamp-cpu: $(CGEN_READ_SCM) $(CGEN_CPU_SCM) $(CGEN_DECODE_SCM) $(srcdir)/../../cpu/frv.cpu
 	$(MAKE) cgen-cpu-decode $(CGEN_FLAGS_TO_PASS) \
-	  cpu=frvbf mach=frv,fr550,fr500,fr450,fr400,tomcat,simple SUFFIX= \
+	  cpu=frvbf mach=frv,fr550,fr500,fr400,tomcat,simple SUFFIX= \
 	  archfile=$(srcdir)/../../cpu/frv.cpu \
 	  FLAGS="with-scache with-profile=fn with-generic-write with-parallel-only" \
 	  EXTRAFILES="$(CGEN_CPU_SEM)"

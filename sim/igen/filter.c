@@ -1,6 +1,6 @@
 /* The IGEN simulator generator for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #include <stdio.h>
@@ -216,6 +218,29 @@ is_filtered_out (filter *filters, const char *flags)
 }
 
 
+#if 0
+int
+it_is (const char *flag, const char *flags)
+{
+  int flag_len = strlen (flag);
+  while (*flags != '\0')
+    {
+      if (!strncmp (flags, flag, flag_len)
+	  && (flags[flag_len] == ',' || flags[flag_len] == '\0'))
+	return 1;
+      while (*flags != ',')
+	{
+	  if (*flags == '\0')
+	    return 0;
+	  flags++;
+	}
+      flags++;
+    }
+  return 0;
+}
+#endif
+
+
 char *
 filter_next (filter *set, char *member)
 {
@@ -271,7 +296,12 @@ main (int argc, char **argv)
 
   /* dump various info */
   l = lf_open ("-", "stdout", lf_omit_references, lf_is_text, "tmp-filter");
-
+#if 0
+  if (is_filtered_out (argv[1], superset))
+    lf_printf (l, "excluded\n");
+  else
+    lf_printf (l, "included\n");
+#endif
   /* subset */
   {
     dump_filter (l, "{", subset, " }");

@@ -6,7 +6,7 @@
  * 
  * This program is free software; you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 3 of the License, or (at your option)
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  * 
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -15,11 +15,11 @@
  * more details.
  * 
  * You should have received a copy of the GNU General Public License along with
- * this program; if not, see <http://www.gnu.org/licenses/>.
+ * this program; if not, write to the Free Software Foundation, Inc., 675
+ * Mass Ave, Cambridge, MA 02139, USA.
  * 
  */
 
-#include "config.h"
 #include <signal.h>
 #include <string.h>
 #include <stdio.h>
@@ -27,15 +27,21 @@
 #include <time.h>
 #include <sys/fcntl.h>
 #include "sis.h"
-#include "libiberty.h"
 #include "bfd.h"
 #include <dis-asm.h>
 #include "sim-config.h"
 
 #include "gdb/remote-sim.h"
-#include "gdb/signals.h"
+
+#ifndef fprintf
+extern          fprintf();
+#endif
 
 #define PSR_CWP 0x7
+
+#define	VAL(x)	strtol(x,(char **)NULL,0)
+
+extern char   **buildargv(char *input);
 
 extern struct disassemble_info dinfo;
 extern struct pstate sregs;
@@ -67,7 +73,7 @@ host_callback *sim_callback;
 int
 run_sim(sregs, icount, dis)
     struct pstate  *sregs;
-    uint64          icount;
+    unsigned int    icount;
     int             dis;
 {
     int             mexc, irq;
@@ -232,11 +238,8 @@ sim_open (kind, callback, abfd, argv)
 	    } else
 	    if (strcmp(argv[stat], "-freq") == 0) {
 		if ((stat + 1) < argc) {
-		    freq = strtol(argv[++stat], (char **)NULL, 0);
+		    freq = VAL(argv[++stat]);
 		}
-	    } else
-	    if (strncmp(argv[stat], "--sysroot=", sizeof("--sysroot=") - 1) == 0) {
-		/* Ignore until we start to support this.  */
 	    } else {
 		(*sim_callback->printf_filtered) (sim_callback,
 						  "unknown option %s\n",
@@ -333,7 +336,7 @@ sim_store_register(sd, regno, value, length)
 	regval = (value[3] << 24) | (value[2] << 16)
 		 | (value[1] << 8) | value[0];
     set_regi(&sregs, regno, regval);
-    return length;
+    return -1;
 }
 
 
@@ -352,7 +355,7 @@ int
 sim_write(sd, mem, buf, length)
      SIM_DESC sd;
     SIM_ADDR             mem;
-    const unsigned char  *buf;
+    unsigned char  *buf;
     int             length;
 {
     return (sis_memory_write(mem, buf, length));
@@ -388,13 +391,16 @@ sim_stop_reason(sd, reason, sigrc)
     switch (simstat) {
 	case CTRL_C:
 	*reason = sim_stopped;
-	*sigrc = GDB_SIGNAL_INT;
+	*sigrc = SIGINT;
 	break;
     case OK:
     case TIME_OUT:
     case BPT_HIT:
 	*reason = sim_stopped;
-	*sigrc = GDB_SIGNAL_TRAP;
+#ifdef _WIN32
+#define SIGTRAP 5
+#endif
+	*sigrc = SIGTRAP;
 	break;
     case ERROR:
 	*sigrc = 0;
@@ -462,7 +468,7 @@ flush_windows ()
 void
 sim_resume(SIM_DESC sd, int step, int siggnal)
 {
-    simstat = run_sim(&sregs, UINT64_MAX, 0);
+    simstat = run_sim(&sregs, -1, 0);
 
     if (sis_gdb_break) flush_windows ();
 }
@@ -482,12 +488,6 @@ sim_do_command(sd, cmd)
     char           *cmd;
 {
     exec_cmd(&sregs, cmd);
-}
-
-char **
-sim_complete_command (SIM_DESC sd, char *text, char *word)
-{
-  return NULL;
 }
 
 #if 0 /* FIXME: These shouldn't exist.  */

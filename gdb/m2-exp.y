@@ -1,22 +1,25 @@
 /* YACC grammar for Modula-2 expressions, for GDB.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1999,
+   2000
+   Free Software Foundation, Inc.
    Generated from expread.y (now c-exp.y) and contributed by the Department
    of Computer Science at the State University of New York at Buffalo, 1991.
 
-   This file is part of GDB.
+This file is part of GDB.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* Parse a Modula-2 expression from text in a string,
    and return the result as a  struct expression  pointer.
@@ -33,7 +36,7 @@
    generator.  Doing this with #defines and trying to control the interaction
    with include files (<malloc.h> and <stdlib.h> for example) just became
    too messy, particularly when such includes can be inserted at random
-   times by the parser generator.  */
+   times by the parser generator. */
    
 %{
 
@@ -49,15 +52,12 @@
 #include "objfiles.h" /* For have_full_symbols and have_partial_symbols */
 #include "block.h"
 
-#define parse_type builtin_type (parse_gdbarch)
-#define parse_m2_type builtin_m2_type (parse_gdbarch)
-
 /* Remap normal yacc parser interface names (yyparse, yylex, yyerror, etc),
    as well as gratuitiously global symbol names, so we can have multiple
    yacc generated parsers in gdb.  Note that these are only the variables
    produced by yacc.  If other parser generators (bison, byacc, etc) produce
    additional global names that conflict at link time, then those parser
-   generators need to be fixed instead of adding those names to this list.  */
+   generators need to be fixed instead of adding those names to this list. */
 
 #define	yymaxdepth m2_maxdepth
 #define	yyparse	m2_parse
@@ -99,12 +99,6 @@
 #define yygindex m2_yygindex
 #define yytable	 m2_yytable
 #define yycheck	 m2_yycheck
-#define yyss	m2_yyss
-#define yysslim	m2_yysslim
-#define yyssp	m2_yyssp
-#define yystacksize m2_yystacksize
-#define yyvs	m2_yyvs
-#define yyvsp	m2_yyvsp
 
 #ifndef YYDEBUG
 #define	YYDEBUG 1		/* Default to yydebug support */
@@ -118,10 +112,20 @@ static int yylex (void);
 
 void yyerror (char *);
 
+#if 0
+static char *make_qualname (char *, char *);
+#endif
+
 static int parse_number (int);
 
-/* The sign of the number being parsed.  */
+/* The sign of the number being parsed. */
 static int number_sign = 1;
+
+/* The block that the module specified by the qualifer on an identifer is
+   contained in, */
+#if 0
+static struct block *modblock=0;
+#endif
 
 %}
 
@@ -170,7 +174,6 @@ static int number_sign = 1;
 %token <sval> TYPENAME
 
 %token SIZE CAP ORD HIGH ABS MIN_FUNC MAX_FUNC FLOAT_FUNC VAL CHR ODD TRUNC
-%token TSIZE
 %token INC DEC INCL EXCL
 
 /* The GDB scope operator */
@@ -260,7 +263,7 @@ exp 	:	MIN_FUNC '(' type ')'
 exp	: 	MAX_FUNC '(' type ')'
 			{ write_exp_elt_opcode (UNOP_MAX);
 			  write_exp_elt_type ($3);
-			  write_exp_elt_opcode (UNOP_MAX); }
+			  write_exp_elt_opcode (UNOP_MIN); }
 	;
 
 exp	:	FLOAT_FUNC '(' exp ')'
@@ -283,10 +286,6 @@ exp	:	ODD '(' exp ')'
 
 exp	:	TRUNC '(' exp ')'
 			{ write_exp_elt_opcode (UNOP_TRUNC); }
-	;
-
-exp	:	TSIZE '(' exp ')'
-			{ write_exp_elt_opcode (UNOP_SIZEOF); }
 	;
 
 exp	:	SIZE exp       %prec UNARY
@@ -324,21 +323,21 @@ exp	:	set
 	;
 
 exp	:	exp IN set
-			{ error (_("Sets are not implemented."));}
+			{ error("Sets are not implemented.");}
 	;
 
 exp	:	INCL '(' exp ',' exp ')'
-			{ error (_("Sets are not implemented."));}
+			{ error("Sets are not implemented.");}
 	;
 
 exp	:	EXCL '(' exp ',' exp ')'
-			{ error (_("Sets are not implemented."));}
+			{ error("Sets are not implemented.");}
 	;
 
 set	:	'{' arglist '}'
-			{ error (_("Sets are not implemented."));}
+			{ error("Sets are not implemented.");}
 	|	type '{' arglist '}'
-			{ error (_("Sets are not implemented."));}
+			{ error("Sets are not implemented.");}
 	;
 
 
@@ -353,10 +352,6 @@ exp     :       exp '['
 			  write_exp_elt_longcst ((LONGEST) end_arglist());
 			  write_exp_elt_opcode (MULTI_SUBSCRIPT); }
         ;
-
-exp	:	exp '[' exp ']'
-			{ write_exp_elt_opcode (BINOP_SUBSCRIPT); }
-	;
 
 exp	:	exp '('
 			/* This is to save the value of arglist_len
@@ -493,7 +488,7 @@ exp	:	M2_FALSE
 
 exp	:	INT
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_m2_type->builtin_int);
+			  write_exp_elt_type (builtin_type_m2_int);
 			  write_exp_elt_longcst ((LONGEST) $1);
 			  write_exp_elt_opcode (OP_LONG); }
 	;
@@ -501,7 +496,7 @@ exp	:	INT
 exp	:	UINT
 			{
 			  write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_m2_type->builtin_card);
+			  write_exp_elt_type (builtin_type_m2_card);
 			  write_exp_elt_longcst ((LONGEST) $1);
 			  write_exp_elt_opcode (OP_LONG);
 			}
@@ -509,7 +504,7 @@ exp	:	UINT
 
 exp	:	CHAR
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_m2_type->builtin_char);
+			  write_exp_elt_type (builtin_type_m2_char);
 			  write_exp_elt_longcst ((LONGEST) $1);
 			  write_exp_elt_opcode (OP_LONG); }
 	;
@@ -517,7 +512,7 @@ exp	:	CHAR
 
 exp	:	FLOAT
 			{ write_exp_elt_opcode (OP_DOUBLE);
-			  write_exp_elt_type (parse_m2_type->builtin_real);
+			  write_exp_elt_type (builtin_type_m2_real);
 			  write_exp_elt_dblcst ($1);
 			  write_exp_elt_opcode (OP_DOUBLE); }
 	;
@@ -527,7 +522,7 @@ exp	:	variable
 
 exp	:	SIZE '(' type ')'	%prec UNARY
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_type->builtin_int);
+			  write_exp_elt_type (builtin_type_int);
 			  write_exp_elt_longcst ((LONGEST) TYPE_LENGTH ($3));
 			  write_exp_elt_opcode (OP_LONG); }
 	;
@@ -538,7 +533,7 @@ exp	:	STRING
 			  write_exp_elt_opcode (OP_M2_STRING); }
 	;
 
-/* This will be used for extensions later.  Like adding modules.  */
+/* This will be used for extensions later.  Like adding modules. */
 block	:	fblock	
 			{ $$ = SYMBOL_BLOCK_VALUE($1); }
 	;
@@ -546,7 +541,7 @@ block	:	fblock
 fblock	:	BLOCKNAME
 			{ struct symbol *sym
 			    = lookup_symbol (copy_name ($1), expression_context_block,
-					     VAR_DOMAIN, 0);
+					     VAR_DOMAIN, 0, NULL);
 			  $$ = sym;}
 	;
 			     
@@ -555,9 +550,9 @@ fblock	:	BLOCKNAME
 fblock	:	block COLONCOLON BLOCKNAME
 			{ struct symbol *tem
 			    = lookup_symbol (copy_name ($3), $1,
-					     VAR_DOMAIN, 0);
+					     VAR_DOMAIN, 0, NULL);
 			  if (!tem || SYMBOL_CLASS (tem) != LOC_BLOCK)
-			    error (_("No function \"%s\" in specified context."),
+			    error ("No function \"%s\" in specified context.",
 				   copy_name ($3));
 			  $$ = tem;
 			}
@@ -579,17 +574,10 @@ variable:	INTERNAL_VAR
 variable:	block COLONCOLON NAME
 			{ struct symbol *sym;
 			  sym = lookup_symbol (copy_name ($3), $1,
-					       VAR_DOMAIN, 0);
+					       VAR_DOMAIN, 0, NULL);
 			  if (sym == 0)
-			    error (_("No symbol \"%s\" in specified context."),
+			    error ("No symbol \"%s\" in specified context.",
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -598,15 +586,16 @@ variable:	block COLONCOLON NAME
 			  write_exp_elt_opcode (OP_VAR_VALUE); }
 	;
 
-/* Base case for variables.  */
+/* Base case for variables. */
 variable:	NAME
 			{ struct symbol *sym;
-			  struct field_of_this_result is_a_field_of_this;
+			  int is_a_field_of_this;
 
  			  sym = lookup_symbol (copy_name ($1),
 					       expression_context_block,
 					       VAR_DOMAIN,
-					       &is_a_field_of_this);
+					       &is_a_field_of_this,
+					       NULL);
 			  if (sym)
 			    {
 			      if (symbol_read_needs_frame (sym))
@@ -633,11 +622,16 @@ variable:	NAME
 			      msymbol =
 				lookup_minimal_symbol (arg, NULL, NULL);
 			      if (msymbol != NULL)
-				write_exp_msymbol (msymbol);
+				{
+				  write_exp_msymbol
+				    (msymbol,
+				     lookup_function_type (builtin_type_int),
+				     builtin_type_int);
+				}
 			      else if (!have_full_symbols () && !have_partial_symbols ())
-				error (_("No symbol table is loaded.  Use the \"symbol-file\" command."));
+				error ("No symbol table is loaded.  Use the \"symbol-file\" command.");
 			      else
-				error (_("No symbol \"%s\" in current context."),
+				error ("No symbol \"%s\" in current context.",
 				       copy_name ($1));
 			    }
 			}
@@ -645,13 +639,28 @@ variable:	NAME
 
 type
 	:	TYPENAME
-			{ $$ = lookup_typename (parse_language, parse_gdbarch,
-						copy_name ($1),
+			{ $$ = lookup_typename (copy_name ($1),
 						expression_context_block, 0); }
 
 	;
 
 %%
+
+#if 0  /* FIXME! */
+int
+overflow(a,b)
+   long a,b;
+{
+   return (MAX_OF_TYPE(builtin_type_m2_int) - b) < a;
+}
+
+int
+uoverflow(a,b)
+   unsigned long a,b;
+{
+   return (MAX_OF_TYPE(builtin_type_m2_card) - b) < a;
+}
+#endif /* FIXME */
 
 /* Take care of parsing a number (anything that starts with a digit).
    Set yylval and return the token type; update lexptr.
@@ -660,7 +669,8 @@ type
 /*** Needs some error checking for the float case ***/
 
 static int
-parse_number (int olen)
+parse_number (olen)
+     int olen;
 {
   char *p = lexptr;
   LONGEST n = 0;
@@ -693,9 +703,9 @@ parse_number (int olen)
 	return FLOAT;
       }
     if (p[c] == '.' && base != 10)
-       error (_("Floating point numbers must be base 10."));
+       error("Floating point numbers must be base 10.");
     if (base == 10 && (p[c] < '0' || p[c] > '9'))
-       error (_("Invalid digit \'%c\' in number."),p[c]);
+       error("Invalid digit \'%c\' in number.",p[c]);
  }
 
   while (len-- > 0)
@@ -703,7 +713,7 @@ parse_number (int olen)
       c = *p++;
       n *= base;
       if( base == 8 && (c == '8' || c == '9'))
-	 error (_("Invalid digit \'%c\' in octal number."),c);
+	 error("Invalid digit \'%c\' in octal number.",c);
       if (c >= '0' && c <= '9')
 	i = c - '0';
       else
@@ -719,12 +729,12 @@ parse_number (int olen)
       if(!unsigned_p && number_sign == 1 && (prevn >= n))
 	 unsigned_p=1;		/* Try something unsigned */
       /* Don't do the range check if n==i and i==0, since that special
-	 case will give an overflow error.  */
+	 case will give an overflow error. */
       if(RANGE_CHECK && n!=i && i)
       {
 	 if((unsigned_p && (unsigned)prevn >= (unsigned)n) ||
 	    ((!unsigned_p && number_sign==-1) && -prevn <= -n))
-	    range_error (_("Overflow on numeric constant."));
+	    range_error("Overflow on numeric constant.");
       }
 	 prevn=n;
     }
@@ -744,7 +754,7 @@ parse_number (int olen)
      return UINT;
   }
   else if((unsigned_p && (n<0))) {
-     range_error (_("Overflow on numeric constant -- number too large."));
+     range_error("Overflow on numeric constant -- number too large.");
      /* But, this can return if range_check == range_warn.  */
   }
   yylval.lval = n;
@@ -799,7 +809,6 @@ static struct keyword keytab[] =
     {"SIZE",  SIZE       },
     {"FLOAT", FLOAT_FUNC },
     {"TRUNC", TRUNC	 },
-    {"TSIZE", SIZE       },
 };
 
 
@@ -809,7 +818,7 @@ static struct keyword keytab[] =
    compatible  */
 
 static int
-yylex (void)
+yylex ()
 {
   int c;
   int namelen;
@@ -826,7 +835,7 @@ yylex (void)
 
   /* See if it is a special token of length 2 */
   for( i = 0 ; i < (int) (sizeof tokentab2 / sizeof tokentab2[0]) ; i++)
-     if (strncmp (tokentab2[i].name, tokstart, 2) == 0)
+     if(DEPRECATED_STREQN(tokentab2[i].name, tokstart, 2))
      {
 	lexptr += 2;
 	return tokentab2[i].token;
@@ -906,7 +915,7 @@ yylex (void)
 	      }
 	  }
       if(c != quote)
-	 error (_("Unterminated string or character constant."));
+	 error("Unterminated string or character constant.");
       yylval.sval.ptr = tokstart + 1;
       yylval.sval.length = namelen - 1;
       lexptr += namelen + 1;
@@ -953,7 +962,7 @@ yylex (void)
 
 	    memcpy (err_copy, tokstart, p - tokstart);
 	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
+	    error ("Invalid number \"%s\".", err_copy);
 	  }
 	lexptr = p;
 	return toktype;
@@ -962,7 +971,7 @@ yylex (void)
   if (!(c == '_' || c == '$'
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
     /* We must have come across a bad character (e.g. ';').  */
-    error (_("Invalid character '%c' in expression."), c);
+    error ("Invalid character '%c' in expression.", c);
 
   /* It's a name.  See how long it is.  */
   namelen = 0;
@@ -983,8 +992,7 @@ yylex (void)
 
   /*  Lookup special keywords */
   for(i = 0 ; i < (int) (sizeof(keytab) / sizeof(keytab[0])) ; i++)
-     if (namelen == strlen (keytab[i].keyw)
-	 && strncmp (tokstart, keytab[i].keyw, namelen) == 0)
+     if(namelen == strlen(keytab[i].keyw) && DEPRECATED_STREQN(tokstart,keytab[i].keyw,namelen))
 	   return keytab[i].token;
 
   yylval.sval.ptr = tokstart;
@@ -1007,29 +1015,34 @@ yylex (void)
     char *tmp = copy_name (yylval.sval);
     struct symbol *sym;
 
-    if (lookup_symtab (tmp))
+    if (lookup_partial_symtab (tmp))
       return BLOCKNAME;
-    sym = lookup_symbol (tmp, expression_context_block, VAR_DOMAIN, 0);
+    sym = lookup_symbol (tmp, expression_context_block,
+			 VAR_DOMAIN, 0, NULL);
     if (sym && SYMBOL_CLASS (sym) == LOC_BLOCK)
       return BLOCKNAME;
-    if (lookup_typename (parse_language, parse_gdbarch,
-			 copy_name (yylval.sval), expression_context_block, 1))
+    if (lookup_typename (copy_name (yylval.sval), expression_context_block, 1))
       return TYPENAME;
 
     if(sym)
     {
-      switch(SYMBOL_CLASS (sym))
+       switch(sym->aclass)
        {
        case LOC_STATIC:
        case LOC_REGISTER:
        case LOC_ARG:
        case LOC_REF_ARG:
+       case LOC_REGPARM:
        case LOC_REGPARM_ADDR:
        case LOC_LOCAL:
+       case LOC_LOCAL_ARG:
+       case LOC_BASEREG:
+       case LOC_BASEREG_ARG:
        case LOC_CONST:
        case LOC_CONST_BYTES:
        case LOC_OPTIMIZED_OUT:
        case LOC_COMPUTED:
+       case LOC_COMPUTED_ARG:
 	  return NAME;
 
        case LOC_TYPEDEF:
@@ -1039,42 +1052,57 @@ yylex (void)
 	  return BLOCKNAME;
 
        case LOC_UNDEF:
-	  error (_("internal:  Undefined class in m2lex()"));
+	  error("internal:  Undefined class in m2lex()");
 
        case LOC_LABEL:
        case LOC_UNRESOLVED:
-	  error (_("internal:  Unforseen case in m2lex()"));
+	  error("internal:  Unforseen case in m2lex()");
 
        default:
-	  error (_("unhandled token in m2lex()"));
+	  error ("unhandled token in m2lex()");
 	  break;
        }
     }
     else
     {
-       /* Built-in BOOLEAN type.  This is sort of a hack.  */
-       if (strncmp (tokstart, "TRUE", 4) == 0)
+       /* Built-in BOOLEAN type.  This is sort of a hack. */
+       if(DEPRECATED_STREQN(tokstart,"TRUE",4))
        {
 	  yylval.ulval = 1;
 	  return M2_TRUE;
        }
-       else if (strncmp (tokstart, "FALSE", 5) == 0)
+       else if(DEPRECATED_STREQN(tokstart,"FALSE",5))
        {
 	  yylval.ulval = 0;
 	  return M2_FALSE;
        }
     }
 
-    /* Must be another type of name...  */
+    /* Must be another type of name... */
     return NAME;
  }
 }
 
+#if 0		/* Unused */
+static char *
+make_qualname(mod,ident)
+   char *mod, *ident;
+{
+   char *new = malloc(strlen(mod)+strlen(ident)+2);
+
+   strcpy(new,mod);
+   strcat(new,".");
+   strcat(new,ident);
+   return new;
+}
+#endif  /* 0 */
+
 void
-yyerror (char *msg)
+yyerror (msg)
+     char *msg;
 {
   if (prev_lexptr)
     lexptr = prev_lexptr;
 
-  error (_("A %s in expression, near `%s'."), (msg ? msg : "error"), lexptr);
+  error ("A %s in expression, near `%s'.", (msg ? msg : "error"), lexptr);
 }

@@ -1,12 +1,12 @@
 /* Interface to C preprocessor macro tables for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef MACROTAB_H
 #define MACROTAB_H
@@ -72,8 +74,6 @@ struct bcache;
 /* A table of all the macro definitions for a given compilation unit.  */
 struct macro_table;
 
-/* The definition of a single macro.  */
-struct macro_definition;
 
 /* A source file that participated in a compilation unit --- either a
    main file, or an #included file.  If a file is #included more than
@@ -154,15 +154,15 @@ struct macro_source_file
    amongst compilation units in an executable file; if BCACHE is zero,
    don't cache these things.
 
-   Note that, if either OBSTACK or BCACHE are non-zero, then removing
-   information from the table may leak memory.  Neither obstacks nor
-   bcaches really allow you to remove information, so although we can
-   update the data structure to record the change, we can't free the
-   old data.  At the moment, since we only provide obstacks and
-   bcaches for macro tables for symtabs, this isn't a problem; only
-   odd debugging information makes a definition and then deletes it at
-   the same source location (although 'gcc -DFOO -UFOO -DFOO=2' does
-   do that in GCC 4.1.2.).  */
+   Note that, if either OBSTACK or BCACHE are non-zero, then you
+   should only ever add information the macro table --- you should
+   never remove things from it.  You'll get an error if you try.  At
+   the moment, since we only provide obstacks and bcaches for macro
+   tables for symtabs, this restriction makes a nice sanity check.
+   Obstacks and bcaches are pretty much grow-only structures anyway.
+   However, if we find that it's occasionally useful to delete things
+   even from the symtab's tables, and the storage leak isn't a
+   problem, this restriction could be lifted.  */
 struct macro_table *new_macro_table (struct obstack *obstack,
                                      struct bcache *bcache);
 
@@ -191,11 +191,6 @@ struct macro_source_file *macro_set_main (struct macro_table *table,
 /* Return the main source file of the macro table TABLE.  */
 struct macro_source_file *macro_main (struct macro_table *table);
 
-/* Mark the macro table TABLE so that macros defined in this table can
-   be redefined without error.  Note that it invalid to call this if
-   TABLE is allocated on an obstack.  */
-void macro_allow_redefinitions (struct macro_table *table);
-
 
 /* Record a #inclusion.
    Record in SOURCE's macro table that, at line number LINE in SOURCE,
@@ -212,10 +207,6 @@ struct macro_source_file *macro_include (struct macro_source_file *source,
                                          int line,
                                          const char *included);
 
-/* Define any special macros, like __FILE__ or __LINE__.  This should
-   be called once, on the main source file.  */
-
-void macro_define_special (struct macro_table *table);
 
 /* Find any source file structure for a file named NAME, either
    included into SOURCE, or SOURCE itself.  Return zero if we have
@@ -258,6 +249,7 @@ void macro_define_function (struct macro_source_file *source, int line,
 void macro_undef (struct macro_source_file *source, int line,
                   const char *name);
 
+
 /* Different kinds of macro definitions.  */
 enum macro_kind
 {
@@ -265,17 +257,6 @@ enum macro_kind
   macro_function_like
 };
 
-/* Different kinds of special macros.  */
-
-enum macro_special_kind
-{
-  /* Ordinary.  */
-  macro_ordinary,
-  /* The special macro __FILE__.  */
-  macro_FILE,
-  /* The special macro __LINE__.  */
-  macro_LINE
-};
 
 /* A preprocessor symbol definition.  */
 struct macro_definition
@@ -284,21 +265,16 @@ struct macro_definition
   struct macro_table *table;
 
   /* What kind of macro it is.  */
-  ENUM_BITFIELD (macro_kind) kind : 1;
+  enum macro_kind kind;
 
   /* If `kind' is `macro_function_like', the number of arguments it
      takes, and their names.  The names, and the array of pointers to
-     them, are in the table's bcache, if it has one.  If `kind' is
-     `macro_object_like', then this is actually a `macro_special_kind'
-     describing the macro.  */
-  int argc : 30;
+     them, are in the table's bcache, if it has one.  */
+  int argc;
   const char * const *argv;
 
-  /* The replacement string (body) of the macro.  For ordinary macros,
-     this is in the table's bcache, if it has one.  For special macros
-     like __FILE__, this value is only valid until the next use of any
-     special macro definition; that is, it is reset each time any
-     special macro is looked up or iterated over.  */
+  /* The replacement string (body) of the macro.  This is in the
+     table's bcache, if it has one.  */
   const char *replacement;
 };
 
@@ -323,29 +299,6 @@ struct macro_source_file *(macro_definition_location
                             int line,
                             const char *name,
                             int *definition_line));
-
-/* Callback function when walking a macro table.  NAME is the name of
-   the macro, and DEFINITION is the definition.  SOURCE is the file at the
-   start of the include path, and LINE is the line number of the SOURCE file
-   where the macro was defined.  USER_DATA is an arbitrary pointer which is
-   passed by the caller to macro_for_each or macro_for_each_in_scope.  */
-typedef void (*macro_callback_fn) (const char *name,
-				   const struct macro_definition *definition,
-				   struct macro_source_file *source,
-				   int line,
-				   void *user_data);
-
-/* Call the function FN for each macro in the macro table TABLE.
-   USER_DATA is passed, untranslated, to FN.  */
-void macro_for_each (struct macro_table *table, macro_callback_fn fn,
-		     void *user_data);
-
-/* Call the function FN for each macro that is visible in a given
-   scope.  The scope is represented by FILE and LINE.  USER_DATA is
-   passed, untranslated, to FN.  */
-void macro_for_each_in_scope (struct macro_source_file *file, int line,
-			      macro_callback_fn fn,
-			      void *user_data);
 
 
 #endif /* MACROTAB_H */

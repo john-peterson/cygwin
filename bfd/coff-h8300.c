@@ -1,6 +1,6 @@
 /* BFD back-end for Renesas H8/300 COFF binaries.
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2012
+   2000, 2001, 2002, 2003
    Free Software Foundation, Inc.
    Written by Steve Chamberlain, <sac@cygnus.com>.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,11 +18,10 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "bfdlink.h"
 #include "genlink.h"
@@ -60,6 +59,35 @@ struct funcvec_hash_table
     unsigned int offset;
   };
 
+static struct bfd_hash_entry *
+funcvec_hash_newfunc
+  (struct bfd_hash_entry *, struct bfd_hash_table *, const char *);
+
+static bfd_boolean
+funcvec_hash_table_init
+  (struct funcvec_hash_table *, bfd *,
+   struct bfd_hash_entry *(*) (struct bfd_hash_entry *,
+			       struct bfd_hash_table *,
+			       const char *));
+
+static bfd_reloc_status_type special
+  (bfd *, arelent *, asymbol *, PTR, asection *, bfd *, char **);
+static int select_reloc
+  (reloc_howto_type *);
+static void rtype2howto
+  (arelent *, struct internal_reloc *);
+static void reloc_processing
+  (arelent *, struct internal_reloc *, asymbol **, bfd *, asection *);
+static bfd_boolean h8300_symbol_address_p
+  (bfd *, asection *, bfd_vma);
+static int h8300_reloc16_estimate
+  (bfd *, asection *, arelent *, unsigned int,
+   struct bfd_link_info *);
+static void h8300_reloc16_extra_cases
+  (bfd *, struct bfd_link_info *, struct bfd_link_order *, arelent *,
+   bfd_byte *, unsigned int *, unsigned int *);
+static bfd_boolean h8300_bfd_link_add_symbols
+  (bfd *, struct bfd_link_info *);
 
 /* To lookup a value in the function vector hash table.  */
 #define funcvec_hash_lookup(table, string, create, copy) \
@@ -153,14 +181,13 @@ funcvec_hash_table_init (struct funcvec_hash_table *table,
 			 struct bfd_hash_entry *(*newfunc)
 			   (struct bfd_hash_entry *,
 			    struct bfd_hash_table *,
-			    const char *),
-			 unsigned int entsize)
+			    const char *))
 {
   /* Initialize our local fields, then call the generic initialization
      routine.  */
   table->offset = 0;
   table->abfd = abfd;
-  return (bfd_hash_table_init (&table->root, newfunc, entsize));
+  return (bfd_hash_table_init (&table->root, newfunc));
 }
 
 /* Create the derived linker hash table.  We use a derived hash table
@@ -177,8 +204,7 @@ h8300_coff_link_hash_table_create (bfd *abfd)
   if (ret == NULL)
     return NULL;
   if (!_bfd_link_hash_table_init (&ret->root.root, abfd,
-				  _bfd_generic_link_hash_newfunc,
-				  sizeof (struct generic_link_hash_entry)))
+				  _bfd_generic_link_hash_newfunc))
     {
       free (ret);
       return NULL;
@@ -202,13 +228,13 @@ h8300_coff_link_hash_table_create (bfd *abfd)
    the addend until the final link.  */
 
 static bfd_reloc_status_type
-special (bfd *      abfd ATTRIBUTE_UNUSED,
-	 arelent *  reloc_entry ATTRIBUTE_UNUSED,
-	 asymbol *  symbol ATTRIBUTE_UNUSED,
-	 void *     data ATTRIBUTE_UNUSED,
-	 asection * input_section ATTRIBUTE_UNUSED,
-	 bfd *      output_bfd,
-	 char **    error_message ATTRIBUTE_UNUSED)
+special (bfd *abfd ATTRIBUTE_UNUSED,
+	 arelent *reloc_entry ATTRIBUTE_UNUSED,
+	 asymbol *symbol ATTRIBUTE_UNUSED,
+	 PTR data ATTRIBUTE_UNUSED,
+	 asection *input_section ATTRIBUTE_UNUSED,
+	 bfd *output_bfd,
+	 char **error_message ATTRIBUTE_UNUSED)
 {
   if (output_bfd == (bfd *) NULL)
     return bfd_reloc_continue;
@@ -218,8 +244,7 @@ special (bfd *      abfd ATTRIBUTE_UNUSED,
   return bfd_reloc_ok;
 }
 
-static reloc_howto_type howto_table[] =
-{
+static reloc_howto_type howto_table[] = {
   HOWTO (R_RELBYTE, 0, 0, 8, FALSE, 0, complain_overflow_bitfield, special, "8", FALSE, 0x000000ff, 0x000000ff, FALSE),
   HOWTO (R_RELWORD, 0, 1, 16, FALSE, 0, complain_overflow_bitfield, special, "16", FALSE, 0x0000ffff, 0x0000ffff, FALSE),
   HOWTO (R_RELLONG, 0, 2, 32, FALSE, 0, complain_overflow_bitfield, special, "32", FALSE, 0xffffffff, 0xffffffff, FALSE),
@@ -240,8 +265,8 @@ static reloc_howto_type howto_table[] =
      the function vector's entry in the jsr instruction.  */
   HOWTO (R_MEM_INDIRECT, 0, 0, 8, FALSE, 0, complain_overflow_bitfield, special, "8/indirect", FALSE, 0x000000ff, 0x000000ff, FALSE),
 
-  /* Internal reloc for relaxing.  This is created when a 16-bit pc-relative
-     branch is turned into an 8-bit pc-relative branch.  */
+  /* Internal reloc for relaxing.  This is created when a 16bit pc-relative
+     branch is turned into an 8bit pc-relative branch.  */
   HOWTO (R_PCRWORD_B, 0, 0, 8, TRUE, 0, complain_overflow_bitfield, special, "relaxed bCC:16", FALSE, 0x000000ff, 0x000000ff, FALSE),
 
   HOWTO (R_MOVL1, 0, 2, 32, FALSE, 0, complain_overflow_bitfield,special, "32/24 relaxable move", FALSE, 0xffffffff, 0xffffffff, FALSE),
@@ -372,7 +397,11 @@ reloc_processing (arelent *relent, struct internal_reloc *reloc,
     relent->sym_ptr_ptr = bfd_abs_section_ptr->symbol_ptr_ptr;
 
   relent->addend = reloc->r_offset;
+
   relent->address -= section->vma;
+#if 0
+  relent->section = 0;
+#endif
 }
 
 static bfd_boolean
@@ -429,8 +458,8 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
   /* Only examine the relocs which might be relaxable.  */
   switch (reloc->howto->type)
     {
-      /* This is the 16-/24-bit absolute branch which could become an
-	 8-bit pc-relative branch.  */
+      /* This is the 16/24 bit absolute branch which could become an 8 bit
+	 pc-relative branch.  */
     case R_JMP1:
     case R_JMPL1:
       /* Get the address of the target of this branch.  */
@@ -518,7 +547,7 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
 	}
       break;
 
-    /* This is the 16-bit pc-relative branch which could become an 8-bit
+    /* This is the 16 bit pc-relative branch which could become an 8 bit
        pc-relative branch.  */
     case R_PCRWORD:
       /* Get the address of the target of this branch, add one to the value
@@ -546,8 +575,8 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
 	}
       break;
 
-    /* This is a 16-bit absolute address in a mov.b insn, which can
-       become an 8-bit absolute address if it's in the right range.  */
+    /* This is a 16 bit absolute address in a mov.b insn, which can
+       become an 8 bit absolute address if it's in the right range.  */
     case R_MOV16B1:
       /* Get the address of the data referenced by this mov.b insn.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
@@ -566,9 +595,9 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
 	}
       break;
 
-    /* Similarly for a 24-bit absolute address in a mov.b.  Note that
-       if we can't relax this into an 8-bit absolute, we'll fall through
-       and try to relax it into a 16-bit absolute.  */
+    /* Similarly for a 24 bit absolute address in a mov.b.  Note that
+       if we can't relax this into an 8 bit absolute, we'll fall through
+       and try to relax it into a 16bit absolute.  */
     case R_MOV24B1:
       /* Get the address of the data referenced by this mov.b insn.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
@@ -587,11 +616,11 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
 	  break;
 	}
 
-      /* FALLTHROUGH and try to turn the 24-/32-bit reloc into a 16-bit
+      /* FALLTHROUGH and try to turn the 32/24 bit reloc into a 16 bit
 	 reloc.  */
 
-    /* This is a 24-/32-bit absolute address in a mov insn, which can
-       become an 16-bit absolute address if it's in the right range.  */
+    /* This is a 24/32 bit absolute address in a mov insn, which can
+       become an 16 bit absolute address if it's in the right range.  */
     case R_MOVL1:
       /* Get the address of the data referenced by this mov insn.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
@@ -637,16 +666,15 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
   bfd_vma value;
   bfd_vma dot;
   int gap, tmp;
-  unsigned char temp_code;
 
   switch (reloc->howto->type)
     {
-    /* Generic 8-bit pc-relative relocation.  */
+    /* Generic 8bit pc-relative relocation.  */
     case R_PCRBYTE:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma);
 
@@ -656,8 +684,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       if (gap < -128 || gap > 126)
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
@@ -672,13 +699,13 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* All done.  */
       break;
 
-    /* Generic 16-bit pc-relative relocation.  */
+    /* Generic 16bit pc-relative relocation.  */
     case R_PCRWORD:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
       /* Get the address of the instruction (not the reloc).  */
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma + 1);
 
@@ -688,8 +715,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       if (gap > 32766 || gap < -32768)
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
@@ -704,7 +730,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* All done.  */
       break;
 
-    /* Generic 8-bit absolute relocation.  */
+    /* Generic 8bit absolute relocation.  */
     case R_RELBYTE:
       /* Get the address of the object referenced by this insn.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
@@ -716,7 +742,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* All done.  */
       break;
 
-    /* Various simple 16-bit absolute relocations.  */
+    /* Various simple 16bit absolute relocations.  */
     case R_MOV16B1:
     case R_JMP1:
     case R_RELWORD:
@@ -726,7 +752,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       src_address += 2;
       break;
 
-    /* Various simple 24-/32-bit absolute relocations.  */
+    /* Various simple 24/32bit absolute relocations.  */
     case R_MOV24B1:
     case R_MOVL1:
     case R_RELLONG:
@@ -737,7 +763,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       src_address += 4;
       break;
 
-    /* Another 24-/32-bit absolute relocation.  */
+    /* Another 24/32bit absolute relocation.  */
     case R_JMPL1:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
@@ -749,15 +775,8 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       src_address += 4;
       break;
 
-      /* This is a 24-/32-bit absolute address in one of the following
-	 instructions:
-
-	   "band", "bclr", "biand", "bild", "bior", "bist", "bixor",
-	   "bld", "bnot", "bor", "bset", "bst", "btst", "bxor", "ldc.w",
-	   "stc.w" and "mov.[bwl]"
-
-	 We may relax this into an 16-bit absolute address if it's in
-	 the right range.  */
+    /* A 16bit absolute relocation that was formerly a 24/32bit
+       absolute relocation.  */
     case R_MOVL2:
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
       value = bfd_h8300_pad_address (abfd, value);
@@ -765,12 +784,11 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* Sanity check.  */
       if (value <= 0x7fff || value >= 0xffff8000u)
 	{
-	  /* Insert the 16-bit value into the proper location.  */
+	  /* Insert the 16bit value into the proper location.  */
 	  bfd_put_16 (abfd, value, data + dst_address);
 
-	  /* Fix the opcode.  For all the instructions that belong to
-	     this relaxation, we simply need to turn off bit 0x20 in
-	     the previous byte.  */
+	  /* Fix the opcode.  For all the move insns, we simply
+	     need to turn off bit 0x20 in the previous byte.  */
 	  data[dst_address - 1] &= ~0x20;
 	  dst_address += 2;
 	  src_address += 4;
@@ -778,21 +796,20 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       else
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
 	}
       break;
 
-    /* A 16-bit absolute branch that is now an 8-bit pc-relative branch.  */
+    /* A 16bit absolute branch that is now an 8-bit pc-relative branch.  */
     case R_JMP2:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
       /* Get the address of the next instruction.  */
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma + 1);
 
@@ -802,8 +819,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       if (gap < -128 || gap > 126)
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
@@ -817,7 +833,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	  bfd_put_8 (abfd, 0x55, data + dst_address - 1);
 	  break;
 	case 0x5a:
-	  /* jmp -> bra */
+	  /* jmp ->bra */
 	  bfd_put_8 (abfd, 0x40, data + dst_address - 1);
 	  break;
 
@@ -825,7 +841,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	  abort ();
 	}
 
-      /* Write out the 8-bit value.  */
+      /* Write out the 8bit value.  */
       bfd_put_8 (abfd, gap, data + dst_address);
 
       dst_address += 1;
@@ -833,13 +849,13 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 
       break;
 
-    /* A 16-bit pc-relative branch that is now an 8-bit pc-relative branch.  */
+    /* A 16bit pc-relative branch that is now an 8-bit pc-relative branch.  */
     case R_PCRWORD_B:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
       /* Get the address of the instruction (not the reloc).  */
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma - 1);
 
@@ -849,8 +865,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       if (gap < -128 || gap > 126)
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
@@ -861,15 +876,12 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	{
 	case 0x58:
 	  /* bCC:16 -> bCC:8 */
-	  /* Get the second byte of the original insn, which contains
-	     the condition code.  */
+	  /* Get the condition code from the original insn.  */
 	  tmp = data[dst_address - 1];
-
-	  /* Compute the fisrt byte of the relaxed instruction.  The
-	     original sequence 0x58 0xX0 is relaxed to 0x4X, where X
-	     represents the condition code.  */
 	  tmp &= 0xf0;
 	  tmp >>= 4;
+
+	  /* Now or in the high nibble of the opcode.  */
 	  tmp |= 0x40;
 
 	  /* Write it.  */
@@ -888,19 +900,19 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* Output the target.  */
       bfd_put_8 (abfd, gap, data + dst_address - 1);
 
-      /* We don't advance dst_address -- the 8-bit reloc is applied at
+      /* We don't advance dst_address -- the 8bit reloc is applied at
 	 dst_address - 1, so the next insn should begin at dst_address.  */
       src_address += 2;
 
       break;
 
-    /* Similarly for a 24-bit absolute that is now 8 bits.  */
+    /* Similarly for a 24bit absolute that is now 8 bits.  */
     case R_JMPL2:
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
       /* Get the address of the instruction (not the reloc).  */
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma + 2);
 
@@ -927,51 +939,22 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 
       break;
 
-      /* This is a 16-bit absolute address in one of the following
-	 instructions:
-
-	   "band", "bclr", "biand", "bild", "bior", "bist", "bixor",
-	   "bld", "bnot", "bor", "bset", "bst", "btst", "bxor", and
-	   "mov.b"
-
-	 We may relax this into an 8-bit absolute address if it's in
-	 the right range.  */
+    /* A 16bit absolute mov.b that is now an 8bit absolute mov.b.  */
     case R_MOV16B2:
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
-      /* All instructions with R_H8_DIR16B2 start with 0x6a.  */
+      /* Sanity check.  */
       if (data[dst_address - 2] != 0x6a)
 	abort ();
 
-      temp_code = data[src_address - 1];
-
-      /* If this is a mov.b instruction, clear the lower nibble, which
-	 contains the source/destination register number.  */
-      if ((temp_code & 0x10) != 0x10)
-	temp_code &= 0xf0;
-
       /* Fix up the opcode.  */
-      switch (temp_code)
+      switch (data[src_address - 1] & 0xf0)
 	{
 	case 0x00:
-	  /* This is mov.b @aa:16,Rd.  */
 	  data[dst_address - 2] = (data[src_address - 1] & 0xf) | 0x20;
 	  break;
 	case 0x80:
-	  /* This is mov.b Rs,@aa:16.  */
 	  data[dst_address - 2] = (data[src_address - 1] & 0xf) | 0x30;
-	  break;
-	case 0x18:
-	  /* This is a bit-maniputation instruction that stores one
-	     bit into memory, one of "bclr", "bist", "bnot", "bset",
-	     and "bst".  */
-	  data[dst_address - 2] = 0x7f;
-	  break;
-	case 0x10:
-	  /* This is a bit-maniputation instruction that loads one bit
-	     from memory, one of "band", "biand", "bild", "bior",
-	     "bixor", "bld", "bor", "btst", and "bxor".  */
-	  data[dst_address - 2] = 0x7e;
 	  break;
 	default:
 	  abort ();
@@ -981,51 +964,22 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       src_address += 2;
       break;
 
-      /* This is a 24-bit absolute address in one of the following
-	 instructions:
-
-	   "band", "bclr", "biand", "bild", "bior", "bist", "bixor",
-	   "bld", "bnot", "bor", "bset", "bst", "btst", "bxor", and
-	   "mov.b"
-
-	 We may relax this into an 8-bit absolute address if it's in
-	 the right range.  */
+    /* Similarly for a 24bit mov.b  */
     case R_MOV24B2:
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
-      /* All instructions with R_MOV24B2 start with 0x6a.  */
+      /* Sanity check.  */
       if (data[dst_address - 2] != 0x6a)
 	abort ();
 
-      temp_code = data[src_address - 1];
-
-      /* If this is a mov.b instruction, clear the lower nibble, which
-	 contains the source/destination register number.  */
-      if ((temp_code & 0x30) != 0x30)
-	temp_code &= 0xf0;
-
       /* Fix up the opcode.  */
-      switch (temp_code)
+      switch (data[src_address - 1] & 0xf0)
 	{
 	case 0x20:
-	  /* This is mov.b @aa:24/32,Rd.  */
 	  data[dst_address - 2] = (data[src_address - 1] & 0xf) | 0x20;
 	  break;
 	case 0xa0:
-	  /* This is mov.b Rs,@aa:24/32.  */
 	  data[dst_address - 2] = (data[src_address - 1] & 0xf) | 0x30;
-	  break;
-	case 0x38:
-	  /* This is a bit-maniputation instruction that stores one
-	     bit into memory, one of "bclr", "bist", "bnot", "bset",
-	     and "bst".  */
-	  data[dst_address - 2] = 0x7f;
-	  break;
-	case 0x30:
-	  /* This is a bit-maniputation instruction that loads one bit
-	     from memory, one of "band", "biand", "bild", "bior",
-	     "bixor", "bld", "bor", "btst", and "bxor".  */
-	  data[dst_address - 2] = 0x7e;
 	  break;
 	default:
 	  abort ();
@@ -1039,7 +993,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       /* Get the address of the target of this branch.  */
       value = bfd_coff_reloc16_get_value (reloc, link_info, input_section);
 
-      dot = (input_section->output_offset
+      dot = (link_order->offset
 	     + dst_address
 	     + link_order->u.indirect.section->output_section->vma) + 1;
 
@@ -1049,8 +1003,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       if (gap < -128 || gap > 126)
 	{
 	  if (! ((*link_info->callbacks->reloc_overflow)
-		 (link_info, NULL,
-		  bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		 (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 		  reloc->howto->name, reloc->addend, input_section->owner,
 		  input_section, reloc->address)))
 	    abort ();
@@ -1072,7 +1025,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
       src_address += 4;
       break;
 
-    /* An 8-bit memory indirect instruction (jmp/jsr).
+    /* An 8bit memory indirect instruction (jmp/jsr).
 
        There's several things that need to be done to handle
        this relocation.
@@ -1095,11 +1048,11 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	struct h8300_coff_link_hash_table *htab;
 	asection *vectors_sec;
 
-	if (link_info->output_bfd->xvec != abfd->xvec)
+	if (link_info->hash->creator != abfd->xvec)
 	  {
 	    (*_bfd_error_handler)
 	      (_("cannot handle R_MEM_INDIRECT reloc when using %s output"),
-	       link_info->output_bfd->xvec->name);
+	       link_info->hash->creator->name);
 
 	    /* What else can we do?  This function doesn't allow return
 	       of an error, and we don't want to call abort as that
@@ -1132,8 +1085,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	    else
 	      {
 		if (! ((*link_info->callbacks->reloc_overflow)
-		       (link_info, NULL,
-			bfd_asymbol_name (*reloc->sym_ptr_ptr),
+		       (link_info, bfd_asymbol_name (*reloc->sym_ptr_ptr),
 			reloc->howto->name, reloc->addend, input_section->owner,
 			input_section, reloc->address)))
 		  abort ();
@@ -1150,12 +1102,14 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 	name = symbol->name;
 	if (symbol->flags & BSF_LOCAL)
 	  {
-	    char *new_name = bfd_malloc ((bfd_size_type) strlen (name) + 10);
+	    char *new_name = bfd_malloc ((bfd_size_type) strlen (name) + 9);
 
 	    if (new_name == NULL)
 	      abort ();
 
-	    sprintf (new_name, "%s_%08x", name, symbol->section->id);
+	    strcpy (new_name, name);
+	    sprintf (new_name + strlen (name), "_%08x",
+		     (int) symbol->section);
 	    name = new_name;
 	  }
 
@@ -1207,7 +1161,7 @@ h8300_reloc16_extra_cases (bfd *abfd, struct bfd_link_info *link_info,
 				  vectors_sec->output_section,
 				  vectors_sec->contents,
 				  (file_ptr) vectors_sec->output_offset,
-				  vectors_sec->size);
+				  vectors_sec->_raw_size);
 	break;
       }
 
@@ -1243,7 +1197,7 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
   /* Add the symbols using the generic code.  */
   _bfd_generic_link_add_symbols (abfd, info);
 
-  if (info->output_bfd->xvec != abfd->xvec)
+  if (info->hash->creator != abfd->xvec)
     return TRUE;
 
   htab = h8300_coff_hash_table (info);
@@ -1256,12 +1210,12 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
       /* Make sure the appropriate flags are set, including SEC_IN_MEMORY.  */
       flags = (SEC_ALLOC | SEC_LOAD
 	       | SEC_HAS_CONTENTS | SEC_IN_MEMORY | SEC_READONLY);
-      htab->vectors_sec = bfd_make_section_with_flags (abfd, ".vectors",
-						       flags);
+      htab->vectors_sec = bfd_make_section (abfd, ".vectors");
 
       /* If the section wasn't created, or we couldn't set the flags,
 	 quit quickly now, rather than dying a painful death later.  */
-      if (!htab->vectors_sec)
+      if (!htab->vectors_sec
+	  || !bfd_set_section_flags (abfd, htab->vectors_sec, flags))
 	return FALSE;
 
       /* Also create the vector hash table.  */
@@ -1273,8 +1227,7 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
 
       /* And initialize the funcvec hash table.  */
       if (!funcvec_hash_table_init (funcvec_hash_table, abfd,
-				    funcvec_hash_newfunc,
-				    sizeof (struct funcvec_hash_entry)))
+				    funcvec_hash_newfunc))
 	{
 	  bfd_release (abfd, funcvec_hash_table);
 	  return FALSE;
@@ -1339,11 +1292,13 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
 		{
 		  char *new_name;
 
-		  new_name = bfd_malloc ((bfd_size_type) strlen (name) + 10);
+		  new_name = bfd_malloc ((bfd_size_type) strlen (name) + 9);
 		  if (new_name == NULL)
 		    abort ();
 
-		  sprintf (new_name, "%s_%08x", name, symbol->section->id);
+		  strcpy (new_name, name);
+		  sprintf (new_name + strlen (name), "_%08x",
+			   (int) symbol->section);
 		  name = new_name;
 		}
 
@@ -1369,11 +1324,11 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
 		    case bfd_mach_h8300:
 		    case bfd_mach_h8300hn:
 		    case bfd_mach_h8300sn:
-		      htab->vectors_sec->size += 2;
+		      htab->vectors_sec->_raw_size += 2;
 		      break;
 		    case bfd_mach_h8300h:
 		    case bfd_mach_h8300s:
-		      htab->vectors_sec->size += 4;
+		      htab->vectors_sec->_raw_size += 4;
 		      break;
 		    default:
 		      abort ();
@@ -1389,14 +1344,14 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
   /* Now actually allocate some space for the function vector.  It's
      wasteful to do this more than once, but this is easier.  */
   sec = htab->vectors_sec;
-  if (sec->size != 0)
+  if (sec->_raw_size != 0)
     {
       /* Free the old contents.  */
       if (sec->contents)
 	free (sec->contents);
 
       /* Allocate new contents.  */
-      sec->contents = bfd_malloc (sec->size);
+      sec->contents = bfd_malloc (sec->_raw_size);
     }
 
   return TRUE;
@@ -1408,11 +1363,6 @@ h8300_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
 #define coff_bfd_link_hash_table_create h8300_coff_link_hash_table_create
 
 #define COFF_LONG_FILENAMES
-
-#ifndef bfd_pe_print_pdata
-#define bfd_pe_print_pdata	NULL
-#endif
-
 #include "coffcode.h"
 
 #undef coff_bfd_get_relocated_section_contents

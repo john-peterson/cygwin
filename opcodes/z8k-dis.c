@@ -1,23 +1,23 @@
 /* Disassemble z8000 code.
-   Copyright 1992, 1993, 1998, 2000, 2001, 2002, 2003, 2005, 2007
+   Copyright 1992, 1993, 1998, 2000, 2001, 2002, 2003
    Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
+   This file is part of GNU Binutils.
 
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+   USA.  */
 
 #include "sysdep.h"
 #include "dis-asm.h"
@@ -26,7 +26,7 @@
 #include "z8k-opc.h"
 
 #include <setjmp.h>
-
+
 typedef struct
 {
   /* These are all indexed by nibble number (i.e only every other entry
@@ -472,53 +472,12 @@ unpack_instr (instr_data_s *instr_data, int is_segmented, disassemble_info *info
     }
 }
 
-static void
-print_intr(char *tmp_str, unsigned long interrupts)
-{
-  int comma = 0;
-
-  *tmp_str = 0;
-  if (! (interrupts & 2))
-    {
-      strcat (tmp_str, "vi");
-      comma = 1;
-    }
-  if (! (interrupts & 1))
-    {
-      if (comma) strcat (tmp_str, ",");
-      strcat (tmp_str, "nvi");
-    }
-}
-
-static void
-print_flags(char *tmp_str, unsigned long flags)
-{
-  int comma = 0;
-
-  *tmp_str = 0;
-  if (flags & 8)
-    {
-      strcat (tmp_str, "c");
-      comma = 1;
-    }
-  if (flags & 4)
-    {
-      if (comma) strcat (tmp_str, ",");
-      strcat (tmp_str, "z");
-      comma = 1;
-    }
-  if (flags & 2)
-    {
-      if (comma) strcat (tmp_str, ",");
-      strcat (tmp_str, "s");
-      comma = 1;
-    }
-  if (flags & 1)
-    {
-      if (comma) strcat (tmp_str, ",");
-      strcat (tmp_str, "p");
-    }
-}
+static char *intr_names[] = {
+  "all",    /* 0 */
+  "vi",     /* 1 */
+  "nvi",    /* 2 */
+  "none"    /* 3 */
+};
 
 static void
 unparse_instr (instr_data_s *instr_data, int is_segmented)
@@ -570,12 +529,12 @@ unparse_instr (instr_data_s *instr_data, int is_segmented)
 	  strcat (out_str, tmp_str);
 	  break;
 	case CLASS_IMM:
-	  if (datum_value == ARG_IMM2)	/* True with EI/DI instructions only.  */
-	    {
-	      print_intr (tmp_str, instr_data->interrupts);
-	      strcat (out_str, tmp_str);
-	      break;
-	    }
+          if (datum_value == ARG_IMM2)  /* True with EI/DI instructions only.  */
+            {
+              sprintf (tmp_str, "%s", intr_names[instr_data->interrupts]);
+              strcat (out_str, tmp_str);
+              break;
+            }
 	  sprintf (tmp_str, "#0x%0lx", instr_data->immediate);
 	  strcat (out_str, tmp_str);
 	  break;
@@ -604,7 +563,7 @@ unparse_instr (instr_data_s *instr_data, int is_segmented)
 	  strcat (out_str, tmp_str);
 	  break;
 	case CLASS_FLAGS:
-	  print_flags(tmp_str, instr_data->flags);
+	  sprintf (tmp_str, "0x%0lx", instr_data->flags);
 	  strcat (out_str, tmp_str);
 	  break;
 	case CLASS_REG_BYTE:

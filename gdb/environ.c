@@ -1,10 +1,11 @@
 /* environ.c -- library for manipulating environments for GNU.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 2000,
+   2003 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -13,7 +14,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
@@ -25,12 +28,12 @@
 
 /* Return a new environment object.  */
 
-struct gdb_environ *
+struct environ *
 make_environ (void)
 {
-  struct gdb_environ *e;
+  struct environ *e;
 
-  e = (struct gdb_environ *) xmalloc (sizeof (struct gdb_environ));
+  e = (struct environ *) xmalloc (sizeof (struct environ));
 
   e->allocated = 10;
   e->vector = (char **) xmalloc ((e->allocated + 1) * sizeof (char *));
@@ -41,14 +44,13 @@ make_environ (void)
 /* Free an environment and all the strings in it.  */
 
 void
-free_environ (struct gdb_environ *e)
+free_environ (struct environ *e)
 {
   char **vector = e->vector;
 
   while (*vector)
     xfree (*vector++);
 
-  xfree (e->vector);
   xfree (e);
 }
 
@@ -57,7 +59,7 @@ free_environ (struct gdb_environ *e)
    that all strings in these environments are safe to free.  */
 
 void
-init_environ (struct gdb_environ *e)
+init_environ (struct environ *e)
 {
   extern char **environ;
   int i;
@@ -80,7 +82,6 @@ init_environ (struct gdb_environ *e)
     {
       int len = strlen (e->vector[i]);
       char *new = (char *) xmalloc (len + 1);
-
       memcpy (new, e->vector[i], len + 1);
       e->vector[i] = new;
     }
@@ -90,7 +91,7 @@ init_environ (struct gdb_environ *e)
    This is used to get something to pass to execve.  */
 
 char **
-environ_vector (struct gdb_environ *e)
+environ_vector (struct environ *e)
 {
   return e->vector;
 }
@@ -98,7 +99,7 @@ environ_vector (struct gdb_environ *e)
 /* Return the value in environment E of variable VAR.  */
 
 char *
-get_in_environ (const struct gdb_environ *e, const char *var)
+get_in_environ (const struct environ *e, const char *var)
 {
   int len = strlen (var);
   char **vector = e->vector;
@@ -114,7 +115,7 @@ get_in_environ (const struct gdb_environ *e, const char *var)
 /* Store the value in E of VAR as VALUE.  */
 
 void
-set_in_environ (struct gdb_environ *e, const char *var, const char *value)
+set_in_environ (struct environ *e, const char *var, const char *value)
 {
   int i;
   int len = strlen (var);
@@ -161,7 +162,7 @@ set_in_environ (struct gdb_environ *e, const char *var, const char *value)
 /* Remove the setting for variable VAR from environment E.  */
 
 void
-unset_in_environ (struct gdb_environ *e, char *var)
+unset_in_environ (struct environ *e, char *var)
 {
   int len = strlen (var);
   char **vector = e->vector;
@@ -169,12 +170,12 @@ unset_in_environ (struct gdb_environ *e, char *var)
 
   for (; (s = *vector) != NULL; vector++)
     {
-      if (strncmp (s, var, len) == 0 && s[len] == '=')
+      if (DEPRECATED_STREQN (s, var, len) && s[len] == '=')
 	{
 	  xfree (s);
 	  /* Walk through the vector, shuffling args down by one, including
 	     the NULL terminator.  Can't use memcpy() here since the regions
-	     overlap, and memmove() might not be available.  */
+	     overlap, and memmove() might not be available. */
 	  while ((vector[0] = vector[1]) != NULL)
 	    {
 	      vector++;

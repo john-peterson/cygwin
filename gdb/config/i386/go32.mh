@@ -1,8 +1,12 @@
 # Host: Intel x86 running DJGPP
+# we don't need mmalloc on DJGPP
+MH_CFLAGS= -DNO_MMALLOC
+MMALLOC=
+MMALLOC_CFLAGS=
 
-# We include several header files from config/djgpp
-MH_CFLAGS= -I$(srcdir)/config/djgpp
+XM_FILE= xm-go32.h
 
+NAT_FILE= nm-go32.h
 NATDEPFILES= go32-nat.o i386-nat.o
 
 HOST_IPC=

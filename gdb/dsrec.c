@@ -1,11 +1,12 @@
 /* S-record download support for GDB, the GNU debugger.
-   Copyright (C) 1995-2013 Free Software Foundation, Inc.
+   Copyright 1995, 1996, 1997, 1999, 2000, 2001
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,16 +15,18 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "serial.h"
 #include "srec.h"
-#include <sys/time.h>
 #include <time.h>
 #include "gdb_assert.h"
 #include "gdb_string.h"
-#include "gdb_bfd.h"
+
+extern void report_transfer_performance (unsigned long, time_t, time_t);
 
 extern int remote_debug;
 
@@ -53,28 +56,25 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
   char *srec;
   int i;
   int reclen;
-  struct timeval start_time, end_time;
+  time_t start_time, end_time;
   unsigned long data_count = 0;
-  struct cleanup *cleanup;
 
   srec = (char *) alloca (maxrecsize + 1);
 
-  abfd = gdb_bfd_open (file, NULL, -1);
+  abfd = bfd_openr (file, 0);
   if (!abfd)
     {
-      printf_filtered (_("Unable to open file %s\n"), file);
+      printf_filtered ("Unable to open file %s\n", file);
       return;
     }
 
-  cleanup = make_cleanup_bfd_unref (abfd);
   if (bfd_check_format (abfd, bfd_object) == 0)
     {
-      printf_filtered (_("File is not an object file\n"));
-      do_cleanups (cleanup);
+      printf_filtered ("File is not an object file\n");
       return;
     }
 
-  gettimeofday (&start_time, NULL);
+  start_time = time (NULL);
 
   /* Write a type 0 header record. no data for a type 0, and there
      is no data, so len is 0.  */
@@ -92,18 +92,17 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
     if (s->flags & SEC_LOAD)
       {
 	int numbytes;
-
 	bfd_vma addr = bfd_get_section_vma (abfd, s) + load_offset;
-	bfd_size_type size = bfd_get_section_size (s);
+	bfd_size_type size = bfd_get_section_size_before_reloc (s);
 	char *section_name = (char *) bfd_get_section_name (abfd, s);
 	/* Both GDB and BFD have mechanisms for printing addresses.
            In the below, GDB's is used so that the address is
            consistent with the rest of GDB.  BFD's printf_vma() could
-           have also been used.  cagney 1999-09-01 */
-	printf_filtered ("%s\t: %s .. %s  ",
+           have also been used. cagney 1999-09-01 */
+	printf_filtered ("%s\t: 0x%s .. 0x%s  ",
 			 section_name,
-			 paddress (target_gdbarch (), addr),
-			 paddress (target_gdbarch (), addr + size));
+			 paddr (addr),
+			 paddr (addr + size));
 	gdb_flush (gdb_stdout);
 
 	data_count += size;
@@ -125,10 +124,9 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
 	    do
 	      {
 		serial_write (desc, srec, reclen);
-		if (deprecated_ui_load_progress_hook)
-		  if (deprecated_ui_load_progress_hook (section_name,
-							(unsigned long) i))
-		    error (_("Canceled the download"));
+		if (ui_load_progress_hook)
+		  if (ui_load_progress_hook (section_name, (unsigned long) i))
+		    error ("Canceled the download");
 	      }
 	    while (waitack != NULL && !waitack ());
 
@@ -137,19 +135,18 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
 		putchar_unfiltered ('#');
 		gdb_flush (gdb_stdout);
 	      }
-	  }			/* Per-packet (or S-record) loop.  */
+	  }			/* Per-packet (or S-record) loop */
 
-	if (deprecated_ui_load_progress_hook)
-	  if (deprecated_ui_load_progress_hook (section_name,
-						(unsigned long) i))
-	    error (_("Canceled the download"));
+	if (ui_load_progress_hook)
+	  if (ui_load_progress_hook (section_name, (unsigned long) i))
+	    error ("Canceled the download");
 	putchar_unfiltered ('\n');
       }
 
   if (hashmark)
     putchar_unfiltered ('\n');
 
-  gettimeofday (&end_time, NULL);
+  end_time = time (NULL);
 
   /* Write a terminator record.  */
 
@@ -171,13 +168,11 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
 
   serial_flush_input (desc);
 
-  print_transfer_performance (gdb_stdout, data_count, 0,
-			      &start_time, &end_time);
-  do_cleanups (cleanup);
+  report_transfer_performance (data_count, start_time, end_time);
 }
 
 /*
- * make_srec -- make an srecord.  This writes each line, one at a
+ * make_srec -- make an srecord. This writes each line, one at a
  *      time, each with it's own header and trailer line.
  *      An srecord looks like this:
  *
@@ -194,9 +189,9 @@ load_srec (struct serial *desc, const char *file, bfd_vma load_offset,
  *
  *      Where
  *      - length
- *        is the number of bytes following upto the checksum.  Note
- *        that this is not the number of chars following, since it
- *        takes two chars to represent a byte.
+ *        is the number of bytes following upto the checksum. Note that
+ *        this is not the number of chars following, since it takes two
+ *        chars to represent a byte.
  *      - type
  *        is one of:
  *        0) header record
@@ -257,8 +252,8 @@ make_srec (char *srec, CORE_ADDR targ_addr, bfd *abfd, asection *sect,
     addr_size = 4;
   else
     internal_error (__FILE__, __LINE__,
-		    _("make_srec:  Bad address (%s), or bad flags (0x%x)."),
-		    paddress (target_gdbarch (), targ_addr), flags);
+		    "make_srec:  Bad address (0x%s), or bad flags (0x%x).",
+		    paddr (targ_addr), flags);
 
   /* Now that we know the address size, we can figure out how much
      data this record can hold.  */
@@ -266,12 +261,12 @@ make_srec (char *srec, CORE_ADDR targ_addr, bfd *abfd, asection *sect,
   if (sect && abfd)
     {
       payload_size = (*maxrecsize - (1 + 1 + 2 + addr_size * 2 + 2)) / 2;
-      payload_size = min (payload_size, bfd_get_section_size (sect) - sectoff);
+      payload_size = min (payload_size, sect->_raw_size - sectoff);
 
       bfd_get_section_contents (abfd, sect, binbuf, sectoff, payload_size);
     }
   else
-    payload_size = 0;		/* Term or header packets have no payload.  */
+    payload_size = 0;		/* Term or header packets have no payload */
 
   /* Output the header.  */
   snprintf (srec, (*maxrecsize) + 1, "S%c%02X%0*X",
@@ -286,7 +281,7 @@ make_srec (char *srec, CORE_ADDR targ_addr, bfd *abfd, asection *sect,
   checksum = 0;
 
   checksum += (payload_size + addr_size + 1	/* Packet length */
-	       + (targ_addr & 0xff)		/* Address...  */
+	       + (targ_addr & 0xff)	/* Address... */
 	       + ((targ_addr >> 8) & 0xff)
 	       + ((targ_addr >> 16) & 0xff)
 	       + ((targ_addr >> 24) & 0xff));

@@ -1,5 +1,5 @@
 /* Remote debugging interface to dBUG ROM monitor for GDB, the GNU debugger.
-   Copyright (C) 1996-2013 Free Software Foundation, Inc.
+   Copyright 1996, 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
    Written by Stan Shebs of Cygnus Support.
 
@@ -7,7 +7,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* dBUG is a monitor supplied on various Motorola boards, including
    m68k, ColdFire, and PowerPC-based designs.  The code here assumes
@@ -35,11 +37,9 @@
 static void dbug_open (char *args, int from_tty);
 
 static void
-dbug_supply_register (struct regcache *regcache, char *regname,
-		      int regnamelen, char *val, int vallen)
+dbug_supply_register (char *regname, int regnamelen, char *val, int vallen)
 {
   int regno;
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
 
   if (regnamelen != 2)
     return;
@@ -49,12 +49,12 @@ dbug_supply_register (struct regcache *regcache, char *regname,
     case 'S':
       if (regname[1] != 'R')
 	return;
-      regno = gdbarch_ps_regnum (gdbarch);
+      regno = PS_REGNUM;
       break;
     case 'P':
       if (regname[1] != 'C')
 	return;
-      regno = gdbarch_pc_regnum (gdbarch);
+      regno = PC_REGNUM;
       break;
     case 'D':
       if (regname[1] < '0' || regname[1] > '7')
@@ -70,13 +70,13 @@ dbug_supply_register (struct regcache *regcache, char *regname,
       return;
     }
 
-  monitor_supply_register (regcache, regno, val);
+  monitor_supply_register (regno, val);
 }
 
-/* This array of registers needs to match the indexes used by GDB.
-   The whole reason this exists is because the various ROM monitors
-   use different names than GDB does, and don't support all the
-   registers either.  So, typing "info reg sp" becomes an "A7".  */
+/* This array of registers needs to match the indexes used by GDB. The
+   whole reason this exists is because the various ROM monitors use
+   different names than GDB does, and don't support all the registers
+   either. So, typing "info reg sp" becomes an "A7". */
 
 static const char *
 dbug_regname (int index)
@@ -89,7 +89,8 @@ dbug_regname (int index)
     /* no float registers */
   };
 
-  if (index >= ARRAY_SIZE (regnames) || index < 0)
+  if ((index >= (sizeof (regnames) / sizeof (regnames[0]))) 
+      || (index < 0) || (index >= NUM_REGS))
     return NULL;
   else
     return regnames[index];
@@ -106,8 +107,7 @@ static char *dbug_inits[] =
 static void
 init_dbug_cmds (void)
 {
-  dbug_cmds.flags = MO_CLR_BREAK_USES_ADDR
-    | MO_GETMEM_NEEDS_RANGE | MO_FILL_USES_ADDR;
+  dbug_cmds.flags = MO_CLR_BREAK_USES_ADDR | MO_GETMEM_NEEDS_RANGE | MO_FILL_USES_ADDR;
   dbug_cmds.init = dbug_inits;	/* Init strings */
   dbug_cmds.cont = "go\r";	/* continue command */
   dbug_cmds.step = "trace\r";	/* single step */
@@ -139,9 +139,8 @@ init_dbug_cmds (void)
   dbug_cmds.getreg.term = NULL;	/* getreg.term */
   dbug_cmds.getreg.term_cmd = NULL;	/* getreg.term_cmd */
   dbug_cmds.dump_registers = "rd\r";	/* dump_registers */
-					/* register_pattern */
-  dbug_cmds.register_pattern = "\\(\\w+\\) +:\\([0-9a-fA-F]+\\b\\)";
-  dbug_cmds.supply_register = dbug_supply_register;
+  dbug_cmds.register_pattern = "\\(\\w+\\) +:\\([0-9a-fA-F]+\\b\\)";	/* register_pattern */
+  dbug_cmds.supply_register = dbug_supply_register;	/* supply_register */
   dbug_cmds.load_routine = NULL;	/* load_routine (defaults to SRECs) */
   dbug_cmds.load = "dl\r";	/* download command */
   dbug_cmds.loadresp = "\n";	/* load response */

@@ -2,22 +2,23 @@
 
 THIS FILE IS MACHINE GENERATED WITH CGEN.
 
-Copyright 1996-2013 Free Software Foundation, Inc.
+Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Free Software Foundation, Inc.
 
 This file is part of the GNU simulators.
 
-   This file is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License along
-   with this program; if not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 */
 
@@ -31,20 +32,10 @@ This file is part of the GNU simulators.
 /* Maximum number of instructions that can be executed in parallel.  */
 #define MAX_PARALLEL_INSNS 8
 
-/* The size of an "int" needed to hold an instruction word.
-   This is usually 32 bits, but some architectures needs 64 bits.  */
-typedef CGEN_INSN_INT CGEN_INSN_WORD;
-
-#include "cgen-engine.h"
-
 /* CPU state information.  */
 typedef struct {
   /* Hardware elements.  */
   struct {
-  /* relocation annotation */
-  BI h_reloc_ann;
-#define GET_H_RELOC_ANN() CPU (h_reloc_ann)
-#define SET_H_RELOC_ANN(x) (CPU (h_reloc_ann) = (x))
   /* program counter */
   USI h_pc;
 #define GET_H_PC() CPU (h_pc)
@@ -202,7 +193,7 @@ SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xffff0000), ANDHI (
 #define SET_H_FR_0(index, x) \
 do { \
 {\
-if (GTUSI ((x), 255)) {\
+if (GTSI ((x), 255)) {\
   (x) = 255;\
 }\
 SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xffffff00), (x)));\
@@ -212,7 +203,7 @@ SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xffffff00), (x)));\
 #define SET_H_FR_1(index, x) \
 do { \
 {\
-if (GTUSI ((x), 255)) {\
+if (GTSI ((x), 255)) {\
   (x) = 255;\
 }\
 SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xffff00ff), SLLHI ((x), 8)));\
@@ -222,7 +213,7 @@ SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xffff00ff), SLLHI (
 #define SET_H_FR_2(index, x) \
 do { \
 {\
-if (GTUSI ((x), 255)) {\
+if (GTSI ((x), 255)) {\
   (x) = 255;\
 }\
 SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xff00ffff), SLLHI ((x), 16)));\
@@ -232,7 +223,7 @@ SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 0xff00ffff), SLLHI (
 #define SET_H_FR_3(index, x) \
 do { \
 {\
-if (GTUSI ((x), 255)) {\
+if (GTSI ((x), 255)) {\
   (x) = 255;\
 }\
 SET_H_FR_INT ((index), ORSI (ANDSI (GET_H_FR_INT ((index)), 16777215), SLLHI ((x), 24)));\
@@ -276,8 +267,6 @@ SET_H_SPR (((UINT) 281), TRUNCDISI ((x)));\
 ;} while (0)
 
 /* Cover fns for register access.  */
-BI frvbf_h_reloc_ann_get (SIM_CPU *);
-void frvbf_h_reloc_ann_set (SIM_CPU *, BI);
 USI frvbf_h_pc_get (SIM_CPU *);
 void frvbf_h_pc_set (SIM_CPU *, USI);
 UQI frvbf_h_psr_imple_get (SIM_CPU *);
@@ -409,19 +398,6 @@ typedef struct {
 } MODEL_FR400_DATA;
 
 typedef struct {
-  DI prev_fp_load;
-  DI prev_fr_p4;
-  DI prev_fr_p6;
-  DI prev_acc_p2;
-  DI prev_acc_p4;
-  DI cur_fp_load;
-  DI cur_fr_p4;
-  DI cur_fr_p6;
-  DI cur_acc_p2;
-  DI cur_acc_p4;
-} MODEL_FR450_DATA;
-
-typedef struct {
   int empty;
 } MODEL_SIMPLE_DATA;
 
@@ -430,7 +406,7 @@ typedef struct {
 union sem_fields {
   struct { /* no operands */
     int empty;
-  } sfmt_empty;
+  } fmt_empty;
   struct { /*  */
     unsigned short out_h_spr_USI_2;
   } sfmt_break;
@@ -615,7 +591,7 @@ union sem_fields {
     UINT f_FRk;
     UINT f_u6;
     unsigned char in_FRinti;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRinti_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRinti_1;
     unsigned char out_FRintk;
   } sfmt_mwcuti;
   struct { /*  */
@@ -623,8 +599,8 @@ union sem_fields {
     UINT f_FRk;
     unsigned char in_FRintk;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_mhdsets;
   struct { /*  */
     UINT f_FCCi_2;
@@ -638,17 +614,17 @@ union sem_fields {
     UINT f_FRj;
     UINT f_FRk;
     unsigned char in_FRj;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_1;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintk_1;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_1;
   } sfmt_fdstoi;
   struct { /*  */
     UINT f_FRj;
     UINT f_FRk;
     unsigned char in_FRintj;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintj_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintj_1;
     unsigned char out_FRk;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_1;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_1;
   } sfmt_fditos;
   struct { /*  */
     UINT f_CRi;
@@ -679,18 +655,18 @@ union sem_fields {
     UINT f_FRi;
     UINT f_FRk;
     unsigned char in_FRintieven;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintieven_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintieven_1;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_mdrotli;
   struct { /*  */
     INT f_s6;
     UINT f_ACC40Si;
     UINT f_FRk;
     unsigned char in_ACC40Si;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Si_1;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Si_1;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_mdcutssi;
   struct { /*  */
     UINT f_FRi;
@@ -698,7 +674,7 @@ union sem_fields {
     UINT f_FRk;
     unsigned char in_FRinti;
     unsigned char in_FRintj;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRinti_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRinti_1;
     unsigned char out_FRintk;
   } sfmt_mwcut;
   struct { /*  */
@@ -804,11 +780,11 @@ union sem_fields {
     INT f_s5;
     UINT f_FRk;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_mhdseth;
   struct { /*  */
     UINT f_CCi;
@@ -869,9 +845,9 @@ union sem_fields {
     UINT f_cond;
     unsigned char in_CCi;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintk_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_1;
     unsigned char out_GRj;
-    unsigned char out_h_gr_USI_add__INT_index_of__INT_GRj_1;
+    unsigned char out_h_gr_USI_add__DFLT_index_of__DFLT_GRj_1;
   } sfmt_cmovfgd;
   struct { /*  */
     UINT f_CCi;
@@ -880,9 +856,9 @@ union sem_fields {
     UINT f_cond;
     unsigned char in_CCi;
     unsigned char in_GRj;
-    unsigned char in_h_gr_USI_add__INT_index_of__INT_GRj_1;
+    unsigned char in_h_gr_USI_add__DFLT_index_of__DFLT_GRj_1;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintk_1;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_1;
   } sfmt_cmovgfd;
   struct { /*  */
     UINT f_GRi;
@@ -913,34 +889,34 @@ union sem_fields {
     UINT f_cond;
     UINT f_u6;
     unsigned char in_CCi;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_cmexpdhw;
   struct { /*  */
     UINT f_ACC40Si;
     UINT f_ACC40Sk;
     unsigned char in_ACC40Si;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Si_1;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Si_2;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Si_3;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Si_1;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Si_2;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Si_3;
     unsigned char out_ACC40Sk;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_1;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_2;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_3;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_1;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_2;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_3;
   } sfmt_mdasaccs;
   struct { /*  */
     UINT f_FRj;
     UINT f_FRk;
     unsigned char in_FRintj;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_FRintj;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_mabshs;
   struct { /*  */
     UINT f_FRi;
@@ -948,11 +924,11 @@ union sem_fields {
     UINT f_u6;
     unsigned char in_FRinti;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_1;
     unsigned char out_FRinti;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_mcplhi;
   struct { /*  */
     UINT f_FCCi_2;
@@ -961,10 +937,10 @@ union sem_fields {
     UINT f_FRk;
     unsigned char in_FRi;
     unsigned char in_FRj;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_1;
     unsigned char out_FCCi_2;
-    unsigned char out_h_fccr_UQI_add__INT_index_of__INT_FCCi_2_1;
+    unsigned char out_h_fccr_UQI_add__DFLT_index_of__DFLT_FCCi_2_1;
   } sfmt_nfdcmps;
   struct { /*  */
     UINT f_CCi;
@@ -1006,25 +982,25 @@ union sem_fields {
     UINT f_FRk;
     UINT f_GRj;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintk_1;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintk_2;
-    unsigned char in_h_fr_int_USI_add__INT_index_of__INT_FRintk_3;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_1;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char in_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_3;
     unsigned char out_GRj;
-    unsigned char out_h_gr_USI_add__INT_index_of__INT_GRj_1;
-    unsigned char out_h_gr_USI_add__INT_index_of__INT_GRj_2;
-    unsigned char out_h_gr_USI_add__INT_index_of__INT_GRj_3;
+    unsigned char out_h_gr_USI_add__DFLT_index_of__DFLT_GRj_1;
+    unsigned char out_h_gr_USI_add__DFLT_index_of__DFLT_GRj_2;
+    unsigned char out_h_gr_USI_add__DFLT_index_of__DFLT_GRj_3;
   } sfmt_movfgq;
   struct { /*  */
     UINT f_FRk;
     UINT f_GRj;
     unsigned char in_GRj;
-    unsigned char in_h_gr_USI_add__INT_index_of__INT_GRj_1;
-    unsigned char in_h_gr_USI_add__INT_index_of__INT_GRj_2;
-    unsigned char in_h_gr_USI_add__INT_index_of__INT_GRj_3;
+    unsigned char in_h_gr_USI_add__DFLT_index_of__DFLT_GRj_1;
+    unsigned char in_h_gr_USI_add__DFLT_index_of__DFLT_GRj_2;
+    unsigned char in_h_gr_USI_add__DFLT_index_of__DFLT_GRj_3;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintk_1;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintk_2;
-    unsigned char out_h_fr_int_USI_add__INT_index_of__INT_FRintk_3;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_1;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char out_h_fr_int_USI_add__DFLT_index_of__DFLT_FRintk_3;
   } sfmt_movgfq;
   struct { /*  */
     UINT f_CCi;
@@ -1140,12 +1116,12 @@ union sem_fields {
     UINT f_FRj;
     unsigned char in_FRinti;
     unsigned char in_FRintj;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_FCCk;
-    unsigned char out_h_fccr_UQI_add__INT_index_of__INT_FCCk_1;
+    unsigned char out_h_fccr_UQI_add__DFLT_index_of__DFLT_FCCk_1;
   } sfmt_mcmpsh;
   struct { /*  */
     UINT f_FRi;
@@ -1153,12 +1129,12 @@ union sem_fields {
     UINT f_u6;
     unsigned char in_FRinti;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
     unsigned char out_FRinti;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_msllhi;
   struct { /*  */
     UINT f_FRi;
@@ -1167,11 +1143,11 @@ union sem_fields {
     unsigned char in_FRi;
     unsigned char in_FRj;
     unsigned char in_FRk;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRk_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRk_1;
     unsigned char out_FRk;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_1;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_1;
   } sfmt_fdmadds;
   struct { /*  */
     UINT f_FCCi_2;
@@ -1208,9 +1184,9 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_GRi;
     unsigned char in_GRj;
-    unsigned char in_h_iccr_UQI_and__INT_index_of__INT_CCi_3;
+    unsigned char in_h_iccr_UQI_and__DFLT_index_of__DFLT_CCi_3;
     unsigned char out_GRdoublek;
-    unsigned char out_h_iccr_UQI_and__INT_index_of__INT_CCi_3;
+    unsigned char out_h_iccr_UQI_and__DFLT_index_of__DFLT_CCi_3;
   } sfmt_csmulcc;
   struct { /*  */
     UINT f_CCi;
@@ -1221,23 +1197,23 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_GRi;
     unsigned char in_GRj;
-    unsigned char in_h_iccr_UQI_and__INT_index_of__INT_CCi_3;
+    unsigned char in_h_iccr_UQI_and__DFLT_index_of__DFLT_CCi_3;
     unsigned char out_GRk;
-    unsigned char out_h_iccr_UQI_and__INT_index_of__INT_CCi_3;
+    unsigned char out_h_iccr_UQI_and__DFLT_index_of__DFLT_CCi_3;
   } sfmt_caddcc;
   struct { /*  */
     UINT f_FRi;
     UINT f_FRk;
     unsigned char in_FRinti;
     unsigned char in_FRintkeven;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
     unsigned char out_FRinti;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_add__INT_0_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_add__INT_0_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_add__DFLT_0_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_add__DFLT_0_1;
   } sfmt_munpackh;
   struct { /*  */
     UINT f_CCi;
@@ -1248,10 +1224,10 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRi;
     unsigned char in_FRj;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_1;
     unsigned char out_FRk;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_1;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_1;
   } sfmt_cfmas;
   struct { /*  */
     UINT f_CCi;
@@ -1261,13 +1237,13 @@ union sem_fields {
     UINT f_u6;
     unsigned char in_CCi;
     unsigned char in_FRintkeven;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_cmexpdhd;
   struct { /*  */
     UINT f_CCi;
@@ -1278,46 +1254,29 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRinti;
     unsigned char in_FRintj;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_cmaddhss;
-  struct { /*  */
-    UINT f_FRi;
-    UINT f_FRk;
-    UINT f_u6;
-    unsigned char in_FRintieven;
-    unsigned char in_FRintkeven;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char out_FRintieven;
-    unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_1;
-  } sfmt_mqsllhi;
   struct { /*  */
     UINT f_FRi;
     UINT f_FRj;
     UINT f_FRk;
     unsigned char in_FRi;
     unsigned char in_FRj;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_2;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRi_3;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_1;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_2;
-    unsigned char in_h_fr_SF_add__INT_index_of__INT_FRj_3;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_2;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRi_3;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_1;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_2;
+    unsigned char in_h_fr_SF_add__DFLT_index_of__DFLT_FRj_3;
     unsigned char out_FRk;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_1;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_2;
-    unsigned char out_h_fr_SF_add__INT_index_of__INT_FRk_3;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_1;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_2;
+    unsigned char out_h_fr_SF_add__DFLT_index_of__DFLT_FRk_3;
   } sfmt_fdmas;
   struct { /*  */
     UINT f_ACC40Uk;
@@ -1329,13 +1288,13 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRinti;
     unsigned char in_FRintj;
-    unsigned char in_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_1;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_ACC40Uk;
-    unsigned char out_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_1;
+    unsigned char out_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_1;
   } sfmt_cmmachu;
   struct { /*  */
     UINT f_ACC40Sk;
@@ -1347,13 +1306,13 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRinti;
     unsigned char in_FRintj;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_1;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRinti_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRinti_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_ACC40Sk;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_1;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_1;
   } sfmt_cmmachs;
   struct { /*  */
     UINT f_CCi;
@@ -1363,16 +1322,16 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRintjeven;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
     unsigned char out_FRintjeven;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_0_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_1_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_2_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_3_UHI_add__INT_index_of__INT_FRintk_0;
+    unsigned char out_h_fr_0_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_1_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_2_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_3_UHI_add__DFLT_index_of__DFLT_FRintk_0;
   } sfmt_cmhtob;
   struct { /*  */
     UINT f_CCi;
@@ -1382,16 +1341,16 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRintj;
     unsigned char in_FRintkeven;
-    unsigned char in_h_fr_0_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_1_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_2_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_3_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_fr_0_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_1_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_2_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_3_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_FRintj;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_cmbtoh;
   struct { /*  */
     UINT f_FRi;
@@ -1400,37 +1359,37 @@ union sem_fields {
     unsigned char in_FRintieven;
     unsigned char in_FRintjeven;
     unsigned char in_FRintkeven;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
     unsigned char out_FRintieven;
     unsigned char out_FRintjeven;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_mdpackh;
   struct { /*  */
     UINT f_FRi;
     UINT f_FRk;
     unsigned char in_FRintieven;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
     unsigned char out_FRintieven;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_2;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_add__INT_0_1;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_add__INT_2_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_2;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_add__INT_0_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_add__INT_2_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_add__DFLT_0_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_add__DFLT_2_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_add__DFLT_0_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_add__DFLT_2_1;
   } sfmt_mdunpackh;
   struct { /*  */
     UINT f_CCi;
@@ -1440,20 +1399,20 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRintj;
     unsigned char in_FRintk;
-    unsigned char in_h_fr_0_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_1_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_2_UHI_add__INT_index_of__INT_FRintj_0;
-    unsigned char in_h_fr_3_UHI_add__INT_index_of__INT_FRintj_0;
+    unsigned char in_h_fr_0_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_1_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_2_UHI_add__DFLT_index_of__DFLT_FRintj_0;
+    unsigned char in_h_fr_3_UHI_add__DFLT_index_of__DFLT_FRintj_0;
     unsigned char out_FRintj;
     unsigned char out_FRintk;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_1;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_2;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintk_3;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_2;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintk_3;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintk_3;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_2;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintk_3;
   } sfmt_cmbtohe;
   struct { /*  */
     UINT f_CCi;
@@ -1465,19 +1424,19 @@ union sem_fields {
     unsigned char in_FRintieven;
     unsigned char in_FRintjeven;
     unsigned char in_FRintkeven;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
     unsigned char out_FRintkeven;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_hi_UHI_add__INT_index_of__INT_FRintkeven_1;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_0;
-    unsigned char out_h_fr_lo_UHI_add__INT_index_of__INT_FRintkeven_1;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_0;
+    unsigned char out_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintkeven_1;
   } sfmt_cmqaddhss;
   struct { /*  */
     UINT f_ACC40Uk;
@@ -1489,21 +1448,21 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRintieven;
     unsigned char in_FRintjeven;
-    unsigned char in_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_1;
-    unsigned char in_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_2;
-    unsigned char in_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_3;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_1;
+    unsigned char in_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_1;
+    unsigned char in_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_2;
+    unsigned char in_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_3;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
     unsigned char out_ACC40Uk;
-    unsigned char out_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_1;
-    unsigned char out_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_2;
-    unsigned char out_h_acc40U_UDI_add__INT_index_of__INT_ACC40Uk_3;
+    unsigned char out_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_1;
+    unsigned char out_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_2;
+    unsigned char out_h_acc40U_UDI_add__DFLT_index_of__DFLT_ACC40Uk_3;
   } sfmt_cmqmachu;
   struct { /*  */
     UINT f_ACC40Sk;
@@ -1515,21 +1474,21 @@ union sem_fields {
     unsigned char in_CCi;
     unsigned char in_FRintieven;
     unsigned char in_FRintjeven;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_1;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_2;
-    unsigned char in_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_3;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_hi_UHI_add__INT_index_of__INT_FRintjeven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintieven_1;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_0;
-    unsigned char in_h_fr_lo_UHI_add__INT_index_of__INT_FRintjeven_1;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_1;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_2;
+    unsigned char in_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_3;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_hi_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintieven_1;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_0;
+    unsigned char in_h_fr_lo_UHI_add__DFLT_index_of__DFLT_FRintjeven_1;
     unsigned char out_ACC40Sk;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_1;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_2;
-    unsigned char out_h_acc40S_DI_add__INT_index_of__INT_ACC40Sk_3;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_1;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_2;
+    unsigned char out_h_acc40S_DI_add__DFLT_index_of__DFLT_ACC40Sk_3;
   } sfmt_cmqmachs;
 #if WITH_SCACHE_PBB
   /* Writeback handler.  */
@@ -1815,7 +1774,7 @@ struct scache {
   f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_SMULI_VARS \
   UINT f_pack; \
@@ -1830,7 +1789,7 @@ struct scache {
   f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_ADDICC_VARS \
   UINT f_pack; \
@@ -1847,7 +1806,7 @@ struct scache {
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ICCi_1 = EXTRACT_LSB0_UINT (insn, 32, 11, 2); \
-  f_s10 = EXTRACT_LSB0_SINT (insn, 32, 9, 10); \
+  f_s10 = EXTRACT_LSB0_INT (insn, 32, 9, 10); \
 
 #define EXTRACT_IFMT_SMULICC_VARS \
   UINT f_pack; \
@@ -1864,7 +1823,7 @@ struct scache {
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ICCi_1 = EXTRACT_LSB0_UINT (insn, 32, 11, 2); \
-  f_s10 = EXTRACT_LSB0_SINT (insn, 32, 9, 10); \
+  f_s10 = EXTRACT_LSB0_INT (insn, 32, 9, 10); \
 
 #define EXTRACT_IFMT_CMPB_VARS \
   UINT f_pack; \
@@ -1928,7 +1887,7 @@ struct scache {
   f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_misc_null_4 = EXTRACT_LSB0_UINT (insn, 32, 17, 2); \
-  f_s16 = EXTRACT_LSB0_SINT (insn, 32, 15, 16); \
+  f_s16 = EXTRACT_LSB0_INT (insn, 32, 15, 16); \
 
 #define EXTRACT_IFMT_LDBF_VARS \
   UINT f_pack; \
@@ -2028,7 +1987,7 @@ struct scache {
   f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_LDBFI_VARS \
   UINT f_pack; \
@@ -2043,7 +2002,7 @@ struct scache {
   f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_LDDI_VARS \
   UINT f_pack; \
@@ -2058,7 +2017,7 @@ struct scache {
   f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_LDDFI_VARS \
   UINT f_pack; \
@@ -2073,7 +2032,7 @@ struct scache {
   f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_CLDBF_VARS \
   UINT f_pack; \
@@ -2191,7 +2150,7 @@ struct scache {
   f_ICCi_2_null = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_hint = EXTRACT_LSB0_UINT (insn, 32, 17, 2); \
-  f_label16 = ((((EXTRACT_LSB0_SINT (insn, 32, 15, 16)) << (2))) + (pc)); \
+  f_label16 = ((((EXTRACT_LSB0_INT (insn, 32, 15, 16)) << (2))) + (pc)); \
 
 #define EXTRACT_IFMT_BNO_VARS \
   UINT f_pack; \
@@ -2225,7 +2184,7 @@ struct scache {
   f_ICCi_2 = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_hint = EXTRACT_LSB0_UINT (insn, 32, 17, 2); \
-  f_label16 = ((((EXTRACT_LSB0_SINT (insn, 32, 15, 16)) << (2))) + (pc)); \
+  f_label16 = ((((EXTRACT_LSB0_INT (insn, 32, 15, 16)) << (2))) + (pc)); \
 
 #define EXTRACT_IFMT_FBRA_VARS \
   UINT f_pack; \
@@ -2242,7 +2201,7 @@ struct scache {
   f_FCCi_2_null = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_hint = EXTRACT_LSB0_UINT (insn, 32, 17, 2); \
-  f_label16 = ((((EXTRACT_LSB0_SINT (insn, 32, 15, 16)) << (2))) + (pc)); \
+  f_label16 = ((((EXTRACT_LSB0_INT (insn, 32, 15, 16)) << (2))) + (pc)); \
 
 #define EXTRACT_IFMT_FBNO_VARS \
   UINT f_pack; \
@@ -2276,7 +2235,7 @@ struct scache {
   f_FCCi_2 = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_hint = EXTRACT_LSB0_UINT (insn, 32, 17, 2); \
-  f_label16 = ((((EXTRACT_LSB0_SINT (insn, 32, 15, 16)) << (2))) + (pc)); \
+  f_label16 = ((((EXTRACT_LSB0_INT (insn, 32, 15, 16)) << (2))) + (pc)); \
 
 #define EXTRACT_IFMT_BCTRLR_VARS \
   UINT f_pack; \
@@ -2562,7 +2521,7 @@ struct scache {
   f_LI_off = EXTRACT_LSB0_UINT (insn, 32, 25, 1); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_CALLIL_VARS \
   UINT f_pack; \
@@ -2579,7 +2538,7 @@ struct scache {
   f_LI_on = EXTRACT_LSB0_UINT (insn, 32, 25, 1); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_CALL_VARS \
   UINT f_pack; \
@@ -2592,7 +2551,7 @@ struct scache {
   length = 4; \
   f_pack = EXTRACT_LSB0_UINT (insn, 32, 31, 1); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
-  f_labelH6 = EXTRACT_LSB0_SINT (insn, 32, 30, 6); \
+  f_labelH6 = EXTRACT_LSB0_INT (insn, 32, 30, 6); \
   f_labelL18 = EXTRACT_LSB0_UINT (insn, 32, 17, 18); \
 {\
   f_label24 = ((((((((f_labelH6) << (18))) | (f_labelL18))) << (2))) + (pc));\
@@ -2771,7 +2730,7 @@ struct scache {
   f_ICCi_2_null = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_TINO_VARS \
   UINT f_pack; \
@@ -2805,7 +2764,7 @@ struct scache {
   f_ICCi_2 = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_FTIRA_VARS \
   UINT f_pack; \
@@ -2822,7 +2781,7 @@ struct scache {
   f_ICCi_2_null = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_FTINO_VARS \
   UINT f_pack; \
@@ -2856,7 +2815,7 @@ struct scache {
   f_FCCi_2 = EXTRACT_LSB0_UINT (insn, 32, 26, 2); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_d12 = EXTRACT_LSB0_SINT (insn, 32, 11, 12); \
+  f_d12 = EXTRACT_LSB0_INT (insn, 32, 11, 12); \
 
 #define EXTRACT_IFMT_BREAK_VARS \
   UINT f_pack; \
@@ -3190,50 +3149,6 @@ struct scache {
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
   f_GRj_null = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 
-#define EXTRACT_IFMT_LRAI_VARS \
-  UINT f_pack; \
-  UINT f_GRk; \
-  UINT f_op; \
-  UINT f_GRi; \
-  UINT f_ope1; \
-  UINT f_LRAE; \
-  UINT f_LRAD; \
-  UINT f_LRAS; \
-  UINT f_LRA_null; \
-  unsigned int length;
-#define EXTRACT_IFMT_LRAI_CODE \
-  length = 4; \
-  f_pack = EXTRACT_LSB0_UINT (insn, 32, 31, 1); \
-  f_GRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
-  f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
-  f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_LRAE = EXTRACT_LSB0_UINT (insn, 32, 5, 1); \
-  f_LRAD = EXTRACT_LSB0_UINT (insn, 32, 4, 1); \
-  f_LRAS = EXTRACT_LSB0_UINT (insn, 32, 3, 1); \
-  f_LRA_null = EXTRACT_LSB0_UINT (insn, 32, 2, 3); \
-
-#define EXTRACT_IFMT_TLBPR_VARS \
-  UINT f_pack; \
-  UINT f_TLBPR_null; \
-  UINT f_TLBPRopx; \
-  UINT f_TLBPRL; \
-  UINT f_op; \
-  UINT f_GRi; \
-  UINT f_ope1; \
-  UINT f_GRj; \
-  unsigned int length;
-#define EXTRACT_IFMT_TLBPR_CODE \
-  length = 4; \
-  f_pack = EXTRACT_LSB0_UINT (insn, 32, 31, 1); \
-  f_TLBPR_null = EXTRACT_LSB0_UINT (insn, 32, 30, 2); \
-  f_TLBPRopx = EXTRACT_LSB0_UINT (insn, 32, 28, 3); \
-  f_TLBPRL = EXTRACT_LSB0_UINT (insn, 32, 25, 1); \
-  f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
-  f_GRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_GRj = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
-
 #define EXTRACT_IFMT_COP1_VARS \
   UINT f_pack; \
   UINT f_CPRk; \
@@ -3248,7 +3163,7 @@ struct scache {
   f_CPRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_CPRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_s6_1 = EXTRACT_LSB0_SINT (insn, 32, 11, 6); \
+  f_s6_1 = EXTRACT_LSB0_INT (insn, 32, 11, 6); \
   f_CPRj = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 
 #define EXTRACT_IFMT_CLRGR_VARS \
@@ -3581,7 +3496,7 @@ struct scache {
   f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_u12_h = EXTRACT_LSB0_SINT (insn, 32, 17, 6); \
+  f_u12_h = EXTRACT_LSB0_INT (insn, 32, 17, 6); \
   f_u12_l = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 {\
   f_u12 = ((((f_u12_h) << (6))) | (f_u12_l));\
@@ -3602,7 +3517,7 @@ struct scache {
   f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_u12_h = EXTRACT_LSB0_SINT (insn, 32, 17, 6); \
+  f_u12_h = EXTRACT_LSB0_INT (insn, 32, 17, 6); \
   f_u12_l = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 {\
   f_u12 = ((((f_u12_h) << (6))) | (f_u12_l));\
@@ -3623,7 +3538,7 @@ struct scache {
   f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_u12_h = EXTRACT_LSB0_SINT (insn, 32, 17, 6); \
+  f_u12_h = EXTRACT_LSB0_INT (insn, 32, 17, 6); \
   f_u12_l = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 {\
   f_u12 = ((((f_u12_h) << (6))) | (f_u12_l));\
@@ -3646,7 +3561,7 @@ struct scache {
   f_FRi_null = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
   f_misc_null_11 = EXTRACT_LSB0_UINT (insn, 32, 5, 1); \
-  f_s5 = EXTRACT_LSB0_SINT (insn, 32, 4, 5); \
+  f_s5 = EXTRACT_LSB0_INT (insn, 32, 4, 5); \
 
 #define EXTRACT_IFMT_MHSETHIH_VARS \
   UINT f_pack; \
@@ -3665,7 +3580,7 @@ struct scache {
   f_FRi_null = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
   f_misc_null_11 = EXTRACT_LSB0_UINT (insn, 32, 5, 1); \
-  f_s5 = EXTRACT_LSB0_SINT (insn, 32, 4, 5); \
+  f_s5 = EXTRACT_LSB0_INT (insn, 32, 4, 5); \
 
 #define EXTRACT_IFMT_MHDSETH_VARS \
   UINT f_pack; \
@@ -3684,7 +3599,7 @@ struct scache {
   f_FRi_null = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
   f_misc_null_11 = EXTRACT_LSB0_UINT (insn, 32, 5, 1); \
-  f_s5 = EXTRACT_LSB0_SINT (insn, 32, 4, 5); \
+  f_s5 = EXTRACT_LSB0_INT (insn, 32, 4, 5); \
 
 #define EXTRACT_IFMT_MAND_VARS \
   UINT f_pack; \
@@ -3811,7 +3726,7 @@ struct scache {
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_ACC40Si = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_s6 = EXTRACT_LSB0_SINT (insn, 32, 5, 6); \
+  f_s6 = EXTRACT_LSB0_INT (insn, 32, 5, 6); \
 
 #define EXTRACT_IFMT_MDCUTSSI_VARS \
   UINT f_pack; \
@@ -3828,7 +3743,7 @@ struct scache {
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_ACC40Si = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_s6 = EXTRACT_LSB0_SINT (insn, 32, 5, 6); \
+  f_s6 = EXTRACT_LSB0_INT (insn, 32, 5, 6); \
 
 #define EXTRACT_IFMT_MDROTLI_VARS \
   UINT f_pack; \
@@ -3845,7 +3760,7 @@ struct scache {
   f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
   f_FRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
   f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_s6 = EXTRACT_LSB0_SINT (insn, 32, 5, 6); \
+  f_s6 = EXTRACT_LSB0_INT (insn, 32, 5, 6); \
 
 #define EXTRACT_IFMT_MQSATHS_VARS \
   UINT f_pack; \
@@ -3920,23 +3835,6 @@ struct scache {
   f_cond = EXTRACT_LSB0_UINT (insn, 32, 8, 1); \
   f_ope4 = EXTRACT_LSB0_UINT (insn, 32, 7, 2); \
   f_FRj = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
-
-#define EXTRACT_IFMT_MQSLLHI_VARS \
-  UINT f_pack; \
-  UINT f_FRk; \
-  UINT f_op; \
-  UINT f_FRi; \
-  UINT f_ope1; \
-  UINT f_u6; \
-  unsigned int length;
-#define EXTRACT_IFMT_MQSLLHI_CODE \
-  length = 4; \
-  f_pack = EXTRACT_LSB0_UINT (insn, 32, 31, 1); \
-  f_FRk = EXTRACT_LSB0_UINT (insn, 32, 30, 6); \
-  f_op = EXTRACT_LSB0_UINT (insn, 32, 24, 7); \
-  f_FRi = EXTRACT_LSB0_UINT (insn, 32, 17, 6); \
-  f_ope1 = EXTRACT_LSB0_UINT (insn, 32, 11, 6); \
-  f_u6 = EXTRACT_LSB0_UINT (insn, 32, 5, 6); \
 
 #define EXTRACT_IFMT_MADDACCS_VARS \
   UINT f_pack; \

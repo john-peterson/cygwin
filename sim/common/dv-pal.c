@@ -1,6 +1,6 @@
 /* The common simulator framework for GDB, the GNU Debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Andrew Cagney and Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #include "hw-main.h"
@@ -44,13 +46,13 @@
 
 /* DEVICE
 
-
+   
    pal - glue logic device containing assorted junk
 
-
+   
    DESCRIPTION
 
-
+   
    Typical hardware dependant hack.  This device allows the firmware
    to gain access to all the things the firmware needs (but the OS
    doesn't).
@@ -74,10 +76,10 @@
 
    RESET (write): halts the simulator.  The value written to the
    register is used as an exit status.
-
+   
    PROCESSOR ID (read): returns the processor identifier (0 .. N-1) of
    the processor performing the read.
-
+   
    INTERRUPT (write): This register must be written using a two byte
    store.  The low byte specifies a port and the upper byte specifies
    the a level.  LEVEL is driven on the specified port.  By
@@ -122,7 +124,7 @@
 
 
    PROPERTIES
-
+   
 
    reg = <address> <size> (required)
 
@@ -212,7 +214,7 @@ static const struct hw_port_descriptor hw_pal_ports[] = {
   { "countdown", COUNTDOWN_PORT, 0, output_port, },
   { "timer", TIMER_PORT, 0, output_port, },
   { "int", INT_PORT, MAX_NR_PROCESSORS, output_port, },
-  { NULL, 0, 0, 0 }
+  { NULL }
 };
 
 
@@ -306,7 +308,7 @@ scan_hw_pal (struct hw *me)
   hw_pal_device *hw_pal = (hw_pal_device *)hw_data (me);
   char c;
   int count;
-  count = do_hw_poll_read (me, hw_pal->reader, 0/*STDIN*/, &c, sizeof (c));
+  count = do_hw_poll_read (me, hw_pal->reader, 0/*STDIN*/, &c, sizeof(c));
   switch (count)
     {
     case HW_IO_NOT_READY:
@@ -429,7 +431,7 @@ hw_pal_io_write_buffer (struct hw *me,
 {
   hw_pal_device *hw_pal = (hw_pal_device*) hw_data (me);
   unsigned_1 *byte = (unsigned_1 *) source;
-
+  
   switch (addr & hw_pal_address_mask)
     {
 
@@ -467,12 +469,12 @@ hw_pal_io_write_buffer (struct hw *me,
       do_counter_write (me, hw_pal, "countdown",
 			&hw_pal->countdown, source, nr_bytes);
       break;
-
+      
     case hw_pal_timer:
       do_counter_write (me, hw_pal, "timer",
 			&hw_pal->timer, source, nr_bytes);
       break;
-
+      
     }
   return nr_bytes;
 }
@@ -482,7 +484,7 @@ hw_pal_io_write_buffer (struct hw *me,
 
 #if NOT_YET
 static void
-hw_pal_instance_delete_callback (hw_instance *instance)
+hw_pal_instance_delete_callback(hw_instance *instance)
 {
   /* nothing to delete, the hw_pal is attached to the struct hw */
   return;
@@ -602,5 +604,5 @@ hw_pal_finish (struct hw *hw)
 
 const struct hw_descriptor dv_pal_descriptor[] = {
   { "pal", hw_pal_finish, },
-  { NULL, NULL },
+  { NULL },
 };

@@ -1,21 +1,22 @@
 /* frv memory model.
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
    Contributed by Red Hat
 
 This file is part of the GNU simulators.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #define WANT_CPU frvbf
 #define WANT_CPU_FRVBF
@@ -72,7 +73,6 @@ check_data_read_address (SIM_CPU *current_cpu, SI address, int align_mask)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       address = fr400_check_data_read_address (current_cpu, address,
 					       align_mask);
       break;
@@ -149,7 +149,6 @@ check_readwrite_address (SIM_CPU *current_cpu, SI address, int align_mask)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       address = fr400_check_readwrite_address (current_cpu, address,
 						    align_mask);
       break;
@@ -241,7 +240,6 @@ check_insn_read_address (SIM_CPU *current_cpu, PCADDR address, int align_mask)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       address = fr400_check_insn_read_address (current_cpu, address,
 					       align_mask);
       break;
@@ -681,6 +679,18 @@ frvbf_read_imem_USI (SIM_CPU *current_cpu, PCADDR vpc)
 static SI
 fr400_check_write_address (SIM_CPU *current_cpu, SI address, int align_mask)
 {
+  if (address & align_mask)
+    {
+      /* On the fr400, this causes a data_access_error.  */
+      /* Make sure that this exception is not masked.  */
+      USI isr = GET_ISR ();
+      if (! GET_ISR_EMAM (isr))
+	{
+	  /* Bad alignment causes a data_access_error on fr400.  */
+	  frv_queue_data_access_error_interrupt (current_cpu, address);
+	}
+      address &= ~align_mask;
+    }
   if (align_mask == 7
       && address >= 0xfe800000 && address <= 0xfeffffff)
     frv_queue_program_interrupt (current_cpu, FRV_DATA_STORE_ERROR);
@@ -725,7 +735,6 @@ check_write_address (SIM_CPU *current_cpu, SI address, int align_mask)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       address = fr400_check_write_address (current_cpu, address, align_mask);
       break;
     case bfd_mach_frvtomcat:

@@ -29,7 +29,6 @@ code on the hardware.
 #define TRACE (1)
 #endif
 
-#include "config.h"
 #include "bfd.h"
 #include "sim-main.h"
 #include "sim-utils.h"
@@ -64,6 +63,8 @@ code on the hardware.
 #include "bfd.h"
 #include "gdb/callback.h"   /* GDB simulator callback interface */
 #include "gdb/remote-sim.h" /* GDB simulator interface */
+
+#include "sysdep.h"
 
 #ifndef PARAMS
 #define PARAMS(x) 
@@ -130,9 +131,6 @@ static void ColdReset PARAMS((SIM_DESC sd));
 
 /* Note that the monitor code essentially assumes this layout of memory.
    If you change these, change the monitor code, too.  */
-/* FIXME Currently addresses are truncated to 32-bits, see
-   mips/sim-main.c:address_translation(). If that changes, then these
-   values will need to be extended, and tested for more carefully. */
 #define K0BASE  (0x80000000)
 #define K0SIZE  (0x20000000)
 #define K1BASE  (0xA0000000)
@@ -158,7 +156,7 @@ static SIM_ADDR lsipmon_monitor_base = 0xBFC00200;
 static SIM_RC sim_firmware_command (SIM_DESC sd, char* arg);
 
 
-#define MEM_SIZE (8 << 20)	/* 8 MBytes */
+#define MEM_SIZE (2 << 20)
 
 
 #if defined(TRACE)
@@ -179,11 +177,9 @@ enum {
   OPTION_DINERO_TRACE = OPTION_START,
   OPTION_DINERO_FILE,
   OPTION_FIRMWARE,
-  OPTION_INFO_MEMORY,
   OPTION_BOARD
 };
 
-static int display_mem_info = 0;
 
 static SIM_RC
 mips_option_handler (sd, cpu, opt, arg, is_command)
@@ -260,10 +256,6 @@ Re-compile simulator with \"-DTRACE\" to enable this option.\n");
 	  }
 	return SIM_RC_OK;
       }
-
-    case OPTION_INFO_MEMORY:
-      display_mem_info = 1;
-      break;
     }
   
   return SIM_RC_OK;
@@ -295,20 +287,6 @@ static const OPTION mips_options[] =
 
     , "Customize simulation for a particular board.", mips_option_handler },
 
-  /* These next two options have the same names as ones found in the
-     memory_options[] array in common/sim-memopt.c.  This is because
-     the intention is to provide an alternative handler for those two
-     options.  We need an alternative handler because the memory
-     regions are not set up until after the command line arguments
-     have been parsed, and so we cannot display the memory info whilst
-     processing the command line.  There is a hack in sim_open to
-     remove these handlers when we want the real --memory-info option
-     to work.  */
-  { { "info-memory", no_argument, NULL, OPTION_INFO_MEMORY },
-    '\0', NULL, "List configured memory regions", mips_option_handler },
-  { { "memory-info", no_argument, NULL, OPTION_INFO_MEMORY },
-    '\0', NULL, NULL, mips_option_handler },
-  
   { {NULL, no_argument, NULL, 0}, '\0', NULL, NULL, NULL }
 };
 
@@ -387,67 +365,17 @@ sim_open (kind, cb, abfd, argv)
   if (board == NULL)
     {
       /* Allocate core managed memory */
-      sim_memopt *entry, *match = NULL;
-      address_word mem_size = 0;
-      int mapped = 0;
+      
 
       /* For compatibility with the old code - under this (at level one)
 	 are the kernel spaces K0 & K1.  Both of these map to a single
 	 smaller sub region */
       sim_do_command(sd," memory region 0x7fff8000,0x8000") ; /* MTZ- 32 k stack */
-
-      /* Look for largest memory region defined on command-line at
-	 phys address 0. */
-#ifdef SIM_HAVE_FLATMEM
-      mem_size = STATE_MEM_SIZE (sd);
-#endif
-      for (entry = STATE_MEMOPT (sd); entry != NULL; entry = entry->next)
-	{
-	  /* If we find an entry at address 0, then we will end up
-	     allocating a new buffer in the "memory alias" command
-	     below. The region at address 0 will be deleted. */
-	  address_word size = (entry->modulo != 0
-			       ? entry->modulo : entry->nr_bytes);
-	  if (entry->addr == 0
-	      && (!match || entry->level < match->level))
-	    match = entry;
-	  else if (entry->addr == K0BASE || entry->addr == K1BASE)
-	    mapped = 1;
-	  else
-	    {
-	      sim_memopt *alias;
-	      for (alias = entry->alias; alias != NULL; alias = alias->next)
-		{
-		  if (alias->addr == 0
-		      && (!match || entry->level < match->level))
-		    match = entry;
-		  else if (alias->addr == K0BASE || alias->addr == K1BASE)
-		    mapped = 1;
-		}
-	    }
-	}
-
-      if (!mapped)
-	{
-	  if (match)
-	    {
-	      /* Get existing memory region size. */
-	      mem_size = (match->modulo != 0
-			  ? match->modulo : match->nr_bytes);
-	      /* Delete old region. */
-	      sim_do_commandf (sd, "memory delete %d:0x%lx@%d",
-			       match->space, match->addr, match->level);
-	    }	      
-	  else if (mem_size == 0)
-	    mem_size = MEM_SIZE;
-	  /* Limit to KSEG1 size (512MB) */
-	  if (mem_size > K1SIZE)
-	    mem_size = K1SIZE;
-	  /* memory alias K1BASE@1,K1SIZE%MEMSIZE,K0BASE */
-	  sim_do_commandf (sd, "memory alias 0x%lx@1,0x%lx%%0x%lx,0x%0x",
-			   K1BASE, K1SIZE, (long)mem_size, K0BASE);
-	}
-
+      sim_do_commandf (sd, "memory alias 0x%lx@1,0x%lx%%0x%lx,0x%0x",
+		       K1BASE, K0SIZE,
+		       MEM_SIZE, /* actual size */
+		       K0BASE);
+      
       device_init(sd);
     }
   else if (board != NULL
@@ -606,31 +534,6 @@ sim_open (kind, cb, abfd, argv)
     }
 #endif
 
-  if (display_mem_info)
-    {
-      struct option_list * ol;
-      struct option_list * prev;
-
-      /* This is a hack.  We want to execute the real --memory-info command
-	 line switch which is handled in common/sim-memopts.c, not the
-	 override we have defined in this file.  So we remove the
-	 mips_options array from the state options list.  This is safe
-         because we have now processed all of the command line.  */
-      for (ol = STATE_OPTIONS (sd), prev = NULL;
-	   ol != NULL;
-	   prev = ol, ol = ol->next)
-	if (ol->options == mips_options)
-	  break;
-
-      SIM_ASSERT (ol != NULL);
-
-      if (prev == NULL)
-	STATE_OPTIONS (sd) = ol->next;
-      else
-	prev->next = ol->next;
-
-      sim_do_commandf (sd, "memory-info");
-    }
 
   /* check for/establish the a reference program image */
   if (sim_analyze_program (sd,
@@ -863,7 +766,7 @@ int
 sim_write (sd,addr,buffer,size)
      SIM_DESC sd;
      SIM_ADDR addr;
-     const unsigned char *buffer;
+     unsigned char *buffer;
      int size;
 {
   int index;
@@ -965,16 +868,8 @@ sim_store_register (sd,rn,memory,length)
 	}
       else
 	{
-          if (length == 8)
-	    {
-	      cpu->fgr[rn - FGR_BASE] = T2H_8 (*(unsigned64*)memory);
-	      return 8;
-	    }
-	  else
-	    {
-	      cpu->fgr[rn - FGR_BASE] = T2H_4 (*(unsigned32*)memory);
-	      return 4;
-	    }
+	  cpu->fgr[rn - FGR_BASE] = T2H_8 (*(unsigned64*)memory);
+	  return 8;
 	}
     }
 
@@ -994,16 +889,8 @@ sim_store_register (sd,rn,memory,length)
     }
   else
     {
-      if (length == 8)
-	{
-	  cpu->registers[rn] = T2H_8 (*(unsigned64*)memory);
-	  return 8;
-	}
-      else
-	{
-	  cpu->registers[rn] = (signed32) T2H_4(*(unsigned32*)memory);
-	  return 4;
-	}
+      cpu->registers[rn] = T2H_8 (*(unsigned64*)memory);
+      return 8;
     }
 
   return 0;
@@ -1052,16 +939,8 @@ sim_fetch_register (sd,rn,memory,length)
 	}
       else
 	{
-	  if (length == 8)
-	    {
-	      *(unsigned64*)memory = H2T_8 (cpu->fgr[rn - FGR_BASE]);
-	      return 8;
-	    }
-	  else
-	    {
-	      *(unsigned32*)memory = H2T_4 ((unsigned32)(cpu->fgr[rn - FGR_BASE]));
-	      return 4;
-	    }
+	  *(unsigned64*)memory = H2T_8 (cpu->fgr[rn - FGR_BASE]);
+	  return 8;
 	}
     }
 
@@ -1081,17 +960,8 @@ sim_fetch_register (sd,rn,memory,length)
     }
   else
     {
-      if (length == 8)
-	{
-	  *(unsigned64*)memory =
-	    H2T_8 ((unsigned64) (cpu->registers[rn]));
-	  return 8;
-	}
-      else
-	{
-	  *(unsigned32*)memory = H2T_4 ((unsigned32)(cpu->registers[rn]));
-	  return 4;
-	}
+      *(unsigned64*)memory = H2T_8 ((unsigned64)(cpu->registers[rn]));
+      return 8;
     }
 
   return 0;
@@ -1141,6 +1011,16 @@ sim_create_inferior (sd, abfd, argv,env)
 #endif /* DEBUG */
 
   return SIM_RC_OK;
+}
+
+void
+sim_do_command (sd,cmd)
+     SIM_DESC sd;
+     char *cmd;
+{
+  if (sim_args_command (sd, cmd) != SIM_RC_OK)
+    sim_io_printf (sd, "Error: \"%s\" is not a valid MIPS simulator command.\n",
+		   cmd);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1276,7 +1156,7 @@ sim_monitor (SIM_DESC sd,
       {
 	char *path = fetch_str (sd, A0);
 	V0 = sim_io_open (sd, path, (int)A1);
-	free (path);
+	zfree (path);
 	break;
       }
 
@@ -1287,7 +1167,7 @@ sim_monitor (SIM_DESC sd,
 	char *buf = zalloc (nr);
 	V0 = sim_io_read (sd, fd, buf, nr);
 	sim_write (sd, A1, buf, nr);
-	free (buf);
+	zfree (buf);
       }
       break;
 
@@ -1298,11 +1178,7 @@ sim_monitor (SIM_DESC sd,
 	char *buf = zalloc (nr);
 	sim_read (sd, A1, buf, nr);
 	V0 = sim_io_write (sd, fd, buf, nr);
-	if (fd == 1)
-	    sim_io_flush_stdout (sd);
-	else if (fd == 2)
-	    sim_io_flush_stderr (sd);
-	free (buf);
+	zfree (buf);
 	break;
       }
 
@@ -1359,39 +1235,8 @@ sim_monitor (SIM_DESC sd,
       /*      [A0 + 4] = instruction cache size */
       /*      [A0 + 8] = data cache size */
       {
-	unsigned_4 value;
+	unsigned_4 value = MEM_SIZE /* FIXME STATE_MEM_SIZE (sd) */;
 	unsigned_4 zero = 0;
-	address_word mem_size;
-	sim_memopt *entry, *match = NULL;
-
-	/* Search for memory region mapped to KSEG0 or KSEG1. */
-	for (entry = STATE_MEMOPT (sd); 
-	     entry != NULL;
-	     entry = entry->next)
-	  {
-	    if ((entry->addr == K0BASE || entry->addr == K1BASE)
-		&& (!match || entry->level < match->level))
-	      match = entry;
-	    else
-	      {
-		sim_memopt *alias;
-		for (alias = entry->alias; 
-		     alias != NULL;
-		     alias = alias->next)
-		  if ((alias->addr == K0BASE || alias->addr == K1BASE)
-		      && (!match || entry->level < match->level))
-		    match = entry;
-	      }
-	  }
-
-	/* Get region size, limit to KSEG1 size (512MB). */
-	SIM_ASSERT (match != NULL);
-	mem_size = (match->modulo != 0
-		    ? match->modulo : match->nr_bytes);
-	if (mem_size > K1SIZE)
-	  mem_size = K1SIZE;
-
-	value = mem_size;
 	H2T (value);
 	sim_write (sd, A0 + 0, (char *)&value, 4);
 	sim_write (sd, A0 + 4, (char *)&zero, 4);
@@ -1796,20 +1641,6 @@ ColdReset (SIM_DESC sd)
 	    FPR_STATE[rn] = fmt_uninterpreted;
 	}
       
-      /* Initialise the Config0 register. */
-      C0_CONFIG = 0x80000000 		/* Config1 present */
-	| 2;				/* KSEG0 uncached */
-      if (WITH_TARGET_WORD_BITSIZE == 64)
-	{
-	  /* FIXME Currently mips/sim-main.c:address_translation()
-	     truncates all addresses to 32-bits. */
-	  if (0 && WITH_TARGET_ADDRESS_BITSIZE == 64)
-	    C0_CONFIG |= (2 << 13);	/* MIPS64, 64-bit addresses */
-	  else
-	    C0_CONFIG |= (1 << 13);	/* MIPS64, 32-bit addresses */
-	}
-      if (BigEndianMem)
-	C0_CONFIG |= 0x00008000;	/* Big Endian */
     }
 }
 
@@ -2093,7 +1924,8 @@ cop_lw (SIM_DESC sd,
 #ifdef DEBUG
 	  printf("DBG: COP_LW: memword = 0x%08X (uword64)memword = 0x%s\n",memword,pr_addr(memword));
 #endif
-	  StoreFPR(coproc_reg,fmt_uninterpreted_32,(uword64)memword);
+	  StoreFPR(coproc_reg,fmt_word,(uword64)memword);
+	  FPR_STATE[coproc_reg] = fmt_uninterpreted;
 	  break;
 	}
 
@@ -2124,7 +1956,7 @@ cop_ld (SIM_DESC sd,
     case 1:
       if (CURRENT_FLOATING_POINT == HARD_FLOATING_POINT)
 	{
-	  StoreFPR(coproc_reg,fmt_uninterpreted_64,memword);
+	  StoreFPR(coproc_reg,fmt_uninterpreted,memword);
 	  break;
 	}
 
@@ -2155,7 +1987,11 @@ cop_sw (SIM_DESC sd,
     case 1:
       if (CURRENT_FLOATING_POINT == HARD_FLOATING_POINT)
 	{
-	  value = (unsigned int)ValueFPR(coproc_reg,fmt_uninterpreted_32);
+	  FP_formats hold;
+	  hold = FPR_STATE[coproc_reg];
+	  FPR_STATE[coproc_reg] = fmt_word;
+	  value = (unsigned int)ValueFPR(coproc_reg,fmt_uninterpreted);
+	  FPR_STATE[coproc_reg] = hold;
 	  break;
 	}
 
@@ -2182,7 +2018,7 @@ cop_sd (SIM_DESC sd,
     case 1:
       if (CURRENT_FLOATING_POINT == HARD_FLOATING_POINT)
 	{
-	  value = ValueFPR(coproc_reg,fmt_uninterpreted_64);
+	  value = ValueFPR(coproc_reg,fmt_uninterpreted);
 	  break;
 	}
 
@@ -2266,7 +2102,7 @@ decode_coproc (SIM_DESC sd,
 	      case 8:
 		/* 8 = BadVAddr            R4000   VR4100  VR4300 */
 		if (code == 0x00)
-		  GPR[rt] = (signed_word) (signed_address) COP0_BADVADDR;
+		  GPR[rt] = COP0_BADVADDR;
 		else
 		  COP0_BADVADDR = GPR[rt];
 		break;
@@ -2304,11 +2140,10 @@ decode_coproc (SIM_DESC sd,
 #else
 		/* 16 = Config             R4000   VR4100  VR4300 */
               case 16:
-		if (code == 0x00)
-		  GPR[rt] = C0_CONFIG;
-		else
-		  /* only bottom three bits are writable */
-		  C0_CONFIG = (C0_CONFIG & ~0x7) | (GPR[rt] & 0x7);
+                if (code == 0x00)
+                  GPR[rt] = C0_CONFIG;
+                else
+                  C0_CONFIG = GPR[rt];
                 break;
 #endif
 #ifdef SUBTARGET_R3900
@@ -2348,40 +2183,6 @@ decode_coproc (SIM_DESC sd,
 		  sim_io_printf(sd,"Warning: MTC0 %d,%d ignored, PC=%08x (architecture specific)\n",rt,rd, (unsigned)cia);
 #endif
 	      }
-	  }
-	else if ((code == 0x00 || code == 0x01)
-		 && rd == 16)
-	  {
-	    /* [D]MFC0 RT,C0_CONFIG,SEL */
-	    signed32 cfg = 0;
-	    switch (tail & 0x07) 
-	      {
-	      case 0:
-		cfg = C0_CONFIG;
-		break;
-	      case 1:
-		/* MIPS32 r/o Config1: 
-		   Config2 present */
-		cfg = 0x80000000;
-		/* MIPS16 implemented. 
-		   XXX How to check configuration? */
-		cfg |= 0x0000004;
-		if (CURRENT_FLOATING_POINT == HARD_FLOATING_POINT)
-		  /* MDMX & FPU implemented */
-		  cfg |= 0x00000021;
-		break;
-	      case 2:
-		/* MIPS32 r/o Config2: 
-		   Config3 present. */
-		cfg = 0x80000000;
-		break;
-	      case 3:
-		/* MIPS32 r/o Config3: 
-		   SmartMIPS implemented. */
-		cfg = 0x00000002;
-		break;
-	      }
-	    GPR[rt] = cfg;
 	  }
 	else if (code == 0x10 && (tail & 0x3f) == 0x18)
 	  {

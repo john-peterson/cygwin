@@ -1,21 +1,22 @@
 /* frv cache model.
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
 This file is part of the GNU simulators.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #define WANT_CPU frvbf
 #define WANT_CPU_FRVBF
@@ -37,9 +38,8 @@ frv_cache_init (SIM_CPU *cpu, FRV_CACHE *cache)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       if (cache->configured_sets == 0)
-	cache->configured_sets = 512;
+	cache->configured_sets = 128;
       if (cache->configured_ways == 0)
 	cache->configured_ways = 2;
       if (cache->line_size == 0)
@@ -205,11 +205,9 @@ non_cache_access (FRV_CACHE *cache, USI address)
   switch (STATE_ARCHITECTURE (sd)->mach)
     {
     case bfd_mach_fr400:
-    case bfd_mach_fr450:
       if (address >= 0xff000000
 	  || address >= 0xfe000000 && address <= 0xfeffffff)
 	return 1; /* non-cache access */
-      break;
     case bfd_mach_fr550:
       if (address >= 0xff000000
 	  || address >= 0xfeff0000 && address <= 0xfeffffff)
@@ -221,7 +219,6 @@ non_cache_access (FRV_CACHE *cache, USI address)
 	}
       else if (address >= 0xfe400000 && address <= 0xfe407fff)
 	return 1; /* non-cache access */
-      break;
     default:
       if (address >= 0xff000000
 	  || address >= 0xfeff0000 && address <= 0xfeffffff)
@@ -233,7 +230,6 @@ non_cache_access (FRV_CACHE *cache, USI address)
 	}
       else if (address >= 0xfe400000 && address <= 0xfe403fff)
 	return 1; /* non-cache access */
-      break;
     }
 
   hsr0 = GET_HSR0 ();

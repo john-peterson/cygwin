@@ -1,20 +1,30 @@
 # This testcase is part of GDB, the GNU debugger.
 
-# Copyright 1996-2013 Free Software Foundation, Inc.
+# Copyright 1996, 1997, 1999, 2003 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 # Some targets can't call functions, so don't even bother with this
 # test.
@@ -29,13 +39,10 @@ set testfile "structs"
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}
 
-# Regex matching any value of `char' type like: a = 65 'A'
-set anychar_re {-?[0-9]{1,3} '(.|\\([0-7]{3}|[a-z]|\\|'))'}
-
 # Create and source the file that provides information about the
 # compiler used to compile the test case.
 
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 
@@ -44,7 +51,6 @@ if [get_compiler_info] {
 # the last TYPES field).  Run the compmiled program up to "main".
 # Also updates the global "testfile" to reflect the most recent build.
 
-set first 1
 proc start_structs_test { types } {
     global testfile
     global srcfile
@@ -53,8 +59,6 @@ proc start_structs_test { types } {
     global subdir
     global srcdir
     global gdb_prompt
-    global anychar_re
-    global first
 
     # Create the additional flags
     set flags "debug"
@@ -72,22 +76,22 @@ proc start_structs_test { types } {
 	# built the second test case since we can't use prototypes
 	warning "Prototypes not supported, rebuilding with -DNO_PROTOTYPES"
 	if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "${flags} additional_flags=-DNO_PROTOTYPES"] != "" } {
-	    untested structs.exp
-	    return -1
+	    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
 	}
     }
 
     # Start with a fresh gdb.
-    gdb_exit
     gdb_start
     gdb_reinitialize_dir $srcdir/$subdir
     gdb_load ${binfile}
 
     # Make certain that the output is consistent
-    gdb_test_no_output "set print sevenbit-strings"
-    gdb_test_no_output "set print address off"
-    gdb_test_no_output "set width 0"
-    gdb_test_no_output "set print elements 300"
+    gdb_test "set print sevenbit-strings" "" \
+	    "set print sevenbit-strings; ${testfile}"
+    gdb_test "set print address off" "" \
+	    "set print address off; ${testfile}"
+    gdb_test "set width 0" "" \
+	    "set width 0; ${testfile}"
 
     # Advance to main
     if { ![runto_main] } then {
@@ -96,16 +100,6 @@ proc start_structs_test { types } {
 
     # Get the debug format
     get_debug_format
-
-    # Limit the slow $anychar_re{256} matching for better performance.
-    if $first {
-	set first 0
-
-	# Verify $anychar_re can match all the values of `char' type.
-	gdb_breakpoint [gdb_get_line_number "chartest-done"]
-	gdb_continue_to_breakpoint "chartest-done" ".*chartest-done.*"
-	gdb_test "p chartest" "= {({c = ${anychar_re}}, ){255}{c = ${anychar_re}}}"
-    }
 
     # check that at the struct containing all the relevant types is correct
     set foo_t "type = struct struct[llength ${types}] \{"
@@ -167,31 +161,6 @@ proc zed { n } {
     } $n]
 }
 
-proc any { n } {
-    global anychar_re
-    set ac $anychar_re
-    return [lindex [list \
-	"{}" \
-	"{a = ${ac}}" \
-	"{a = ${ac}, b = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}, m = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}, m = ${ac}, n = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}, m = ${ac}, n = ${ac}, o = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}, m = ${ac}, n = ${ac}, o = ${ac}, p = ${ac}}" \
-	"{a = ${ac}, b = ${ac}, c = ${ac}, d = ${ac}, e = ${ac}, f = ${ac}, g = ${ac}, h = ${ac}, i = ${ac}, j = ${ac}, k = ${ac}, l = ${ac}, m = ${ac}, n = ${ac}, o = ${ac}, p = ${ac}, q = ${ac}}" \
-    ] $n]
-}
-
 # Given N (0..25), return the corresponding alphabetic letter in lower
 # or upper case.  This is ment to be i18n proof.
 
@@ -206,10 +175,17 @@ proc I2A { n } {
 
 # Use the file name, compiler and tuples to set up any needed KFAILs.
 
+proc setup_kfails { file tuples bug } {
+    global testfile
+    if [string match $file $testfile] {
+	foreach f $tuples { setup_kfail $f $bug }
+    }
+}
+
 proc setup_compiler_kfails { file compiler format tuples bug } {
     global testfile
     if {[string match $file $testfile] && [test_compiler_info $compiler]  && [test_debug_format $format]} {
-	foreach f $tuples { setup_kfail $bug $f }
+	foreach f $tuples { setup_kfail $f $bug }
     }
 }
 
@@ -241,8 +217,8 @@ proc test_struct_calls { n } {
     set tests "call $n ${testfile}"
 
     # Call fun${n}, checking the printed return-value.
-    setup_compiler_kfails structs-tc-tll gcc-3-3-* "DWARF 2" i*86-*-* gdb/1455
-    setup_compiler_kfails structs-tc-td gcc-3-3-* "DWARF 2" i*86-*-* gdb/1455
+    setup_kfails structs-*tld* i*86-*-* gdb/1447
+    setup_compiler_kfails structs-tc-* gcc-3-3 "DWARF 2" i*86-*-* gdb/1455
     gdb_test "p/c fun${n}()"  "[foo ${n}]" "p/c fun<n>(); ${tests}"
 
     # Check that GDB can always pass a structure to an inferior function.
@@ -252,9 +228,9 @@ proc test_struct_calls { n } {
     # stores its parameter in the global variable "L$N".  GDB then
     # examining that global to confirm that the value is as expected.
 
-    gdb_test_no_output "call Fun${n}(foo${n})" "call Fun<n>(foo<n>); ${tests}"
-    setup_compiler_kfails structs-tc-tll gcc-3-3-* "DWARF 2" i*86-*-* gdb/1455
-    setup_compiler_kfails structs-tc-td gcc-3-3-* "DWARF 2" i*86-*-* gdb/1455
+    gdb_test "call Fun${n}(foo${n})" "" "call Fun<n>(foo<n>); ${tests}"
+    setup_kfails structs-*tld* i*86-*-* gdb/1447
+    setup_compiler_kfails structs-tc-* gcc-3-3 "DWARF 2" i*86-*-* gdb/1455
     gdb_test "p/c L${n}" [foo ${n}] "p/c L<n>; ${tests}"
 }
 
@@ -295,7 +271,7 @@ proc test_struct_returns { n } {
 
     # The relevant code looks like "L{n} = fun{n}()".  The test forces
     # "fun{n}" to "return" with an explicit value.  Since that code
-    # snippet will store the returned value in "L{n}" the return
+    # snippet will store the the returned value in "L{n}" the return
     # is tested by examining "L{n}".  This assumes that the
     # compiler implemented this as fun{n}(&L{n}) and hence that when
     # the value isn't stored "L{n}" remains unchanged.  Also check for
@@ -307,7 +283,8 @@ proc test_struct_returns { n } {
 	    "advance to fun<n> for return; ${tests}"
 
     # Check that the program invalidated the relevant global.
-    gdb_test "p/c L${n}" " = [zed $n]" "zed L<n> for return; ${tests}"
+    setup_kfails structs-tld i*86-*-* gdb/1447
+    gdb_test "p/c L${n}" " = [zed $n]" "zed L<n> for return; ${tests} .${testfile}."
 
     # Force the "return".  This checks that the return is always
     # performed, and that GDB correctly reported this to the user.
@@ -317,21 +294,21 @@ proc test_struct_returns { n } {
 
     # The test is writen so that it only reports one FAIL/PASS for the
     # entire operation.  The value returned is checked further down.
-    # "return_value_known", if non-zero, indicates that GDB knew where
-    # the return value was located.
+    # "return_value_unknown", if non-empty, records why GDB realised
+    # that it didn't know where the return value was.
 
     set test "return foo<n>; ${tests}"
-    set return_value_known 1
+    set return_value_unknown 0
     set return_value_unimplemented 0
     gdb_test_multiple "return foo${n}" "${test}" {
 	-re "The location" {
 	    # Ulgh, a struct return, remember this (still need prompt).
-	    set return_value_known 0
+	    set return_value_unknown 1
 	    exp_continue
 	}
 	-re "A structure or union" {
 	    # Ulgh, a struct return, remember this (still need prompt).
-	    set return_value_known 0
+	    set return_value_unknown 1
 	    # Double ulgh.  Architecture doesn't use return_value and
 	    # hence hasn't implemented small structure return.
 	    set return_value_unimplemented 1
@@ -352,45 +329,31 @@ proc test_struct_returns { n } {
 
     # Check that the return-value is as expected.  At this stage we're
     # just checking that GDB has returned a value consistent with
-    # "return_value_known" set above.
-    #
-    # Note that, when return_value_known is false, we can't make any
-    # assumptions at all about the value L<n>:
-    #
-    # - If the caller passed the address of L<n> directly as fun<n>'s
-    #   return value buffer, then L<n> will be unchanged, because we
-    #   forced fun<n> to return before it could store anything in it.
-    #
-    # - If the caller passed the address of some temporary buffer to
-    #   fun<n>, and then copied the buffer into L<n>, then L<n> will
-    #   have been overwritten with whatever garbage was in the
-    #   uninitialized buffer.
-    #
-    # - However, if the temporary buffer just happened to have the
-    #   "right" value of foo<n> in it, then L<n> will, in fact, have
-    #   the value you'd expect to see if the 'return' had worked!
-    #   This has actually been observed to happen on the Renesas M32C.
-    #
-    # So, really, anything is acceptable unless return_value_known is
-    # true.
+    # "return_value_unknown" set above.
 
     set test "value foo<n> returned; ${tests}"
+    setup_kfails structs-*tld* i*86-*-* gdb/1447
     gdb_test_multiple "p/c L${n}" "${test}" {
 	-re " = [foo ${n}].*${gdb_prompt} $" {
-            # This answer is okay regardless of whether GDB claims to
-            # have set the return value: if it did, then this is what
-            # we expected; and if it didn't, then any answer is okay.
-            pass "${test}"
-	}
-	-re " = [any $n].*${gdb_prompt} $" {
-	    if $return_value_known {
-		# This contradicts the above claim that GDB knew
-		# the location of the return value.
+	    if $return_value_unknown {
+		# This contradicts the above claim that GDB didn't
+		# know the location of the return-value.
 		fail "${test}"
 	    } else {
-                # We expected L${n} to be set to garbage, so any
-                # answer is acceptable.
 		pass "${test}"
+	    }
+	}
+	-re " = [zed ${n}].*${gdb_prompt} $" {
+	    if $return_value_unknown {
+		# The struct return case.  Since any modification
+		# would be by reference, and that can't happen, the
+		# value should be unmodified and hence Z is expected.
+		# Is this a reasonable assumption?
+		pass "${test}"
+	    } else {
+		# This contradicts the above claim that GDB knew
+		# the location of the return-value.
+		fail "${test}"
 	    }
 	}
 	-re ".*${gdb_prompt} $" {
@@ -420,20 +383,20 @@ proc test_struct_returns { n } {
 	    "advance to fun<n> for finish; ${tests}"
 
     # Check that the program invalidated the relevant global.
+    setup_kfails structs-tld i*86-*-* gdb/1447
     gdb_test "p/c L${n}" " = [zed $n]" "zed L<n> for finish; ${tests}"
 
-    # Finish the function, set 'finish_value_known" to non-empty if
-    # the return-value was found.
-
+    # Finish the function, set 'finish_value_unknown" to non-empty if the
+    # return-value was not found.
     set test "finish foo<n>; ${tests}"
-    set finish_value_known 1
+    set finish_value_unknown 0
     gdb_test_multiple "finish" "${test}" {
 	-re "Value returned is .*${gdb_prompt} $" {
 	    pass "${test}"
 	}
 	-re "Cannot determine contents.*${gdb_prompt} $" {
 	    # Expected bad value.  For the moment this is ok.
-	    set finish_value_known 0
+	    set finish_value_unknown 1
 	    pass "${test}"
 	}
     }
@@ -442,24 +405,25 @@ proc test_struct_returns { n } {
     # "p/c".  If no return value was found, the 'Z' from the previous
     # check that the variable was cleared, is printed.
     set test "value foo<n> finished; ${tests}"
+    setup_kfails structs-*tld* i*86-*-* gdb/1447
     gdb_test_multiple "p/c" "${test}" {
 	-re "[foo ${n}]\[\r\n\]+${gdb_prompt} $" {
-	    if $finish_value_known {
-		pass "${test}"
-	    } else {
+	    if $finish_value_unknown {
 		# This contradicts the above claim that GDB didn't
 		# know the location of the return-value.
 		fail "${test}"
+	    } else {
+		pass "${test}"
 	    }
 	}
 	-re "[zed ${n}]\[\r\n\]+${gdb_prompt} $" {
 	    # The value didn't get found.  This is "expected".
-	    if $finish_value_known {
+	    if $finish_value_unknown {
+		pass "${test}"
+	    } else {
 		# This contradicts the above claim that GDB did
 		# know the location of the return-value.
 		fail "${test}"
-	    } else {
-		pass "${test}"
 	    }
 	}
     }
@@ -467,17 +431,20 @@ proc test_struct_returns { n } {
     # Finally, check that "return" and finish" have consistent
     # behavior.
 
-    # Since "finish" works in more cases than "return" (see
-    # RETURN_VALUE_ABI_RETURNS_ADDRESS and
-    # RETURN_VALUE_ABI_PRESERVES_ADDRESS), the "return" value being
-    # known implies that the "finish" value is known (but not the
-    # reverse).
+    # Since both "return" and "finish" use equivalent "which
+    # return-value convention" logic, both commands should have
+    # identical can/can-not find return-value messages.
 
-    set test "return value known implies finish value known; ${tests}"
-    if {$return_value_known && ! $finish_value_known} {
-	kfail gdb/1444 "${test}"
-    } else {
+    # Note that since "call" and "finish" use common code paths, a
+    # failure here is a strong indicator of problems with "store
+    # return-value" code paths.  Suggest looking at "return_value"
+    # when investigating a fix.
+
+    set test "return and finish use same convention; ${tests}"
+    if {$finish_value_unknown == $return_value_unknown} {
 	pass "${test}"
+    } else {
+	kfail gdb/1444 "${test}"
     }
 }
 

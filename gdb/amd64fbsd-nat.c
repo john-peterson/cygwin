@@ -1,12 +1,12 @@
 /* Native-dependent code for FreeBSD/amd64.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,12 +15,13 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "inferior.h"
 #include "regcache.h"
-#include "target.h"
 
 #include "gdb_assert.h"
 #include <signal.h>
@@ -30,20 +31,30 @@
 #include <sys/sysctl.h>
 #include <machine/reg.h>
 
-#include "fbsd-nat.h"
-#include "amd64-tdep.h"
+#ifdef HAVE_SYS_PROCFS_H
+#include <sys/procfs.h>
+#endif
+
+#ifndef HAVE_GREGSET_T
+typedef struct reg gregset_t;
+#endif
+
+#ifndef HAVE_FPREGSET_T
+typedef struct fpreg fpregset_t;
+#endif
+
+#include "gregset.h"
+#include "x86-64-tdep.h"
 #include "amd64-nat.h"
-#include "amd64bsd-nat.h"
-#include "i386-nat.h"
 
 
-/* Offset in `struct reg' where MEMBER is stored.  */
-#define REG_OFFSET(member) offsetof (struct reg, member)
+/* Offset to the gregset_t location where REG is stored.  */
+#define REG_OFFSET(reg) offsetof (gregset_t, reg)
 
-/* At amd64fbsd64_r_reg_offset[REGNUM] you'll find the offset in
-   `struct reg' location where the GDB register REGNUM is stored.
-   Unsupported registers are marked with `-1'.  */
-static int amd64fbsd64_r_reg_offset[] =
+/* At reg_offset[REGNUM] you'll find the offset to the gregset_t
+   location where the GDB register REGNUM is stored.  Unsupported
+   registers are marked with `-1'.  */
+static int reg_offset[] =
 {
   REG_OFFSET (r_rax),
   REG_OFFSET (r_rbx),
@@ -63,8 +74,6 @@ static int amd64fbsd64_r_reg_offset[] =
   REG_OFFSET (r_r15),
   REG_OFFSET (r_rip),
   REG_OFFSET (r_rflags),
-  REG_OFFSET (r_cs),
-  REG_OFFSET (r_ss),
   -1,
   -1,
   -1,
@@ -93,52 +102,44 @@ static int amd64fbsd32_r_reg_offset[I386_NUM_GREGS] =
 };
 
 
-/* Support for debugging kernel virtual memory images.  */
+/* Transfering the registers between GDB, inferiors and core files.  */
 
-#include <sys/types.h>
-#include <machine/pcb.h>
-#include <osreldate.h>
+/* Fill GDB's register array with the general-purpose register values
+   in *GREGSETP.  */
 
-#include "bsd-kvm.h"
-
-static int
-amd64fbsd_supply_pcb (struct regcache *regcache, struct pcb *pcb)
+void
+supply_gregset (gregset_t *gregsetp)
 {
-  /* The following is true for FreeBSD 5.2:
+  amd64_supply_native_gregset (current_regcache, gregsetp, -1);
+}
 
-     The pcb contains %rip, %rbx, %rsp, %rbp, %r12, %r13, %r14, %r15,
-     %ds, %es, %fs and %gs.  This accounts for all callee-saved
-     registers specified by the psABI and then some.  Here %esp
-     contains the stack pointer at the point just after the call to
-     cpu_switch().  From this information we reconstruct the register
-     state as it would like when we just returned from cpu_switch().  */
+/* Fill register REGNUM (if it is a general-purpose register) in
+   *GREGSETPS with the value in GDB's register array.  If REGNUM is -1,
+   do this for all registers.  */
 
-  /* The stack pointer shouldn't be zero.  */
-  if (pcb->pcb_rsp == 0)
-    return 0;
+void
+fill_gregset (gregset_t *gregsetp, int regnum)
+{
+  amd64_collect_native_gregset (current_regcache, gregsetp, regnum);
+}
 
-  pcb->pcb_rsp += 8;
-  regcache_raw_supply (regcache, AMD64_RIP_REGNUM, &pcb->pcb_rip);
-  regcache_raw_supply (regcache, AMD64_RBX_REGNUM, &pcb->pcb_rbx);
-  regcache_raw_supply (regcache, AMD64_RSP_REGNUM, &pcb->pcb_rsp);
-  regcache_raw_supply (regcache, AMD64_RBP_REGNUM, &pcb->pcb_rbp);
-  regcache_raw_supply (regcache, 12, &pcb->pcb_r12);
-  regcache_raw_supply (regcache, 13, &pcb->pcb_r13);
-  regcache_raw_supply (regcache, 14, &pcb->pcb_r14);
-  regcache_raw_supply (regcache, 15, &pcb->pcb_r15);
-#if (__FreeBSD_version < 800075) && (__FreeBSD_kernel_version < 800075)
-  /* struct pcb provides the pcb_ds/pcb_es/pcb_fs/pcb_gs fields only
-     up until __FreeBSD_version 800074: The removal of these fields
-     occurred on 2009-04-01 while the __FreeBSD_version number was
-     bumped to 800075 on 2009-04-06.  So 800075 is the closest version
-     number where we should not try to access these fields.  */
-  regcache_raw_supply (regcache, AMD64_DS_REGNUM, &pcb->pcb_ds);
-  regcache_raw_supply (regcache, AMD64_ES_REGNUM, &pcb->pcb_es);
-  regcache_raw_supply (regcache, AMD64_FS_REGNUM, &pcb->pcb_fs);
-  regcache_raw_supply (regcache, AMD64_GS_REGNUM, &pcb->pcb_gs);
-#endif
+/* Fill GDB's register array with the floating-point register values
+   in *FPREGSETP.  */
 
-  return 1;
+void
+supply_fpregset (fpregset_t *fpregsetp)
+{
+  x86_64_supply_fxsave (current_regcache, -1, fpregsetp);
+}
+
+/* Fill register REGNUM (if it is a floating-point register) in
+   *FPREGSETP with the value in GDB's register array.  If REGNUM is -1,
+   do this for all registers.  */
+
+void
+fill_fpregset (fpregset_t *fpregsetp, int regnum)
+{
+  x86_64_fill_fxsave ((char *) fpregsetp, regnum);
 }
 
 
@@ -148,35 +149,10 @@ void _initialize_amd64fbsd_nat (void);
 void
 _initialize_amd64fbsd_nat (void)
 {
-  struct target_ops *t;
   int offset;
 
   amd64_native_gregset32_reg_offset = amd64fbsd32_r_reg_offset;
-  amd64_native_gregset64_reg_offset = amd64fbsd64_r_reg_offset;
-
-  /* Add some extra features to the common *BSD/i386 target.  */
-  t = amd64bsd_target ();
-
-#ifdef HAVE_PT_GETDBREGS
-
-  i386_use_watchpoints (t);
-
-  i386_dr_low.set_control = amd64bsd_dr_set_control;
-  i386_dr_low.set_addr = amd64bsd_dr_set_addr;
-  i386_dr_low.get_addr = amd64bsd_dr_get_addr;
-  i386_dr_low.get_status = amd64bsd_dr_get_status;
-  i386_dr_low.get_control = amd64bsd_dr_get_control;
-  i386_set_debug_register_length (8);
-
-#endif /* HAVE_PT_GETDBREGS */
-
-  t->to_pid_to_exec_file = fbsd_pid_to_exec_file;
-  t->to_find_memory_regions = fbsd_find_memory_regions;
-  t->to_make_corefile_notes = fbsd_make_corefile_notes;
-  add_target (t);
-
-  /* Support debugging kernel virtual memory images.  */
-  bsd_kvm_add_target (amd64fbsd_supply_pcb);
+  amd64_native_gregset64_reg_offset = reg_offset;
 
   /* To support the recognition of signal handlers, i386bsd-tdep.c
      hardcodes some constants.  Inclusion of this file means that we
@@ -190,9 +166,9 @@ _initialize_amd64fbsd_nat (void)
      pointer since these members of `struct sigcontext' are essential
      for providing backtraces.  */
 
-#define SC_RIP_OFFSET SC_REG_OFFSET[AMD64_RIP_REGNUM]
-#define SC_RSP_OFFSET SC_REG_OFFSET[AMD64_RSP_REGNUM]
-#define SC_RBP_OFFSET SC_REG_OFFSET[AMD64_RBP_REGNUM]
+#define SC_RIP_OFFSET SC_REG_OFFSET[X86_64_RIP_REGNUM]
+#define SC_RSP_OFFSET SC_REG_OFFSET[X86_64_RSP_REGNUM]
+#define SC_RBP_OFFSET SC_REG_OFFSET[X86_64_RBP_REGNUM]
 
   /* Override the default value for the offset of the program counter
      in the sigcontext structure.  */
@@ -200,9 +176,9 @@ _initialize_amd64fbsd_nat (void)
 
   if (SC_RIP_OFFSET != offset)
     {
-      warning (_("\
+      warning ("\
 offsetof (struct sigcontext, sc_rip) yields %d instead of %d.\n\
-Please report this to <bug-gdb@gnu.org>."),
+Please report this to <bug-gdb@gnu.org>.", 
 	       offset, SC_RIP_OFFSET);
     }
 
@@ -213,9 +189,9 @@ Please report this to <bug-gdb@gnu.org>."),
 
   if (SC_RSP_OFFSET != offset)
     {
-      warning (_("\
+      warning ("\
 offsetof (struct sigcontext, sc_rsp) yields %d instead of %d.\n\
-Please report this to <bug-gdb@gnu.org>."),
+Please report this to <bug-gdb@gnu.org>.",
 	       offset, SC_RSP_OFFSET);
     }
 
@@ -226,9 +202,9 @@ Please report this to <bug-gdb@gnu.org>."),
 
   if (SC_RBP_OFFSET != offset)
     {
-      warning (_("\
+      warning ("\
 offsetof (struct sigcontext, sc_rbp) yields %d instead of %d.\n\
-Please report this to <bug-gdb@gnu.org>."),
+Please report this to <bug-gdb@gnu.org>.",
 	       offset, SC_RBP_OFFSET);
     }
 
@@ -250,8 +226,8 @@ Please report this to <bug-gdb@gnu.org>."),
     len = sizeof (ps_strings);
     if (sysctl (mib, 2, &ps_strings, &len, NULL, 0) == 0)
       {
-	amd64fbsd_sigtramp_start_addr = ps_strings - 32;
-	amd64fbsd_sigtramp_end_addr = ps_strings;
+	amd64fbsd_sigtramp_start = ps_strings - 32;
+	amd64fbsd_sigtramp_end = ps_strings;
       }
   }
 }

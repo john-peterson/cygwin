@@ -17,7 +17,6 @@
  * AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-#include "config.h"
 #include <signal.h>
 #ifdef HAVE_TIME_H
 #include <time.h>
@@ -600,7 +599,7 @@ decode (SIM_DESC sd, int addr, unsigned char *data, decoded_inst *dst)
   /* Find the exact opcode/arg combo.  */
   for (q = h8_opcodes; q->name; q++)
     {
-      const op_type *nib = q->data.nib;
+      op_type *nib = q->data.nib;
       unsigned int len = 0;
 
       if ((q->available == AV_H8SX && !h8300sxmode) ||
@@ -925,7 +924,7 @@ decode (SIM_DESC sd, int addr, unsigned char *data, decoded_inst *dst)
 #endif
 		  /* Fill in the args.  */
 		  {
-		    const op_type *args = q->args.nib;
+		    op_type *args = q->args.nib;
 		    int hadone = 0;
 		    int nargs;
 
@@ -1019,7 +1018,7 @@ decode (SIM_DESC sd, int addr, unsigned char *data, decoded_inst *dst)
 			    p->literal = 0;
 			    if (OP_KIND (q->how) == O_JSR ||
 				OP_KIND (q->how) == O_JMP)
-			      if (lvalue (sd, p->type, p->reg, (unsigned int *)&p->type))
+			      if (lvalue (sd, p->type, p->reg, &p->type))
 				goto end;
 			  }
 			else if ((x & MODE) == ABS)
@@ -1051,7 +1050,7 @@ decode (SIM_DESC sd, int addr, unsigned char *data, decoded_inst *dst)
 			    p->literal = cst[opnum];
 			    if (OP_KIND (q->how) == O_JSR ||
 				OP_KIND (q->how) == O_JMP)
-			      if (lvalue (sd, p->type, p->reg, (unsigned int *)&p->type))
+			      if (lvalue (sd, p->type, p->reg, &p->type))
 				goto end;
 			  }
 			else if ((x & MODE) == PCREL)
@@ -1387,93 +1386,105 @@ fetch_1 (SIM_DESC sd, ea_type *arg, int *val, int twice)
       break;
     case X (OP_POSTINC, SB):	/* Register indirect w/post-incr: byte.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_B (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_B (t);
       if (!twice)
 	t += 1;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
     case X (OP_POSTINC, SW):	/* Register indirect w/post-incr: word.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_W (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_W (t);
       if (!twice)
 	t += 2;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
     case X (OP_POSTINC, SL):	/* Register indirect w/post-incr: long.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_L (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_L (t);
       if (!twice)
 	t += 4;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
 
     case X (OP_POSTDEC, SB):	/* Register indirect w/post-decr: byte.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_B (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_B (t);
       if (!twice)
 	t -= 1;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
     case X (OP_POSTDEC, SW):	/* Register indirect w/post-decr: word.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_W (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_W (t);
       if (!twice)
 	t -= 2;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
     case X (OP_POSTDEC, SL):	/* Register indirect w/post-decr: long.  */
       t = GET_L_REG (rn);
-      r = GET_MEMORY_L (t & h8_get_mask (sd));
+      t &= h8_get_mask (sd);
+      r = GET_MEMORY_L (t);
       if (!twice)
 	t -= 4;
+      t = t & h8_get_mask (sd);
       SET_L_REG (rn, t);
       *val = r;
       break;
 
     case X (OP_PREDEC, SB):	/* Register indirect w/pre-decr: byte.  */
       t = GET_L_REG (rn) - 1;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_B (t);
       break;
       
     case X (OP_PREDEC, SW):	/* Register indirect w/pre-decr: word.  */
       t = GET_L_REG (rn) - 2;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_W (t);
       break;
       
     case X (OP_PREDEC, SL):	/* Register indirect w/pre-decr: long.  */
       t = GET_L_REG (rn) - 4;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_L (t);
       break;
       
     case X (OP_PREINC, SB):	/* Register indirect w/pre-incr: byte.  */
       t = GET_L_REG (rn) + 1;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_B (t);
       break;
 
     case X (OP_PREINC, SW):	/* Register indirect w/pre-incr: long.  */
       t = GET_L_REG (rn) + 2;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_W (t);
       break;
 
     case X (OP_PREINC, SL):	/* Register indirect w/pre-incr: long.  */
       t = GET_L_REG (rn) + 4;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       *val = GET_MEMORY_L (t);
       break;
 
@@ -1610,8 +1621,8 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t -= 1;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_B (t, n);
 
       break;
@@ -1619,8 +1630,8 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t -= 2;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_W (t, n);
       break;
 
@@ -1628,8 +1639,8 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t -= 4;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_L (t, n);
       break;
 
@@ -1637,8 +1648,8 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t += 1;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_B (t, n);
 
       break;
@@ -1646,8 +1657,8 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t += 2;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_W (t, n);
       break;
 
@@ -1655,51 +1666,45 @@ store_1 (SIM_DESC sd, ea_type *arg, int n, int twice)
       t = GET_L_REG (rn);
       if (!twice)
 	t += 4;
-      SET_L_REG (rn, t);
       t &= h8_get_mask (sd);
+      SET_L_REG (rn, t);
       SET_MEMORY_L (t, n);
       break;
 
     case X (OP_POSTDEC, SB):	/* Register indirect w/post-decr, byte.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t - 1);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_B (t, n);
+      SET_L_REG (rn, t - 1);
       break;
 
     case X (OP_POSTDEC, SW):	/* Register indirect w/post-decr, word.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t - 2);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_W (t, n);
+      SET_L_REG (rn, t - 2);
       break;
 
     case X (OP_POSTDEC, SL):	/* Register indirect w/post-decr, long.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t - 4);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_L (t, n);
+      SET_L_REG (rn, t - 4);
       break;
 
     case X (OP_POSTINC, SB):	/* Register indirect w/post-incr, byte.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t + 1);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_B (t, n);
+      SET_L_REG (rn, t + 1);
       break;
 
     case X (OP_POSTINC, SW):	/* Register indirect w/post-incr, word.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t + 2);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_W (t, n);
+      SET_L_REG (rn, t + 2);
       break;
 
     case X (OP_POSTINC, SL):	/* Register indirect w/post-incr, long.  */
-      t = GET_L_REG (rn);
-      SET_L_REG (rn, t + 4);
-      t &= h8_get_mask (sd);
+      t = GET_L_REG (rn) & h8_get_mask (sd);
       SET_MEMORY_L (t, n);
+      SET_L_REG (rn, t + 4);
       break;
 
     case X (OP_DISP, SB):	/* Register indirect w/displacement, byte.  */
@@ -1886,7 +1891,7 @@ case O (name, SB):				\
       goto end;					\
   if (fetch (sd, &code->src, &tmp))		\
     goto end;					\
-  m = 1 << (tmp & 7);				\
+  m = 1 << tmp;					\
   op;						\
   if (s)					\
     if (store (sd, &code->dst,ea))		\
@@ -2032,10 +2037,7 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      code->op3.literal = 0;
 
 	      if (OP_KIND (code->src.type) == OP_INDEXB)
-		{
-		  code->dst.type = X (OP_REG, SB);
-		  code->dst.reg = code->op3.reg + 8;
-		}
+		code->dst.type = X (OP_REG, SB);
 	      else
 		code->dst.type = X (OP_REG, SW);
 	    }
@@ -2564,7 +2566,7 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	    {
 	      if (h8300smode)
 		h8_set_exr (sd, (trace << 7) | intMask);
-	      rd = h8_get_exr (sd);
+	      res = h8_get_exr (sd);
 	    }
 	  else
 	    goto illegal;
@@ -2805,7 +2807,7 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 		ind_arg_len = 0;
 
 		/* The size of the commandline argument.  */
-		ind_arg_len = strlen (h8_get_cmdline_arg (sd, i)) + 1;
+		ind_arg_len = strlen (h8_get_cmdline_arg (sd, i) + 1);
 
 		/* The total size of the command line string.  */
 		size_cmdline += ind_arg_len;
@@ -3884,7 +3886,13 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
-	  ea = SEXTSHORT (ea);
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfff0;
+	  else
+	    ea = SEXTSHORT (ea);
+
 	  res = SEXTSHORT (ea * SEXTSHORT (rd));
 
 	  n  = res & 0x8000;
@@ -3899,6 +3907,11 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
+
 	  res = ea * rd;
 
 	  n  = res & 0x80000000;
@@ -3911,6 +3924,11 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	  if (fetch (sd, &code->src, &ea) ||
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
+
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
 
 	  /* Compute upper 32 bits of the 64-bit result.  */
 	  res = (((long long) ea) * ((long long) rd)) >> 32;
@@ -3967,7 +3985,13 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
-	  ea = SEXTCHAR (ea);
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
+	  else
+	    ea = SEXTCHAR (ea);
+
 	  res = ea * SEXTCHAR (rd);
 
 	  n  = res & 0x8000;
@@ -3982,7 +4006,13 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
-	  ea = SEXTSHORT (ea);
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfff0;
+	  else
+	    ea = SEXTSHORT (ea);
+
 	  res = ea * SEXTSHORT (rd & 0xffff);
 
 	  n  = res & 0x80000000;
@@ -4073,6 +4103,11 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
+
 	  if (ea)
 	    {
 	      res = SEXTSHORT (rd) / SEXTSHORT (ea);
@@ -4093,6 +4128,11 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	  if (fetch (sd, &code->src, &ea) ||
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
+
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
 
 	  if (ea)
 	    {
@@ -4165,7 +4205,13 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	    goto end;
 
 	  rd = SEXTSHORT (rd);
-	  ea = SEXTCHAR (ea);
+
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
+	  else
+	    ea = SEXTCHAR (ea);
 
 	  if (ea)
 	    {
@@ -4190,7 +4236,12 @@ sim_resume (SIM_DESC sd, int step, int siggnal)
 	      fetch (sd, &code->dst, &rd))
 	    goto end;
 
-	  ea = SEXTSHORT (ea);
+	  /* FIXME: is this the right place to be doing sign extend?  */
+	  if (OP_KIND (code->src.type) == OP_IMM &&
+	      (ea & 8) != 0)
+	    ea |= 0xfffffff0;
+	  else
+	    ea = SEXTSHORT (ea);
 
 	  if (ea)
 	    {
@@ -4617,7 +4668,7 @@ sim_trace (SIM_DESC sd)
 }
 
 int
-sim_write (SIM_DESC sd, SIM_ADDR addr, const unsigned char *buffer, int size)
+sim_write (SIM_DESC sd, SIM_ADDR addr, unsigned char *buffer, int size)
 {
   int i;
 
@@ -4716,7 +4767,7 @@ sim_store_register (SIM_DESC sd, int rn, unsigned char *value, int length)
       h8_set_ticks (sd, longval);
       break;
     }
-  return length;
+  return -1;
 }
 
 int
@@ -5001,7 +5052,7 @@ sim_load (SIM_DESC sd, char *prog, bfd *abfd, int from_tty)
   if (abfd != NULL)
     prog_bfd = abfd;
   else
-    prog_bfd = bfd_openr (prog, NULL);
+    prog_bfd = bfd_openr (prog, "coff-h8300");
   if (prog_bfd != NULL)
     {
       /* Set the cpu type.  We ignore failure from bfd_check_format
@@ -5045,7 +5096,6 @@ sim_load (SIM_DESC sd, char *prog, bfd *abfd, int from_tty)
 		     calloc (sizeof (char), memory_size));
   h8_set_cache_idx_buf (sd, (unsigned short *) 
 			calloc (sizeof (short), memory_size));
-  sd->memory_size = memory_size;
   h8_set_eightbit_buf (sd, (unsigned char *) calloc (sizeof (char), 256));
 
   /* `msize' must be a power of two.  */
@@ -5106,6 +5156,13 @@ sim_create_inferior (SIM_DESC sd, struct bfd *abfd, char **argv, char **env)
     }
   
   return SIM_RC_OK;
+}
+
+void
+sim_do_command (SIM_DESC sd, char *cmd)
+{
+  (*sim_callback->printf_filtered) (sim_callback,
+				    "This simulator does not accept any commands.\n");
 }
 
 void

@@ -263,7 +263,6 @@ bclr_imm3_ind:
 	test_gr_a5a5 6
 	test_gr_a5a5 7
 
-.if (sim_cpu > h8300h)
 bset_imm3_abs16:
 	set_grs_a5a5		; Fill all general regs with a fixed pattern
 
@@ -383,7 +382,6 @@ bclr_imm3_abs16:
 	test_gr_a5a5 5
 	test_gr_a5a5 6
 	test_gr_a5a5 7
-.endif
 .endif
 
 bset_rs8_rd8:
@@ -646,7 +644,6 @@ bclr_rs8_ind:
 	test_gr_a5a5 6
 	test_gr_a5a5 7
 
-.if (sim_cpu > h8300h)
 bset_rs8_abs32:
 	set_grs_a5a5		; Fill all general regs with a fixed pattern
 
@@ -782,7 +779,6 @@ bclr_rs8_abs32:
 	test_gr_a5a5 5
 	test_gr_a5a5 6
 	test_gr_a5a5 7
-.endif
 .endif
 
 .if (sim_cpu == h8sx)

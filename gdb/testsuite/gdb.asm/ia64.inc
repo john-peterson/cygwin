@@ -36,14 +36,12 @@
 
 	comment "crt0 startup"
 	.macro gdbasm_startup
-	gdbasm_enter
 	mov r32=r0
 	nop.i 0
 	nop.i 0
 	.endm
 
 	comment "Declare a data variable"
-	.purgem gdbasm_datavar
 	.macro gdbasm_datavar name value
 	.data
 \name:

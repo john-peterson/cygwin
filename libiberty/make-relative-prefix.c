@@ -1,6 +1,6 @@
 /* Relative (relocatable) prefix support.
    Copyright (C) 1987, 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2006, 2012 Free Software Foundation, Inc.
+   1999, 2000, 2001, 2002 Free Software Foundation, Inc.
 
 This file is part of libiberty.
 
@@ -16,13 +16,12 @@ for more details.
 
 You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING.  If not, write to the Free
-Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-02110-1301, USA.  */
+Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+02111-1307, USA.  */
 
 /*
 
-@deftypefn Extension {const char*} make_relative_prefix (const char *@var{progname}, @
-  const char *@var{bin_prefix}, const char *@var{prefix})
+@deftypefn Extension {const char*} make_relative_prefix (const char *@var{progname}, const char *@var{bin_prefix}, const char *@var{prefix})
 
 Given three paths @var{progname}, @var{bin_prefix}, @var{prefix},
 return the path that is in the same position relative to
@@ -57,9 +56,6 @@ relative prefix can be found, return @code{NULL}.
 #endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
 #endif
 
 #include <string.h>
@@ -99,14 +95,16 @@ relative prefix can be found, return @code{NULL}.
 
 #define DIR_UP ".."
 
-static char *save_string (const char *, int);
-static char **split_directories	(const char *, int *);
-static void free_split_directories (char **);
+static char *save_string PARAMS ((const char *, int));
+static char **split_directories	PARAMS ((const char *, int *));
+static void free_split_directories PARAMS ((char **));
 
 static char *
-save_string (const char *s, int len)
+save_string (s, len)
+     const char *s;
+     int len;
 {
-  char *result = (char *) malloc (len + 1);
+  char *result = malloc (len + 1);
 
   memcpy (result, s, len);
   result[len] = 0;
@@ -116,7 +114,9 @@ save_string (const char *s, int len)
 /* Split a filename into component directories.  */
 
 static char **
-split_directories (const char *name, int *ptr_num_dirs)
+split_directories (name, ptr_num_dirs)
+     const char *name;
+     int *ptr_num_dirs;
 {
   int num_dirs = 0;
   char **dirs;
@@ -201,17 +201,15 @@ split_directories (const char *name, int *ptr_num_dirs)
 /* Release storage held by split directories.  */
 
 static void
-free_split_directories (char **dirs)
+free_split_directories (dirs)
+     char **dirs;
 {
   int i = 0;
 
-  if (dirs != NULL)
-    {
-      while (dirs[i] != NULL)
-	free (dirs[i++]);
+  while (dirs[i] != NULL)
+    free (dirs[i++]);
 
-      free ((char *) dirs);
-    }
+  free ((char *) dirs);
 }
 
 /* Given three strings PROGNAME, BIN_PREFIX, PREFIX, return a string that gets
@@ -224,15 +222,17 @@ free_split_directories (char **dirs)
 
    If no relative prefix can be found, return NULL.  */
 
-static char *
-make_relative_prefix_1 (const char *progname, const char *bin_prefix,
-			const char *prefix, const int resolve_links)
+char *
+make_relative_prefix (progname, bin_prefix, prefix)
+     const char *progname;
+     const char *bin_prefix;
+     const char *prefix;
 {
-  char **prog_dirs = NULL, **bin_dirs = NULL, **prefix_dirs = NULL;
+  char **prog_dirs, **bin_dirs, **prefix_dirs;
   int prog_num, bin_num, prefix_num;
   int i, n, common;
   int needed_len;
-  char *ret = NULL, *ptr, *full_progname;
+  char *ret, *ptr, *full_progname = NULL;
 
   if (progname == NULL || bin_prefix == NULL || prefix == NULL)
     return NULL;
@@ -248,15 +248,10 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 	{
 	  char *startp, *endp, *nstore;
 	  size_t prefixlen = strlen (temp) + 1;
-	  size_t len;
 	  if (prefixlen < 2)
 	    prefixlen = 2;
 
-	  len = prefixlen + strlen (progname) + 1;
-#ifdef HAVE_HOST_EXECUTABLE_SUFFIX
-	  len += strlen (HOST_EXECUTABLE_SUFFIX);
-#endif
-	  nstore = (char *) alloca (len);
+	  nstore = (char *) alloca (prefixlen + strlen (progname) + 1);
 
 	  startp = endp = temp;
 	  while (1)
@@ -271,7 +266,7 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 		    }
 		  else
 		    {
-		      memcpy (nstore, startp, endp - startp);
+		      strncpy (nstore, startp, endp - startp);
 		      if (! IS_DIR_SEPARATOR (endp[-1]))
 			{
 			  nstore[endp - startp] = DIR_SEPARATOR;
@@ -287,14 +282,8 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 #endif
 		      )
 		    {
-#if defined (HAVE_SYS_STAT_H) && defined (S_ISREG)
-		      struct stat st;
-		      if (stat (nstore, &st) >= 0 && S_ISREG (st.st_mode))
-#endif
-			{
-			  progname = nstore;
-			  break;
-			}
+		      progname = nstore;
+		      break;
 		    }
 
 		  if (*endp == 0)
@@ -307,21 +296,15 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 	}
     }
 
-  if (resolve_links)
-    full_progname = lrealpath (progname);
-  else
-    full_progname = strdup (progname);
+  full_progname = lrealpath (progname);
   if (full_progname == NULL)
     return NULL;
 
   prog_dirs = split_directories (full_progname, &prog_num);
-  free (full_progname);
-  if (prog_dirs == NULL)
-    return NULL;
-
   bin_dirs = split_directories (bin_prefix, &bin_num);
-  if (bin_dirs == NULL)
-    goto bailout;
+  free (full_progname);
+  if (bin_dirs == NULL || prog_dirs == NULL)
+    return NULL;
 
   /* Remove the program name from comparison of directory names.  */
   prog_num--;
@@ -339,12 +322,21 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 	}
 
       if (prog_num <= 0 || i == bin_num)
-	goto bailout;
+	{
+	  free_split_directories (prog_dirs);
+	  free_split_directories (bin_dirs);
+	  prog_dirs = bin_dirs = (char **) 0;
+	  return NULL;
+	}
     }
 
   prefix_dirs = split_directories (prefix, &prefix_num);
   if (prefix_dirs == NULL)
-    goto bailout;
+    {
+      free_split_directories (prog_dirs);
+      free_split_directories (bin_dirs);
+      return NULL;
+    }
 
   /* Find how many directories are in common between bin_prefix & prefix.  */
   n = (prefix_num < bin_num) ? prefix_num : bin_num;
@@ -356,7 +348,12 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 
   /* If there are no common directories, there can be no relative prefix.  */
   if (common == 0)
-    goto bailout;
+    {
+      free_split_directories (prog_dirs);
+      free_split_directories (bin_dirs);
+      free_split_directories (prefix_dirs);
+      return NULL;
+    }
 
   /* Two passes: first figure out the size of the result string, and
      then construct it.  */
@@ -370,7 +367,7 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
 
   ret = (char *) malloc (needed_len);
   if (ret == NULL)
-    goto bailout;
+    return NULL;
 
   /* Build up the pathnames in argv[0].  */
   *ret = '\0';
@@ -391,37 +388,9 @@ make_relative_prefix_1 (const char *progname, const char *bin_prefix,
   for (i = common; i < prefix_num; i++)
     strcat (ret, prefix_dirs[i]);
 
- bailout:
   free_split_directories (prog_dirs);
   free_split_directories (bin_dirs);
   free_split_directories (prefix_dirs);
 
   return ret;
 }
-
-
-/* Do the full job, including symlink resolution.
-   This path will find files installed in the same place as the
-   program even when a soft link has been made to the program
-   from somwhere else. */
-
-char *
-make_relative_prefix (const char *progname, const char *bin_prefix,
-		      const char *prefix)
-{
-  return make_relative_prefix_1 (progname, bin_prefix, prefix, 1);
-}
-
-/* Make the relative pathname without attempting to resolve any links.
-   '..' etc may also be left in the pathname.
-   This will find the files the user meant the program to find if the
-   installation is patched together with soft links. */
-
-char *
-make_relative_prefix_ignore_links (const char *progname,
-				   const char *bin_prefix,
-				   const char *prefix)
-{
-  return make_relative_prefix_1 (progname, bin_prefix, prefix, 0);
-}
-

@@ -1,34 +1,3 @@
-2007-02-05  Dave Brolley  <brolley@redhat.com>
-
-	* Makefile.def: Add support for mep.
-	* configure.ac: Likewise.
-	* Makefile.in: Regenerated.
-	* configure: Regenerated.
-	* Contribute the following changes:
-	2001-07-06  DJ Delorie  <dj@redhat.com>
-
-	* mep: New subdirectory and contents.
-
-2004-08-08  Nathanael Nerode  <neroden@gcc.gnu.org>
-
-	* Makefile.tpl: Remove rule to regenerate configure.
-	* Makefile.in: Regenerate.
-
-	* configure.in: Update to autoconf 2.59, rename to...
-	* configure.ac: ...this.  Rename abs_* variables for accuracy.
-	* Makefile.tpl: Rename abs_srcdir for accuracy.
-	* Makefile.in, configure: Regenerate.
-
-2004-08-05  Nathanael Nerode  <neroden@gcc.gnu.org>
-
-	* Remove misc/doschk -- users should get it from upstream at
-	ftp.gnu.org/pub/non-gnu/doschk/doschk-1.1.tar.gz.
-	* Remove misc directory, which contains nothing else.
-
-	* Remove sparclite subdirectory -- it is obsolete.
-	* configure.in, Makefile.def: Remove references thereto.
-	* configure, Makefile.in: Regenerate.
-
 2003-12-12  Michael Chastain  <mec.gnu@mindspring.com>
 
 	Fix for PR gdb/1480.
