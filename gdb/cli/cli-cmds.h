@@ -1,9 +1,9 @@
 /* Header file for GDB CLI command implementation library.
-   Copyright (c) 2000-2013 Free Software Foundation, Inc.
+   Copyright 2000 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -12,7 +12,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (CLI_CMDS_H)
 #define CLI_CMDS_H 1
@@ -25,33 +27,29 @@ extern struct cmd_list_element *cmdlist;
 
 extern struct cmd_list_element *infolist;
 
-/* Chain containing all defined enable subcommands.  */
+/* Chain containing all defined enable subcommands. */
 
 extern struct cmd_list_element *enablelist;
 
-/* Chain containing all defined disable subcommands.  */
+/* Chain containing all defined disable subcommands. */
 
 extern struct cmd_list_element *disablelist;
 
-/* Chain containing all defined delete subcommands.  */
+/* Chain containing all defined delete subcommands. */
 
 extern struct cmd_list_element *deletelist;
 
-/* Chain containing all defined detach subcommands.  */
-
-extern struct cmd_list_element *detachlist;
-
-/* Chain containing all defined kill subcommands.  */
-
-extern struct cmd_list_element *killlist;
-
-/* Chain containing all defined toggle subcommands.  */
+/* Chain containing all defined toggle subcommands. */
 
 extern struct cmd_list_element *togglelist;
 
-/* Chain containing all defined stop subcommands.  */
+/* Chain containing all defined stop subcommands. */
 
 extern struct cmd_list_element *stoplist;
+
+/* Chain containing all defined "enable breakpoint" subcommands. */
+
+extern struct cmd_list_element *enablebreaklist;
 
 /* Chain containing all defined set subcommands */
 
@@ -77,15 +75,15 @@ extern struct cmd_list_element *showhistlist;
 
 extern struct cmd_list_element *unsethistlist;
 
-/* Chain containing all defined maintenance subcommands.  */
+/* Chain containing all defined maintenance subcommands. */
 
 extern struct cmd_list_element *maintenancelist;
 
-/* Chain containing all defined "maintenance info" subcommands.  */
+/* Chain containing all defined "maintenance info" subcommands. */
 
 extern struct cmd_list_element *maintenanceinfolist;
 
-/* Chain containing all defined "maintenance print" subcommands.  */
+/* Chain containing all defined "maintenance print" subcommands. */
 
 extern struct cmd_list_element *maintenanceprintlist;
 
@@ -111,22 +109,17 @@ int is_complete_command (struct cmd_list_element *cmd);
 
 /* Exported to gdb/main.c */
 
-extern void cd_command (char *, int);
+extern void cd_command (const char *, int);
 
 /* Exported to gdb/top.c and gdb/main.c */
 
-extern void quit_command (char *, int);
+extern void quit_command (const char *, int);
 
-extern void source_script (char *, int);
+extern void source_command (const char *, int);
 
-/* Exported to objfiles.c.  */
+/* Used everywhere whenever at least one parameter is required and
+  none is specified. */
 
-extern int find_and_open_script (const char *file, int search_path,
-				 FILE **streamp, char **full_path);
-
-/* Command tracing state.  */
-
-extern int source_verbose;
-extern int trace_commands;
+extern NORETURN void error_no_arg (const char *) ATTR_NORETURN;
 
 #endif /* !defined (CLI_CMDS_H) */
