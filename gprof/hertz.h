@@ -1,24 +1,7 @@
-/* Copyright 2012 Free Software Foundation, Inc.
-
-   This file is part of GNU Binutils.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
 #ifndef hertz_h
 #define hertz_h
+
+#include "gprof.h"
 
 #define	HZ_WRONG 0		/* impossible clock frequency */
 
@@ -27,6 +10,13 @@
  * we return HZ_WRONG, an impossible sampling frequency.
  */
 
-extern int hertz (void);
+/* FIXME: Checking for MACH here makes no sense when for a cross
+   gprof.  */
+#ifdef MACH
+#include <machine/mach_param.h>
+#define hertz() (HZ)
+#else
+extern int hertz PARAMS ((void));
+#endif
 
 #endif /* hertz_h */

@@ -1,5 +1,3 @@
-		README for LD
-
 This is the GNU linker.  It is distributed with other "binary
 utilities" which should be in ../binutils.  See ../binutils/README for
 more general notes, including where to send bug reports.
@@ -28,8 +26,7 @@ See ../binutils/README.
 
 If you want to make a cross-linker, you may want to specify
 a different search path of -lfoo libraries than the default.
-You can do this by setting the LIB_PATH variable in ./Makefile
-or using the --with-lib-path configure switch.
+You can do this by setting the LIB_PATH variable in ./Makefile.
 
 To build just the linker, make the target all-ld from the top level
 directory (one directory above this one).
@@ -65,9 +62,3 @@ workarounds to this:
   * Replace "(. ${srcdir}/scripttempl/${SCRIPT_NAME}.sc)" in
     genscripts.sh with "sh ${srcdir}..." (no parens) and make sure the
     emulparams script used exports any shell variables it sets.
-
-Copyright (C) 2012 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.

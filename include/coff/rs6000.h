@@ -1,22 +1,11 @@
 /* IBM RS/6000 "XCOFF" file definitions for BFD.
-   Copyright (C) 1990, 1991, 2001, 2010 Free Software Foundation, Inc.
-   Written by Mimi Phuong-Thao Vo of IBM
-   and John Gilmore of Cygnus Support.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Copyright (C) 1990, 1991 Free Software Foundation, Inc.
+   FIXME: Can someone provide a transliteration of this name into ASCII?
+   Using the following chars caused a compiler warning on HIUX (so I replaced
+   them with octal escapes), and isn't useful without an understanding of what
+   character set it is.
+   Written by Mimi Ph\373\364ng-Th\345o V\365 of IBM
+   and John Gilmore of Cygnus Support.  */
 
 /********************** FILE HEADER **********************/
 
@@ -77,6 +66,11 @@ AOUTHDR;
 #define SMALL_AOUTSZ (28)
 #define AOUTHDRSZ 72
 
+#define	RS6K_AOUTHDR_OMAGIC	0x0107	/* old: text & data writeable */
+#define	RS6K_AOUTHDR_NMAGIC	0x0108	/* new: text r/o, data r/w */
+#define	RS6K_AOUTHDR_ZMAGIC	0x010B	/* paged: text r/o, both page-aligned */
+
+
 /********************** SECTION HEADER **********************/
 
 
@@ -93,8 +87,27 @@ struct external_scnhdr {
 	char		s_flags[4];	/* flags			*/
 };
 
+/*
+ * names of "special" sections
+ */
+#define _TEXT	".text"
+#define _DATA	".data"
+#define _BSS	".bss"
+#define _PAD	".pad"
+#define _LOADER	".loader"
+
 #define	SCNHDR	struct external_scnhdr
 #define	SCNHSZ	40
+
+/* XCOFF uses a special .loader section with type STYP_LOADER.  */
+#define STYP_LOADER 0x1000
+
+/* XCOFF uses a special .debug section with type STYP_DEBUG.  */
+#define STYP_DEBUG 0x2000
+
+/* XCOFF handles line number or relocation overflow by creating
+   another section header with STYP_OVRFLO set.  */
+#define STYP_OVRFLO 0x8000
 
 /********************** LINE NUMBERS **********************/
 
@@ -168,16 +181,13 @@ union external_auxent {
 		char x_tvndx[2];		/* tv index */
 	} x_sym;
 
-        struct {
-                union {
-                        char x_fname[E_FILNMLEN];
-                        struct {
-                                char x_zeroes[4];
-                                char x_offset[4];
-                        } x_n;
-                } x_n;
-                char x_ftype[1];
-        } x_file;
+	union {
+		char x_fname[E_FILNMLEN];
+		struct {
+			char x_zeroes[4];
+			char x_offset[4];
+		} x_n;
+	} x_file;
 
 	struct {
 		char x_scnlen[4];			/* section length */
@@ -231,63 +241,3 @@ struct external_reloc {
 #define DEFAULT_TEXT_SECTION_ALIGNMENT 4
 /* For new sections we havn't heard of before */
 #define DEFAULT_SECTION_ALIGNMENT 4
-
-/* The ldhdr structure.  This appears at the start of the .loader
-   section.  */
-
-struct external_ldhdr
-{
-  bfd_byte l_version[4];
-  bfd_byte l_nsyms[4];
-  bfd_byte l_nreloc[4];
-  bfd_byte l_istlen[4];
-  bfd_byte l_nimpid[4];
-  bfd_byte l_impoff[4];
-  bfd_byte l_stlen[4];
-  bfd_byte l_stoff[4];
-};
-
-#define LDHDRSZ (8 * 4)
-
-struct external_ldsym
-{
-  union
-    {
-      bfd_byte _l_name[E_SYMNMLEN];
-      struct
-	{
-	  bfd_byte _l_zeroes[4];
-	  bfd_byte _l_offset[4];
-	} _l_l;
-    } _l;
-  bfd_byte l_value[4];
-  bfd_byte l_scnum[2];
-  bfd_byte l_smtype[1];
-  bfd_byte l_smclas[1];
-  bfd_byte l_ifile[4];
-  bfd_byte l_parm[4];
-};
-
-#define LDSYMSZ (8 + 3 * 4 + 2 + 2)
-
-struct external_ldrel
-{
-  bfd_byte l_vaddr[4];
-  bfd_byte l_symndx[4];
-  bfd_byte l_rtype[2];
-  bfd_byte l_rsecnm[2];
-};
-
-#define LDRELSZ (2 * 4 + 2 * 2)
-
-struct external_exceptab
-{
-  union {
-    bfd_byte e_symndx[4];
-    bfd_byte e_paddr[4];
-  } e_addr;
-  bfd_byte e_lang[1];
-  bfd_byte e_reason[1];
-};
-
-#define EXCEPTSZ (4 + 2)

@@ -1,10 +1,6 @@
 # Source file used to test the jal macro with -KPIC code.
-
-	.weak	weak_text_label
-
-	.ent	text_label
-text_label:
-	.frame	$sp,0,$31
+	
+text_label:	
 	.set	noreorder
 	.cpload	$25
 	.set	reorder
@@ -12,13 +8,13 @@ text_label:
 	jal	$25
 	jal	$4,$25
 	jal	text_label
-	jal	weak_text_label
 	jal	external_text_label
-
-# Test j as well.
+	
+# Test j as well	
 	j	text_label
-	.end	text_label
 
-# Force at least 8 (non-delay-slot) zero bytes, to make 'objdump' print ...
-	.align	2
-	.space	8
+# Round to a 16 byte boundary, for ease in testing multiple targets.
+	nop
+	nop
+	nop
+	nop

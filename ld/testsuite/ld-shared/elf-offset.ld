@@ -58,8 +58,6 @@ SECTIONS
   .rela.bss      : { *(.rela.bss)		}
   .rel.plt       : { *(.rel.plt)		}
   .rela.plt      : { *(.rela.plt)		}
-  .rel.eh_frame  : { *(.rel.eh_frame)		}
-  .rela.eh_frame : { *(.rela.eh_frame)		}
   .init          : { KEEP (*(.init))	}
   .plt      : { *(.plt)	}
   .text      :
@@ -110,7 +108,7 @@ SECTIONS
     KEEP (*(SORT(.dtors.*)))
     KEEP (*(.dtors))
   }
-  .got           : ALIGN(8) { *(.got.plt) *(.got .toc) }
+  .got           : { *(.got.plt) *(.got) }
   .dynamic       : { *(.dynamic) }
   /* We want the small data sections together, so single-instruction offsets
      can access them all, and initialized data all before uninitialized, so
