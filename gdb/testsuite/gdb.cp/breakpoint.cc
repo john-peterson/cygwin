@@ -1,42 +1,26 @@
 /* Code to go along with tests in breakpoint.exp.
    
-   Copyright 2004-2013 Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 2 of the License, or (at
+   your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-
-int g = 0;
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 class C1 {
 public:
-  C1(int i) : i_(i) {}
-
-  int foo ()
-  {
-    return 1; // conditional breakpoint in method
-  }
-
-  int bar ()
-  {
-    for (int i = 0; i < 1; ++i)
-      {
-	int t = i * 2;
-	g += t; // conditional breakpoint in method 2
-      }
-  }
-
   class Nested {
   public:
     int
@@ -45,22 +29,13 @@ public:
       return 1;
     }
   };
-
-private:
-  int i_;
 };
 
 int main ()
 {
   C1::Nested c1;
 
-  c1.foo ();
-  
-  C1 c2 (2), c3 (3);
-  c2.foo ();
-  c2.bar ();
-  c3.foo ();
-  c3.bar ();
+  c1.foo();
 
   return 0;
 }

@@ -43,7 +43,6 @@
 	.endm
 
 	comment "Declare a data variable"
-	.purgem gdbasm_datavar
 	.macro gdbasm_datavar name value
 	.data
 \name:

@@ -1,17 +1,19 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004
+# Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Elena Zannoni (ezannoni@cygnus.com)
 # And rewritten by Michael Chastain <mec.gnu@mindspring.com>
@@ -25,30 +27,29 @@
 set ws "\[\r\n\t \]+"
 set nl "\[\r\n\]+"
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 # Start program.
 
+set prms_id 0
+set bug_id 0
 
 if { [skip_cplus_tests] } { continue }
 
-load_lib "cp-support.exp"
+set testfile "derivation"
+set srcfile ${testfile}.cc
+set binfile ${objdir}/${subdir}/${testfile}
 
-standard_testfile .cc
-
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
-    return -1
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++}] != "" } {
+     gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
 }
 
-# Check inheritance of typedefs.
-foreach klass {"A" "D" "E" "F"} {
-    gdb_test "ptype ${klass}::value_type" "type = int"
-    gdb_test "whatis ${klass}::value_type" "type = int"
-    gdb_test "p (${klass}::value_type) 0" " = 0"
-}
-foreach klass {"Z" "ZZ"} {
-    gdb_test "ptype ${klass}::value_type" "type = float"
-    gdb_test "whatis ${klass}::value_type" "type = float"
-    gdb_test "p (${klass}::value_type) 0" " = 0"
-}
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 # Set it up at a breakpoint so we can play with the variable values.
 
@@ -60,23 +61,38 @@ if ![runto 'marker1'] then {
 gdb_test "up" ".*main.*" "up from marker1"
 
 # Print class types and values.
+# See virtfunc.exp for a discussion of ptype.
 
 # class A
 
+set re_class		"((struct|class) A \{${ws}public:|struct A \{)"
+set re_fields		"int a;${ws}int aa;"
+set re_methods		"A\\((void|)\\);${ws}int afoo\\((void|)\\);${ws}int foo\\((void|)\\);"
+set re_synth_gcc_23	"A & operator=\\(A const ?&\\);${ws}A\\(A const ?&\\);"
+set re_all_methods	"($re_methods|$re_methods${ws}$re_synth_gcc_23|$re_synth_gcc_23${ws}$re_methods)"
+
 gdb_test "print a_instance" "\\$\[0-9\]+ = \{a = 1, aa = 2\}" "print value of a_instance"
 
-cp_test_ptype_class \
-    "a_instance" "" "class" "A" \
-    {
-	{ field  public "A::value_type a;" }
-	{ field  public "A::value_type aa;" }
-	{ method public "A();" }
-	{ method public "A::value_type afoo();" }
-	{ method public "A::value_type foo();" }
-	{ typedef public "typedef int value_type;" }
+gdb_test_multiple "ptype a_instance" "ptype a_instance" {
+    -re "type = $re_class${ws}$re_fields${ws}$re_methods$nl\}$nl$gdb_prompt $" {
+	pass "ptype a_instance (no synth ops)"
     }
+    -re "type = $re_class${ws}$re_fields${ws}$re_synth_gcc_23${ws}$re_methods${ws}$nl\}$nl$gdb_prompt $" {
+	pass "ptype a_instance (with synth ops)"
+    }
+    -re "type = $re_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	pass "ptype a_instance (with synth ops)"
+    }
+}
 
 # class D
+
+set re_class		"class D : private A, public B, protected C \{${ws}public:"
+set XX_class		"class D : private A, public B, private C \{${ws}public:"
+set re_fields		"int d;${ws}int dd;"
+set re_methods		"D\\((void|)\\);${ws}int dfoo\\((void|)\\);${ws}int foo\\((void|)\\);"
+set re_synth_gcc_23	"D & operator=\\(D const ?&\\);${ws}D\\(D const ?&\\);"
+set re_all_methods	"($re_methods|$re_methods${ws}$re_synth_gcc_23|$re_synth_gcc_23${ws}$re_methods)"
 
 gdb_test_multiple "print d_instance" "print value of d_instance" {
     -re "\\$\[0-9\]+ = \{<(class A|A)> = \{a = 1, aa = 2\}, <(class B|B)> = \{b = 3, bb = 4\}, <(class C|C)> = \{c = 5, cc = 6\}, d = 7, dd = 8\}$nl$gdb_prompt $" {
@@ -84,24 +100,35 @@ gdb_test_multiple "print d_instance" "print value of d_instance" {
     }
 }
 
-cp_test_ptype_class \
-    "d_instance" "" "class" "D" \
-    {
-	{ base          "private A" }
-	{ base          "public B" }
-	{ base          "protected C" }
-	{ field  public "A::value_type d;" }
-	{ field  public "A::value_type dd;" }
-	{ method public "D();" }
-	{ method public "A::value_type dfoo();" }
-	{ method public "A::value_type foo();" }
-    } \
-    "" \
-    {
-	{ "protected C" "private C" { setup_xfail "*-*-*" "gcc/13539" } }
+gdb_test_multiple "ptype d_instance" "ptype d_instance" {
+    -re "type = $re_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	pass "ptype d_instance"
     }
+    -re "type = $re_class${ws}$re_fields${ws}$re_all_methods$nl\}$nl$gdb_prompt $" {
+	pass "ptype d_instance"
+    }
+    -re "type = $XX_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	# This is a gcc bug, gcc/13539, gdb/1498.
+	# Fixed in gcc HEAD 2004-01-13
+	setup_xfail "*-*-*" "gcc/13539"
+	fail "ptype d_instance"
+    }
+    -re "type = $XX_class${ws}$re_fields${ws}$re_all_methods$nl\}$nl$gdb_prompt $" {
+	# This is a gcc bug, gcc/13539, gdb/1498.
+	# Fixed in gcc HEAD 2004-01-13
+	setup_xfail "*-*-*" "gcc/13539"
+	fail "ptype d_instance"
+    }
+}
 
 # class E
+
+set re_class		"class E : public A, private B, protected C \{${ws}public:"
+set XX_class		"class E : public A, private B, private C \{${ws}public:"
+set re_fields		"int e;${ws}int ee;"
+set re_methods		"E\\((void|)\\);${ws}int efoo\\((void|)\\);${ws}int foo\\((void|)\\);"
+set re_synth_gcc_23	"E & operator=\\(E const ?&\\);${ws}E\\(E const ?&\\);"
+set re_all_methods	"($re_methods|$re_methods${ws}$re_synth_gcc_23|$re_synth_gcc_23${ws}$re_methods)"
 
 gdb_test_multiple "print e_instance" "print value of e_instance" {
     -re "\\$\[0-9\]+ = \{<(class A|A)> = \{a = 1, aa = 2\}, <(class B|B)> = \{b = 3, bb = 4\}, <(class C|C)> = \{c = 5, cc = 6\}, e = 9, ee = 10\}$nl$gdb_prompt $" {
@@ -109,24 +136,34 @@ gdb_test_multiple "print e_instance" "print value of e_instance" {
     }
 }
 
-cp_test_ptype_class \
-    "e_instance" "" "class" "E" \
-    {
-	{ base          "public A" }
-	{ base          "private B" }
-	{ base          "protected C" }
-	{ field  public "A::value_type e;" }
-	{ field  public "A::value_type ee;" }
-	{ method public "E();" }
-	{ method public "A::value_type efoo();" }
-	{ method public "A::value_type foo();" }
-    } \
-    "" \
-    {
-	{ "protected C" "private C" { setup_xfail "*-*-*" "gcc/13539" } }
+gdb_test_multiple "ptype e_instance" "ptype e_instance" {
+    -re "type = $re_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	pass "ptype e_instance"
     }
+    -re "type = $re_class${ws}$re_fields${ws}$re_all_methods$nl\}$nl$gdb_prompt $" {
+	pass "ptype e_instance"
+    }
+    -re "type = $XX_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	# This is a gcc bug, gcc/13539, gdb/1498.
+	# Fixed in gcc HEAD 2004-01-13
+	setup_xfail "*-*-*" "gcc/13539"
+	fail "ptype e_instance"
+    }
+    -re "type = $XX_class${ws}$re_fields${ws}$re_all_methods$nl\}$nl$gdb_prompt $" {
+	# This is a gcc bug, gcc/13539, gdb/1498.
+	# Fixed in gcc HEAD 2004-01-13
+	setup_xfail "*-*-*" "gcc/13539"
+	fail "ptype e_instance"
+    }
+}
 
 # class F
+
+set re_class		"class F : private A, public B, private C \{${ws}public:"
+set re_fields		"int f;${ws}int ff;"
+set re_methods		"F\\((void|)\\);${ws}int ffoo\\((void|)\\);${ws}int foo\\((void|)\\);"
+set re_synth_gcc_23	"F & operator=\\(F const ?&\\);${ws}F\\(F const ?&\\);"
+set re_all_methods	"($re_methods|$re_methods${ws}$re_synth_gcc_23|$re_synth_gcc_23${ws}$re_methods)"
 
 gdb_test_multiple "print f_instance" "print value of f_instance" {
     -re "\\$\[0-9\]+ = \{<(class A|A)> = \{a = 1, aa = 2\}, <(class B|B)> = \{b = 3, bb = 4\}, <(class C|C)> = \{c = 5, cc = 6\}, f = 11, ff = 12\}$nl$gdb_prompt $" {
@@ -134,34 +171,14 @@ gdb_test_multiple "print f_instance" "print value of f_instance" {
     }
 }
 
-cp_test_ptype_class \
-    "f_instance" "" "class" "F" \
-    {
-	{ base          "private A" }
-	{ base          "public B" }
-	{ base          "private C" }
-	{ field  public "A::value_type f;" }
-	{ field  public "A::value_type ff;" }
-	{ method public "F();" }
-	{ method public "A::value_type ffoo();" }
-	{ method public "A::value_type foo();" }
+gdb_test_multiple "ptype f_instance" "ptype f_instance" {
+    -re "type = $re_class${ws}$re_fields${ws}$re_methods${ws}$re_synth_gcc_23$nl\}$nl$gdb_prompt $" {
+	pass "ptype f_instance"
     }
-
-# class G
-cp_test_ptype_class \
-    "g_instance" "" "class" "G" \
-    {
-	{ base          "private A" }
-	{ base          "public B" }
-	{ base          "protected C" }
-	{ field public "int g;" }
-	{ field public "int gg;" }
-	{ field public "int a;" }
-	{ field public "int b;" }
-	{ field public "int c;" }
-	{ method public "int gfoo();" }
-	{ method public "int foo();" }
+    -re "type = $re_class${ws}$re_fields${ws}$re_all_methods$nl\}$nl$gdb_prompt $" {
+	pass "ptype f_instance"
     }
+}
 
 # Print individual fields.
 
@@ -205,53 +222,3 @@ gdb_test_multiple "frame" "re-selected 'main' frame after inferior call" {
 
 gdb_test "print g_instance.bfoo()" "\\$\[0-9\]+ = 2" "print value of g_instance.bfoo()"
 gdb_test "print g_instance.cfoo()" "\\$\[0-9\]+ = 3" "print value of g_instance.cfoo()"
-
-# Check typedefs of fields
-foreach Klass {"C" "G"} {
-    set klass [string tolower $Klass]
-    set instance "${klass}_instance"
-    set var "${instance}.$klass"
-    gdb_test "whatis $var" "int"
-    gdb_test "ptype $var" "int"
-}
-
-foreach Klass {"A" "B" "D" "E" "F"} {
-    set klass [string tolower $Klass]
-    set instance "${klass}_instance"
-    set var "${instance}.$klass"
-    gdb_test "whatis $var" "A::value_type"
-    gdb_test "ptype $var" "int"
-    if {![string equal $Klass "B"]} {
-	gdb_test "p (${Klass}::value_type) 0" " = 0"
-    }
-}
-
-foreach Klass {"Z" "ZZ"} {
-    set klass [string tolower $Klass]
-    set instance "${klass}_instance"
-    set var "${instance}.$klass"
-    gdb_test "whatis $var" "Z::value_type"
-    gdb_test "ptype $var" "float"
-    gdb_test "p (${Klass}::value_type) 0" " = 0"
-}
-
-# This is a regression test for a bug that caused a crash when trying
-# to print the vtbl pointer.  We don't care about the output so much
-# here (it is tested elsewhere), just that gdb doesn't crash.  We test
-# "ptype" first because, before the gdb fix, that was the only code
-# path calling get_vptr_fieldno.
-gdb_test "ptype vderived" "type = .*"
-gdb_test "print vderived" " = {.* inter = 0.*x = 0}"
-
-# Test whether inheritance of typedefs is properly
-# reported when stopped.
-gdb_test "ptype N::value_type" "type = double"
-gdb_test "ptype N::Derived::value_type" "type = int"
-
-# Now run to N::Derived::doit and get the type of "value_type"
-if {![runto "N::Derived::doit"]} {
-    perrro "couldn't run to N::Derived::doit"
-    continue
-}
-
-gdb_test "ptype value_type" "type = int"

@@ -1,23 +1,30 @@
-# Copyright 2003-2013 Free Software Foundation, Inc.
+# Copyright 2003 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file tests decoding of Objective-C symbols
 
 # This file was written by Adam Fedor (fedor@gnu.org)
 
-standard_testfile .m
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set testfile "objcdecode"
+set srcfile ${testfile}.m
+set binfile ${objdir}/${subdir}/${testfile}
 
 #
 # Objective-C program compilation isn't standard. We need to figure out
@@ -28,11 +35,16 @@ if {[gdb_compile_objc "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [
 }
 
 proc do_objc_tests {} {
+    global prms_id
+    global bug_id
     global subdir
+    global objdir
     global srcdir
     global binfile
     global gdb_prompt
 
+    set prms_id 0
+    set bug_id 0
 
     # Start with a fresh gdb.
 
@@ -45,30 +57,27 @@ proc do_objc_tests {} {
 
 do_objc_tests
 
-gdb_test_no_output "set multiple-symbols ask"
-
 #
 # Break on multiply defined method (PR objc/1236)
 #
 set name "break on multiply defined method"
 gdb_test_multiple "break multipleDef" $name \
 {
-    -re "\\\[0\\\] cancel\r\n\\\[1\\\] all\r\n\\\[2\\\] .*${srcfile}:-.Decode multipleDef.\r\n\\\[3\\\] .*${srcfile}:multipleDef\r\n> $" {
+    -re "\\\[0\\\] cancel\r\n\\\[1\\\] all\r\n\\\[2\\\] -.Decode multipleDef. at .*\r\n\\\[3\\\] multipleDef at .*\r\n> $" {
 	send_gdb "3\n"
 	exp_continue
     }
-    -re "Breakpoint \[0-9\]+ at 0x\[0-9a-f\]+: .*\r\n$gdb_prompt $" { pass $name }
+    -re "Breakpoint \[0-9\]+ at 0x\[0-9a-f\]+: file .*\r\n$gdb_prompt $" { pass $name }
     -re ".*$gdb_prompt $"   { kfail "gdb/1236" $name }
 }
 
 set name "continue after break on multiply defined symbol"
-gdb_run_cmd
-gdb_test_multiple "" $name \
+gdb_test_multiple "run" $name \
 {
-    -re "Breakpoint \[0-9\]+, multipleDef \\\(\\\) at .*\r\n$gdb_prompt $" {
+    -re "Starting program.*Breakpoint \[0-9\]+, multipleDef \\\(\\\) at .*\r\n$gdb_prompt $" {
 	pass $name
     }
-    -re "\\\[0\\\] cancel\r\n\\\[1\\\] all\r\n\\\[2\\\] -.Decode multipleDef. at .*\r\n\\\[3\\\] multipleDef at .*\r\n> $" {
+    -re "Starting program.*\\\[0\\\] cancel\r\n\\\[1\\\] all\r\n\\\[2\\\] -.Decode multipleDef. at .*\r\n\\\[3\\\] multipleDef at .*\r\n> $" {
 	send_gdb "0\n"
 	kfail "gdb/1238" $name
 	# gdb is in a bad state here.

@@ -8,11 +8,6 @@ namespace AAA {
     int xx;
     int fum (int);
   };
-  enum SomeEnum {
-    ALPHA,
-    BETA,
-    DELTA
-  };
 };
 
 int AAA::inA::fum (int i)
@@ -173,13 +168,10 @@ namespace C
   }
 }
 
-extern int ensureOtherRefs ();
-
 int main ()
 {
   using AAA::inA;
   char c1;
-  AAA::SomeEnum var = AAA::ALPHA;
 
   using namespace BBB;
   
@@ -203,7 +195,4 @@ int main ()
   marker1();
   
   C::D::marker2 ();
-
-  C::ensureRefs ();
-  ensureOtherRefs ();
 }
