@@ -62,8 +62,5 @@ proc foo {} {
 }
 .CE
 
-.SH "SEE ALSO" 
-error(n), break(n), continue(n)
-
 .SH KEYWORDS
 catch, error

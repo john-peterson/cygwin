@@ -55,7 +55,7 @@ static int	PipeGetHandleProc _ANSI_ARGS_((ClientData instanceData,
 static int	PipeInputProc _ANSI_ARGS_((ClientData instanceData,
 		    char *buf, int toRead, int *errorCode));
 static int	PipeOutputProc _ANSI_ARGS_((
-		    ClientData instanceData, CONST char *buf, int toWrite,
+		    ClientData instanceData, char *buf, int toWrite,
 		    int *errorCode));
 static void	PipeWatchProc _ANSI_ARGS_((ClientData instanceData, int mask));
 static void	RestoreSignals _ANSI_ARGS_((void));
@@ -67,20 +67,16 @@ static int	SetupStdFile _ANSI_ARGS_((TclFile file, int type));
  */
 
 static Tcl_ChannelType pipeChannelType = {
-    "pipe",			/* Type name. */
-    TCL_CHANNEL_VERSION_2,	/* v2 channel */
-    PipeCloseProc,		/* Close proc. */
-    PipeInputProc,		/* Input proc. */
-    PipeOutputProc,		/* Output proc. */
-    NULL,			/* Seek proc. */
-    NULL,			/* Set option proc. */
-    NULL,			/* Get option proc. */
-    PipeWatchProc,		/* Initialize notifier. */
-    PipeGetHandleProc,		/* Get OS handles out of channel. */
-    NULL,			/* close2proc. */
-    PipeBlockModeProc,		/* Set blocking or non-blocking mode.*/
-    NULL,			/* flush proc. */
-    NULL,			/* handler proc. */
+    "pipe",				/* Type name. */
+    PipeBlockModeProc,			/* Set blocking/nonblocking mode.*/
+    PipeCloseProc,			/* Close proc. */
+    PipeInputProc,			/* Input proc. */
+    PipeOutputProc,			/* Output proc. */
+    NULL,				/* Seek proc. */
+    NULL,				/* Set option proc. */
+    NULL,				/* Get option proc. */
+    PipeWatchProc,			/* Initialize notifier. */
+    PipeGetHandleProc,			/* Get OS handles out of channel. */
 };
 
 /*
@@ -136,11 +132,11 @@ TclpOpenFile(fname, mode)
     int mode;			/* In what mode to open the file? */
 {
     int fd;
-    CONST char *native;
+    char *native;
     Tcl_DString ds;
 
     native = Tcl_UtfToExternalDString(NULL, fname, -1, &ds);
-    fd = TclOSopen(native, mode, 0666);			/* INTL: Native. */
+    fd = open(native, mode, 0666);			/* INTL: Native. */
     Tcl_DStringFree(&ds);
     if (fd != -1) {
         fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -151,7 +147,7 @@ TclpOpenFile(fname, mode)
 	 */
 
 	if (mode & O_WRONLY) {
-	    TclOSseek(fd, (Tcl_SeekOffset) 0, SEEK_END);
+	    lseek(fd, (off_t) 0, SEEK_END);
 	}
 
 	/*
@@ -186,21 +182,14 @@ TclFile
 TclpCreateTempFile(contents)
     CONST char *contents;	/* String to write into temp file, or NULL. */
 {
-    char fileName[L_tmpnam + 9];
-    CONST char *native;
+    char fileName[L_tmpnam], *native;
     Tcl_DString dstring;
     int fd;
 
-    /*
-     * We should also check against making more then TMP_MAX of these.
-     */
-
-    strcpy(fileName, P_tmpdir);				/* INTL: Native. */
-    if (fileName[strlen(fileName) - 1] != '/') {
-	strcat(fileName, "/");				/* INTL: Native. */
+    if (tmpnam(fileName) == NULL) {			/* INTL: Native. */
+	return NULL;
     }
-    strcat(fileName, "tclXXXXXX");
-    fd = mkstemp(fileName);				/* INTL: Native. */
+    fd = open(fileName, O_RDWR|O_CREAT|O_TRUNC, 0666);	/* INTL: Native. */
     if (fd == -1) {
 	return NULL;
     }
@@ -215,53 +204,9 @@ TclpCreateTempFile(contents)
 	    return NULL;
 	}
 	Tcl_DStringFree(&dstring);
-	TclOSseek(fd, (Tcl_SeekOffset) 0, SEEK_SET);
+	lseek(fd, (off_t) 0, SEEK_SET);
     }
     return MakeFile(fd);
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclpTempFileName --
- *
- *	This function returns unique filename.
- *
- * Results:
- *	Returns a valid Tcl_Obj* with refCount 0, or NULL on failure.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-Tcl_Obj* 
-TclpTempFileName()
-{
-    char fileName[L_tmpnam + 9];
-    Tcl_Obj *result = NULL;
-    int fd;
-
-    /*
-     * We should also check against making more then TMP_MAX of these.
-     */
-
-    strcpy(fileName, P_tmpdir);		/* INTL: Native. */
-    if (fileName[strlen(fileName) - 1] != '/') {
-	strcat(fileName, "/");		/* INTL: Native. */
-    }
-    strcat(fileName, "tclXXXXXX");
-    fd = mkstemp(fileName);		/* INTL: Native. */
-    if (fd == -1) {
-	return NULL;
-    }
-    fcntl(fd, F_SETFD, FD_CLOEXEC);
-    unlink(fileName);			/* INTL: Native. */
-
-    result = TclpNativeToNormalized((ClientData) fileName);
-    close (fd);
-    return result;
 }
 
 /*
@@ -368,7 +313,7 @@ TclpCreateProcess(interp, argc, argv, inputFile, outputFile, errorFile,
 				 * Error messages from the child process
 				 * itself are sent to errorFile. */
     int argc;			/* Number of arguments in following array. */
-    CONST char **argv;		/* Array of argument strings in UTF-8.
+    char **argv;		/* Array of argument strings in UTF-8.
 				 * argv[0] contains the name of the executable
 				 * translated using Tcl_TranslateFileName
 				 * call).  Additional arguments have not been
@@ -424,7 +369,7 @@ TclpCreateProcess(interp, argc, argv, inputFile, outputFile, errorFile,
 	newArgv[i] = Tcl_UtfToExternalDString(NULL, argv[i], -1, &dsArray[i]);
     }
 
-    joinThisError = errorFile && (errorFile == outputFile);
+    joinThisError = (errorFile == outputFile);
     pid = fork();
     if (pid == 0) {
 	fd = GetFd(errPipeOut);
@@ -499,12 +444,10 @@ TclpCreateProcess(interp, argc, argv, inputFile, outputFile, errorFile,
     if (pid != -1) {
 	/*
 	 * Reap the child process now if an error occurred during its
-	 * startup.  We don't call this with WNOHANG because that can lead to
-	 * defunct processes on an MP system.   We shouldn't have to worry
-	 * about hanging here, since this is the error case.  [Bug: 6148]
+	 * startup.
 	 */
 
-	Tcl_WaitPid((Tcl_Pid) pid, &status, 0);
+	Tcl_WaitPid((Tcl_Pid) pid, &status, WNOHANG);
     }
     
     if (errPipeIn) {
@@ -1004,20 +947,14 @@ PipeInputProc(instanceData, buf, toRead, errorCodePtr)
      * appropriately, and read will unblock as soon as a short read is
      * possible, if the channel is in blocking mode. If the channel is
      * nonblocking, the read will never block.
-     * Some OSes can throw an interrupt error, for which we should
-     * immediately retry. [Bug #415131]
      */
 
-    do {
-	bytesRead = read (GetFd(psPtr->inFile), buf, (size_t) toRead);
-    } while ((bytesRead < 0) && (errno == EINTR));
-
-    if (bytesRead < 0) {
-	*errorCodePtr = errno;
-	return -1;
-    } else {
-	return bytesRead;
+    bytesRead = read(GetFd(psPtr->inFile), buf, (size_t) toRead);
+    if (bytesRead > -1) {
+        return bytesRead;
     }
+    *errorCodePtr = errno;
+    return -1;
 }
 
 /*
@@ -1042,7 +979,7 @@ PipeInputProc(instanceData, buf, toRead, errorCodePtr)
 static int
 PipeOutputProc(instanceData, buf, toWrite, errorCodePtr)
     ClientData instanceData;		/* Pipe state. */
-    CONST char *buf;			/* The data buffer. */
+    char *buf;				/* The data buffer. */
     int toWrite;			/* How many bytes to write? */
     int *errorCodePtr;			/* Where to store error code. */
 {
@@ -1050,22 +987,12 @@ PipeOutputProc(instanceData, buf, toWrite, errorCodePtr)
     int written;
 
     *errorCodePtr = 0;
-
-    /*
-     * Some OSes can throw an interrupt error, for which we should
-     * immediately retry. [Bug #415131]
-     */
-
-    do {
-	written = write(GetFd(psPtr->outFile), buf, (size_t) toWrite);
-    } while ((written < 0) && (errno == EINTR));
-
-    if (written < 0) {
-	*errorCodePtr = errno;
-	return -1;
-    } else {
-	return written;
+    written = write(GetFd(psPtr->outFile), buf, (size_t) toWrite);
+    if (written > -1) {
+        return written;
     }
+    *errorCodePtr = errno;
+    return -1;
 }
 
 /*
@@ -1243,3 +1170,5 @@ Tcl_PidObjCmd(dummy, interp, objc, objv)
     }
     return TCL_OK;
 }
+
+

@@ -12,11 +12,6 @@
  * RCS: @(#) $Id$
  */
 
-#include "tcl.h"
-#ifndef NULL
-#define NULL 0
-#endif
-
 /*
  *----------------------------------------------------------------------
  *
@@ -69,5 +64,5 @@ strstr(string, substring)
 	}
 	b = substring;
     }
-    return NULL;
+    return (char *) 0;
 }

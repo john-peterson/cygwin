@@ -6,9 +6,9 @@
 .\"	Case Western Reserve University
 .\"	chet@ins.CWRU.Edu
 .\"
-.\"	Last Change: Thu Aug 12 22:24:41 EDT 2010
+.\"	Last Change: Thu Jan 31 16:08:07 EST 2002
 .\"
-.TH HISTORY 3 "2010 August 12" "GNU History 6.2"
+.TH HISTORY 3 "2002 January 31" "GNU History 4.3"
 .\"
 .\" File Name macro.  This used to be `.PN', for Path Name,
 .\" but Sun doesn't seem to like that very much.
@@ -40,8 +40,8 @@
 .SH NAME
 history \- GNU History Library
 .SH COPYRIGHT
-.if t The GNU History Library is Copyright \(co 1989-2011 by the Free Software Foundation, Inc.
-.if n The GNU History Library is Copyright (C) 1989-2011 by the Free Software Foundation, Inc.
+.if t The GNU History Library is Copyright \(co 1989-2002 by the Free Software Foundation, Inc.
+.if n The GNU History Library is Copyright (C) 1989-2002 by the Free Software Foundation, Inc.
 .SH DESCRIPTION
 Many programs read input from the user a line at a time.  The GNU
 History library is able to keep track of those lines, associate arbitrary
@@ -83,8 +83,6 @@ the history expansion character.
 .PP
 An event designator is a reference to a command line entry in the
 history list.
-Unless the reference is absolute, events are relative to the current
-position in the history list.
 .PP
 .PD 0
 .TP
@@ -98,22 +96,18 @@ Refer to command line
 .IR n .
 .TP
 .B !\-\fIn\fR
-Refer to the current command minus
+Refer to the current command line minus
 .IR n .
 .TP
 .B !!
 Refer to the previous command.  This is a synonym for `!\-1'.
 .TP
 .B !\fIstring\fR
-Refer to the most recent command
-preceding the current position in the history list
-starting with
+Refer to the most recent command starting with 
 .IR string .
 .TP
 .B !?\fIstring\fR\fB[?]\fR
-Refer to the most recent command
-preceding the current postition in the history list
-containing
+Refer to the most recent command containing
 .IR string .
 The trailing \fB?\fP may be omitted if
 .I string
@@ -255,10 +249,6 @@ or `\fB:&\fP'.  If used with
 `\fB:s\fP', any delimiter can be used
 in place of /, and the final delimiter is optional
 if it is the last character of the event line.
-An \fBa\fP may be used as a synonym for \fBg\fP.
-.TP
-.B G
-Apply the following `\fBs\fP' modifier once to each word in the event line.
 .PD
 .SH "PROGRAMMING WITH HISTORY FUNCTIONS"
 This section describes how to use the History library in other programs.
@@ -302,7 +292,6 @@ declared as follows:
 .nf
 typedef struct _hist_entry {
   char *line;
-  char *timestamp;
   histdata_t data;
 } HIST_ENTRY;
 .fi
@@ -356,24 +345,14 @@ parameters managing the list itself.
 Place \fIstring\fP at the end of the history list.  The associated data
 field (if any) is set to \fBNULL\fP.
 
-.Fn1 void add_history_time "const char *string"
-Change the time stamp associated with the most recent history entry to
-\fIstring\fP.
-
 .Fn1 "HIST_ENTRY *" remove_history "int which"
 Remove history entry at offset \fIwhich\fP from the history.  The
 removed element is returned so you can free the line, data,
 and containing structure.
 
-.Fn1 "histdata_t" free_history_entry "HIST_ENTRY *histent"
-Free the history entry \fIhistent\fP and any history library private
-data associated with it.  Returns the application-specific data
-so the caller can dispose of it.
-
 .Fn3 "HIST_ENTRY *" replace_history_entry "int which" "const char *line" "histdata_t data"
 Make the history entry at offset \fIwhich\fP have \fIline\fP and \fIdata\fP.
-This returns the old entry so the caller can dispose of any
-application-specific data.  In the case
+This returns the old entry so you can dispose of the data.  In the case
 of an invalid \fIwhich\fP, a \fBNULL\fP pointer is returned.
 
 .Fn1 void clear_history "void"
@@ -414,9 +393,6 @@ Return the history entry at position \fIoffset\fP, starting from
 \fBhistory_base\fP.
 If there is no entry there, or if \fIoffset\fP
 is greater than the history length, return a \fBNULL\fP pointer.
-
-.Fn1 "time_t" history_get_time "HIST_ENTRY *"
-Return the time stamp associated with the history entry passed as the argument.
 
 .Fn1 int history_total_bytes "void"
 Return the number of bytes that the primary history entries are using.
@@ -574,14 +550,6 @@ The number of entries currently stored in the history list.
 .Vb int history_max_entries
 The maximum number of history entries.  This must be changed using
 \fBstifle_history()\fP.
-
-.Vb int history_wite_timestamps
-If non-zero, timestamps are written to the history file, so they can be
-preserved between sessions.  The default value is 0, meaning that
-timestamps are not saved.
-The current timestamp format uses the value of \fIhistory_comment_char\fP
-to delimit timestamp entries in the history file.  If that variable does
-not have a value (the default), timestamps will not be written.
 
 .Vb char history_expansion_char
 The character that introduces a history event.  The default is \fB!\fP.

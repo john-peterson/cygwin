@@ -20,6 +20,28 @@
 
 TCL_DECLARE_MUTEX(envMutex)	/* To serialize access to environ */
 
+/* CYGNUS LOCAL */
+#if defined(__CYGWIN__) && defined(__WIN32__)
+
+/* Under cygwin, the environment is imported from the cygwin DLL.  */
+
+__declspec(dllimport) extern char **__cygwin_environ;
+
+#define environ (__cygwin_environ)
+
+/* We need to use a special putenv function to handle PATH.  */
+#ifndef USE_PUTENV
+#define USE_PUTENV
+#endif
+#define putenv TclCygwin32Putenv
+#endif
+/* END CYGNUS LOCAL */
+
+#ifdef TCL_THREADS
+
+static Tcl_Mutex envMutex;	/* To serialize access to environ */
+#endif
+
 static int cacheSize = 0;	/* Number of env strings in environCache. */
 static char **environCache = NULL;
 				/* Array containing all of the environment
@@ -46,16 +68,17 @@ char **environ = NULL;
  */
 
 static char *		EnvTraceProc _ANSI_ARGS_((ClientData clientData,
-			    Tcl_Interp *interp, CONST char *name1, 
-			    CONST char *name2, int flags));
+			    Tcl_Interp *interp, char *name1, char *name2,
+			    int flags));
 static void		ReplaceString _ANSI_ARGS_((CONST char *oldStr,
 			    char *newStr));
 void			TclSetEnv _ANSI_ARGS_((CONST char *name,
 			    CONST char *value));
 void			TclUnsetEnv _ANSI_ARGS_((CONST char *name));
 
+/* CYGNUS LOCAL */
 #if defined (__CYGWIN__) && defined(__WIN32__)
-static void		TclCygwinPutenv _ANSI_ARGS_((CONST char *string));
+static void		TclCygwin32Putenv _ANSI_ARGS_((CONST char *string));
 #endif
 
 /*
@@ -177,8 +200,7 @@ TclSetEnv(name, value)
 {
     Tcl_DString envString;
     int index, length, nameLength;
-    char *p, *oldValue;
-    CONST char *p2;
+    char *p, *p2, *oldValue;
 
     /*
      * Figure out where the entry is going to go.  If the name doesn't
@@ -196,6 +218,12 @@ TclSetEnv(name, value)
 
 	    newEnviron = (char **) ckalloc((unsigned)
 		    ((length + 5) * sizeof(char *)));
+
+	    /* CYGNUS LOCAL: Added to avoid an error from Purify,
+               although I don't personally see where the error would
+               occur--ian.  */
+	    memset((VOID *) newEnviron, 0, (length+5) * sizeof(char *));
+
 	    memcpy((VOID *) newEnviron, (VOID *) environ,
 		    length*sizeof(char *));
 	    if (environSize != 0) {
@@ -203,12 +231,6 @@ TclSetEnv(name, value)
 	    }
 	    environ = newEnviron;
 	    environSize = length + 5;
-#if defined(__APPLE__) && defined(__DYNAMIC__)
-	    {
-	    char ***e = _NSGetEnviron();
-	    *e = environ;
-	    }
-#endif
 	}
 	index = length;
 	environ[index + 1] = NULL;
@@ -216,7 +238,7 @@ TclSetEnv(name, value)
 	oldValue = NULL;
 	nameLength = strlen(name);
     } else {
-	CONST char *env;
+	char *env;
 
 	/*
 	 * Compare the new value to the existing value.  If they're
@@ -278,23 +300,9 @@ TclSetEnv(name, value)
 
     if ((index != -1) && (environ[index] == p)) {
 	ReplaceString(oldValue, p);
-#ifdef HAVE_PUTENV_THAT_COPIES
-    } else {
-	/* This putenv() copies instead of taking ownership */
-	ckfree(p);
-#endif
     }
 
     Tcl_MutexUnlock(&envMutex);
-    
-    if (!strcmp(name, "HOME")) {
-	/* 
-	 * If the user's home directory has changed, we must invalidate
-	 * the filesystem cache, because '~' expansions will now be
-	 * incorrect.
-	 */
-        Tcl_FSMountsChanged(NULL);
-    }
 }
 
 /*
@@ -326,8 +334,8 @@ Tcl_PutEnv(string)
 				 * form NAME=value. (native) */
 {
     Tcl_DString nameString;   
-    CONST char *name;
-    char *value;
+    int nameLength;
+    char *name, *value;
 
     if (string == NULL) {
 	return 0;
@@ -341,12 +349,16 @@ Tcl_PutEnv(string)
 
     name = Tcl_ExternalToUtfDString(NULL, string, -1, &nameString);
     value = strchr(name, '=');
-
-    if ((value != NULL) && (value != name)) {
-	value[0] = '\0';
-	TclSetEnv(name, value+1);
+    if (value == NULL) {
+	return 0;
+    }
+    nameLength = value - name;
+    if (nameLength == 0) {
+	return 0;
     }
 
+    value[0] = '\0';
+    TclSetEnv(name, value+1);
     Tcl_DStringFree(&nameString);
     return 0;
 }
@@ -376,7 +388,7 @@ TclUnsetEnv(name)
     CONST char *name;		/* Name of variable to remove (UTF-8). */
 {
     char *oldValue;
-    int length;
+    unsigned int length;
     int index;
 #ifdef USE_PUTENV
     Tcl_DString envString;
@@ -409,7 +421,7 @@ TclUnsetEnv(name)
      */
 
 #ifdef USE_PUTENV
-    string = ckalloc((unsigned int) length+2);
+    string = ckalloc(length+2);
     memcpy((VOID *) string, (VOID *) name, (size_t) length);
     string[length] = '=';
     string[length+1] = '\0';
@@ -463,7 +475,7 @@ TclUnsetEnv(name)
  *----------------------------------------------------------------------
  */
 
-CONST char *
+char *
 TclGetEnv(name, valuePtr)
     CONST char *name;		/* Name of environment variable to find
 				 * (UTF-8). */
@@ -472,7 +484,7 @@ TclGetEnv(name, valuePtr)
 				 * stored. */
 {
     int length, index;
-    CONST char *result;
+    char *result;
 
     Tcl_MutexLock(&envMutex);
     index = TclpFindVariable(name, &length);
@@ -523,8 +535,8 @@ EnvTraceProc(clientData, interp, name1, name2, flags)
     ClientData clientData;	/* Not used. */
     Tcl_Interp *interp;		/* Interpreter whose "env" variable is
 				 * being modified. */
-    CONST char *name1;		/* Better be "env". */
-    CONST char *name2;		/* Name of variable being modified, or NULL
+    char *name1;		/* Better be "env". */
+    char *name2;		/* Name of variable being modified, or NULL
 				 * if whole array is being deleted (UTF-8). */
     int flags;			/* Indicates what's happening. */
 {
@@ -550,7 +562,7 @@ EnvTraceProc(clientData, interp, name1, name2, flags)
      */
 
     if (flags & TCL_TRACE_WRITES) {
-	CONST char *value;
+	char *value;
 	
 	value = Tcl_GetVar2(interp, "env", name2, TCL_GLOBAL_ONLY);
 	TclSetEnv(name2, value);
@@ -562,7 +574,7 @@ EnvTraceProc(clientData, interp, name1, name2, flags)
 
     if (flags & TCL_TRACE_READS) {
 	Tcl_DString valueString;
-	CONST char *value;
+	char *value;
 
 	value = TclGetEnv(name2, &valueString);
 	if (value == NULL) {
@@ -653,7 +665,7 @@ ReplaceString(oldStr, newStr)
 	    ckfree((char *) environCache);
 	}
 	environCache = newCache;
-	environCache[cacheSize] = newStr;
+	environCache[cacheSize] = (char *) newStr;
 	environCache[cacheSize+1] = NULL;
 	cacheSize += 5;
     }
@@ -698,83 +710,87 @@ TclFinalizeEnvironment()
     }
 }
 
+/* CYGNUS LOCAL */
 #if defined(__CYGWIN__) && defined(__WIN32__)
 
-#include <windows.h>
+#include "windows.h"
 
-/*
- * When using cygwin, when an environment variable changes, we need to synch
- * with both the cygwin environment (in case the application C code calls
- * fork) and the Windows environment (in case the application TCL code calls
- * exec, which calls the Windows CreateProcess function).
- */
+/* When using cygwin, when an environment variable changes, we need
+   to synch with both the cygwin environment (in case the
+   application C code calls fork) and the Windows environment (in case
+   the application TCL code calls exec, which calls the Windows
+   CreateProcess function).  */
 
 static void
-TclCygwinPutenv(str)
-    const char *str;
+TclCygwin32Putenv(str)
+     const char *str;
 {
-    char *name, *value;
+  char *name, *value;
 
-    /* Get the name and value, so that we can change the environment
-       variable for Windows.  */
-    name = (char *) alloca (strlen (str) + 1);
-    strcpy (name, str);
-    for (value = name; *value != '=' && *value != '\0'; ++value)
-	;
-    if (*value == '\0') {
-	    /* Can't happen.  */
-	    return;
-	}
-    *value = '\0';
-    ++value;
-    if (*value == '\0') {
-	value = NULL;
+  /* Get the name and value, so that we can change the environment
+     variable for Windows.  */
+  name = (char *) alloca (strlen (str) + 1);
+  strcpy (name, str);
+  for (value = name; *value != '=' && *value != '\0'; ++value)
+    ;
+  if (*value == '\0')
+    {
+      /* Can't happen.  */
+      return;
     }
+  *value = '\0';
+  ++value;
+  if (*value == '\0')
+    value = NULL;
 
-    /* Set the cygwin environment variable.  */
+  /* Set the cygwin environment variable.  */
 #undef putenv
-    if (value == NULL) {
-	unsetenv (name);
-    } else {
-	putenv(str);
+  if (value == NULL)
+    unsetenv (name);
+  else
+    putenv(str);
+
+  /* Before changing the environment variable in Windows, if this is
+     PATH, we need to convert the value back to a Windows style path.
+
+     FIXME: The calling program may now it is running under windows,
+     and may have set the path to a Windows path, or, worse, appended
+     or prepended a Windows path to PATH.  */
+  if (strcmp (name, "PATH") != 0)
+    {
+      /* If this is Path, eliminate any PATH variable, to prevent any
+         confusion.  */
+      if (strcmp (name, "Path") == 0)
+	{
+	  SetEnvironmentVariable ("PATH", (char *) NULL);
+	  unsetenv ("PATH");
+	}
+
+      SetEnvironmentVariable (name, value);
     }
+  else
+    {
+      char *buf;
 
-    /*
-     * Before changing the environment variable in Windows, if this is PATH,
-     * we need to convert the value back to a Windows style path.
-     *
-     * FIXME: The calling program may know it is running under windows, and
-     * may have set the path to a Windows path, or, worse, appended or
-     * prepended a Windows path to PATH.
-     */
-    if (strcmp (name, "PATH") != 0) {
-	/* If this is Path, eliminate any PATH variable, to prevent any
-	   confusion.  */
-	if (strcmp (name, "Path") == 0) {
-	    SetEnvironmentVariable ("PATH", (char *) NULL);
-	    unsetenv ("PATH");
+      /* Eliminate any Path variable, to prevent any confusion.  */
+      SetEnvironmentVariable ("Path", (char *) NULL);
+      unsetenv ("Path");
+
+      if (value == NULL)
+	buf = NULL;
+      else
+	{
+	  int size;
+
+	  size = cygwin_posix_to_win32_path_list_buf_size (value);
+	  buf = (char *) alloca (size + 1);
+	  cygwin_posix_to_win32_path_list (value, buf);
 	}
 
-	SetEnvironmentVariable (name, value);
-    } else {
-	char *buf;
-
-	    /* Eliminate any Path variable, to prevent any confusion.  */
-	SetEnvironmentVariable ("Path", (char *) NULL);
-	unsetenv ("Path");
-
-	if (value == NULL) {
-	    buf = NULL;
-	} else {
-	    int size;
-
-	    size = cygwin_posix_to_win32_path_list_buf_size (value);
-	    buf = (char *) alloca (size + 1);
-	    cygwin_posix_to_win32_path_list (value, buf);
-	}
-
-	SetEnvironmentVariable (name, buf);
+      SetEnvironmentVariable (name, buf);
     }
 }
 
-#endif /* __CYGWIN__ && __WIN32__ */
+#endif /* __CYGWIN__ */
+/* END CYGNUS LOCAL */
+

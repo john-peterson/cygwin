@@ -266,7 +266,7 @@ HandleMacEvents(void)
      * system event queue unless we call WaitNextEvent.
      */
 
-    GetGlobalMouseTcl(&currentMouse);
+    GetGlobalMouse(&currentMouse);
     if ((notifier.eventProcPtr != NULL) &&
 	    !EqualPt(currentMouse, notifier.lastMousePosition)) {
 	notifier.lastMousePosition = currentMouse;
@@ -296,7 +296,7 @@ HandleMacEvents(void)
      */
 
     while (needsUpdate || (GetEvQHdr()->qHead != NULL)) {
-	GetGlobalMouseTcl(&currentMouse);
+	GetGlobalMouse(&currentMouse);
 	SetRect(&mouseRect, currentMouse.h, currentMouse.v,
 		currentMouse.h + 1, currentMouse.v + 1);
 	RectRgn(notifier.utilityRgn, &mouseRect);
@@ -351,7 +351,7 @@ Tcl_SetTimer(
 	 * Compute when the timer should fire.
 	 */
 	
-	Tcl_GetTime(&notifier.timer);
+	TclpGetTime(&notifier.timer);
 	notifier.timer.sec += timePtr->sec;
 	notifier.timer.usec += timePtr->usec;
 	if (notifier.timer.usec >= 1000000) {
@@ -481,7 +481,7 @@ Tcl_WaitForEvent(
 	     * the current mouse position.
 	     */
 
-	    GetGlobalMouseTcl(&currentMouse);
+	    GetGlobalMouse(&currentMouse);
 	    SetRect(&mouseRect, currentMouse.h, currentMouse.v,
 		    currentMouse.h + 1, currentMouse.v + 1);
 	    RectRgn(notifier.utilityRgn, &mouseRect);

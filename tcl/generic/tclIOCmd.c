@@ -63,62 +63,45 @@ Tcl_PutsObjCmd(dummy, interp, objc, objv)
     Tcl_Obj *CONST objv[];	/* Argument objects. */
 {
     Tcl_Channel chan;			/* The channel to puts on. */
-    Tcl_Obj *string;			/* String to write. */
+    int i;				/* Counter. */
     int newline;			/* Add a newline at end? */
     char *channelId;			/* Name of channel for puts. */
     int result;				/* Result of puts operation. */
     int mode;				/* Mode in which channel is opened. */
+    char *arg;
+    int length;
 
-    switch (objc) {
-    case 2: /* puts $x */
-	string = objv[1];
-	newline = 1;
-	channelId = "stdout";
-	break;
-
-    case 3: /* puts -nonewline $x  or  puts $chan $x */ 
-	if (strcmp(Tcl_GetString(objv[1]), "-nonewline") == 0) {
-	    newline = 0;
-	    channelId = "stdout";
-	} else {
-	    newline = 1;
-	    channelId = Tcl_GetString(objv[1]);
-	}
-	string = objv[2];
-	break;
-
-    case 4: /* puts -nonewline $chan $x  or  puts $chan $x nonewline */
-	if (strcmp(Tcl_GetString(objv[1]), "-nonewline") == 0) {
-	    channelId = Tcl_GetString(objv[2]);
-	    string = objv[3];
-	} else {
-	    /*
-	     * The code below provides backwards compatibility with an
-	     * old form of the command that is no longer recommended
-	     * or documented.
-	     */
-
-	    char *arg;
-	    int length;
-
-	    arg = Tcl_GetStringFromObj(objv[3], &length);
-	    if (strncmp(arg, "nonewline", (size_t) length) != 0) {
-		Tcl_AppendResult(interp, "bad argument \"", arg,
-				 "\": should be \"nonewline\"",
-				 (char *) NULL);
-		return TCL_ERROR;
-	    }
-	    channelId = Tcl_GetString(objv[1]);
-	    string = objv[2];
-	}
+    i = 1;
+    newline = 1;
+    if ((objc >= 2) && (strcmp(Tcl_GetString(objv[1]), "-nonewline") == 0)) {
 	newline = 0;
-	break;
-
-    default: /* puts  or  puts some bad number of arguments... */
+	i++;
+    }
+    if ((i < (objc-3)) || (i >= objc)) {
 	Tcl_WrongNumArgs(interp, 1, objv, "?-nonewline? ?channelId? string");
 	return TCL_ERROR;
     }
 
+    /*
+     * The code below provides backwards compatibility with an old
+     * form of the command that is no longer recommended or documented.
+     */
+
+    if (i == (objc-3)) {
+	arg = Tcl_GetStringFromObj(objv[i + 2], &length);
+	if (strncmp(arg, "nonewline", (size_t) length) != 0) {
+	    Tcl_AppendResult(interp, "bad argument \"", arg,
+		    "\": should be \"nonewline\"", (char *) NULL);
+	    return TCL_ERROR;
+	}
+	newline = 0;
+    }
+    if (i == (objc - 1)) {
+	channelId = "stdout";
+    } else {
+	channelId = Tcl_GetString(objv[i]);
+	i++;
+    }
     chan = Tcl_GetChannel(interp, channelId, &mode);
     if (chan == (Tcl_Channel) NULL) {
         return TCL_ERROR;
@@ -129,7 +112,7 @@ Tcl_PutsObjCmd(dummy, interp, objc, objv)
         return TCL_ERROR;
     }
 
-    result = Tcl_WriteObj(chan, string);
+    result = Tcl_WriteObj(chan, objv[i]);
     if (result < 0) {
         goto error;
     }
@@ -245,12 +228,22 @@ Tcl_GetsObjCmd(dummy, interp, objc, objv)
         return TCL_ERROR;
     }
 
-    linePtr = Tcl_NewObj();
+    resultPtr = Tcl_GetObjResult(interp);
+    linePtr = resultPtr;
+    if (objc == 3) {
+	/*
+	 * Variable gets line, interp get bytecount.
+	 */
+
+	linePtr = Tcl_NewObj();
+    }
 
     lineLen = Tcl_GetsObj(chan, linePtr);
     if (lineLen < 0) {
         if (!Tcl_Eof(chan) && !Tcl_InputBlocked(chan)) {
-	    Tcl_DecrRefCount(linePtr);
+	    if (linePtr != resultPtr) {
+		Tcl_DecrRefCount(linePtr);
+	    }
 	    Tcl_ResetResult(interp);
 	    Tcl_AppendResult(interp, "error reading \"", name, "\": ",
 		    Tcl_PosixError(interp), (char *) NULL);
@@ -264,11 +257,8 @@ Tcl_GetsObjCmd(dummy, interp, objc, objv)
 	    Tcl_DecrRefCount(linePtr);
             return TCL_ERROR;
         }
-	resultPtr = Tcl_GetObjResult(interp);
 	Tcl_SetIntObj(resultPtr, lineLen);
         return TCL_OK;
-    } else {
-	Tcl_SetObjResult(interp, linePtr);
     }
     return TCL_OK;
 }
@@ -416,14 +406,11 @@ Tcl_SeekObjCmd(clientData, interp, objc, objv)
     Tcl_Obj *CONST objv[];		/* Argument objects. */
 {
     Tcl_Channel chan;			/* The channel to tell on. */
-    Tcl_WideInt offset;			/* Where to seek? */
-    int mode;				/* How to seek? */
-    Tcl_WideInt result;			/* Of calling Tcl_Seek. */
+    int offset, mode;			/* Where to seek? */
+    int result;				/* Of calling Tcl_Seek. */
     char *chanName;
     int optionIndex;
-    static CONST char *originOptions[] = {
-	"start", "current", "end", (char *) NULL
-    };
+    static char *originOptions[] = {"start", "current", "end", (char *) NULL};
     static int modeArray[] = {SEEK_SET, SEEK_CUR, SEEK_END};
 
     if ((objc != 3) && (objc != 4)) {
@@ -435,7 +422,7 @@ Tcl_SeekObjCmd(clientData, interp, objc, objv)
     if (chan == (Tcl_Channel) NULL) {
 	return TCL_ERROR;
     }
-    if (Tcl_GetWideIntFromObj(interp, objv[2], &offset) != TCL_OK) {
+    if (Tcl_GetIntFromObj(interp, objv[2], &offset) != TCL_OK) {
 	return TCL_ERROR;
     }
     mode = SEEK_SET;
@@ -448,7 +435,7 @@ Tcl_SeekObjCmd(clientData, interp, objc, objv)
     }
 
     result = Tcl_Seek(chan, offset, mode);
-    if (result == Tcl_LongAsWide(-1)) {
+    if (result == -1) {
         Tcl_AppendResult(interp, "error during seek on \"", 
 		chanName, "\": ", Tcl_PosixError(interp), (char *) NULL);
         return TCL_ERROR;
@@ -498,7 +485,7 @@ Tcl_TellObjCmd(clientData, interp, objc, objv)
     if (chan == (Tcl_Channel) NULL) {
 	return TCL_ERROR;
     }
-    Tcl_SetWideIntObj(Tcl_GetObjResult(interp), Tcl_Tell(chan));
+    Tcl_SetIntObj(Tcl_GetObjResult(interp), Tcl_Tell(chan));
     return TCL_OK;
 }
 
@@ -725,12 +712,12 @@ Tcl_ExecObjCmd(dummy, interp, objc, objv)
 
 #define NUM_ARGS 20
     Tcl_Obj *resultPtr;
-    CONST char **argv;
+    char **argv;
     char *string;
     Tcl_Channel chan;
-    CONST char *argStorage[NUM_ARGS];
+    char *argStorage[NUM_ARGS];
     int argc, background, i, index, keepNewline, result, skip, length;
-    static CONST char *options[] = {
+    static char *options[] = {
 	"-keepnewline",	"--",		NULL
     };
     enum options {
@@ -783,7 +770,7 @@ Tcl_ExecObjCmd(dummy, interp, objc, objv)
     argv = argStorage;
     argc = objc - skip;
     if ((argc + 1) > sizeof(argv) / sizeof(argv[0])) {
-	argv = (CONST char **) ckalloc((unsigned)(argc + 1) * sizeof(char *));
+	argv = (char **) ckalloc((unsigned)(argc + 1) * sizeof(char *));
     }
 
     /*
@@ -966,7 +953,7 @@ Tcl_OpenObjCmd(notUsed, interp, objc, objv)
      */
 
     if (!pipeline) {
-        chan = Tcl_FSOpenFileChannel(interp, objv[1], modeString, prot);
+        chan = Tcl_OpenFileChannel(interp, what, modeString, prot);
     } else {
 #ifdef MAC_TCL
 	Tcl_AppendResult(interp,
@@ -975,7 +962,7 @@ Tcl_OpenObjCmd(notUsed, interp, objc, objv)
 	return TCL_ERROR;
 #else
 	int mode, seekFlag, cmdObjc;
-	CONST char **cmdArgv;
+	char **cmdArgv;
 
         if (Tcl_SplitList(interp, what+1, &cmdObjc, &cmdArgv) != TCL_OK) {
             return TCL_ERROR;
@@ -1299,7 +1286,7 @@ Tcl_SocketObjCmd(notUsed, interp, objc, objv)
     int objc;				/* Number of arguments. */
     Tcl_Obj *CONST objv[];		/* Argument objects. */
 {
-    static CONST char *socketOptions[] = {
+    static char *socketOptions[] = {
 	"-async", "-myaddr", "-myport","-server", (char *) NULL
     };
     enum socketOptions {
@@ -1494,7 +1481,7 @@ Tcl_FcopyObjCmd(dummy, interp, objc, objv)
     int mode, i;
     int toRead, index;
     Tcl_Obj *cmdPtr;
-    static CONST char* switches[] = { "-size", "-command", NULL };
+    static char* switches[] = { "-size", "-command", NULL };
     enum { FcopySize, FcopyCommand };
 
     if ((objc < 3) || (objc > 7) || (objc == 4) || (objc == 6)) {

@@ -43,7 +43,7 @@ TclSockGetPort(interp, string, proto, portPtr)
 {
     struct servent *sp;		/* Protocol info for named services */
     Tcl_DString ds;
-    CONST char *native;
+    char *native;
 
     if (Tcl_GetInt(NULL, string, portPtr) != TCL_OK) {
 	/*
@@ -91,7 +91,10 @@ TclSockMinimumBuffers(sock, size)
     int size;			/* Minimum buffer size */
 {
     int current;
-    socklen_t len;
+    /*
+     * Should be socklen_t, but HP10.20 (g)cc chokes
+     */
+    size_t len;
 
     len = sizeof(int);
     getsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&current, &len);
@@ -107,3 +110,4 @@ TclSockMinimumBuffers(sock, size)
     }
     return TCL_OK;
 }
+

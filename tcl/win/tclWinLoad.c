@@ -19,10 +19,11 @@
 /*
  *----------------------------------------------------------------------
  *
- * TclpDlopen --
+ * TclpLoadFile --
  *
  *	Dynamically loads a binary code file into memory and returns
- *	a handle to the new code.
+ *	the addresses of two procedures within that file, if they
+ *	are defined.
  *
  * Results:
  *	A standard Tcl completion code.  If an error occurs, an error
@@ -35,42 +36,28 @@
  */
 
 int
-TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
+TclpLoadFile(interp, fileName, sym1, sym2, proc1Ptr, proc2Ptr, clientDataPtr)
     Tcl_Interp *interp;		/* Used for error reporting. */
-    Tcl_Obj *pathPtr;		/* Name of the file containing the desired
-				 * code (UTF-8). */
-    Tcl_LoadHandle *loadHandle;	/* Filled with token for dynamically loaded
+    char *fileName;		/* Name of the file containing the desired
+				 * code. */
+    char *sym1, *sym2;		/* Names of two procedures to look up in
+				 * the file's symbol table. */
+    Tcl_PackageInitProc **proc1Ptr, **proc2Ptr;
+				/* Where to return the addresses corresponding
+				 * to sym1 and sym2. */
+    ClientData *clientDataPtr;	/* Filled with token for dynamically loaded
 				 * file which will be passed back to 
-				 * (*unloadProcPtr)() to unload the file. */
-    Tcl_FSUnloadFileProc **unloadProcPtr;	
-				/* Filled with address of Tcl_FSUnloadFileProc
-				 * function which should be used for
-				 * this file. */
+				 * TclpUnloadFile() to unload the file. */
 {
     HINSTANCE handle;
-    CONST TCHAR *nativeName;
+    TCHAR *nativeName;
+    Tcl_DString ds;
 
-    /* 
-     * First try the full path the user gave us.  This is particularly
-     * important if the cwd is inside a vfs, and we are trying to load
-     * using a relative path.
-     */
-    nativeName = Tcl_FSGetNativePath(pathPtr);
+    nativeName = Tcl_WinUtfToTChar(fileName, -1, &ds);
     handle = (*tclWinProcs->loadLibraryProc)(nativeName);
-    if (handle == NULL) {
-	/* 
-	 * Let the OS loader examine the binary search path for
-	 * whatever string the user gave us which hopefully refers
-	 * to a file on the binary path
-	 */
-	Tcl_DString ds;
-        char *fileName = Tcl_GetString(pathPtr);
-	nativeName = Tcl_WinUtfToTChar(fileName, -1, &ds);
-	handle = (*tclWinProcs->loadLibraryProc)(nativeName);
-	Tcl_DStringFree(&ds);
-    }
+    Tcl_DStringFree(&ds);
 
-    *loadHandle = (Tcl_LoadHandle) handle;
+    *clientDataPtr = (ClientData) handle;
     
     if (handle == NULL) {
 	DWORD lastError = GetLastError();
@@ -89,7 +76,7 @@ TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
 	sprintf(buf, "%d %s", lastError, (char *)lpMsgBuf);
 #endif
 	Tcl_AppendResult(interp, "couldn't load library \"",
-			 Tcl_GetString(pathPtr), "\": ", (char *) NULL);
+		fileName, "\": ", (char *) NULL);
 	/*
 	 * Check for possible DLL errors.  This doesn't work quite right,
 	 * because Windows seems to only return ERROR_MOD_NOT_FOUND for
@@ -100,12 +87,8 @@ TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
 	    case ERROR_MOD_NOT_FOUND:
 	    case ERROR_DLL_NOT_FOUND:
 		Tcl_AppendResult(interp, "this library or a dependent library",
-			" could not be found in library path",
-			(char *) NULL);
-		break;
-	    case ERROR_PROC_NOT_FOUND:
-		Tcl_AppendResult(interp, "could not find specified procedure",
-			(char *) NULL);
+			" could not be found in library path", (char *)
+			NULL);
 		break;
 	    case ERROR_INVALID_DLL:
 		Tcl_AppendResult(interp, "this library or a dependent library",
@@ -121,51 +104,29 @@ TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
 			(char *) NULL);
 	}
 	return TCL_ERROR;
-    } else {
-	*unloadProcPtr = &TclpUnloadFile;
     }
-    return TCL_OK;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclpFindSymbol --
- *
- *	Looks up a symbol, by name, through a handle associated with
- *	a previously loaded piece of code (shared library).
- *
- * Results:
- *	Returns a pointer to the function associated with 'symbol' if
- *	it is found.  Otherwise returns NULL and may leave an error
- *	message in the interp's result.
- *
- *----------------------------------------------------------------------
- */
-Tcl_PackageInitProc*
-TclpFindSymbol(interp, loadHandle, symbol) 
-    Tcl_Interp *interp;
-    Tcl_LoadHandle loadHandle;
-    CONST char *symbol;
-{
-    Tcl_PackageInitProc *proc = NULL;
-    HINSTANCE handle = (HINSTANCE)loadHandle;
 
     /*
      * For each symbol, check for both Symbol and _Symbol, since Borland
      * generates C symbols with a leading '_' by default.
      */
 
-    proc = (Tcl_PackageInitProc *) GetProcAddress(handle, symbol);
-    if (proc == NULL) {
-	Tcl_DString ds;
-	Tcl_DStringInit(&ds);
+    *proc1Ptr = (Tcl_PackageInitProc *) GetProcAddress(handle, sym1);
+    if (*proc1Ptr == NULL) {
 	Tcl_DStringAppend(&ds, "_", 1);
-	symbol = Tcl_DStringAppend(&ds, symbol, -1);
-	proc = (Tcl_PackageInitProc *) GetProcAddress(handle, symbol);
+	sym1 = Tcl_DStringAppend(&ds, sym1, -1);
+	*proc1Ptr = (Tcl_PackageInitProc *) GetProcAddress(handle, sym1);
 	Tcl_DStringFree(&ds);
     }
-    return proc;
+    
+    *proc2Ptr = (Tcl_PackageInitProc *) GetProcAddress(handle, sym2);
+    if (*proc2Ptr == NULL) {
+	Tcl_DStringAppend(&ds, "_", 1);
+	sym2 = Tcl_DStringAppend(&ds, sym2, -1);
+	*proc2Ptr = (Tcl_PackageInitProc *) GetProcAddress(handle, sym2);
+	Tcl_DStringFree(&ds);
+    }
+    return TCL_OK;
 }
 
 /*
@@ -187,15 +148,15 @@ TclpFindSymbol(interp, loadHandle, symbol)
  */
 
 void
-TclpUnloadFile(loadHandle)
-    Tcl_LoadHandle loadHandle;	/* loadHandle returned by a previous call
-				 * to TclpDlopen().  The loadHandle is 
+TclpUnloadFile(clientData)
+    ClientData clientData;	/* ClientData returned by a previous call
+				 * to TclpLoadFile().  The clientData is 
 				 * a token that represents the loaded 
 				 * file. */
 {
     HINSTANCE handle;
 
-    handle = (HINSTANCE) loadHandle;
+    handle = (HINSTANCE) clientData;
     FreeLibrary(handle);
 }
 
@@ -221,10 +182,12 @@ TclpUnloadFile(loadHandle)
 
 int
 TclGuessPackageName(fileName, bufPtr)
-    CONST char *fileName;	/* Name of file containing package (already
+    char *fileName;		/* Name of file containing package (already
 				 * translated to local form if needed). */
     Tcl_DString *bufPtr;	/* Initialized empty dstring.  Append
 				 * package name to this if possible. */
 {
     return 0;
 }
+
+

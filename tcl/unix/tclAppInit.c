@@ -16,6 +16,15 @@
 
 #include "tcl.h"
 
+/*
+ * The following variable is a special hack that is needed in order for
+ * Sun shared libraries to be used for Tcl.
+ */
+
+extern int matherr();
+int *tclDummyMathPtr = (int *) matherr;
+
+
 #ifdef TCL_TEST
 
 #include "tclInt.h"
@@ -168,10 +177,8 @@ Tcl_AppInit(interp)
      * then no user-specific startup file will be run under any conditions.
      */
 
-#ifdef DJGPP
-    Tcl_SetVar(interp, "tcl_rcFileName", "~/tclsh.rc", TCL_GLOBAL_ONLY);
-#else
     Tcl_SetVar(interp, "tcl_rcFileName", "~/.tclshrc", TCL_GLOBAL_ONLY);
-#endif
     return TCL_OK;
 }
+
+

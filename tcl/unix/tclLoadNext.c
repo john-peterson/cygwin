@@ -20,14 +20,17 @@
 /*
  *----------------------------------------------------------------------
  *
- * TclpDlopen --
+ * TclpLoadFile --
  *
  *	Dynamically loads a binary code file into memory and returns
- *	a handle to the new code.
+ *	the addresses of two procedures within that file, if they
+ *	are defined.
  *
  * Results:
  *	A standard Tcl completion code.  If an error occurs, an error
- *	message is left in the interp's result.
+ *	message is left in the interp's result.  *proc1Ptr and *proc2Ptr
+ *	are filled in with the addresses of the symbols given by
+ *	*sym1 and *sym2, or NULL if those symbols can't be found.
  *
  * Side effects:
  *	New code suddenly appears in memory.
@@ -36,96 +39,49 @@
  */
 
 int
-TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
+TclpLoadFile(interp, fileName, sym1, sym2, proc1Ptr, proc2Ptr, clientDataPtr)
     Tcl_Interp *interp;		/* Used for error reporting. */
-    Tcl_Obj *pathPtr;		/* Name of the file containing the desired
-				 * code (UTF-8). */
-    Tcl_LoadHandle *loadHandle;	/* Filled with token for dynamically loaded
+    char *fileName;		/* Name of the file containing the desired
+				 * code. */
+    char *sym1, *sym2;		/* Names of two procedures to look up in
+				 * the file's symbol table. */
+    Tcl_PackageInitProc **proc1Ptr, **proc2Ptr;
+				/* Where to return the addresses corresponding
+				 * to sym1 and sym2. */
+    ClientData *clientDataPtr;	/* Filled with token for dynamically loaded
 				 * file which will be passed back to 
-				 * (*unloadProcPtr)() to unload the file. */
-    Tcl_FSUnloadFileProc **unloadProcPtr;	
-				/* Filled with address of Tcl_FSUnloadFileProc
-				 * function which should be used for
-				 * this file. */
+				 * TclpUnloadFile() to unload the file. */
 {
-    struct mach_header *header;
-    char *fileName;
-    char *files[2];
-    CONST char *native;
-    int result = 1;
-    
-    NXStream *errorStream = NXOpenMemory(0,0,NX_READWRITE);
-    
-    fileName = Tcl_GetString(pathPtr);
+  struct mach_header *header;
+  char *data;
+  int len, maxlen;
+  char *files[]={fileName,NULL};
+  NXStream *errorStream=NXOpenMemory(0,0,NX_READWRITE);
 
-    /* 
-     * First try the full path the user gave us.  This is particularly
-     * important if the cwd is inside a vfs, and we are trying to load
-     * using a relative path.
-     */
-    native = Tcl_FSGetNativePath(pathPtr);
-    files = {native,NULL};
+  if(!rld_load(errorStream,&header,files,NULL)) {
+    NXGetMemoryBuffer(errorStream,&data,&len,&maxlen);
+    Tcl_AppendResult(interp,"couldn't load file \"",fileName,"\": ",data,NULL);
+    NXCloseMemory(errorStream,NX_FREEBUFFER);
+    return TCL_ERROR;
+  }
+  NXCloseMemory(errorStream,NX_FREEBUFFER);
 
-    result = rld_load(errorStream, &header, files, NULL);
-    
-    if (!result) {
-	/* 
-	 * Let the OS loader examine the binary search path for
-	 * whatever string the user gave us which hopefully refers
-	 * to a file on the binary path
-	 */
-	Tcl_DString ds;
-	native = Tcl_UtfToExternalDString(NULL, fileName, -1, &ds);
-	files = {native,NULL};
-	result = rld_load(errorStream, &header, files, NULL);
-	Tcl_DStringFree(&ds);
-    }
-    
-    if (!result) {
-	char *data;
-	int len, maxlen;
-	NXGetMemoryBuffer(errorStream,&data,&len,&maxlen);
-	Tcl_AppendResult(interp, "couldn't load file \"",
-			 fileName, "\": ", data, NULL);
-	NXCloseMemory(errorStream, NX_FREEBUFFER);
-	return TCL_ERROR;
-    }
-    NXCloseMemory(errorStream, NX_FREEBUFFER);
-    
-    *loadHandle = (Tcl_LoadHandle)1; /* A dummy non-NULL value */
-    *unloadProcPtr = &TclpUnloadFile;
-    
-    return TCL_OK;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclpFindSymbol --
- *
- *	Looks up a symbol, by name, through a handle associated with
- *	a previously loaded piece of code (shared library).
- *
- * Results:
- *	Returns a pointer to the function associated with 'symbol' if
- *	it is found.  Otherwise returns NULL and may leave an error
- *	message in the interp's result.
- *
- *----------------------------------------------------------------------
- */
-Tcl_PackageInitProc*
-TclpFindSymbol(interp, loadHandle, symbol) 
-    Tcl_Interp *interp;
-    Tcl_LoadHandle loadHandle;
-    CONST char *symbol;
-{
-    Tcl_PackageInitProc *proc=NULL;
-    if(symbol) {
-	char sym[strlen(symbol)+2];
-	sym[0]='_'; sym[1]=0; strcat(sym,symbol);
-	rld_lookup(NULL,sym,(unsigned long *)&proc);
-    }
-    return proc;
+  *proc1Ptr=NULL;
+  if(sym1) {
+    char sym[strlen(sym1)+2];
+    sym[0]='_'; sym[1]=0; strcat(sym,sym1);
+    rld_lookup(NULL,sym,(unsigned long *)proc1Ptr);
+  }
+
+  *proc2Ptr=NULL;
+  if(sym2) {
+    char sym[strlen(sym2)+2];
+    sym[0]='_'; sym[1]=0; strcat(sym,sym2);
+    rld_lookup(NULL,sym,(unsigned long *)proc2Ptr);
+  }
+  *clientDataPtr = NULL;
+
+  return TCL_OK;
 }
 
 /*
@@ -147,9 +103,9 @@ TclpFindSymbol(interp, loadHandle, symbol)
  */
 
 void
-TclpUnloadFile(loadHandle)
-    Tcl_LoadHandle loadHandle;	/* loadHandle returned by a previous call
-				 * to TclpDlopen().  The loadHandle is 
+TclpUnloadFile(clientData)
+    ClientData clientData;	/* ClientData returned by a previous call
+				 * to TclpLoadFile().  The clientData is 
 				 * a token that represents the loaded 
 				 * file. */
 {
@@ -177,10 +133,11 @@ TclpUnloadFile(loadHandle)
 
 int
 TclGuessPackageName(fileName, bufPtr)
-    CONST char *fileName;	/* Name of file containing package (already
+    char *fileName;		/* Name of file containing package (already
 				 * translated to local form if needed). */
     Tcl_DString *bufPtr;	/* Initialized empty dstring.  Append
 				 * package name to this if possible. */
 {
     return 0;
 }
+

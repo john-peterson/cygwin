@@ -35,7 +35,7 @@
  *----------------------------------------------------------------------
  */
 
-CONST char *
+char *
 Tcl_ErrnoId()
 {
     switch (errno) {
@@ -339,9 +339,6 @@ Tcl_ErrnoId()
 #if defined(EOPNOTSUPP) &&  (!defined(ENOTSUP) || (ENOTSUP != EOPNOTSUPP))
 	case EOPNOTSUPP: return "EOPNOTSUPP";
 #endif
-#if defined(EOVERFLOW) && ( !defined(EFBIG) || (EOVERFLOW != EFBIG) ) && ( !defined(EINVAL) || (EOVERFLOW != EINVAL) )
-        case EOVERFLOW: return "EOVERFLOW";
-#endif
 #ifdef EPERM
 	case EPERM: return "EPERM";
 #endif
@@ -483,7 +480,7 @@ Tcl_ErrnoId()
  *----------------------------------------------------------------------
  */
 
-CONST char *
+char *
 Tcl_ErrnoMsg(err)
     int err;			/* Error number (such as in errno variable). */
 {
@@ -789,9 +786,6 @@ Tcl_ErrnoMsg(err)
 #if defined(EOPNOTSUPP) &&  (!defined(ENOTSUP) || (ENOTSUP != EOPNOTSUPP))
 	case EOPNOTSUPP: return "operation not supported on socket";
 #endif
-#if defined(EOVERFLOW) && ( !defined(EFBIG) || (EOVERFLOW != EFBIG) ) && ( !defined(EINVAL) || (EOVERFLOW != EINVAL) )
-        case EOVERFLOW: return "file too big";
-#endif
 #ifdef EPERM
 	case EPERM: return "not owner";
 #endif
@@ -933,7 +927,7 @@ Tcl_ErrnoMsg(err)
  *----------------------------------------------------------------------
  */
 
-CONST char *
+char *
 Tcl_SignalId(sig)
     int sig;			/* Number of signal. */
 {
@@ -1065,7 +1059,7 @@ Tcl_SignalId(sig)
  *----------------------------------------------------------------------
  */
 
-CONST char *
+char *
 Tcl_SignalMsg(sig)
     int sig;			/* Number of signal. */
 {
@@ -1178,3 +1172,4 @@ Tcl_SignalMsg(sig)
     }
     return "unknown signal";
 }
+

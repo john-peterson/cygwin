@@ -18,13 +18,6 @@
  * RCS: @(#) $Id$
  */
 
-/*
- * Windows and Unix use an alternative allocator when building with threads
- * that has significantly reduced lock contention.
- */
-
-#if !defined(TCL_THREADS) || !defined(USE_THREAD_ALLOC)
-
 #include "tclInt.h"
 #include "tclPort.h"
 
@@ -37,10 +30,12 @@
 #endif
 
 /*
- * We should really make use of AC_CHECK_TYPE(caddr_t)
- * here, but it can wait until Tcl uses config.h properly.
+ * With gcc this will already be defined. This should really
+ * make use of AC_CHECK_TYPE(caddr_t) but that can wait
+ * until we use config.h properly.
  */
-#if defined(MAC_TCL) || defined(_MSC_VER) || defined(__MINGW32__) || defined(__BORLANDC__)
+
+#if defined(MAC_TCL) || defined(_MSC_VER) || defined(__MINGW32__)
 typedef unsigned long caddr_t;
 #endif
 
@@ -728,4 +723,4 @@ TclpRealloc(cp, nbytes)
 }
 
 #endif /* !USE_TCLALLOC */
-#endif /* !TCL_THREADS */
+

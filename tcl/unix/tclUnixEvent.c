@@ -44,7 +44,7 @@ Tcl_Sleep(ms)
      * early, go back to sleep again.
      */
 
-    Tcl_GetTime(&before);
+    TclpGetTime(&before);
     after = before;
     after.sec += ms/1000;
     after.usec += (ms%1000)*1000;
@@ -71,6 +71,7 @@ Tcl_Sleep(ms)
 	}
 	(void) select(0, (SELECT_MASK *) 0, (SELECT_MASK *) 0,
 		(SELECT_MASK *) 0, &delay);
-	Tcl_GetTime(&before);
+	TclpGetTime(&before);
     }
 }
+

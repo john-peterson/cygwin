@@ -81,8 +81,7 @@ the imported commands specified by \fIpattern\fR reside in an
 autoloaded library.  If so, the commands are loaded so that they will
 be available to the interpreter for creating the import links.  If the
 commands do not reside in an autoloaded library, \fBauto_import\fR
-does nothing.  The pattern matching is performed according to the
-matching rules of \fBnamespace import\fR.
+does nothing.
 .TP
 \fBauto_load \fIcmd\fR
 This command attempts to load the definition for a Tcl command named
@@ -305,7 +304,8 @@ infinitely.
 The variable is unset before \fBunknown\fR returns.
 
 .SH "SEE ALSO"
-info(n), re_syntax(n)
+re_syntax(n)
 
 .SH KEYWORDS
 auto-exec, auto-load, library, unknown, word, whitespace 
+

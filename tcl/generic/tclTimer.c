@@ -174,7 +174,7 @@ InitTimer()
  *	None.
  *
  * Side effects:
- *	Removes the timer and idle event sources and remaining events.
+ *	Removes the timer and idle event sources.
  *
  *----------------------------------------------------------------------
  */
@@ -183,19 +183,7 @@ static void
 TimerExitProc(clientData)
     ClientData clientData;	/* Not used. */
 {
-    ThreadSpecificData *tsdPtr =
-	(ThreadSpecificData *) TclThreadDataKeyGet(&dataKey);
-
     Tcl_DeleteEventSource(TimerSetupProc, TimerCheckProc, NULL);
-    if (tsdPtr != NULL) {
-	register TimerHandler *timerHandlerPtr;
-	timerHandlerPtr = tsdPtr->firstTimerHandlerPtr;
-	while (timerHandlerPtr != NULL) {
-	    tsdPtr->firstTimerHandlerPtr = timerHandlerPtr->nextPtr;
-	    ckfree((char *) timerHandlerPtr);
-	    timerHandlerPtr = tsdPtr->firstTimerHandlerPtr;
-	}
-    }
 }
 
 /*
@@ -236,7 +224,7 @@ Tcl_CreateTimerHandler(milliseconds, proc, clientData)
      * Compute when the event should fire.
      */
 
-    Tcl_GetTime(&time);
+    TclpGetTime(&time);
     timerHandlerPtr->time.sec = time.sec + milliseconds/1000;
     timerHandlerPtr->time.usec = time.usec + (milliseconds%1000)*1000;
     if (timerHandlerPtr->time.usec >= 1000000) {
@@ -362,7 +350,7 @@ TimerSetupProc(data, flags)
 	 * Compute the timeout for the next timer on the list.
 	 */
 
-	Tcl_GetTime(&blockTime);
+	TclpGetTime(&blockTime);
 	blockTime.sec = tsdPtr->firstTimerHandlerPtr->time.sec - blockTime.sec;
 	blockTime.usec = tsdPtr->firstTimerHandlerPtr->time.usec -
 		blockTime.usec;
@@ -413,7 +401,7 @@ TimerCheckProc(data, flags)
 	 * Compute the timeout for the next timer on the list.
 	 */
 
-	Tcl_GetTime(&blockTime);
+	TclpGetTime(&blockTime);
 	blockTime.sec = tsdPtr->firstTimerHandlerPtr->time.sec - blockTime.sec;
 	blockTime.usec = tsdPtr->firstTimerHandlerPtr->time.usec -
 		blockTime.usec;
@@ -512,7 +500,7 @@ TimerHandlerEventProc(evPtr, flags)
 
     tsdPtr->timerPending = 0;
     currentTimerId = tsdPtr->lastTimerId;
-    Tcl_GetTime(&time);
+    TclpGetTime(&time);
     while (1) {
 	nextPtrPtr = &tsdPtr->firstTimerHandlerPtr;
 	timerHandlerPtr = tsdPtr->firstTimerHandlerPtr;
@@ -747,9 +735,7 @@ Tcl_AfterObjCmd(clientData, interp, objc, objv)
     char *argString;
     int index;
     char buf[16 + TCL_INTEGER_SPACE];
-    static CONST char *afterSubCmds[] = {
-	"cancel", "idle", "info", (char *) NULL
-    };
+    static char *afterSubCmds[] = {"cancel", "idle", "info", (char *) NULL};
     enum afterSubCmds {AFTER_CANCEL, AFTER_IDLE, AFTER_INFO};
     ThreadSpecificData *tsdPtr = InitTimer();
 

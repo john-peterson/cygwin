@@ -1,9 +1,9 @@
 /* Header for GDB line completion.
-   Copyright (C) 2000-2013 Free Software Foundation, Inc.
+   Copyright 2000 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -12,41 +12,28 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (COMPLETER_H)
 #define COMPLETER_H 1
 
-#include "gdb_vecs.h"
+extern char **complete_line (const char *text, char *line_buffer, int point);
 
-extern VEC (char_ptr) *complete_line (const char *text,
-				      char *line_buffer,
-				      int point);
+extern char *readline_line_completion_function (const char *text, int matches);
 
-extern char *readline_line_completion_function (const char *text,
-						int matches);
+extern char **noop_completer (char *, char *);
 
-extern VEC (char_ptr) *noop_completer (struct cmd_list_element *,
-				       char *, char *);
+extern char **filename_completer (char *, char *);
 
-extern VEC (char_ptr) *filename_completer (struct cmd_list_element *,
-					   char *, char *);
+extern char **location_completer (char *, char *);
 
-extern VEC (char_ptr) *expression_completer (struct cmd_list_element *,
-					     char *, char *);
+extern char **command_completer (char *, char *);
 
-extern VEC (char_ptr) *location_completer (struct cmd_list_element *,
-					   char *, char *);
-
-extern VEC (char_ptr) *command_completer (struct cmd_list_element *,
-					  char *, char *);
-
-extern VEC (char_ptr) *signal_completer (struct cmd_list_element *,
-					 char *, char *);
+extern char *get_gdb_completer_word_break_characters (void); 
 
 extern char *get_gdb_completer_quote_characters (void);
-
-extern char *gdb_completion_word_break_characters (void);
 
 /* Exported to linespec.c */
 

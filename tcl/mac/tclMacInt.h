@@ -14,15 +14,17 @@
 #ifndef _TCLMACINT
 #define _TCLMACINT
 
-#ifndef _TCLINT
-#include "tclInt.h"
+#ifndef _TCL
+#   include "tcl.h"
 #endif
-#ifndef _TCLPORT
-#include "tclPort.h"
+#ifndef _TCLMAC
+#   include "tclMac.h"
 #endif
 
 #include <Events.h>
 #include <Files.h>
+
+#pragma export on
 
 /*
  * Defines to control stack behavior.
@@ -44,11 +46,6 @@
 
 #define TCL_MAC_STACK_THRESHOLD 16384
 
-#ifdef BUILD_tcl
-# undef TCL_STORAGE_CLASS
-# define TCL_STORAGE_CLASS DLLEXPORT
-#endif
-
 /*
  * This flag is passed to TclMacRegisterResourceFork
  * by a file (usually a library) whose resource fork
@@ -66,12 +63,12 @@
  */
 
 EXTERN char *	TclMacGetFontEncoding _ANSI_ARGS_((int fontId));
-EXTERN int		TclMacHaveThreads _ANSI_ARGS_((void));
-EXTERN long		TclpGetGMTOffset _ANSI_ARGS_((void));
+EXTERN int	TclMacHaveThreads(void);
 
-# undef TCL_STORAGE_CLASS
-# define TCL_STORAGE_CLASS DLLIMPORT
-
+#include "tclPort.h"
+#include "tclPlatDecls.h"
 #include "tclIntPlatDecls.h"
     
+#pragma export reset
+
 #endif /* _TCLMACINT */

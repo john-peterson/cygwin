@@ -404,17 +404,8 @@ TestindexobjCmd(clientData, interp, objc, objv)
     Tcl_Obj *CONST objv[];	/* Argument objects. */
 {
     int allowAbbrev, index, index2, setError, i, result;
-    CONST char **argv;
-    static CONST char *tablePtr[] = {"a", "b", "check", (char *) NULL};
-    /*
-     * Keep this structure declaration in sync with tclIndexObj.c
-     */
-    struct IndexRep {
-	VOID *tablePtr;			/* Pointer to the table of strings */
-	int offset;			/* Offset between table entries */
-	int index;			/* Selected index into table. */
-    };
-    struct IndexRep *indexRep;
+    char **argv;
+    static char *tablePtr[] = {"a", "b", "check", (char *) NULL};
 
     if ((objc == 3) && (strcmp(Tcl_GetString(objv[1]),
 	    "check") == 0)) {
@@ -424,14 +415,12 @@ TestindexobjCmd(clientData, interp, objc, objv)
 	 * returned on subsequent lookups.
 	 */
 
+	Tcl_GetIndexFromObj((Tcl_Interp *) NULL, objv[1], tablePtr,
+		"token", 0, &index);
 	if (Tcl_GetIntFromObj(interp, objv[2], &index2) != TCL_OK) {
 	    return TCL_ERROR;
 	}
-
-	Tcl_GetIndexFromObj((Tcl_Interp *) NULL, objv[1], tablePtr,
-		"token", 0, &index);
-	indexRep = (struct IndexRep *) objv[1]->internalRep.otherValuePtr;
-	indexRep->index = index2;
+	objv[1]->internalRep.twoPtrValue.ptr2 = (VOID *) index2;
 	result = Tcl_GetIndexFromObj((Tcl_Interp *) NULL, objv[1],
 		tablePtr, "token", 0, &index);
 	if (result == TCL_OK) {
@@ -452,7 +441,7 @@ TestindexobjCmd(clientData, interp, objc, objv)
 	return TCL_ERROR;
     }
 
-    argv = (CONST char **) ckalloc((unsigned) ((objc-3) * sizeof(char *)));
+    argv = (char **) ckalloc((unsigned) ((objc-3) * sizeof(char *)));
     for (i = 4; i < objc; i++) {
 	argv[i-4] = Tcl_GetString(objv[i]);
     }
@@ -465,13 +454,9 @@ TestindexobjCmd(clientData, interp, objc, objv)
      * the index object, clear out the object's cached state.
      */
 
-    if ( objv[3]->typePtr != NULL
-	 && !strcmp( "index", objv[3]->typePtr->name ) ) {
-	indexRep = (struct IndexRep *) objv[3]->internalRep.otherValuePtr;
-	if (indexRep->tablePtr == (VOID *) argv) {
-	    objv[3]->typePtr->freeIntRepProc(objv[3]);
-	    objv[3]->typePtr = NULL;
-	}
+    if ((objv[3]->typePtr == Tcl_GetObjType("index"))
+	    && (objv[3]->internalRep.twoPtrValue.ptr1 == (VOID *) argv)) {
+	objv[3]->typePtr = NULL;
     }
 
     result = Tcl_GetIndexFromObj((setError? interp : NULL), objv[3],
@@ -788,19 +773,6 @@ TestobjCmd(clientData, interp, objc, objv)
                 varPtr[i] = NULL;
             }
         }
-    } else if ( strcmp ( subCmd, "invalidateStringRep" ) == 0 ) {
-	if ( objc != 3 ) {
-	    goto wrongNumArgs;
-	}
-	index = Tcl_GetString( objv[2] );
-	if ( GetVariableIndex( interp, index, &varIndex ) != TCL_OK ) {
-	    return TCL_ERROR;
-	}
-        if (CheckIfVarUnset(interp, varIndex)) {
-	    return TCL_ERROR;
-	}
-	Tcl_InvalidateStringRep( varPtr[varIndex] );
-	Tcl_SetObjResult( interp, varPtr[varIndex] );
     } else if (strcmp(subCmd, "newobj") == 0) {
         if (objc != 3) {
             goto wrongNumArgs;
@@ -909,7 +881,7 @@ TeststringobjCmd(clientData, interp, objc, objv)
 #define MAX_STRINGS 11
     char *index, *string, *strings[MAX_STRINGS+1];
     TestString *strPtr;
-    static CONST char *options[] = {
+    static char *options[] = {
 	"append", "appendstrings", "get", "get2", "length", "length2",
 	"set", "set2", "setlength", "ualloc", (char *) NULL
     };

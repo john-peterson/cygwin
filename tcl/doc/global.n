@@ -27,10 +27,9 @@ For the duration of the current procedure
 (and only while executing in the current procedure),
 any reference to any of the \fIvarname\fRs
 will refer to the global variable by the same name.
-.PP
 
 .SH "SEE ALSO"
-namespace(n), upvar(n), variable(n)
+namespace(n), variable(n)
 
 .SH KEYWORDS
 global, namespace, procedure, variable

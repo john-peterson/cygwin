@@ -43,7 +43,7 @@ mandir = @mandir@
 infodir = @infodir@
 includedir = @includedir@
 srcdir = @srcdir@
-this_srcdir = @this_srcdir@
+abs_srcdir = @abs_srcdir@
 
 man1dir = $(mandir)/man1
 man2dir = $(mandir)/man2
@@ -98,6 +98,9 @@ $(srcdir)/Makefile.in: $(srcdir)/Makefile.tpl $(srcdir)/Makefile.def
 config.status: $(srcdir)/configure
 	./config.status --recheck
 
+$(srcdir)/configure: $(srcdir)/configure.in
+	cd $(srcdir) && autoconf
+
 # Miscellaneous variable setting
 AR_FLAGS = qv
 FLAGS_TO_PASS = \
@@ -123,6 +126,6 @@ FLAGS_TO_PASS = \
 configure-[+subdir+]: [+subdir+]/Makefile
 [+subdir+]/Makefile: config.status
 	test -d [+subdir+] || mkdir [+subdir+] ; \
-	cd [+subdir+] && $(this_srcdir)/[+subdir+]/configure $(subconfigure_args)/[+subdir+]
+	cd [+subdir+] && $(abs_srcdir)/[+subdir+]/configure $(subconfigure_args)/[+subdir+]
 .PHONY: configure-[+subdir+]
 [+ ENDFOR subdirs +]

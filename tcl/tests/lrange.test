@@ -89,3 +89,4 @@ test lrange-2.6 {error conditions} {
 # cleanup
 ::tcltest::cleanupTests
 return
+

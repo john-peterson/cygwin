@@ -1,12 +1,11 @@
-/* Target-dependent code for NetBSD/arm.
-
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+/* Target-specific functions for ARM running under NetBSD.
+   Copyright 2002 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,26 +14,32 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
-#include "osabi.h"
-
-#include "gdb_string.h"
 
 #include "arm-tdep.h"
+#include "nbsd-tdep.h"
 #include "solib-svr4.h"
 
 /* Description of the longjmp buffer.  */
 #define ARM_NBSD_JB_PC 24
-#define ARM_NBSD_JB_ELEMENT_SIZE INT_REGISTER_SIZE
+#define ARM_NBSD_JB_ELEMENT_SIZE INT_REGISTER_RAW_SIZE
 
 /* For compatibility with previous implemenations of GDB on arm/NetBSD,
    override the default little-endian breakpoint.  */
 static const char arm_nbsd_arm_le_breakpoint[] = {0x11, 0x00, 0x00, 0xe6};
-static const char arm_nbsd_arm_be_breakpoint[] = {0xe6, 0x00, 0x00, 0x11};
-static const char arm_nbsd_thumb_le_breakpoint[] = {0xfe, 0xde};
-static const char arm_nbsd_thumb_be_breakpoint[] = {0xde, 0xfe};
+
+static int
+arm_netbsd_aout_in_solib_call_trampoline (CORE_ADDR pc, char *name)
+{
+  if (strcmp (name, "_PROCEDURE_LINKAGE_TABLE_") == 0)
+    return 1;
+
+  return 0;
+}
 
 static void
 arm_netbsd_init_abi_common (struct gdbarch_info info,
@@ -43,32 +48,11 @@ arm_netbsd_init_abi_common (struct gdbarch_info info,
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   tdep->lowest_pc = 0x8000;
-  switch (info.byte_order)
-    {
-    case BFD_ENDIAN_LITTLE:
-      tdep->arm_breakpoint = arm_nbsd_arm_le_breakpoint;
-      tdep->thumb_breakpoint = arm_nbsd_thumb_le_breakpoint;
-      tdep->arm_breakpoint_size = sizeof (arm_nbsd_arm_le_breakpoint);
-      tdep->thumb_breakpoint_size = sizeof (arm_nbsd_thumb_le_breakpoint);
-      break;
-
-    case BFD_ENDIAN_BIG:
-      tdep->arm_breakpoint = arm_nbsd_arm_be_breakpoint;
-      tdep->thumb_breakpoint = arm_nbsd_thumb_be_breakpoint;
-      tdep->arm_breakpoint_size = sizeof (arm_nbsd_arm_be_breakpoint);
-      tdep->thumb_breakpoint_size = sizeof (arm_nbsd_thumb_be_breakpoint);
-      break;
-
-    default:
-      internal_error (__FILE__, __LINE__,
-		      _("arm_gdbarch_init: bad byte order for float format"));
-    }
+  tdep->arm_breakpoint = arm_nbsd_arm_le_breakpoint;
+  tdep->arm_breakpoint_size = sizeof (arm_nbsd_arm_le_breakpoint);
 
   tdep->jb_pc = ARM_NBSD_JB_PC;
   tdep->jb_elt_size = ARM_NBSD_JB_ELEMENT_SIZE;
-
-  /* Single stepping.  */
-  set_gdbarch_software_single_step (gdbarch, arm_software_single_step);
 }
   
 static void
@@ -78,23 +62,24 @@ arm_netbsd_aout_init_abi (struct gdbarch_info info,
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   arm_netbsd_init_abi_common (info, gdbarch);
-  if (tdep->fp_model == ARM_FLOAT_AUTO)
-    tdep->fp_model = ARM_FLOAT_SOFT_FPA;
+
+  set_gdbarch_in_solib_call_trampoline
+    (gdbarch, arm_netbsd_aout_in_solib_call_trampoline);
+  tdep->fp_model = ARM_FLOAT_SOFT;
 }
 
 static void
-arm_netbsd_elf_init_abi (struct gdbarch_info info,
+arm_netbsd_elf_init_abi (struct gdbarch_info info, 
 			 struct gdbarch *gdbarch)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   arm_netbsd_init_abi_common (info, gdbarch);
-  if (tdep->fp_model == ARM_FLOAT_AUTO)
-    tdep->fp_model = ARM_FLOAT_SOFT_VFP;
 
-  /* NetBSD ELF uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  set_solib_svr4_fetch_link_map_offsets (gdbarch,
+                                nbsd_ilp32_solib_svr4_fetch_link_map_offsets);
+
+  tdep->fp_model = ARM_FLOAT_SOFT_VFP;
 }
 
 static enum gdb_osabi
@@ -105,9 +90,6 @@ arm_netbsd_aout_osabi_sniffer (bfd *abfd)
 
   return GDB_OSABI_UNKNOWN;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_arm_netbsd_tdep;
 
 void
 _initialize_arm_netbsd_tdep (void)

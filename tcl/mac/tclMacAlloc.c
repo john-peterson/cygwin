@@ -20,7 +20,6 @@
 #include "tclInt.h"
 #include "tclMacInt.h"
 #include <Memory.h>
-#include <Gestalt.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,13 +30,12 @@
  */
 #define MEMORY_ALL_SYS 1	/* All memory should come from the system
 heap. */
-#define MEMORY_DONT_USE_TEMPMEM 2	/* Don't use temporary memory but system memory. */
 
 /*
  * Amount of space to leave in the application heap for the Toolbox to work.
  */
 
-#define TOOLBOX_SPACE (512 * 1024)
+#define TOOLBOX_SPACE (32 * 1024)
 
 static int memoryFlags = 0;
 static Handle toolGuardHandle = NULL;
@@ -51,15 +49,6 @@ static Handle toolGuardHandle = NULL;
 				 * the way out. If we can't, we go to the
 				 * system heap directly. */
 
-static int tclUseMemTracking = 0; /* Are we tracking memory allocations?
-								   * On recent versions of the MacOS this
-								   * is no longer necessary, as we can use
-								   * temporary memory which is freed by the
-								   * OS after a quit or crash. */
-								   
-static size_t tclExtraHdlSize = 0; /* Size of extra memory allocated at the start
-									* of each block when using memory tracking
-									* ( == 0 otherwise) */
 
 /*
  * The following typedef and variable are used to keep track of memory
@@ -70,11 +59,10 @@ static size_t tclExtraHdlSize = 0; /* Size of extra memory allocated at the star
 typedef struct listEl {
     Handle		memoryHandle;
     struct listEl *	next;
-    struct listEl *	prec;
 } ListEl;
 
-static ListEl * systemMemory = NULL;
-static ListEl * appMemory = NULL;
+ListEl * systemMemory = NULL;
+ListEl * appMemory = NULL;
 
 /*
  * Prototypes for functions used only in this file.
@@ -111,28 +99,13 @@ TclpSysRealloc(
     Handle hand;
     void *newPtr;
     int maxsize;
-    OSErr err;
 
-	if (tclUseMemTracking) {
-    hand = ((ListEl *) ((Ptr) oldPtr - tclExtraHdlSize))->memoryHandle;
-    } else {
-    hand = RecoverHandle((Ptr) oldPtr);
-	}
+    hand = * (Handle *) ((Ptr) oldPtr - sizeof(Handle));
     maxsize = GetHandleSize(hand) - sizeof(Handle);
     if (maxsize < size) {
-    HUnlock(hand);
-    SetHandleSize(hand,size + tclExtraHdlSize);
-    err = MemError();
-    HLock(hand);
-    if(err==noErr){
-    	newPtr=(*hand + tclExtraHdlSize);
-    } else {
 	newPtr = TclpSysAlloc(size, 1);
-	if(newPtr!=NULL) {
-	memmove(newPtr, oldPtr, maxsize);
+	memcpy(newPtr, oldPtr, maxsize);
 	TclpSysFree(oldPtr);
-	}
-	}
     } else {
 	newPtr = oldPtr;
     }
@@ -163,31 +136,6 @@ TclpSysAlloc(
 {
     Handle hand = NULL;
     ListEl * newMemoryRecord;
-	int isSysMem = 0;
-	static int initialized=0;
-	
-	if (!initialized) {
-	long response = 0;
-	OSErr err = noErr;
-	int useTempMem = 0;
-	
-	/* Check if we can use temporary memory */
-	initialized=1;
-	err = Gestalt(gestaltOSAttr, &response);
-	if (err == noErr) {
-    	useTempMem = response & (1 << gestaltRealTempMemory);
-	}
-	tclUseMemTracking = !useTempMem || (memoryFlags & MEMORY_DONT_USE_TEMPMEM);
-	if(tclUseMemTracking) {
-	    tclExtraHdlSize = sizeof(ListEl);
-	    /*
-	     * We are allocating memory directly from the system
-	     * heap. We need to install an exit handle 
-	     * to ensure the memory is cleaned up.
-	     */
-	    TclMacInstallExitToShellPatch(CleanUpExitProc);
-	}
-	}
 
     if (!(memoryFlags & MEMORY_ALL_SYS)) {
 
@@ -209,7 +157,6 @@ TclpSysAlloc(
     	if (toolGuardHandle == NULL) {
     	    toolGuardHandle = NewHandle(TOOLBOX_SPACE);
     	    if (toolGuardHandle != NULL) {
-    	    	HLock(toolGuardHandle);
     	    	HPurge(toolGuardHandle);
     	    }
     	}
@@ -220,55 +167,55 @@ TclpSysAlloc(
 
     	if (toolGuardHandle != NULL) {
     	    HLock(toolGuardHandle);
-	    hand = NewHandle(size + tclExtraHdlSize);
+	    hand = NewHandle(size + sizeof(Handle));
 	    HUnlock(toolGuardHandle);
 	}
     }
-    if (hand == NULL) {
+    if (hand != NULL) {
+	newMemoryRecord = (ListEl *) NewPtr(sizeof(ListEl));
+	if (newMemoryRecord == NULL) {
+	    DisposeHandle(hand);
+	    return NULL;
+	}
+	newMemoryRecord->memoryHandle = hand;
+	newMemoryRecord->next = appMemory;
+	appMemory = newMemoryRecord;
+    } else {
 	/*
 	 * Ran out of memory in application space.  Lets try to get
 	 * more memory from system.  Otherwise, we return NULL to
 	 * denote failure.
 	 */
-	if(!tclUseMemTracking) {
-		/* Use Temporary Memory instead of System Heap when available */
-		OSErr err;
-		isBin = 1; /* always HLockHi TempMemHandles */
-		hand = TempNewHandle(size + tclExtraHdlSize,&err);
-		if(err!=noErr) { hand=NULL; }
-	} else {
-	/* Use system heap when tracking memory */
-	isSysMem=1;
 	isBin = 0;
-	hand = NewHandleSys(size + tclExtraHdlSize);
-	}
-	}
+	hand = NewHandleSys(size + sizeof(Handle));
 	if (hand == NULL) {
 	    return NULL;
 	}
+	if (systemMemory == NULL) {
+	    /*
+	     * This is the first time we've attempted to allocate memory
+	     * directly from the system heap.  We need to now install the
+	     * exit handle to ensure the memory is cleaned up.
+	     */
+	    TclMacInstallExitToShellPatch(CleanUpExitProc);
+	}
+	newMemoryRecord = (ListEl *) NewPtrSys(sizeof(ListEl));
+	if (newMemoryRecord == NULL) {
+	    DisposeHandle(hand);
+	    return NULL;
+	}
+	newMemoryRecord->memoryHandle = hand;
+	newMemoryRecord->next = systemMemory;
+	systemMemory = newMemoryRecord;
+    }
     if (isBin) {
 	HLockHi(hand);
     } else {
 	HLock(hand);
     }
-	if(tclUseMemTracking) {
-	/* Only need to do this when tracking memory */
-	newMemoryRecord = (ListEl *) *hand;
-	newMemoryRecord->memoryHandle = hand;
-	newMemoryRecord->prec = NULL;
-	if(isSysMem) {
-	newMemoryRecord->next = systemMemory;
-	systemMemory = newMemoryRecord;
-	} else {
-	newMemoryRecord->next = appMemory;
-	appMemory = newMemoryRecord;
-	}
-	if(newMemoryRecord->next!=NULL) {
-	newMemoryRecord->next->prec=newMemoryRecord;
-	}
-	}
-	
-    return (*hand + tclExtraHdlSize);
+    (** (Handle **) hand) = hand;
+
+    return (*hand + sizeof(Handle));
 }
 
 /*
@@ -291,27 +238,13 @@ void
 TclpSysFree(
     void * ptr)		/* Free this system memory. */
 {
-	if(tclUseMemTracking) {
-    /* Only need to do this when tracking memory */
-    ListEl *memRecord;
+    Handle hand;
+    OSErr err;
 
-    memRecord = (ListEl *) ((Ptr) ptr - tclExtraHdlSize);
-    /* Remove current record from linked list */
-    if(memRecord->next!=NULL) {
-    	memRecord->next->prec=memRecord->prec;
-    }
-    if(memRecord->prec!=NULL) {
-    	memRecord->prec->next=memRecord->next;
-    }
-    if(memRecord==appMemory) {
-    	appMemory=memRecord->next;
-    } else if(memRecord==systemMemory) {
-    	systemMemory=memRecord->next;
-    }
-    DisposeHandle(memRecord->memoryHandle);
-	} else {
-    DisposeHandle(RecoverHandle((Ptr) ptr));
-	}
+    hand = * (Handle *) ((Ptr) ptr - sizeof(Handle));
+    DisposeHandle(hand);
+    *hand = NULL;
+    err = MemError();
 }
 
 /*
@@ -338,13 +271,13 @@ CleanUpExitProc()
 {
     ListEl * memRecord;
 
-    if(tclUseMemTracking) {
-    /* Only need to do this when tracking memory */
     while (systemMemory != NULL) {
 	memRecord = systemMemory;
 	systemMemory = memRecord->next;
-	DisposeHandle(memRecord->memoryHandle);
-    }
+        if (*(memRecord->memoryHandle) != NULL) {
+            DisposeHandle(memRecord->memoryHandle);
+        }
+	DisposePtr((void *) memRecord);
     }
 }
 
@@ -371,18 +304,21 @@ FreeAllMemory()
 {
     ListEl * memRecord;
 
-	if(tclUseMemTracking) {
-	/* Only need to do this when tracking memory */
     while (systemMemory != NULL) {
 	memRecord = systemMemory;
 	systemMemory = memRecord->next;
-	DisposeHandle(memRecord->memoryHandle);
+	if (*(memRecord->memoryHandle) != NULL) {
+            DisposeHandle(memRecord->memoryHandle);
+        }
+	DisposePtr((void *) memRecord);
     }
     while (appMemory != NULL) {
 	memRecord = appMemory;
 	appMemory = memRecord->next;
-	DisposeHandle(memRecord->memoryHandle);
-	}
+	if (*(memRecord->memoryHandle) != NULL) {
+            DisposeHandle(memRecord->memoryHandle);
+        }
+	DisposePtr((void *) memRecord);
     }
 }
 

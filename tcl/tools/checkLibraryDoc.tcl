@@ -38,6 +38,7 @@ set StructList {
     Tcl_Encoding \
     Tcl_EncodingState \
     Tcl_EncodingType \
+    Tcl_EolTranslation \
     Tcl_HashEntry \
     Tcl_HashSearch \
     Tcl_HashTable \

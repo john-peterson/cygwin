@@ -56,8 +56,5 @@ for {set x 0} {$x<10} {incr x} {
 }
 .CE
 
-.SH "SEE ALSO"
-break, continue, foreach, while
-
 .SH KEYWORDS
 for, iteration, looping

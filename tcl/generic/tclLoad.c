@@ -19,8 +19,7 @@
  * either dynamically (with the "load" command) or statically (as
  * indicated by a call to TclGetLoadedPackages).  All such packages
  * are linked together into a single list for the process.  Packages
- * are never unloaded, until the application exits, when 
- * TclFinalizeLoad is called, and these structures are freed.
+ * are never unloaded, so these structures are never freed.
  */
 
 typedef struct LoadedPackage {
@@ -32,8 +31,8 @@ typedef struct LoadedPackage {
 				 * properly capitalized (first letter UC,
 				 * others LC), no "_", as in "Net". 
 				 * Malloc-ed. */
-    Tcl_LoadHandle loadHandle;	/* Token for the loaded file which should be
-				 * passed to (*unLoadProcPtr)() when the file
+    ClientData clientData;	/* Token for the loaded file which should be
+				 * passed to TclpUnloadFile() when the file
 				 * is no longer needed.  If fileName is NULL,
 				 * then this field is irrelevant. */
     Tcl_PackageInitProc *initProc;
@@ -47,11 +46,6 @@ typedef struct LoadedPackage {
 				 * untrusted scripts).   NULL means the
 				 * package can't be used in unsafe
 				 * interpreters. */
-    Tcl_FSUnloadFileProc *unLoadProcPtr;
-				/* Procedure to use to unload this package.
-				 * If NULL, then we do not attempt to unload
-				 * the package.  If fileName is NULL, then
-				 * this field is irrelevant. */
     struct LoadedPackage *nextPtr;
 				/* Next in list of all packages loaded into
 				 * this application process.  NULL means
@@ -119,13 +113,12 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 {
     Tcl_Interp *target;
     LoadedPackage *pkgPtr, *defaultPtr;
-    Tcl_DString pkgName, tmp, initName, safeInitName;
+    Tcl_DString pkgName, tmp, initName, safeInitName, fileName;
     Tcl_PackageInitProc *initProc, *safeInitProc;
     InterpPackage *ipFirstPtr, *ipPtr;
     int code, namesMatch, filesMatch;
-    char *p, *fullFileName, *packageName;
-    Tcl_LoadHandle loadHandle;
-    Tcl_FSUnloadFileProc *unLoadProcPtr = NULL;
+    char *p, *tempString, *fullFileName, *packageName;
+    ClientData clientData;
     Tcl_UniChar ch;
     int offset;
 
@@ -133,11 +126,11 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
         Tcl_WrongNumArgs(interp, 1, objv, "fileName ?packageName? ?interp?");
 	return TCL_ERROR;
     }
-    if (Tcl_FSConvertToPathType(interp, objv[1]) != TCL_OK) {
+    tempString = Tcl_GetString(objv[1]);
+    fullFileName = Tcl_TranslateFileName(interp, tempString, &fileName);
+    if (fullFileName == NULL) {
 	return TCL_ERROR;
     }
-    fullFileName = Tcl_GetString(objv[1]);
-    
     Tcl_DStringInit(&pkgName);
     Tcl_DStringInit(&initName);
     Tcl_DStringInit(&safeInitName);
@@ -272,10 +265,8 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 	     */
 	    retc = TclGuessPackageName(fullFileName, &pkgName);
 	    if (!retc) {
-		Tcl_Obj *splitPtr;
-		Tcl_Obj *pkgGuessPtr;
-		int pElements;
-		char *pkgGuess;
+		int pargc;
+		char **pargv, *pkgGuess;
 
 		/*
 		 * The platform-specific code couldn't figure out the
@@ -285,9 +276,8 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 		 * characters that follow that.
 		 */
 
-		splitPtr = Tcl_FSSplitPath(objv[1], &pElements);
-		Tcl_ListObjIndex(NULL, splitPtr, pElements -1, &pkgGuessPtr);
-		pkgGuess = Tcl_GetString(pkgGuessPtr);
+		Tcl_SplitPath(fullFileName, &pargc, &pargv);
+		pkgGuess = pargv[pargc-1];
 		if ((pkgGuess[0] == 'l') && (pkgGuess[1] == 'i')
 			&& (pkgGuess[2] == 'b')) {
 		    pkgGuess += 3;
@@ -301,7 +291,7 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 		    }
 		}
 		if (p == pkgGuess) {
-		    Tcl_DecrRefCount(splitPtr);
+		    ckfree((char *)pargv);
 		    Tcl_AppendResult(interp,
 			    "couldn't figure out package name for ",
 			    fullFileName, (char *) NULL);
@@ -309,7 +299,7 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 		    goto done;
 		}
 		Tcl_DStringAppend(&pkgName, pkgGuess, (p - pkgGuess));
-		Tcl_DecrRefCount(splitPtr);
+		ckfree((char *)pargv);
 	    }
 	}
 
@@ -338,9 +328,9 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 	 */
 
 	Tcl_MutexLock(&packageMutex);
-	code = Tcl_FSLoadFile(interp, objv[1], Tcl_DStringValue(&initName),
+	code = TclpLoadFile(interp, fullFileName, Tcl_DStringValue(&initName),
 		Tcl_DStringValue(&safeInitName), &initProc, &safeInitProc,
-		&loadHandle,&unLoadProcPtr);
+		&clientData);
 	Tcl_MutexUnlock(&packageMutex);
 	if (code != TCL_OK) {
 	    goto done;
@@ -348,9 +338,7 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 	if (initProc == NULL) {
 	    Tcl_AppendResult(interp, "couldn't find procedure ",
 		    Tcl_DStringValue(&initName), (char *) NULL);
-	    if (unLoadProcPtr != NULL) {
-		(*unLoadProcPtr)(loadHandle);
-	    }
+	    TclpUnloadFile(clientData);
 	    code = TCL_ERROR;
 	    goto done;
 	}
@@ -366,8 +354,7 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
 	pkgPtr->packageName	= (char *) ckalloc((unsigned)
 		(Tcl_DStringLength(&pkgName) + 1));
 	strcpy(pkgPtr->packageName, Tcl_DStringValue(&pkgName));
-	pkgPtr->loadHandle	= loadHandle;
-	pkgPtr->unLoadProcPtr	= unLoadProcPtr;
+	pkgPtr->clientData	= clientData;
 	pkgPtr->initProc	= initProc;
 	pkgPtr->safeInitProc	= safeInitProc;
 	Tcl_MutexLock(&packageMutex);
@@ -423,6 +410,7 @@ Tcl_LoadObjCmd(dummy, interp, objc, objv)
     Tcl_DStringFree(&pkgName);
     Tcl_DStringFree(&initName);
     Tcl_DStringFree(&safeInitName);
+    Tcl_DStringFree(&fileName);
     Tcl_DStringFree(&tmp);
     return code;
 }
@@ -451,7 +439,7 @@ Tcl_StaticPackage(interp, pkgName, initProc, safeInitProc)
 					 * package has already been loaded
 					 * into the given interpreter by
 					 * calling the appropriate init proc. */
-    CONST char *pkgName;		/* Name of package (must be properly
+    char *pkgName;			/* Name of package (must be properly
 					 * capitalized: first letter upper
 					 * case, others lower case). */
     Tcl_PackageInitProc *initProc;	/* Procedure to call to incorporate
@@ -490,7 +478,7 @@ Tcl_StaticPackage(interp, pkgName, initProc, safeInitProc)
     pkgPtr->packageName		= (char *) ckalloc((unsigned)
 	    (strlen(pkgName) + 1));
     strcpy(pkgPtr->packageName, pkgName);
-    pkgPtr->loadHandle		= NULL;
+    pkgPtr->clientData		= NULL;
     pkgPtr->initProc		= initProc;
     pkgPtr->safeInitProc	= safeInitProc;
     Tcl_MutexLock(&packageMutex);
@@ -665,10 +653,7 @@ TclFinalizeLoad()
 	 * call a function in the dll after it's been unloaded.
 	 */
 	if (pkgPtr->fileName[0] != '\0') {
-	    Tcl_FSUnloadFileProc *unLoadProcPtr = pkgPtr->unLoadProcPtr;
-	    if (unLoadProcPtr != NULL) {
-	        (*unLoadProcPtr)(pkgPtr->loadHandle);
-	    }
+	    TclpUnloadFile(pkgPtr->clientData);
 	}
 #endif
 	ckfree(pkgPtr->fileName);
