@@ -7,21 +7,37 @@
 #
 # RCS: @(#) $Id$
 
-package require tcltest 2.1
-namespace import -force tcltest::configure
-namespace import -force tcltest::testsDirectory
-configure -testdir [file join [pwd] [file dirname [info script]]]
-configure -loadfile [file join [testsDirectory] constraints.tcl]
-tcltest::loadTestedCommands
-
-testConstraint testborder [llength [info commands testborder]]
-
-if {[testConstraint pseudocolor8]} {
-    toplevel .t -visual {pseudocolor 8} -colormap new
-    wm geom .t +0+0
+if {[lsearch [namespace children] ::tcltest] == -1} {
+    source [file join [pwd] [file dirname [info script]] defs.tcl]
 }
 
-test border-1.1 {Tk_AllocBorderFromObj - converting internal reps} testborder {
+if {[info commands testborder] != "testborder"} {
+    puts "testborder command not available; skipping tests"
+    ::tcltest::cleanupTests
+    return
+}
+
+eval destroy [winfo children .]
+wm geometry . {}
+raise .
+
+# Create a top-level with its own colormap (so we can test under
+# controlled conditions), then check to make sure that the visual
+# is color-mapped with 256 borders.  If not, just skip this whole
+# test file.
+
+if [catch {toplevel .t -visual {pseudocolor 8} -colormap new}] {
+    ::tcltest::cleanupTests
+    return
+}
+wm geom .t +0+0
+if {[winfo depth .t] != 8} {
+    destroy .t
+    ::tcltest::cleanupTests
+    return
+}
+
+test border-1.1 {Tk_AllocBorderFromObj - converting internal reps} {
     set x orange
     lindex $x 0
     destroy .b1
@@ -29,7 +45,7 @@ test border-1.1 {Tk_AllocBorderFromObj - converting internal reps} testborder {
     lindex $x 0
     testborder orange
 } {{1 0}}
-test border-1.3 {Tk_AllocBorderFromObj - discard stale border} testborder {
+test border-1.3 {Tk_AllocBorderFromObj - discard stale border} {
     set x orange
     destroy .b1 .b2
     button .b1 -bg $x -text First
@@ -39,7 +55,7 @@ test border-1.3 {Tk_AllocBorderFromObj - discard stale border} testborder {
     button .b2 -bg $x -text Second
     lappend result [testborder orange]
 } {{} {{1 1}}}
-test border-1.2 {Tk_AllocBorderFromObj - reuse existing border} testborder {
+test border-1.2 {Tk_AllocBorderFromObj - reuse existing border} {
     set x orange
     destroy .b1 .b2
     button .b1 -bg $x -text First
@@ -49,7 +65,7 @@ test border-1.2 {Tk_AllocBorderFromObj - reuse existing border} testborder {
     pack .b1 .b2 -side top
     lappend result [testborder orange]
 } {{{1 1}} {{2 1}}}
-test border-1.4 {Tk_AllocBorderFromObj - try other borders in list} {pseudocolor8 testborder} {
+test border-1.4 {Tk_AllocBorderFromObj - try other borders in list} {
     set x purple
     destroy .b1 .b2 .t.b
     button .b1 -bg $x -text First
@@ -64,7 +80,7 @@ test border-1.4 {Tk_AllocBorderFromObj - try other borders in list} {pseudocolor
     lappend result [testborder purple]
 } {{{1 1}} {{1 1} {1 0}} {{1 0} {2 1}}}
 
-test border-3.1 {Tk_Free3DBorder - reference counts} {pseudocolor8 testborder} {
+test border-3.1 {Tk_Free3DBorder - reference counts} {
     set x purple
     destroy .b1 .b2 .t.b
     button .b1 -bg $x -text First
@@ -82,7 +98,7 @@ test border-3.1 {Tk_Free3DBorder - reference counts} {pseudocolor8 testborder} {
     destroy .t.b
     lappend result [testborder purple]
 } {{{1 0} {2 1}} {{1 0} {1 1}} {{1 0}} {}}
-test border-3.4 {Tk_Free3DBorder - unlinking from list} {pseudocolor8 testborder} {
+test border-3.4 {Tk_Free3DBorder - unlinking from list} {
     destroy .b .t.b .t2 .t3
     toplevel .t2 -visual {pseudocolor 8} -colormap new
     toplevel .t3 -visual {pseudocolor 8} -colormap new
@@ -109,7 +125,7 @@ test border-3.4 {Tk_Free3DBorder - unlinking from list} {pseudocolor8 testborder
     lappend result [testborder purple]
 } {{{4 1} {3 0} {2 0} {1 0}} {{4 1} {2 0} {1 0}} {{4 1} {2 0}} {{2 0}} {}}
 
-test border-4.1 {FreeBorderObjProc} testborder {
+test border-4.1 {FreeBorderObjProc} {
     destroy .b
     set x [format purple]
     button .b -bg $x -text .b1
@@ -159,9 +175,7 @@ test get-2.4 {Tk_GetReliefFromObj - error} {
     list [catch {.b configure -relief upanddown} msg] $msg
 } {1 {bad relief "upanddown": must be flat, groove, raised, ridge, solid, or sunken}}
 
-if {[testConstraint pseudocolor8]} {
-    destroy .t
-}
+destroy .t
 
 # cleanup
 ::tcltest::cleanupTests

@@ -39,8 +39,8 @@
 Tcl_Obj *
 TkpGetSystemDefault(
     Tk_Window tkwin,		/* A window to use. */
-    CONST char *dbName,		/* The option database name. */
-    CONST char *className)		/* The name of the option class. */
+    char *dbName,		/* The option database name. */
+    char *className)		/* The name of the option class. */
 {
     Tcl_Obj *valueObjPtr;
     Tk_Uid classUid;
@@ -58,3 +58,4 @@ TkpGetSystemDefault(
 
     return valueObjPtr;
 }
+

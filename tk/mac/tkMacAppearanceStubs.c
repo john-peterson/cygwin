@@ -23,6 +23,7 @@
  * them in shell calls.
  */
   
+#pragma export on
 pascal OSStatus
 MoveWindowStructure(
     WindowPtr window, 
@@ -102,3 +103,4 @@ IsValidWindowPtr(GrafPtr grafPort)
     return true;
 }
 
+#pragma export reset
