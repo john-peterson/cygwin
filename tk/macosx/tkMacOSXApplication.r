@@ -18,7 +18,7 @@
  * the version string for Tcl.
  */
 
-#define RC_INVOKED
+#define RESOURCE_INCLUDED
 #include "tk.h"
 
 #if (TK_RELEASE_LEVEL == 0)

@@ -14,15 +14,17 @@
  * RCS: @(#) $Id$
  */
 #include <pthread.h>
-#include <sys/stat.h>
 #include "tk.h"
 #include "tclInt.h"
 #include "locale.h"
 
 #include <Carbon/Carbon.h>
-#include "tkPort.h"
 #include "tkMacOSX.h"
 #include "tkMacOSXEvent.h"
+
+#ifndef MAX_PATH_LEN
+    #define MAX_PATH_LEN 1024
+#endif
 
 /*
  * If the App is in an App package, then we want to add the Scripts
@@ -31,7 +33,7 @@
  * figured out in main.
  */
  
-char scriptPath[PATH_MAX + 1];
+char scriptPath[MAX_PATH_LEN + 1];
 
 extern Tcl_Interp *gStdoutInterp;
 
@@ -113,17 +115,17 @@ main(argc, argv)
 
         if (appMainURL != NULL) {
             CFURLRef scriptFldrURL;
-            char *startupScript = malloc(PATH_MAX + 1);
+            char *startupScript = malloc(MAX_PATH_LEN + 1);
                             
             if (CFURLGetFileSystemRepresentation (appMainURL, true,
-                    startupScript, PATH_MAX)) {
+                    startupScript, MAX_PATH_LEN)) {
                 TclSetStartupScriptFileName(startupScript);
                 scriptFldrURL = CFBundleCopyResourceURL(bundleRef,
                         CFSTR("Scripts"),
                         NULL,
                         NULL);
                 CFURLGetFileSystemRepresentation(scriptFldrURL, 
-                        true, scriptPath, PATH_MAX);
+                        true, scriptPath, MAX_PATH_LEN);
                 CFRelease(scriptFldrURL);
             } else {
                 free(startupScript);
@@ -188,26 +190,22 @@ Tcl_AppInit(interp)
 #endif /* TK_TEST */
 
     /*
-     * If we don't have a TTY and stdin is a special character file of length 0,
-     * (e.g. /dev/null, which is what Finder sets when double clicking Wish)
-     * then use the Tk based console interpreter.
+     * If we don't have a TTY, then use the Tk based console
+     * interpreter instead.
      */
 
-    if (!isatty(0)) {
-	struct stat st;
-	if (fstat(0, &st) || (S_ISCHR(st.st_mode) && st.st_blocks == 0)) {
-            Tk_InitConsoleChannels(interp);
-            Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDIN));
-            Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDOUT));
-            Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDERR));
-	    if (Tk_CreateConsoleWindow(interp) == TCL_ERROR) {
-		goto error;
-	    }
-	    /* Only show the console if we don't have a startup script */
-	    if (TclGetStartupScriptPath() == NULL) {
-		Tcl_Eval(interp, "console show");
-	    }
-	}
+    if (ttyname(0) == NULL) {
+        Tk_InitConsoleChannels(interp);
+        Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDIN));
+        Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDOUT));
+        Tcl_RegisterChannel(interp, Tcl_GetStdChannel(TCL_STDERR));
+        if (Tk_CreateConsoleWindow(interp) == TCL_ERROR) {
+            goto error;
+        }
+	/* Only show the console if we don't have a startup script */
+        if (TclGetStartupScriptPath() == NULL) {
+            Tcl_Eval(interp, "console show");
+        }
     }
     
     /*

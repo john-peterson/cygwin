@@ -150,8 +150,6 @@ extern TkMacOSXWindowList *tkMacOSXWindowListPtr;
 
 extern Tcl_Encoding TkMacOSXCarbonEncoding;
 
-extern int TkMacOSXUseAntialiasedText(Tcl_Interp *interp, int enable);
-
 #include "tkIntPlatDecls.h"
 
 #endif /* _TKMACINT */

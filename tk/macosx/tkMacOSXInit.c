@@ -72,7 +72,7 @@ static Map scriptMap[] = {
 
 Tcl_Encoding TkMacOSXCarbonEncoding = NULL;
 
-
+
 /*
  *----------------------------------------------------------------------
  *
@@ -111,7 +111,6 @@ TkpInit(interp)
         Tk_MacOSXSetupTkNotifier();
         TkMacOSXInitAppleEvents(interp);
         TkMacOSXInitMenus(interp);
-        TkMacOSXUseAntialiasedText(interp, TRUE);
     }
  
     if (carbonEncodingInitialized == false) {

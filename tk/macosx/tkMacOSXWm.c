@@ -5214,11 +5214,6 @@ int
 TkpIsWindowFloating(WindowRef wRef)
 {
     WindowClass class;
-
-    if (wRef == NULL) {
-        return 0;
-    }
-    
     GetWindowClass(wRef, &class);
     return (class == kFloatingWindowClass);
 }

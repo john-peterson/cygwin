@@ -36,7 +36,6 @@ typedef struct KillEvent {
 
 static OSErr QuitHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
 static OSErr OappHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
-static OSErr RappHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
 static OSErr OdocHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
 static OSErr PrintHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
 static OSErr ScriptHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon);
@@ -67,7 +66,7 @@ TkMacOSXInitAppleEvents(
     Tcl_Interp *interp)                /* Interp to handle basic events. */
 {
     OSErr err;
-    AEEventHandlerUPP        OappHandlerUPP, RappHandlerUPP, OdocHandlerUPP,
+    AEEventHandlerUPP        OappHandlerUPP, OdocHandlerUPP,
         PrintHandlerUPP, QuitHandlerUPP, ScriptHandlerUPP,
         PrefsHandlerUPP;
         
@@ -81,10 +80,6 @@ TkMacOSXInitAppleEvents(
     OappHandlerUPP = NewAEEventHandlerUPP(OappHandler);
     err = AEInstallEventHandler(kCoreEventClass, kAEOpenApplication,
             OappHandlerUPP, (long) interp, false);
-
-    RappHandlerUPP = NewAEEventHandlerUPP(RappHandler);
-    err = AEInstallEventHandler(kCoreEventClass, kAEReopenApplication,
-            RappHandlerUPP, (long) interp, false);
 
     OdocHandlerUPP = NewAEEventHandlerUPP(OdocHandler);
     err = AEInstallEventHandler(kCoreEventClass, kAEOpenDocuments,
@@ -168,13 +163,6 @@ static OSErr
 OappHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon)
 {
     return noErr;
-}
-
-static OSErr 
-RappHandler (const AppleEvent * event, AppleEvent * reply, long handlerRefcon)
-{
-    ProcessSerialNumber thePSN = {0, kCurrentProcess};
-    return SetFrontProcess(&thePSN);
 }
 
 /* Called when the user selects 'Preferences...' in MacOS X */
