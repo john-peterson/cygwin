@@ -28,8 +28,87 @@
  *  malloc_usable_size(P) is equivalent to realloc(P, malloc_usable_size(P))
  *
  * $Log$
- * Revision 1.9  2004/05/12 16:21:18  cgf
- * remove keyword stuff
+ * Revision 1.5.52.1  2003/09/02 02:31:08  cgf
+ * merge from trunk
+ *
+ * Revision 1.6  2003/08/31 18:26:58  cgf
+ * * Makefile.in (MALLOC_OFILES): Always fill in with correct malloc object.
+ * * configure.in: Fill in MALLOC_OFILES with either debugging or regular malloc.
+ * * configure: Regenerate.
+ * * dlmalloc.c: Make various fruitless changes to attempt to get to work.
+ * * dlmalloc.h: Ditto.
+ * * malloc.cc (free): Check malloc pool when debugging.
+ * * path.cc (win32_device_name): Eliminate compiler warning.
+ * * sigproc.cc (sig_dispatch_pending): Remove use of was_pending.  Let
+ * thisframe.call_signal_handler decide if handler should be called rather than
+ * using bogus was_pending check.
+ * * exceptions.cc (interrupt_setup): Remove accidentally checked in debugging
+ * code.
+ * * heap.cc (sbrk): Save rounded addess in user_heap_max.
+ *
+ * Revision 1.5  2001/10/03 03:49:25  cgf
+ * * cygheap.cc (cfree): Remove malloc debugging probe.
+ * * dlmalloc.c (errprint): Remove abort() call which causes interesting error
+ * message printing to abort prematurely.
+ * * environ.cc: Sprinkle MALLOC_CHECKs liberally throughout.
+ * (_addenv): Allocate two empty elements at end of environ to
+ * (apparently) work around problems with some buggy applications.
+ * (winenv): Avoid calling alloca if no forced environment variable is present.
+ *
+ * * exceptions.cc (open_stackdumpfile): Don't print "Dumping stack trace to..."
+ * when running in a cygwin environment (i.e., the parent is a cygwin process).
+ *
+ * * dtable.cc (dtable::init_std_file_from_handle): Move device type detection
+ * code from build_fhandler here since it is only used by this function.
+ * (dtable::build_fhandler_from_name): New method.  Renamed from
+ * dtable::build_fhandler.
+ * (dtable::build_fhandler): Use build_fhandler_from_name.
+ * (cygwin_attach_handle_to_fd): Ditto.
+ * * syscalls.cc (_open): Ditto.
+ * (stat_worker): Ditto.
+ * * dtable.h (dtable::build_fhandler_from_name): Rename declaration from
+ * dtable::build_fhandler.
+ *
+ * Revision 1.4  2001/09/07 21:32:04  cgf
+ * * cygheap.h (init_cygheap): Move heap pointers here.
+ * * include/sys/cygwin.h (perprocess): Remove heap pointers.
+ * * dcrt0.cc (__cygwin_user_data): Reflect obsolete perprocess stuff.
+ * (_dll_crt0): Don't initialize heap pointers.
+ * (cygwin_dll_init): Ditto.
+ * (release_upto): Use heap pointers from cygheap.
+ * * heap.h: Ditto.
+ * * fork.cc (fork_parent): Ditto.  Don't set heap pointers in ch.
+ * (fork_child): Remove obsolete sigproc_fixup_after_fork.
+ * * shared.cc (memory_init): Reorganize so that cygheap initialization is called
+ * prior to regular heap since regular heap uses cygheap now.
+ * * sigproc.cc (proc_subproc): Eliminate zombies allocation.
+ * (sigproc_init): Move zombies alloation here.  Don't free up array on fork, just
+ * reuse it.
+ * (sigproc_fixup_after_fork): Eliminate.
+ * * sigproc.h: Ditto.
+ * * include/cygwin/version.h: Reflect change to perprocess structure.
+ *
+ * Revision 1.3  2001/06/26 14:47:48  cgf
+ * * mmap.cc: Clean up *ResourceLock calls throughout.
+ * * thread.cc (pthread_cond::TimedWait): Check for WAIT_TIMEOUT as well as
+ * WAIT_ABANDONED.
+ * (__pthread_cond_timedwait): Calculate a relative wait from the abstime
+ * parameter.
+ *
+ * Revision 1.2  2001/06/24 22:26:49  cgf
+ * forced commit
+ *
+ * Revision 1.1  2001/04/24 15:25:30  duda
+ * * dlmalloc.c: New file. Port of Doug Lea's malloc
+ * * dlmalloc.h: Ditto.
+ * * Makefile.in: Add support for MALLOC_DEBUG
+ * * config.h.in: Ditto.
+ * * winsup.h: Ditto.
+ * * configure.in: Add --enable-malloc-debugging option.
+ * * configure: Regenerate.
+ * * debug.h: Include declarations for debugging malloc.
+ * * tty.cc (grantpt): Fix definition.
+ * (unlockpt): Ditto.
  *
  * Revision 1.1  1997/12/24 18:34:47  nsd
  * Initial revision
@@ -253,6 +332,7 @@
 
 /* Preliminaries */
 
+#include "winsup.h"
 
 #ifndef __STD_C
 #ifdef __STDC__
@@ -286,11 +366,8 @@
 extern "C" {
 #endif
 
-#include <sys/types.h>
-#include "cygmalloc.h"
-#define __INSIDE_CYGWIN__
 #include <stdio.h>    /* needed for malloc_stats */
-#include <string.h>
+
 
 /*
   Compile-time options
@@ -1820,7 +1897,9 @@ static void malloc_err(const char *err, mchunkptr p)
       /* avoid invalid pointers */
       debug_file_min &&
       p->file >= debug_file_min &&
-      p->file <= debug_file_max)
+      p->file <= debug_file_max &&
+      /* try to avoid garbage file names */
+      isprint(*p->file))
     errprint(p->file, p->line, "in block allocated here");
 # endif
 }
