@@ -1,5 +1,5 @@
 ; General cpu info generator support.
-; Copyright (C) 2000, 2002, 2005, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
 ; Global state variables.
@@ -7,30 +7,12 @@
 ; Specify which application.
 (set! APPLICATION 'OPCODES)
 
-; Records the -OPC arg which specifies the path to the .opc file.
-(define /opc-file-path #f)
-(define (opc-file-path)
-  (if /opc-file-path
-      /opc-file-path
-      (error ".opc file unspecified, missing -OPC argument"))
-)
-(define (set-opc-file-path! path)
-  (set! /opc-file-path path)
-)
-
-; Return #t if the -OPC parameter was specified.
-
-(define (opc-file-provided?)
-  (and /opc-file-path #t)
-)
-
 ; Boolean indicating if we're to build the operand instance table.
 ; The default is no, since only the m32r uses it at present.
 ; ??? Simulator tracing support could use it.
 ; ??? Might be lazily built at runtime by parsing the semantic code
 ; (which would be recorded in the insn table).
-; FIXME: Referenced outside this file in opc-opinst.scm.
-(define /opcodes-build-operand-instance-table? #f)
+(define -opcodes-build-operand-instance-table? #f)
 
 ; String containing copyright text.
 (define CURRENT-COPYRIGHT #f)
@@ -41,7 +23,7 @@
 ; Initialize the options.
 
 (define (option-init!)
-  (set! /opcodes-build-operand-instance-table? #f)
+  (set! -opcodes-build-operand-instance-table? #f)
   (set! CURRENT-COPYRIGHT copyright-fsf)
   (set! CURRENT-PACKAGE package-gnu-binutils-gdb)
   *UNSPECIFIED*
@@ -51,18 +33,18 @@
 
 (define (option-set! name value)
   (case name
-    ((opinst) (set! /opcodes-build-operand-instance-table? #t))
+    ((opinst) (set! -opcodes-build-operand-instance-table? #t))
     ((copyright) (cond ((equal?  value '("fsf"))
 			(set! CURRENT-COPYRIGHT copyright-fsf))
-		       ((equal? value '("redhat"))
-			(set! CURRENT-COPYRIGHT copyright-red-hat))
+		       ((equal? value '("cygnus"))
+			(set! CURRENT-COPYRIGHT copyright-cygnus))
 		       (else (error "invalid copyright value" value))))
     ((package) (cond ((equal?  value '("binutils"))
 		      (set! CURRENT-PACKAGE package-gnu-binutils-gdb))
 		     ((equal?  value '("gnusim"))
 		      (set! CURRENT-PACKAGE package-gnu-simulators))
 		     ((equal? value '("cygsim"))
-		      (set! CURRENT-PACKAGE package-red-hat-simulators))
+		      (set! CURRENT-PACKAGE package-cygnus-simulators))
 		     (else (error "invalid package value" value))))
     (else (error "unknown option" name))
     )
@@ -118,18 +100,12 @@
 	  "")
       (if encode
 	  (string-append "        value = "
-			 ;; NOTE: ENCODE is either, e.g.,
-			 ;; ((value pc) (sra <mode> value 1))
-			 ;; or
-			 ;; (((<mode> value) (<mode> pc)) (sra <mode> value 1))
 			 (let ((expr (cadr encode))
-			       (value (if (symbol? (caar encode)) (caar encode) (cadr (caar encode))))
-			       (pc (if (symbol? (cadar encode)) (cadar encode) (cadr (cadar encode)))))
-			   (rtl-c DFLT
-				  (obj-isa-list self)
-				  (list (list value (obj:name (ifld-decode-mode self)) "value")
-					(list pc 'IAI "pc"))
-				  expr))
+			       (value (caar encode))
+			       (pc (cadar encode)))
+			   (rtl-c DFLT expr
+				  (list (list value (obj:name (ifld-encode-mode self)) "value")
+					(list pc 'IAI "pc"))))
 			 ";\n")
 	  "")
       (if need-extra?
@@ -152,7 +128,7 @@
 			  (obj-atlist self))
 		      gen-attr-mask)
       ", " (number->string (ifld-word-offset self))
-      ", " (number->string (ifld-start self))
+      ", " (number->string (ifld-start self #f))
       ", " (number->string (ifld-length self))
       ", " (number->string (ifld-word-length self))
       ", total_length"
@@ -191,7 +167,7 @@
 			  (obj-atlist self))
 		      gen-attr-mask)
       ", " (number->string (ifld-word-offset self))
-      ", " (number->string (ifld-start self))
+      ", " (number->string (ifld-start self #f))
       ", " (number->string (ifld-length self))
       ", " (number->string (ifld-word-length self))
       ", total_length"
@@ -203,18 +179,12 @@
       ");\n"
       (if decode
 	  (string-append "        value = "
-			 ;; NOTE: DECODE is either, e.g.,
-			 ;; ((value pc) (sll DI value 1))
-			 ;; or
-			 ;; (((<mode> value) (<mode> pc)) (sll DI value 1))
 			 (let ((expr (cadr decode))
-			       (value (if (symbol? (caar decode)) (caar decode) (cadr (caar decode))))
-			       (pc (if (symbol? (cadar decode)) (cadar decode) (cadr (cadar decode)))))
-			   (rtl-c DFLT
-				  (obj-isa-list self)
+			       (value (caar decode))
+			       (pc (cadar decode)))
+			   (rtl-c DFLT expr
 				  (list (list value (obj:name (ifld-decode-mode self)) "value")
-					(list pc 'IAI "pc"))
-				  expr))
+					(list pc 'IAI "pc"))))
 			 ";\n")
 	  "")
       (if need-extra?
@@ -239,15 +209,13 @@
 			 (let ((expr (cadr encode))
 			       (value (caar encode))
 			       (pc (cadar encode)))
-			   (rtl-c DFLT
-				  (obj-isa-list self)
-				  (list (list value (obj:name (ifld-decode-mode self)) varname)
-					(list pc 'IAI "pc"))
-				  expr))
+			   (rtl-c DFLT expr
+				  (list (list value (obj:name (ifld-encode-mode self)) varname)
+					(list pc 'IAI "pc"))))
 			 ";\n")
 	  "")
       (let ((expr (elm-get self 'insert)))
-	(rtl-c VOID (obj-isa-list self) nil expr))
+	(rtl-c VOID expr nil))
       (string-list-map (lambda (subfld)
 			 (string-list
 			  "  "
@@ -285,17 +253,15 @@
 			  ))
 		       (elm-get self 'subfields))
       (let ((expr (elm-get self 'extract)))
-	(rtl-c VOID (obj-isa-list self) nil expr))
+	(rtl-c VOID expr nil))
       (if need-extra?
 	  (string-append "        " varname " = "
 			 (let ((expr (cadr decode))
 			       (value (caar decode))
 			       (pc (cadar decode)))
-			   (rtl-c DFLT
-				  (obj-isa-list self)
+			   (rtl-c DFLT expr
 				  (list (list value (obj:name (ifld-decode-mode self)) varname)
-					(list pc 'IAI "pc"))
-				  expr))
+					(list pc 'IAI "pc"))))
 			 ";\n")
 	  "")
       "      }\n"
@@ -355,7 +321,7 @@
 ; PARSE-FN is the name of the function to call or #f to use the default.
 ; OP-ENUM is the enum of the operand.
 
-(define (/gen-parse-number mode parse-fn op-enum result-var-name)
+(define (-gen-parse-number mode parse-fn op-enum result-var-name)
   (string-append
    "      errmsg = "
    ; Use operand's special parse function if there is one, otherwise compute
@@ -368,15 +334,8 @@
 		      (obj:name mode)))))
    " (cd, strp, "
    op-enum
-   ", "
-   ; This is to pacify gcc 4.x which will complain about
-   ; incorrect signed-ness of pointers passed to functions.
-   (case (obj:name mode)
-	 ((QI HI SI INT) "(long *)")
-	 ((BI UQI UHI USI UINT) "(unsigned long *)")
-   )
-   " (& " result-var-name
-   "));\n"
+   ", &" result-var-name
+   ");\n"
    )
 )
 
@@ -386,10 +345,10 @@
 ; PARSE-FN is the name of the function to call or #f to use the default.
 ; OP-ENUM is the enum of the operand.
 
-(define (/gen-parse-address parse-fn op-enum result-var-name)
+(define (-gen-parse-address parse-fn op-enum result-var-name)
   (string-append
    "      {\n"
-   "        bfd_vma value = 0;\n"
+   "        bfd_vma value;\n"
    "        errmsg = "
    ; Use operand's special parse function if there is one.
    (or parse-fn
@@ -415,10 +374,10 @@
 	    ((ifield) (gen-operand-result-var (op-ifield operand)))
 	    (else "junk"))))
      (if (address? (op:type operand))
-	 (/gen-parse-address (send operand 'gen-function-name 'parse)
+	 (-gen-parse-address (send operand 'gen-function-name 'parse)
 			     (op-enum operand)
 			     result-var)
-	 (/gen-parse-number mode (send operand 'gen-function-name 'parse)
+	 (-gen-parse-number mode (send operand 'gen-function-name 'parse)
 			    (op-enum operand)
 			    result-var))))
 )
@@ -557,8 +516,7 @@
    (lambda (ops)
      ; OPS is a list of operands with the same name that for whatever reason
      ; were defined separately.
-     (logit 3 (string/symbol-append
-	       "Processing " (obj:str-name (car ops)) " " what " ...\n"))
+     (logit 3 (string-append "Processing " (obj:name (car ops)) " " what " ...\n"))
      (if (= (length ops) 1)
 	 (gen-obj-sanitize
 	  (car ops)
@@ -601,7 +559,7 @@
  (lambda (self what)
    (let ((handlers (elm-get self 'handlers)))
      (let ((fn (assq-ref handlers what)))
-       (and fn (string-append (symbol->string what) "_" (car fn))))))
+       (and fn (string-append what "_" (car fn))))))
 )
 
 ; Interface fns.
@@ -657,6 +615,7 @@
    "      abort();\n") ; should never be called
 )
 
+
 ; Need to call op:type to resolve the hardware reference.
 ;(method-make-forward! <operand> 'type '(gen-parse gen-print))
 
@@ -687,6 +646,7 @@
 (method-make-forward! <operand> 'index '(gen-insert gen-extract))
 ; But: <derived-operand> has its own gen-insert / gen-extract.
 
+
 ; Return the value of PC.
 ; Used by insert/extract fields.
 
@@ -702,7 +662,6 @@
 
 (define (opcodes-init!)
   (desc-init!)
-  (mode-set-biggest-word-bitsizes!)
   *UNSPECIFIED*
 )
 
@@ -731,12 +690,13 @@
   ; Still need to traverse the semantics to derive machine computed attributes.
   (arch-analyze-insns! CURRENT-ARCH
 		       #t ; include aliases
-		       /opcodes-build-operand-instance-table?)
+		       -opcodes-build-operand-instance-table?)
 
   *UNSPECIFIED*
 )
 
 ; Extra target specific code generation.
+; For now, such code lives in <arch>.opc.
 
 ; Pick out a section from the .opc file.
 ; The section is delimited with:
@@ -747,8 +707,8 @@
 ; FIXME: This is a pretty involved bit of code.  'twould be nice to split
 ; it up into manageable chunks.
 
-(define (read-cpu.opc opc-file delim)
-  (let ((file opc-file)
+(define (read-cpu.opc srcdir cpu delim)
+  (let ((file (string-append srcdir "/" (current-arch-name) ".opc"))
 	(start-delim (string-append "/* -- " delim))
 	(end-delim "/* -- "))
     (if (file-exists? file)
@@ -793,37 +753,38 @@
 	))
 )
 
-(define (gen-extra-cpu.h opc-file arch)
+; FIXME: collapse into one?
+(define (gen-extra-cpu.h srcdir arch)
   (logit 2 "Generating extra cpu.h stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "cpu.h")
+  (read-cpu.opc srcdir arch "cpu.h")
 )
-(define (gen-extra-cpu.c opc-file arch)
+(define (gen-extra-cpu.c srcdir arch)
   (logit 2 "Generating extra cpu.c stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "cpu.c")
+  (read-cpu.opc srcdir arch "cpu.c")
 )
-(define (gen-extra-opc.h opc-file arch)
+(define (gen-extra-opc.h srcdir arch)
   (logit 2 "Generating extra opc.h stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "opc.h")
+  (read-cpu.opc srcdir arch "opc.h")
 )
-(define (gen-extra-opc.c opc-file arch)
+(define (gen-extra-opc.c srcdir arch)
   (logit 2 "Generating extra opc.c stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "opc.c")
+  (read-cpu.opc srcdir arch "opc.c")
 )
-(define (gen-extra-asm.c opc-file arch)
+(define (gen-extra-asm.c srcdir arch)
   (logit 2 "Generating extra asm.c stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "asm.c")
+  (read-cpu.opc srcdir arch "asm.c")
 )
-(define (gen-extra-dis.c opc-file arch)
+(define (gen-extra-dis.c srcdir arch)
   (logit 2 "Generating extra dis.c stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "dis.c")
+  (read-cpu.opc srcdir arch "dis.c")
 )
-(define (gen-extra-ibld.h opc-file arch)
+(define (gen-extra-ibld.h srcdir arch)
   (logit 2 "Generating extra ibld.h stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "ibld.h")
+  (read-cpu.opc srcdir arch "ibld.h")
 )
-(define (gen-extra-ibld.c opc-file arch)
+(define (gen-extra-ibld.c srcdir arch)
   (logit 2 "Generating extra ibld.c stuff from " arch ".opc ...\n")
-  (read-cpu.opc opc-file "ibld.c")
+  (read-cpu.opc srcdir arch "ibld.c")
 )
 
 ; For debugging.

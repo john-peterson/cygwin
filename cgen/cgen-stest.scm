@@ -1,5 +1,5 @@
 ; CPU description file generator for the simulator testsuite.
-; Copyright (C) 2000, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
 ; This is invoked to build several .s files and a script to run to
@@ -8,6 +8,9 @@
 
 ; Load the various support routines
 (define (load-files srcdir)
+  ; Fix up Scheme to be what we use (guile is always in flux).
+  (primitive-load-path (string-append srcdir "/fixup.scm"))
+
   (load (string-append srcdir "/read.scm"))
   (load (string-append srcdir "/desc.scm"))
   (load (string-append srcdir "/desc-cpu.scm"))
@@ -21,11 +24,9 @@
 
 (define stest-arguments
   (list
-   (list "-B" "file" "generate build.sh"
-	 #f
+   (list '-B "file" "generate build.sh"
 	 (lambda (arg) (file-write arg cgen-build.sh)))
-   (list "-E" "file" "generate the testsuite .exp"
-	 #f
+   (list '-E "file" "generate the testsuite .exp"
 	 (lambda (arg) (file-write arg cgen-allinsn.exp)))
    )
 )
@@ -76,5 +77,3 @@
 )
 
 (cgen-stest (program-arguments))
-
-;; FIXME: cgen-all will generate the opcodes files, not what we want

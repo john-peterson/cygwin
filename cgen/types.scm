@@ -1,7 +1,7 @@
 ; Type system.
 ; This provides the low level classes for describing data, except for
 ; the actual type (confusingly enough) which is described in mode.scm.
-; Copyright (C) 2000, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 ; See file COPYING.CGEN for details.
 
@@ -78,75 +78,49 @@
 ;
 ;(method-make! <integer> 'get-rank (lambda (self) 0))
 
+; Structures.
+; FIXME: Unfinished.
+
+(define <struct> (class-make '<struct> nil '(members) nil))
+
 ; Parse a type spec.
 ; TYPE-SPEC is: (mode [(dimensions ...)])
 ;           or: ((mode bits) [(dimensions ...)])
 
-(define (parse-type context type-spec)
+(define (parse-type errtxt type-spec)
   ; Preliminary error checking.
-  (let ((expected
-	 ", expected (mode [(dimensions)]) or ((mode bits) [(dimensions)])"))
-    (if (not (list? type-spec))
-	(parse-error context (string-append "invalid type spec" expected)
-		     type-spec))
-    (let ((len (length type-spec)))
-      (if (or (< len 1)
-	      (> len 2))
-	  (parse-error context (string-append "invalid type spec" expected)
-		       type-spec))
-      ; Validate the mode spec.
-      (cond ((symbol? (car type-spec))
-	     #t) ; ok
-	    ((list? (car type-spec))
-	     (begin
-	       (if (not (= (length (car type-spec)) 2))
-		   (parse-error context
-				(string-append "invalid mode in type spec"
-					       expected)
-				type-spec))
-	       (if (not (symbol? (caar type-spec)))
-		   (parse-error context
-				(string-append "invalid mode in type spec"
-					       expected)
-				type-spec))
-	       (if (not (integer? (cadar type-spec)))
-		   (parse-error context
-				(string-append "invalid #bits in type spec"
-					       expected)
-				type-spec))
-	       ))
-	     (else
-	      (parse-error context
-			   (string-append "invalid mode in type spec" expected)
-			   type-spec)))
-      ; Validate the dimension list if present.
-      (if (= len 2)
-	  (if (or (not (list? (cadr type-spec)))
-		  (not (all-true? (map non-negative-integer?
-				       (cadr type-spec)))))
-	      (parse-error context
-			   (string-append "invalid dimension spec in type spec"
-					  expected)
-			   type-spec)))
-      ))
+  (if (and (list? (car type-spec))
+	   (not (= (length (car type-spec)) 2)))
+      (parse-error errtxt "invalid type spec" type-spec))
 
   ; Pick out the arguments.
   (let ((mode (if (list? (car type-spec)) (caar type-spec) (car type-spec)))
 	(bits (if (list? (car type-spec)) (cadar type-spec) #f))
 	(dims (if (> (length type-spec) 1) (cadr type-spec) nil)))
 
-    ; Look up the mode and create the mode object.
-    (let* ((base-mode (parse-mode-name context mode))
-	   (mode-obj
-	    (cond ((eq? mode 'INT)
-		   (mode-make-int bits))
-		  ((eq? mode 'UINT)
-		   (mode-make-uint bits))
-		  (else
-		   (if (and bits (!= bits (mode:bits base-mode)))
-		       (parse-error context "wrong number of bits for mode"
-				    bits))
-		   base-mode))))
+    ; FIXME: Need more error checking here.
+    ; Validate the mode and bits.
+    (let ((mode-obj
+	   (case mode
+	     ((INT)
+	      (if (integer? bits)
+		  (mode-make-int bits)
+		  (parse-error errtxt "invalid number of bits" bits)))
+	     ((UINT)
+	      (if (integer? bits)
+		  (mode-make-uint bits)
+		  (parse-error errtxt "invalid number of bits" bits)))
+	     ((BI QI HI SI DI WI UQI UHI USI UDI UWI SF DF XF TF)
+	      (let ((x (parse-mode-name mode errtxt)))
+		(if (and bits (not (= bits (mode:bits x))))
+		    (parse-error errtxt "wrong number of bits for mode" bits))
+		x))
+	     (else (parse-error errtxt "unknown/unsupported mode" mode)))))
+
+      ; Validate the dimension spec.
+      (if (or (not (list? dims))
+	      (not (all-true? (map integer? dims))))
+	  (parse-error errtxt "invalid dimension spec" dims))
 
       ; All done, create the <array> object.
       ; ??? Special casing scalars is a concession for apps that think
@@ -187,14 +161,14 @@
 ; lsb0? = #t
 ; insn-word-length = 2
 ; endian = little
-; [note that this is the little endian canonical form (*)
+; [note that this is the little endian canonical form
 ;  - word length is irrelevant]
 ; | 7 ... 0 | 15 ... 8 | 23 ... 16 | 31 ... 24 | 39 ... 32 | 47 ... 40 |
 ;
 ; lsb0? = #f
 ; insn-word-length = 2
 ; endian = big
-; [note that this is the big endian canonical form (*)
+; [note that this is the big endian canonical form
 ;  - word length is irrelevant]
 ; | 0 ... 7 | 8 ... 15 | 16 ... 23 | 24 ... 31 | 32 ... 39 | 40 ... 47 |
 ;
@@ -203,16 +177,11 @@
 ; endian = big
 ; | 15 ... 8 | 7 ... 0 | 31 ... 24 | 23 ... 16 | 47 ... 40 | 39 ... 32 |
 ;
-; (*) NOTE: This canonical form should not be confused with what might be
-; called the canonical form when writing .cpu ifield descriptions: lsb0? = #f.
-; The ifield canonical form is lsb0? = #f because the starting bit number of
-; ifields is defined to be the MSB.
-; ---
-; At the bitrange level, insns with different sized words is supported.
-; This is because each <bitrange> contains the specs of the word it resides in.
-; For example a 48 bit insn with a 16 bit opcode and a 32 bit immediate value
-; might [but not necessarily] consist of one 16 bit "word" and one 32 bit
-; "word".
+; While there are no current examples, the intent is to not preclude
+; situations where each "word" in an insn isn't the same size.  For example a
+; 48 bit insn with a 16 bit opcode and a 32 bit immediate value might [but not
+; necessarily] consist of one 16 bit "word" and one 32 bit "word".
+; Bitranges support this situation, however none of the rest of the code does.
 ;
 ; Examples:
 ;
@@ -245,8 +214,7 @@
 		; [this allows the bitrange to be independent of the lengths
 		; of words preceding this one]
 		word-offset
-		; starting bit number within the word,
-		; this is the MSB of the bitrange within the word
+		; starting bit number within the word
 		; [externally, = word-offset + start]
 		start
 		; number of bits in the value
@@ -271,20 +239,13 @@
 )
 
 ; Return a boolean indicating if two bitranges overlap.
-;
-; lsb0? = #t: 31 ...  0
-; lsb0? = #f: 0  ... 31
 
 (define (bitrange-overlap? start1 length1 start2 length2 lsb0?)
-  (if lsb0?
-      (let ((end1 (- start1 length1))
-	    (end2 (- start2 length2)))
-	(and (< end1 start2)
-	     (> start1 end2)))
-      (let ((end1 (+ start1 length1))
-	    (end2 (+ start2 length2)))
-	(and (> end1 start2)
-	     (< start1 end2))))
+  ; ??? lsb0?
+  (let ((end1 (+ start1 length1))
+	(end2 (+ start2 length2)))
+    (not (or (<= end1 start2)
+	     (>= start1 end2))))
 )
 
 ; Return a boolean indicating if BITPOS is beyond bitrange START,LEN.

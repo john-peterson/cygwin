@@ -1,11 +1,11 @@
 ; Operand instance support.
-; Copyright (C) 2000, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
 ; Return C code to define one instance of operand object OP.
 ; TYPE is one of "INPUT" or "OUTPUT".
 
-(define (/gen-operand-instance op type)
+(define (-gen-operand-instance op type)
   (let ((index (op:index op)))
     (string-append "  { "
 		   type ", "
@@ -27,11 +27,6 @@
 			 ((eq? (hw-index:type index) 'constant)
 			  (string-append "0, "
 					 (number->string (hw-index:value index))))
-			 ((eq? (hw-index:type index) 'enum)
-			  (let ((sym (hw-index-enum-name index))
-				(obj (hw-index-enum-obj index)))
-			    (string-append "0, "
-					   (gen-enum-sym obj sym))))
 			 (else "0, 0"))
 		   ", " (if (op:cond? op) "COND_REF" "0")
 		   " },\n"))
@@ -46,7 +41,7 @@
 ; which register(s) the next instruction operates on), this will need
 ; additional support.
 
-(define (/gen-operand-instance-table sfmt)
+(define (-gen-operand-instance-table sfmt)
   (let ((ins (sfmt-in-ops sfmt))
 	(outs (sfmt-out-ops sfmt)))
     ; This used to exclude outputing anything if there were no ins or outs.
@@ -54,35 +49,33 @@
      (sfmt-eg-insn sfmt) ; sanitize based on the example insn
      (string-append
       "static const CGEN_OPINST "
-      (gen-sym sfmt) "_ops[] ATTRIBUTE_UNUSED = {\n"
-      (string-map (lambda (op) (/gen-operand-instance op "INPUT"))
+      (gen-sym sfmt) "_ops[] = {\n"
+      (string-map (lambda (op) (-gen-operand-instance op "INPUT"))
 		  ins)
-      (string-map (lambda (op)  (/gen-operand-instance op "OUTPUT"))
+      (string-map (lambda (op)  (-gen-operand-instance op "OUTPUT"))
 		  outs)
-      "  { END, (const char *)0, (enum cgen_hw_type)0, (enum cgen_mode)0, (enum cgen_operand_type)0, 0, 0 }\n};\n\n")))
+      "  { END }\n};\n\n")))
 )
 
-(define (/gen-operand-instance-tables)
+(define (-gen-operand-instance-tables)
   (string-write
    "\
 /* Operand references.  */
 
-"
-   (gen-define-with-symcat "OP_ENT(op) @ARCH@_OPERAND_" "op")
-"\
 #define INPUT CGEN_OPINST_INPUT
 #define OUTPUT CGEN_OPINST_OUTPUT
 #define END CGEN_OPINST_END
 #define COND_REF CGEN_OPINST_COND_REF
+#define OP_ENT(op) CONCAT2 (@ARCH@_OPERAND_,op)
 
 "
-   (lambda () (string-write-map /gen-operand-instance-table (current-sfmt-list)))
+   (lambda () (string-write-map -gen-operand-instance-table (current-sfmt-list)))
    "\
-#undef OP_ENT
 #undef INPUT
 #undef OUTPUT
 #undef END
 #undef COND_REF
+#undef OP_ENT
 
 "
    )
@@ -101,7 +94,7 @@
 
 ; Return C code to define a table to lookup an insn's operand instance table.
 
-(define (/gen-insn-opinst-lookup-table)
+(define (-gen-insn-opinst-lookup-table)
   (string-list
    "/* Operand instance lookup table.  */\n\n"
    "static const CGEN_OPINST *@arch@_cgen_opinst_table[MAX_INSNS] = {\n"
@@ -134,7 +127,7 @@ void
 ; If not generating the operand instance table, use a heuristic.
 
 (define (max-operand-instances)
-  (if /opcodes-build-operand-instance-table?
+  (if -opcodes-build-operand-instance-table?
       (apply max
 	     (map (lambda (insn)
 		    (+ (length (sfmt-in-ops (insn-sfmt insn)))
@@ -155,11 +148,11 @@ void
 	(logit 1 "Doing so now ...\n")
 	(arch-analyze-insns! CURRENT-ARCH
 			     #t ; include aliases
-			     #t) ; /opcodes-build-operand-instance-table?
+			     #t) ; -opcodes-build-operand-instance-table?
 	))
 
   (string-write
-   (gen-c-copyright "Semantic operand instances for @arch@."
+   (gen-copyright "Semantic operand instances for @arch@."
 		  CURRENT-COPYRIGHT CURRENT-PACKAGE)
    "\
 #include \"sysdep.h\"
@@ -169,7 +162,7 @@ void
 #include \"@prefix@-desc.h\"
 #include \"@prefix@-opc.h\"
 \n"
-   /gen-operand-instance-tables
-   /gen-insn-opinst-lookup-table
+   -gen-operand-instance-tables
+   -gen-insn-opinst-lookup-table
    )
 )

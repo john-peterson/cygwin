@@ -1,13 +1,17 @@
 ; CPU description file generator for the GAS testsuite.
-; Copyright (C) 2000, 2001, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
-; This is invoked to build several .s files and a "build script",
-; which generates the .d files and .exp DejaGNU test case.
+; This is invoked to build several .s files and a script to run to
+; generate the .d files and .exp file.
+; This is invoked to build: tmp-build.sh cpu-cpu.exp
 
 ; Load the various support routines.
 
 (define (load-files srcdir)
+  ; Fix up Scheme to be what we use (guile is always in flux).
+  (primitive-load-path (string-append srcdir "/fixup.scm"))
+
   (load (string-append srcdir "/read.scm"))
   (load (string-append srcdir "/desc.scm"))
   (load (string-append srcdir "/desc-cpu.scm"))
@@ -21,11 +25,9 @@
 
 (define gas-arguments
   (list
-   (list "-B" "file" "generate build script in <file>"
-	 #f
+   (list '-B "file" "generate build.sh in <file>"
 	 (lambda (arg) (file-write arg cgen-build.sh)))
-   (list "-E" "file" "generate allinsn.exp in <file>"
-	 #f
+   (list '-E "file" "generate allinsn.exp in <file>"
 	 (lambda (arg) (file-write arg cgen-allinsn.exp)))
    )
 )
@@ -76,5 +78,3 @@
 )
 
 (cgen-gas (program-arguments))
-
-;; FIXME: cgen-all will generate the opcodes files, not what we want

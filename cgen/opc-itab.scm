@@ -1,5 +1,5 @@
 ; Opcode table support.
-; Copyright (C) 2000, 2005, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
 ; Append code here to be run before insn parsing/etc.
@@ -14,7 +14,7 @@
 ; Define CGEN_INIT_{PARSE,INSERT,EXTRACT,PRINT} macros.
 ; ??? These were early escape hatches.  Not currently used.
 
-(define (/gen-init-macros)
+(define (-gen-init-macros)
   (logit 2 "Generating init macros ...\n")
   (string-append
    "#define CGEN_INIT_PARSE(od) \\
@@ -40,7 +40,7 @@
 
 ; Return C code to declare various ifield types,decls.
 
-(define (/gen-ifield-decls)
+(define (-gen-ifield-decls)
   (logit 2 "Generating instruction field decls ...\n")
   (string-append
    "/* This struct records data prior to insertion or after extraction.  */\n"
@@ -122,9 +122,8 @@
 ; Values < 128 are characters that must be matched.
 ; Values >= 128 are 128 + the index into the operand table.
 
-(define (compute-syntax strip-mnemonic? strip-mnem-operands? syntax op-macro
-			isa-name-list)
-  (let ((context (make-prefix-context "syntax computation"))
+(define (compute-syntax strip-mnemonic? strip-mnem-operands? syntax op-macro)
+  (let ((context "syntax computation")
 	(syntax (if strip-mnemonic?
 		    (strip-mnemonic strip-mnem-operands? syntax)
 		    syntax)))
@@ -163,11 +162,6 @@
 						  (substring syn 2 n)))
 						"), ")))))
 		 (let ((n (id-len (string-drop1 syn))))
-		   (if (= n 0)
-		       (parse-error context "empty or invalid operand name" syntax))
-		   (let ((operand (string->symbol (substring syn 1 (1+ n)))))
-		     (if (not (current-op-lookup operand isa-name-list))
-			 (parse-error context "undefined operand " operand syntax)))
 		   (loop (string-drop (1+ n) syn)
 			 (string-append result op-macro " ("
 					(string-upcase
@@ -184,15 +178,14 @@
 ; Return C code to define the syntax string for SYNTAX
 ; MNEM is the C value to use to represent the instruction's mnemonic.
 ; OP is the C macro to use to compute an operand's syntax value.
-; ISA-NAME-LIST is the list of ISA names in which the owning insn lives.
 
-(define (gen-syntax-entry mnem op syntax isa-name-list)
+(define (gen-syntax-entry mnem op syntax)
   (string-append
    "{ { "
    mnem ", "
    ; `mnem' is used to represent the mnemonic, so we always want to strip it
    ; from the syntax string, regardless of the setting of `strip-mnemonic?'.
-   (compute-syntax #t #f syntax op isa-name-list)
+   (compute-syntax #t #f syntax op)
    " } }")
 )
 
@@ -200,11 +193,11 @@
 
 ; Return the table for IFMT, an <iformat> object.
 
-(define (/gen-ifmt-table-1 ifmt)
+(define (-gen-ifmt-table-1 ifmt)
   (gen-obj-sanitize
    (ifmt-eg-insn ifmt) ; sanitize based on the example insn
    (string-list
-    "static const CGEN_IFMT " (gen-sym ifmt) " ATTRIBUTE_UNUSED = {\n"
+    "static const CGEN_IFMT " (gen-sym ifmt) " = {\n"
     "  "
     (number->string (ifmt-mask-length ifmt)) ", "
     (number->string (ifmt-length ifmt)) ", "
@@ -218,11 +211,11 @@
 
 ; Generate the insn format table.
 
-(define (/gen-ifmt-table)
+(define (-gen-ifmt-table)
   (string-write
    "/* Instruction formats.  */\n\n"
-   (gen-define-with-symcat "F(f) & @arch@_cgen_ifld_table[@ARCH@_" "f]")
-   (string-list-map /gen-ifmt-table-1 (current-ifmt-list))
+   "#define F(f) & @arch@_cgen_ifld_table[CONCAT2 (@ARCH@_,f)]\n\n"
+   (string-list-map -gen-ifmt-table-1 (current-ifmt-list))
    "#undef F\n\n"
    )
 )
@@ -253,13 +246,13 @@
 
 (define (insn-handlers insn)
   (string-append
-   (number->string (assq-lookup-index 'insn-normal opc-parse-handlers 0))
+   (number->string (lookup-index 'insn-normal opc-parse-handlers 0))
    ", "
-   (number->string (assq-lookup-index 'insn-normal opc-insert-handlers 0))
+   (number->string (lookup-index 'insn-normal opc-insert-handlers 0))
    ", "
-   (number->string (assq-lookup-index 'insn-normal opc-extract-handlers 0))
+   (number->string (lookup-index 'insn-normal opc-extract-handlers 0))
    ", "
-   (number->string (assq-lookup-index 'insn-normal opc-print-handlers 0))
+   (number->string (lookup-index 'insn-normal opc-print-handlers 0))
    )
 )
 
@@ -297,20 +290,19 @@
 
 ; Return a declaration of an enum for all insns.
 
-(define (/gen-insn-enum)
+(define (-gen-insn-enum)
   (logit 2 "Generating instruction enum ...\n")
-  (let ((insns (gen-obj-list-enums (non-multi-insns (current-insn-list)))))
-    (string-list
-     (gen-enum-decl 'cgen_insn_type "@arch@ instruction types"
-		    "@ARCH@_INSN_"
-		    (cons '(invalid) insns))
-     "/* Index of `invalid' insn place holder.  */\n"
-     "#define CGEN_INSN_INVALID @ARCH@_INSN_INVALID\n\n"
-     "/* Total number of insns in table.  */\n"
-     "#define MAX_INSNS ((int) @ARCH@_INSN_"
-     (string-upcase (gen-c-symbol (caar (list-take -1 insns)))) " + 1)\n\n"
+  (string-list
+   (gen-enum-decl 'cgen_insn_type "@arch@ instruction types"
+		  "@ARCH@_INSN_"
+		  (cons '(invalid)
+			(append (gen-obj-list-enums (non-multi-insns (current-insn-list)))
+				'((max)))))
+   "/* Index of `invalid' insn place holder.  */\n"
+   "#define CGEN_INSN_INVALID @ARCH@_INSN_INVALID\n\n"
+   "/* Total number of insns in table.  */\n"
+   "#define MAX_INSNS ((int) @ARCH@_INSN_MAX)\n\n"
    )
-  )
 )
 
 ; Return a reference to the format table entry of INSN.
@@ -336,16 +328,14 @@
 ; ALL-ATTRS is a list of all instruction attributes.
 ; NUM-NON-BOOLS is the number of non-boolean insn attributes.
 
-(define (/gen-insn-opcode-entry insn all-attrs num-non-bools)
+(define (-gen-insn-opcode-entry insn all-attrs num-non-bools)
   (gen-obj-sanitize
    insn
    (string-list
     "/* " (insn-syntax insn) " */\n"
     "  {\n"
     "    " (gen-insn-handlers insn) ",\n"
-    "    "
-    (gen-syntax-entry "MNEM" "OP" (insn-syntax insn) (obj-isa-list insn))
-    ",\n"
+    "    " (gen-syntax-entry "MNEM" "OP" (insn-syntax insn)) ",\n"
     ; ??? 'twould save space to put a pointer here and record format separately
     "    " (gen-ifmt-entry insn) ", "
     ;"0x" (number->string (insn-value insn) 16) ",\n"
@@ -355,15 +345,15 @@
 
 ; Generate insn table.
 
-(define (/gen-insn-opcode-table)
+(define (-gen-insn-opcode-table)
   (logit 2 "Generating instruction opcode table ...\n")
   (let* ((all-attrs (current-insn-attr-list))
 	 (num-non-bools (attr-count-non-bools all-attrs)))
     (string-write
-     (gen-define-with-symcat "A(a) (1 << CGEN_INSN_" "a)")
-     (gen-define-with-symcat "OPERAND(op) @ARCH@_OPERAND_" "op")
      "\
+#define A(a) (1 << CONCAT2 (CGEN_INSN_,a))
 #define MNEM CGEN_SYNTAX_MNEMONIC /* syntax value for mnemonic */
+#define OPERAND(op) CONCAT2 (@ARCH@_OPERAND_,op)
 #define OP(field) CGEN_SYNTAX_MAKE_FIELD (OPERAND (field))
 
 /* The instruction table.  */
@@ -378,7 +368,7 @@ static const CGEN_OPCODE @arch@_cgen_insn_opcode_table[MAX_INSNS] =
      (lambda ()
        (string-write-map (lambda (insn)
                            (logit 3 "Generating insn opcode entry for " (obj:name insn) " ...\n")
-                           (/gen-insn-opcode-entry insn all-attrs
+                           (-gen-insn-opcode-entry insn all-attrs
 						   num-non-bools))
                          (non-multi-insns (current-insn-list))))
 
@@ -386,8 +376,8 @@ static const CGEN_OPCODE @arch@_cgen_insn_opcode_table[MAX_INSNS] =
 };
 
 #undef A
-#undef OPERAND
 #undef MNEM
+#undef OPERAND
 #undef OP
 
 "
@@ -397,7 +387,7 @@ static const CGEN_OPCODE @arch@_cgen_insn_opcode_table[MAX_INSNS] =
 
 ; Return assembly/disassembly hashing support.
 
-(define (/gen-hash-fns)
+(define (-gen-hash-fns)
   (string-list
    "\
 #ifndef CGEN_ASM_HASH_P
@@ -413,7 +403,7 @@ static const CGEN_OPCODE @arch@_cgen_insn_opcode_table[MAX_INSNS] =
 
 static int
 asm_hash_insn_p (insn)
-     const CGEN_INSN *insn ATTRIBUTE_UNUSED;
+     const CGEN_INSN *insn;
 {
   return CGEN_ASM_HASH_P (insn);
 }
@@ -463,8 +453,8 @@ asm_hash_insn (mnem)
 
 static unsigned int
 dis_hash_insn (buf, value)
-     const char * buf ATTRIBUTE_UNUSED;
-     CGEN_INSN_INT value ATTRIBUTE_UNUSED;
+     const char * buf;
+     CGEN_INSN_INT value;
 {
   return CGEN_DIS_HASH (buf, value);
 }
@@ -474,16 +464,16 @@ dis_hash_insn (buf, value)
 
 ; Hash support decls.
 
-(define (/gen-hash-decls)
+(define (-gen-hash-decls)
   (string-list
    "\
 /* The hash functions are recorded here to help keep assembler code out of
    the disassembler and vice versa.  */
 
-static int asm_hash_insn_p        (const CGEN_INSN *);
-static unsigned int asm_hash_insn (const char *);
-static int dis_hash_insn_p        (const CGEN_INSN *);
-static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
+static int asm_hash_insn_p PARAMS ((const CGEN_INSN *));
+static unsigned int asm_hash_insn PARAMS ((const char *));
+static int dis_hash_insn_p PARAMS ((const CGEN_INSN *));
+static unsigned int dis_hash_insn PARAMS ((const char *, CGEN_INSN_INT));
 \n"
    )
 )
@@ -492,7 +482,7 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
 
 ; Return a macro-insn expansion entry.
 
-(define (/gen-miexpn-entry entry)
+(define (-gen-miexpn-entry entry)
    ; FIXME: wip
   "0, "
 )
@@ -500,7 +490,7 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
 ; Return a macro-insn table entry.
 ; ??? wip, not currently used.
 
-(define (/gen-minsn-table-entry minsn all-attrs num-non-bools)
+(define (-gen-minsn-table-entry minsn all-attrs num-non-bools)
   (gen-obj-sanitize
    minsn
    (string-list
@@ -508,11 +498,9 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
     "  {\n"
     "    "
     "-1, " ; macro-insns are not currently enumerated, no current need to
-    "\"" (obj:str-name minsn) "\", "
+    "\"" (obj:name minsn) "\", "
     "\"" (minsn-mnemonic minsn) "\",\n"
-    "    "
-    (gen-syntax-entry "MNEM" "OP" (minsn-syntax minsn) (obj-isa-list minsn))
-    ",\n"
+    "    " (gen-syntax-entry "MNEM" "OP" (minsn-syntax minsn)) ",\n"
     "    (PTR) & macro_" (gen-sym minsn) "_expansions[0],\n"
     "    "
     (gen-obj-attr-defn 'minsn minsn all-attrs num-non-bools gen-insn-attr-mask)
@@ -523,7 +511,7 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
 ; Return a macro-insn opcode table entry.
 ; ??? wip, not currently used.
 
-(define (/gen-minsn-opcode-entry minsn all-attrs num-non-bools)
+(define (-gen-minsn-opcode-entry minsn all-attrs num-non-bools)
   (gen-obj-sanitize
    minsn
    (string-list
@@ -531,11 +519,9 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
     "  {\n"
     "    "
     "-1, " ; macro-insns are not currently enumerated, no current need to
-    "\"" (obj:str-name minsn) "\", "
+    "\"" (obj:name minsn) "\", "
     "\"" (minsn-mnemonic minsn) "\",\n"
-    "    "
-    (gen-syntax-entry "MNEM" "OP" (minsn-syntax minsn) (obj-isa-list minsn))
-    ",\n"
+    "    " (gen-syntax-entry "MNEM" "OP" (minsn-syntax minsn)) ",\n"
     "    (PTR) & macro_" (gen-sym minsn) "_expansions[0],\n"
     "    "
     (gen-obj-attr-defn 'minsn minsn all-attrs num-non-bools gen-insn-attr-mask)
@@ -552,21 +538,20 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
 ; expanding to text, the macro-expansion could invoke the builder for each
 ; expanded-to insn.
 
-(define (/gen-macro-insn-table)
+(define (-gen-macro-insn-table)
   (logit 2 "Generating macro-instruction table ...\n")
   (let* ((minsn-list (map (lambda (minsn)
 			    (if (has-attr? minsn 'ALIAS)
-				(minsn-make-alias (make-prefix-context "gen-macro-insn-table")
-						  minsn)
+				(minsn-make-alias "gen-macro-insn-table" minsn)
 				minsn))
 			  (current-minsn-list)))
 	 (all-attrs (current-insn-attr-list))
 	 (num-non-bools (attr-count-non-bools all-attrs)))
     (string-write
      "/* Formats for ALIAS macro-insns.  */\n\n"
-     (gen-define-with-symcat "F(f) & @arch@_cgen_ifld_table[@ARCH@_" "f]")
+     "#define F(f) & @arch@_cgen_ifld_table[CONCAT2 (@ARCH@_,f)]\n\n"
      (lambda ()
-       (string-write-map /gen-ifmt-table-1
+       (string-write-map -gen-ifmt-table-1
 			 (map insn-ifmt (find (lambda (minsn)
 						(has-attr? minsn 'ALIAS))
 					      minsn-list))))
@@ -579,14 +564,14 @@ static unsigned int dis_hash_insn (const char *, CGEN_INSN_INT);
 			       (string-append
 				"static const CGEN_MINSN_EXPANSION macro_" (gen-sym minsn) "_expansions[] =\n"
 				"{\n"
-				(string-map /gen-miexpn-entry
+				(string-map -gen-miexpn-entry
 					    (minsn-expansions minsn))
 				"  { 0, 0 }\n};\n\n")))
 			 minsn-list))
-     (gen-define-with-symcat "A(a) (1 << CGEN_INSN_" "a)")
-     (gen-define-with-symcat "OPERAND(op) @ARCH@_OPERAND_" "op")
      "\
+#define A(a) (1 << CONCAT2 (CGEN_INSN_,a))
 #define MNEM CGEN_SYNTAX_MNEMONIC /* syntax value for mnemonic */
+#define OPERAND(op) CONCAT2 (@ARCH@_OPERAND_,op)
 #define OP(field) CGEN_SYNTAX_MAKE_FIELD (OPERAND (field))
 
 /* The macro instruction table.  */
@@ -600,7 +585,7 @@ static const CGEN_IBASE @arch@_cgen_macro_insn_table[] =
 			   ; Simple macro-insns are emitted as aliases of real insns.
 			   (if (has-attr? minsn 'ALIAS)
 			       (gen-insn-table-entry minsn all-attrs num-non-bools)
-			       (/gen-minsn-table-entry minsn all-attrs num-non-bools)))
+			       (-gen-minsn-table-entry minsn all-attrs num-non-bools)))
 			 minsn-list))
      "\
 };
@@ -614,15 +599,15 @@ static const CGEN_OPCODE @arch@_cgen_macro_insn_opcode_table[] =
 			   (logit 3 "Generating macro-insn table entry for " (obj:name minsn) " ...\n")
 			   ; Simple macro-insns are emitted as aliases of real insns.
 			   (if (has-attr? minsn 'ALIAS)
-			       (/gen-insn-opcode-entry minsn all-attrs num-non-bools)
-			       (/gen-minsn-opcode-entry minsn all-attrs num-non-bools)))
+			       (-gen-insn-opcode-entry minsn all-attrs num-non-bools)
+			       (-gen-minsn-opcode-entry minsn all-attrs num-non-bools)))
 			 minsn-list))
      "\
 };
 
 #undef A
-#undef OPERAND
 #undef MNEM
+#undef OPERAND
 #undef OP
 \n"
     ))
@@ -630,13 +615,15 @@ static const CGEN_OPCODE @arch@_cgen_macro_insn_opcode_table[] =
 
 ; Emit a function to call to initialize the opcode table.
 
-(define (/gen-opcode-init-fn)
+(define (-gen-opcode-init-fn)
   (string-write
    "\
 /* Set the recorded length of the insn in the CGEN_FIELDS struct.  */
 
 static void
-set_fields_bitsize (CGEN_FIELDS *fields, int size)
+set_fields_bitsize (fields, size)
+     CGEN_FIELDS *fields;
+     int size;
 {
   CGEN_FIELDS_BITSIZE (fields) = size;
 }
@@ -645,24 +632,20 @@ set_fields_bitsize (CGEN_FIELDS *fields, int size)
    This plugs the opcode entries and macro instructions into the cpu table.  */
 
 void
-@arch@_cgen_init_opcode_table (CGEN_CPU_DESC cd)
+@arch@_cgen_init_opcode_table (cd)
+     CGEN_CPU_DESC cd;
 {
   int i;
   int num_macros = (sizeof (@arch@_cgen_macro_insn_table) /
 		    sizeof (@arch@_cgen_macro_insn_table[0]));
   const CGEN_IBASE *ib = & @arch@_cgen_macro_insn_table[0];
   const CGEN_OPCODE *oc = & @arch@_cgen_macro_insn_opcode_table[0];
-  CGEN_INSN *insns = xmalloc (num_macros * sizeof (CGEN_INSN));
-
-  /* This test has been added to avoid a warning generated
-     if memset is called with a third argument of value zero.  */
-  if (num_macros >= 1)
-    memset (insns, 0, num_macros * sizeof (CGEN_INSN));
+  CGEN_INSN *insns = (CGEN_INSN *) xmalloc (num_macros * sizeof (CGEN_INSN));
+  memset (insns, 0, num_macros * sizeof (CGEN_INSN));
   for (i = 0; i < num_macros; ++i)
     {
       insns[i].base = &ib[i];
       insns[i].opcode = &oc[i];
-      @arch@_cgen_build_insn_regex (& insns[i]);
     }
   cd->macro_insn_table.init_entries = insns;
   cd->macro_insn_table.entry_size = sizeof (CGEN_IBASE);
@@ -671,10 +654,7 @@ void
   oc = & @arch@_cgen_insn_opcode_table[0];
   insns = (CGEN_INSN *) cd->insn_table.init_entries;
   for (i = 0; i < MAX_INSNS; ++i)
-    {
-      insns[i].opcode = &oc[i];
-      @arch@_cgen_build_insn_regex (& insns[i]);
-    }
+    insns[i].opcode = &oc[i];
 
   cd->sizeof_fields = sizeof (CGEN_FIELDS);
   cd->set_fields_bitsize = set_fields_bitsize;
@@ -699,17 +679,17 @@ void
 (define (cgen-opc.h)
   (logit 1 "Generating " (current-arch-name) "-opc.h ...\n")
   (string-write
-   (gen-c-copyright "Instruction opcode header for @arch@."
+   (gen-copyright "Instruction opcode header for @arch@."
 		  CURRENT-COPYRIGHT CURRENT-PACKAGE)
    "\
 #ifndef @ARCH@_OPC_H
 #define @ARCH@_OPC_H
 
 "
-   (lambda () (gen-extra-opc.h (opc-file-path) (current-arch-name)))
-   /gen-insn-enum
-   /gen-ifield-decls
-   /gen-init-macros
+   (lambda () (gen-extra-opc.h srcdir (current-arch-name))) ; from <arch>.opc
+   -gen-insn-enum
+   -gen-ifield-decls
+   -gen-init-macros
    "
 
 #endif /* @ARCH@_OPC_H */
@@ -722,7 +702,7 @@ void
 (define (cgen-opc.c)
   (logit 1 "Generating " (current-arch-name) "-opc.c ...\n")
   (string-write
-   (gen-c-copyright "Instruction opcode table for @arch@."
+   (gen-copyright "Instruction opcode table for @arch@."
 		  CURRENT-COPYRIGHT CURRENT-PACKAGE)
    "\
 #include \"sysdep.h\"
@@ -733,12 +713,12 @@ void
 #include \"@prefix@-opc.h\"
 #include \"libiberty.h\"
 \n"
-   (lambda () (gen-extra-opc.c (opc-file-path) (current-arch-name)))
-   /gen-hash-decls
-   /gen-ifmt-table
-   /gen-insn-opcode-table
-   /gen-macro-insn-table
-   /gen-hash-fns
-   /gen-opcode-init-fn
+   (lambda () (gen-extra-opc.c srcdir (current-arch-name))) ; from <arch>.opc
+   -gen-hash-decls
+   -gen-ifmt-table
+   -gen-insn-opcode-table
+   -gen-macro-insn-table
+   -gen-hash-fns
+   -gen-opcode-init-fn
    )
 )

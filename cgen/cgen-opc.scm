@@ -1,7 +1,7 @@
 ; CPU description file generator for the GNU Binutils.
 ; This is invoked to build: $arch-desc.[ch], $arch-opinst.c,
 ; $arch-opc.h, $arch-opc.c, $arch-asm.in, $arch-dis.in, and $arch-ibld.[ch].
-; Copyright (C) 2000, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 ;
 ; This is a standalone script, we don't load anything until we parse the
@@ -10,6 +10,9 @@
 ; Load the various support routines.
 
 (define (load-files srcdir)
+  ; Fix up Scheme to be what we use (guile is always in flux).
+  (primitive-load-path (string-append srcdir "/fixup.scm"))
+
   (load (string-append srcdir "/read.scm"))
   (load (string-append srcdir "/desc.scm"))
   (load (string-append srcdir "/desc-cpu.scm"))
@@ -22,35 +25,23 @@
 
 (define opc-arguments
   (list
-   (list "-OPC" "file" "specify path to .opc file"
-	 (lambda (arg) (set-opc-file-path! arg))
-	 #f)
-   (list "-H" "file" "generate $arch-desc.h in <file>"
-	 #f
+   (list '-H "file" "generate $arch-desc.h in <file>"
 	 (lambda (arg) (file-write arg cgen-desc.h)))
-   (list "-C" "file" "generate $arch-desc.c in <file>"
-	 #f
+   (list '-C "file" "generate $arch-desc.c in <file>"
 	 (lambda (arg) (file-write arg cgen-desc.c)))
-   (list "-O" "file" "generate $arch-opc.h in <file>"
-	 #f
+   (list '-O "file" "generate $arch-opc.h in <file>"
 	 (lambda (arg) (file-write arg cgen-opc.h)))
-   (list "-P" "file" "generate $arch-opc.c in <file>"
-	 #f
+   (list '-P "file" "generate $arch-opc.c in <file>"
 	 (lambda (arg) (file-write arg cgen-opc.c)))
-   (list "-Q" "file" "generate $arch-opinst.c in <file>"
-	 #f
+   (list '-Q "file" "generate $arch-opinst.c in <file>"
 	 (lambda (arg) (file-write arg cgen-opinst.c)))
-   (list "-B" "file" "generate $arch-ibld.h in <file>"
-	 #f
+   (list '-B "file" "generate $arch-ibld.h in <file>"
 	 (lambda (arg) (file-write arg cgen-ibld.h)))
-   (list "-L" "file" "generate $arch-ibld.in in <file>"
-	 #f
+   (list '-L "file" "generate $arch-ibld.in in <file>"
 	 (lambda (arg) (file-write arg cgen-ibld.in)))
-   (list "-A" "file" "generate $arch-asm.in in <file>"
-	 #f
+   (list '-A "file" "generate $arch-asm.in in <file>"
 	 (lambda (arg) (file-write arg cgen-asm.in)))
-   (list "-D" "file" "generate $arch-dis.in in <file>"
-	 #f
+   (list '-D "file" "generate $arch-dis.in in <file>"
 	 (lambda (arg) (file-write arg cgen-dis.in)))
    )
 )

@@ -1,15 +1,14 @@
 ; Enums.
-; Copyright (C) 2000, 2009, 2010 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 ; See file COPYING.CGEN for details.
 
 ; Enums having attribute PREFIX have their symbols prepended with
-; the enum class' name + "_" in generated code.  FIXME: deprecated
-;
-; Member PREFIX is prepended to the symbol names when the object is defined.
+; the enum class' name.
+; Member PREFIX is always prepended to the symbol names.
 ;
 ; Enum values are looked up with `enum-lookup-val'.  The value to search for
-; must already have PREFIX prepended.
+; has PREFIX prepended.
 ;
 ; Enums always have mode INT.
 
@@ -20,8 +19,7 @@
 	      nil)
 )
 
-; FIXME: this make! method is required by <insn-enum> for some reason.
-
+; FIXME: this make! method is required by <insn-enum> for some reason. 
 (method-make!
  <enum> 'make!
  (lambda (self name comment attrs prefix vals)
@@ -40,15 +38,13 @@
 ; Parse a list of enum name/value entries.
 ; PREFIX is prepended to each name.
 ; Elements are any of: symbol, (symbol), (symbol value)
-; (symbol - attrs), (symbol value attrs), (symbol - attrs comment),
-; (symbol value attrs comment).
-; The - or #f means "use the next value".
-; SYMBOL may be - which means "skip this value".
+; (symbol - attrs), (symbol value attrs).
+; The `-' means use the next value.
 ; The result is the same list, except values are filled in where missing,
 ; and each symbol is prepended with `prefix'.
 
-(define (parse-enum-vals context prefix vals)
-  ; Scan the value list, building up RESULT as we go.
+(define (parse-enum-vals prefix vals)
+  ; Scan the value list, building up RES-VALS as we go.
   ; Each element's value is 1+ the previous, unless there's an explicit value.
   (let loop ((result nil) (last -1) (remaining vals))
     (if (null? remaining)
@@ -63,95 +59,79 @@
 		      (+ last 1))))
 	  (if (eq? (car remaining) '-)
 	      (loop result val (cdr remaining))
-	      (let ((name (symbolstr-append prefix
-					    (if (pair? (car remaining))
-						(caar remaining)
-						(car remaining))))
-		    (attrs (if (and (pair? (car remaining))
-				    (pair? (cdar remaining))
-				    (pair? (cddar remaining)))
-			       (caddar remaining)
-			       nil))
-		    (comment (if (and (pair? (car remaining))
-				      (pair? (cdar remaining))
-				      (pair? (cddar remaining))
-				      (pair? (cdddar remaining)))
-				 (car (cdddar remaining))
-				 "")))
-		(loop (cons (list name val attrs comment) result)
-		      val
-		      (cdr remaining)))))))
+	      (loop (cons (cons (symbol-append prefix
+					       (if (pair? (car remaining))
+						   (caar remaining)
+						   (car remaining)))
+				(cons val
+				      ; Pass any attributes through unchanged.
+				      (if (and (pair? (car remaining))
+					       (pair? (cdar remaining)))
+					  (cddar remaining)
+					  nil)))
+			  result)
+		    val
+		    (cdr remaining))))))
 )
-
-; Accessors for the various elements of an enum val.
-
-(define (enum-val-name ev) (list-ref ev 0))
-(define (enum-val-value ev) (list-ref ev 1))
-(define (enum-val-attrs ev) (list-ref ev 2))
-(define (enum-val-comment ev) (list-ref ev 3))
 
 ; Convert the names in the result of parse-enum-vals to uppercase.
 
 (define (enum-vals-upcase vals)
   (map (lambda (elm)
-	 (cons (symbol-upcase (car elm)) (cdr elm)))
+	 (cons (string->symbol (string-upcase (car elm))) (cdr elm)))
        vals)
 )
 
 ; Parse an enum definition.
 
-; Utility of /enum-parse to parse the prefix.
+; Utility of -enum-parse to parse the prefix.
 
-(define (/enum-parse-prefix context prefix)
+(define (-enum-parse-prefix errtxt prefix)
   (if (symbol? prefix)
       (set! prefix (symbol->string prefix)))
 
   (if (not (string? prefix))
-      (parse-error context "prefix is not a string" prefix))
+      (parse-error errtxt "prefix is not a string" prefix))
 
   ; Prefix must not contain lowercase chars (enforced style rule, sue me).
   (if (any-true? (map char-lower-case? (string->list prefix)))
-      (parse-error context "prefix must be uppercase" prefix))
+      (parse-error errtxt "prefix must be uppercase" prefix))
 
   prefix
 )
 
-; This is the main routine for building an enum object from a
+; This is the main routine for building an ifield object from a
 ; description in the .cpu file.
 ; All arguments are in raw (non-evaluated) form.
 
-(define (/enum-parse context name comment attrs prefix vals)
+(define (-enum-parse errtxt name comment attrs prefix vals)
   (logit 2 "Processing enum " name " ...\n")
 
-  ;; Pick out name first to augment the error context.
-  (let* ((name (parse-name context name))
-	 (context (context-append-name context name)))
+  (let* ((name (parse-name name errtxt))
+	 (errtxt (string-append errtxt " " name)))
 
     (make <enum>
 	  name
-	  (parse-comment context comment)
-	  (atlist-parse context attrs "enum")
-	  (/enum-parse-prefix context prefix)
-	  (parse-enum-vals context prefix vals)))
+	  (parse-comment comment errtxt)
+	  (atlist-parse attrs "enum" errtxt)
+	  (-enum-parse-prefix errtxt prefix)
+	  (parse-enum-vals prefix vals)))
 )
 
-;; Read an enum description
-;; This is the main routine for analyzing enums in the .cpu file.
-;; CONTEXT is a <context> object for error messages.
-;; ARG-LIST is an associative list of field name and field value.
-;; /enum-parse is invoked to create the `enum' object.
-;;
-;; FIXME: Change (values ((foo 42) (bar 43))) to (values (foo 42) (bar 43)).
+; Read an enum description
+; This is the main routine for analyzing enums in the .cpu file.
+; ERRTXT is prepended to error messages to provide context.
+; ARG-LIST is an associative list of field name and field value.
+; -enum-parse is invoked to create the `enum' object.
 
-(define (/enum-read context . arg-list)
-  (let (
-	(name #f)
-	(comment "")
-	(attrs nil)
-	(prefix "")
-	(values nil)
+(define (-enum-read errtxt . arg-list)
+  (let (; Current enum elements:
+	(name nil)    ; name of field
+	(comment "")  ; description of field
+	(attrs nil)   ; attributes
+	(prefix "")   ; prepended to each element's name
+	(values nil)  ; enum values
 	)
-
     ; Loop over each element in ARG-LIST, recording what's found.
     (let loop ((arg-list arg-list))
       (if (null? arg-list)
@@ -164,19 +144,18 @@
 	      ((attrs) (set! attrs (cdr arg)))
 	      ((prefix) (set! prefix (cadr arg)))
 	      ((values) (set! values (cadr arg)))
-	      (else (parse-error context "invalid enum arg" arg)))
+	      (else (parse-error errtxt "invalid enum arg" arg)))
 	    (loop (cdr arg-list)))))
-
     ; Now that we've identified the elements, build the object.
-    (/enum-parse context name comment attrs prefix values))
+    (-enum-parse errtxt name comment attrs prefix values)
+    )
 )
 
 ; Define an enum object, name/value pair list version.
 
 (define define-enum
   (lambda arg-list
-    (let ((e (apply /enum-read (cons (make-current-context "define-enum")
-				     arg-list))))
+    (let ((e (apply -enum-read (cons "define-enum" arg-list))))
       (current-enum-add! e)
       e))
 )
@@ -184,8 +163,7 @@
 ; Define an enum object, all arguments specified.
 
 (define (define-full-enum name comment attrs prefix vals)
-  (let ((e (/enum-parse (make-current-context "define-full-enum")
-			name comment attrs prefix vals)))
+  (let ((e (-enum-parse "define-full-enum" name comment attrs prefix vals)))
     (current-enum-add! e)
     e)
 )
@@ -213,7 +191,7 @@
 ; Enums support code.
 
 ; Return #t if VALS is a sequential list of enum values.
-; VALS is a list of enums.  e.g. ((sym1) (sym2 3) (sym3 - attr1 (attr2 4)))
+; VALS is a list of enums.  e.g. ((sym1) (sym2 3) (sym3 '- attr1 (attr2 4)))
 ; FIXME: Doesn't handle gaps in specified values.
 ; e.g. (sym1 val1) sym2 (sym3 val3)
 
@@ -234,7 +212,7 @@
 
 ; Return C code to declare enum SYM with values VALS.
 ; COMMENT is inserted in "/* Enum declaration for <...>.  */".
-; PREFIX is added to each element of VALS (uppercased).
+; PREFIX is added to each element of VALS.
 ; All enum symbols are uppercase.
 ; If the list of vals is sequential beginning at 0, don't output them.
 ; This simplifies the output and is necessary for sanitized values where
@@ -292,9 +270,7 @@
 		     ", ")
 		 (gen-c-symbol prefix)
 		 (gen-c-symbol (car e))
-		 (if (or sequential?
-			 (null? (cdr e))
-			 (eq? '- (cadr e)))
+		 (if (or sequential? (null? (cdr e)) (eq? '- (cadr e)))
 		     ""
 		     (string-append " = "
 				    (if (number? (cadr e))
@@ -335,15 +311,10 @@
 		  (elm-get self 'vals)))
 )
 
-;; Return the C symbol of an enum value named VAL.
-;; ENUM-OBJ is the <enum> object containing VAL.
+; Return the C symbol of an enum value named VAL.
 
 (define (gen-enum-sym enum-obj val)
-  (string-upcase
-   (string-append (if (has-attr? enum-obj 'PREFIX)
-		      (string-append (elm-xget enum-obj 'name) "_")
-		      "")
-		  (gen-c-symbol val)))
+  (string-upcase (gen-c-symbol (string-append (enum-prefix enum-obj) val)))
 )
 
 ; Instruction code enums.
@@ -355,7 +326,7 @@
 (method-make!
  <insn-enum> 'make!
  (lambda (self name comment attrs prefix fld vals)
-   (send-next self '<insn-enum> 'make! name comment attrs prefix vals)
+   (send (object-parent self <enum>) 'make! name comment attrs prefix vals)
    (elm-set! self 'fld fld)
    self
    )
@@ -375,25 +346,22 @@
 ; Define an insn enum, all arguments specified.
 
 (define (define-full-insn-enum name comment attrs prefix fld vals)
-  (let* ((context (make-current-context "define-full-insn-enum"))
-	 (atlist-obj (atlist-parse context attrs "insn-enum"))
-	 (isa-name-list (atlist-attr-value atlist-obj 'ISA #f))
-	 (fld-obj (current-ifld-lookup fld isa-name-list)))
+  (let ((errtxt "define-full-insn-enum")
+	(fld-obj (current-ifld-lookup fld)))
 
-    (if (keep-isa-atlist? atlist-obj #f)
-	(begin
-	  (if (not fld-obj)
-	      (parse-error context "unknown insn field" fld))
-	  ; Create enum object and add it to the list of enums.
-	  (let ((e (make <insn-enum>
-		     (parse-name context name)
-		     (parse-comment context comment)
-		     atlist-obj
-		     (/enum-parse-prefix context prefix)
-		     fld-obj
-		     (parse-enum-vals context prefix vals))))
-	    (current-enum-add! e)
-	    e))))
+    (if (not fld-obj)
+	(parse-error errtxt "unknown insn field" fld))
+
+    ; Create enum object and add it to the list of enums.
+    (let ((e (make <insn-enum>
+	       (parse-name name errtxt)
+	       (parse-comment comment errtxt)
+	       (atlist-parse attrs "insn-enum" errtxt)
+	       (-enum-parse-prefix errtxt prefix)
+	       fld-obj
+	       (parse-enum-vals prefix vals))))
+      (current-enum-add! e)
+      e))
 )
 
 (define (enum-init!)
@@ -414,24 +382,6 @@ Define an instruction opcode enum, all arguments specified.
 "
 		       nil '(name comment attrs prefix ifld vals)
 		       define-full-insn-enum)
-
-  *UNSPECIFIED*
-)
-
-(define (enum-builtin!)
-  ;; Provide FPCONV-DEFAULT == 0 as an enum constant to use as the `how'
-  ;; parameter to the floating point conversion functions.
-  ;; ??? Add standard IEEE rounding modes?
-  (define-enum '(name fpconv-kind)
-    '(comment "builtin floating point conversion kinds")
-    '(attrs VIRTUAL) ;; let app provide def'n instead of each cpu's desc.h
-    '(prefix FPCONV-)
-    '(values ((DEFAULT 0)
-	      (TIES-TO-EVEN 1)
-	      (TIES-TO-AWAY 2)
-	      (TOWARD-ZERO 3)
-	      (TOWARD-POSITIVE 4)
-	      (TOWARD-NEGATIVE 5))))
 
   *UNSPECIFIED*
 )

@@ -1,5 +1,5 @@
 ; Application independent utilities for C/C++ code generation.
-; Copyright (C) 2000, 2001, 2005, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 ; See file COPYING.CGEN for details.
 
@@ -11,15 +11,12 @@
 
 (define (attr-int-gen-decl attr) "")
 
-(define (attr-int-gen-defn attr) 
-  (string-append
-   "static const CGEN_ATTR_ENTRY " (gen-sym attr)
-   "_attr [] ATTRIBUTE_UNUSED = \n{\n  {\"integer\", " (number->string (attr-default attr)) "},\n  { 0, 0 }\n};\n\n" ))
+(define (attr-int-gen-defn attr) "")
 
 (define (attr-gen-decl attr)
   (gen-enum-decl (symbol-append (obj:name attr) '-attr)
 		 (obj:comment attr)
-		 (string-append (obj:str-name attr) "_")
+		 (string-append (obj:name attr) "_")
 		 (attr-values attr))
 )
 
@@ -27,7 +24,7 @@
   (string-append
    "static const CGEN_ATTR_ENTRY "
    (gen-sym attr) "_attr"
-   "[] ATTRIBUTE_UNUSED =\n{\n"
+   "[] =\n{\n"
    (string-map (lambda (elm)
 		 (let* ((san (and (pair? elm) (pair? (cdr elm))
 				  (attr-value (cddr elm) 'sanitize #f))))
@@ -82,21 +79,20 @@
 ; TOTAL-LENGTH is the total length of the value in VAL.
 ; BASE-VALUE is a C expression (string) containing the base part of the insn.
 
-(define (/gen-ifld-extract-base f total-length base-value)
+(define (-gen-ifld-extract-base f total-length base-value)
   (let ((extraction
 	 (string-append "EXTRACT_"
 			(if (current-arch-insn-lsb0?) "LSB0_" "MSB0_")
-			(if (> total-length 32) "LG" "")
 			(case (mode:class (ifld-mode f))
-			  ((INT) "SINT")
+			  ((INT) "INT")
 			  ((UINT) "UINT")
 			  (else (error "unsupported mode class"
 				       (mode:class (ifld-mode f)))))
 			" ("
 			base-value ", "
 			(number->string total-length) ", "
-			(number->string (+ (ifld-start f)
-					   (ifld-word-offset f))) ", "
+			; ??? Is passing total-length right here?
+			(number->string (ifld-start f total-length)) ", "
 			(number->string (ifld-length f))
 			")"))
 	(decode (ifld-decode f)))
@@ -108,58 +104,41 @@
 	; cadr: fetches expression to be evaluated
 	; caar: fetches symbol in arglist
 	; cadar: fetches `pc' symbol in arglist
-	(rtl-c DFLT
-	       (obj-isa-list f)
+	(rtl-c VOID (cadr decode)
 	       (list (list (caar decode) 'UINT extraction)
 		     (list (cadar decode) 'IAI "pc"))
-	       (cadr decode)
 	       #:rtl-cover-fns? #f #:ifield-var? #t)))
 )
 
-; Subroutine of /gen-ifld-extract-beyond to extract the relevant value
+; Subroutine of -gen-ifld-extract-beyond to extract the relevant value
 ; from WORD-NAME and move it into place.
 
-(define (/gen-extract-word word-name word-start word-length
-			   field-start field-length
+(define (-gen-extract-word word-name word-start word-length start length
 			   unsigned? lsb0?)
-  (let* ((word-end (+ word-start word-length))
-	 (start (if lsb0? (+ 1 (- field-start field-length)) field-start))
-	 (end (+ start field-length))
-	 (base (if (< start word-start) word-start start)))
+  ; ??? lsb0?
+  (let ((word-end (+ word-start word-length))
+	(end (+ start length)))
     (string-append "("
 		   "EXTRACT_"
-		   (if lsb0? "LSB0_" "MSB0_")
-		   (if (> word-length 32) "LG" "")
+		   (if (current-arch-insn-lsb0?) "LSB0" "MSB0")
 		   (if (and (not unsigned?)
 			    ; Only want sign extension for word with sign bit.
-			    (bitrange-overlap? field-start 1
-					       word-start word-length
+			    (bitrange-overlap? start 1 word-start word-length
 					       lsb0?))
-		       "SINT"
-		       "UINT")
-		   " ("
-		   ; What to extract from.
+		       "_INT ("
+		       "_UINT (")
 		   word-name
 		   ", "
-		   ; Size of this chunk.
 		   (number->string word-length)
 		   ", "
-		   ; MSB of this chunk.
-		   (number->string
-		    (if lsb0?
-			(if (> end word-end)
-			    (- word-end 1)
-			    (- end word-start 1))
-			(if (< start word-start)
-			    0
-			    (- start word-start))))
+		   (number->string (if (< start word-start)
+				       0
+				       (- start word-start)))
 		   ", "
-		   ; Length of field within this chunk.
 		   (number->string (if (< end word-end)
-				       (- end base)
-				       (- word-end base)))
+				       (- word-end end)
+				       word-length))
 		   ") << "
-		   ; Adjustment for this chunk within a full field.
 		   (number->string (if (> end word-end)
 				       (- end word-end)
 				       0))
@@ -188,10 +167,10 @@
 ; recording the rest of the insn, 32 bits at a time (with the last one
 ; containing whatever is left over).
 
-(define (/gen-ifld-extract-beyond f base-length total-length var-list)
+(define (-gen-ifld-extract-beyond f base-length total-length var-list)
    ; First compute the list of variables that contains pieces of the
    ; desired value.
-   (let ((start (+ (ifld-start f) (ifld-word-offset f)))
+   (let ((start (+ (ifld-start f total-length) (ifld-word-offset f)))
 	 (length (ifld-length f))
 	 ;(word-start (ifld-word-offset f))
 	 ;(word-length (ifld-word-length f))
@@ -212,7 +191,7 @@
 				    lsb0?)
 		 (loop (cdr var-list)
 		       (cons "|"
-			     (cons (/gen-extract-word var-name
+			     (cons (-gen-extract-word var-name
 						      var-start
 						      var-length
 						      start length
@@ -228,11 +207,9 @@
 	 ; cadr: fetches expression to be evaluated
 	 ; caar: fetches symbol in arglist
 	 ; cadar: fetches `pc' symbol in arglist
-	 (rtl-c DFLT
-		(obj-isa-list f)
+	 (rtl-c VOID (cadr decode)
 		(list (list (caar decode) 'UINT extraction)
 		      (list (cadar decode) 'IAI "pc"))
-		(cadr decode)
 		#:rtl-cover-fns? #f #:ifield-var? #t)))
 )
 
@@ -243,11 +220,9 @@
    indent
    (gen-sym f)
    " = "
-   (if (adata-integral-insn? CURRENT-ARCH)
-       (/gen-ifld-extract-base f total-length base-value)
-       (if (ifld-beyond-base? f)
-	   (/gen-ifld-extract-beyond f base-length total-length var-list)
-	   (/gen-ifld-extract-base f base-length base-value)))
+   (if (ifld-beyond-base? f base-length total-length)
+       (-gen-ifld-extract-beyond f base-length total-length var-list)
+       (-gen-ifld-extract-base f (min base-length total-length) base-value))
    ";"
    (if macro? " \\\n" "\n")
    )
@@ -259,26 +234,15 @@
 
 (define (gen-multi-ifld-extract f indent base-length total-length base-value var-list macro?)
   ; The subfields must have already been extracted.
-  (let* ((decode-proc (ifld-decode f))
-	 (varname (gen-sym f))
-	 (decode (string-list
-		  ;; First, the block that extract the multi-ifield into the ifld variable.
-		  (rtl-c VOID (obj-isa-list f) nil
-			 (multi-ifld-extract f)
-			 #:rtl-cover-fns? #f #:ifield-var? #t)
-		  ;; Next, the decode routine that modifies it.
-		  (if decode-proc
-		      (string-append
-		       "  " varname " = "
-		       (rtl-c DFLT
-			      (obj-isa-list f)
-			      (list (list (caar decode-proc) 'UINT varname)
-				    (list (cadar decode-proc) 'IAI "pc"))
-			      (cadr decode-proc)
-			      #:rtl-cover-fns? #f #:ifield-var? #t)
-		       ";\n")
-		      "")
-		 )))
+  (let* ((extract (rtl-c VOID (multi-ifld-extract f) nil
+			 #:rtl-cover-fns? #f #:ifield-var? #t))
+	 (decode-proc (ifld-decode f))
+	 (decode (if decode-proc
+		     (rtl-c VOID (cadr decode-proc)
+			    (list (list (caar decode-proc) 'UINT extract)
+				  (list (cadar decode-proc) 'IAI "pc"))
+			    #:rtl-cover-fns? #f #:ifield-var? #t)
+		     extract)))
     (if macro?
 	(backslash "\n" decode)
 	decode))
@@ -291,7 +255,7 @@
   (gen-sym f)
 )
 
-; Subroutine of gen-extract-ifields to compute arguments for /extract-chunk
+; Subroutine of gen-extract-ifields to compute arguments for -extract-chunk
 ; to extract values beyond the base insn.
 ; This is also used by gen-define-ifields to know how many vars are needed.
 ;
@@ -301,7 +265,7 @@
 ; help - without them we can only use heuristics (which must evolve).
 ; At least all the details are tucked away here.
 
-(define (/extract-chunk-specs base-length total-length alignment)
+(define (-extract-chunk-specs base-length total-length alignment)
   (let ((chunk-length
 	 (case alignment
 	   ; For the aligned and forced case split the insn up into base-insn
@@ -317,12 +281,7 @@
 	  (reverse! result)
 	  (loop (+ start chunk-length)
 		(- remaining chunk-length)
-		; Always fetch full CHUNK-LENGTH-sized chunks here,
-		; even if we don't actually need that many bytes.
-		; gen-ifetch only handles "normal" fetch sizes,
-		; and /gen-extract-word already knows how to find what
-		; it needs if we give it too much.
-		(cons (cons start chunk-length)
+		(cons (cons start (min chunk-length remaining))
 		      result)))))
 )
 
@@ -331,7 +290,7 @@
 ; Subfields are inserted before their corresponding multi-ifield as they
 ; are initialized in order.
 
-(define (/extract-insert-subfields iflds)
+(define (-extract-insert-subfields iflds)
   (let loop ((result nil) (iflds iflds))
     (cond ((null? iflds)
 	   (reverse! result))
@@ -353,10 +312,8 @@
 ; to each line).
 
 (define (gen-define-ifields ifields total-length indent macro?)
-  (let* ((base-length (if (adata-integral-insn? CURRENT-ARCH)
-			  32
-			  (state-base-insn-bitsize)))
-	 (chunk-specs (/extract-chunk-specs base-length total-length
+  (let* ((base-length (state-base-insn-bitsize))
+	 (chunk-specs (-extract-chunk-specs base-length total-length
 					    (current-arch-default-alignment))))
     (string-list
      (string-list-map (lambda (f)
@@ -377,7 +334,7 @@
 					  "UINT word_"
 					  (number->string chunk-num)
 					  (if macro? "; \\\n" ";\n")))
-			   (iota (length chunk-specs) 1)))
+			   (iota 1 (length chunk-specs))))
 	 "")))
 )
 
@@ -392,12 +349,12 @@
   (let ((macro-name (string-append
 		     "EXTRACT_" (string-upcase (gen-sym ifmt))
 		     "_VARS"))
-	(ifields (/extract-insert-subfields (ifmt-ifields ifmt))))
+	(ifields (-extract-insert-subfields (ifmt-ifields ifmt))))
     (if use-macro?
 	(string-list indent macro-name
 		     " /*"
 		     (string-list-map (lambda (fld)
-					(string-append " " (obj:str-name fld)))
+					(string-append " " (obj:name fld)))
 				      ifields)
 		     " */\n")
 	(let ((indent (if macro? (string-append indent "  ") indent)))
@@ -414,7 +371,7 @@
 
 ; Subroutine of gen-extract-ifields to fetch one value into VAR-NAME.
 
-(define (/extract-chunk offset bits var-name macro?)
+(define (-extract-chunk offset bits var-name macro?)
   (string-append
    "  "
    var-name
@@ -430,14 +387,14 @@
 ; variables holding the parts of the insn.
 ; CHUNK-SPECS is a list of (offset . length) pairs.
 
-(define (/gen-extract-beyond-var-list base-length var-prefix chunk-specs lsb0?)
+(define (-gen-extract-beyond-var-list base-length var-prefix chunk-specs lsb0?)
   ; ??? lsb0? support ok?
   (cons (list "insn" 0 base-length)
 	(map (lambda (chunk-num chunk-spec)
 	       (list (string-append var-prefix (number->string chunk-num))
 		     (car chunk-spec)
 		     (cdr chunk-spec)))
-	     (iota (length chunk-specs) 1)
+	     (iota 1 (length chunk-specs))
 	     chunk-specs))
 )
 
@@ -470,10 +427,8 @@
 ; doing this for now.
 
 (define (gen-extract-ifields ifields total-length indent macro?)
-  (let* ((base-length (if (adata-integral-insn? CURRENT-ARCH)
-			  32
-			  (state-base-insn-bitsize)))
-	 (chunk-specs (/extract-chunk-specs base-length total-length
+  (let* ((base-length (state-base-insn-bitsize))
+	 (chunk-specs (-extract-chunk-specs base-length total-length
 					    (current-arch-default-alignment))))
     (string-list
      ; If the insn has a trailing part, fetch it.
@@ -481,14 +436,14 @@
      (if (> total-length base-length)
 	 (let ()
 	   (string-list-map (lambda (chunk-spec chunk-num)
-			      (/extract-chunk (car chunk-spec)
+			      (-extract-chunk (car chunk-spec)
 					      (cdr chunk-spec)
 					      (string-append
 					       "word_"
 					       (number->string chunk-num))
 					      macro?))
 			    chunk-specs
-			    (iota (length chunk-specs) 1)))
+			    (iota 1 (length chunk-specs))))
 	 "")
      (string-list-map
       (lambda (f)
@@ -498,13 +453,13 @@
 	(if (multi-ifield? f)
 	    (gen-multi-ifld-extract
 	     f indent base-length total-length "insn"
-	     (/gen-extract-beyond-var-list base-length "word_"
+	     (-gen-extract-beyond-var-list base-length "word_"
 					   chunk-specs
 					   (current-arch-insn-lsb0?))
 	     macro?)
 	    (gen-ifld-extract
 	     f indent base-length total-length "insn"
-	     (/gen-extract-beyond-var-list base-length "word_"
+	     (-gen-extract-beyond-var-list base-length "word_"
 					   chunk-specs
 					   (current-arch-insn-lsb0?))
 	     macro?)))
@@ -522,7 +477,7 @@
   (let ((macro-name (string-append
 		     "EXTRACT_" (string-upcase (gen-sym ifmt))
 		     "_CODE"))
-	(ifields (/extract-insert-subfields (ifmt-ifields ifmt))))
+	(ifields (-extract-insert-subfields (ifmt-ifields ifmt))))
     (if use-macro?
 	(string-list indent macro-name "\n")
 	(let ((indent (if macro? (string-append indent "  ") indent)))
@@ -543,9 +498,9 @@
 ; Instruction format utilities.
 
 (define (gen-sfmt-enum-decl sfmt-list)
-  (gen-enum-decl "@prefix@_sfmt_type"
+  (gen-enum-decl "@cpu@_sfmt_type"
 		 "semantic formats in cpu family @cpu@"
-		 "@PREFIX@_"
+		 "@CPU@_"
 		 (map (lambda (sfmt) (cons (obj:name sfmt) nil))
 		      sfmt-list))
 )

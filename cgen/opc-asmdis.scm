@@ -1,16 +1,13 @@
 ; Assembler/disassembler support generator.
-; Copyright (C) 2000, 2001, 2005, 2009 Red Hat, Inc.
+; Copyright (C) 2000 Red Hat, Inc.
 ; This file is part of CGEN.
 
 ; Assembler support.
 
-(define (/gen-parse-switch)
+(define (-gen-parse-switch)
   (logit 2 "Generating parse switch ...\n")
   (string-list
    "\
-const char * @arch@_cgen_parse_operand
-  (CGEN_CPU_DESC, int, const char **, CGEN_FIELDS *);
-
 /* Main entry point for operand parsing.
 
    This function is basically just a big switch statement.  Earlier versions
@@ -22,17 +19,19 @@ const char * @arch@_cgen_parse_operand
 
    This function could be moved into `parse_insn_normal', but keeping it
    separate makes clear the interface between `parse_insn_normal' and each of
-   the handlers.  */
+   the handlers.
+*/
 
 const char *
-@arch@_cgen_parse_operand (CGEN_CPU_DESC cd,
-			   int opindex,
-			   const char ** strp,
-			   CGEN_FIELDS * fields)
+@arch@_cgen_parse_operand (cd, opindex, strp, fields)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     const char ** strp;
+     CGEN_FIELDS * fields;
 {
   const char * errmsg = NULL;
   /* Used by scalar operands that still need to be parsed.  */
-  " (gen-ifield-default-type) " junk ATTRIBUTE_UNUSED;
+  " (gen-ifield-default-type) " junk;
 
   switch (opindex)
     {
@@ -52,29 +51,27 @@ const char *
 ; Assembler initialization C code
 ; Code is appended during processing.
 
-(define /asm-init-code "")
+(define -asm-init-code "")
 (define (add-asm-init code)
-  (set! /asm-init-code (string-append /asm-init-code code))
+  (set! -asm-init-code (string-append -asm-init-code code))
 )
 
 ; Return C code to define the assembler init function.
 ; This is called after opcode_open.
 
-(define (/gen-init-asm-fn)
+(define (-gen-init-asm-fn)
   (string-append
    "\
 void
-@arch@_cgen_init_asm (CGEN_CPU_DESC cd)
+@arch@_cgen_init_asm (cd)
+     CGEN_CPU_DESC cd;
 {
   @arch@_cgen_init_opcode_table (cd);
   @arch@_cgen_init_ibld_table (cd);
   cd->parse_handlers = & @arch@_cgen_parse_handlers[0];
   cd->parse_operand = @arch@_cgen_parse_operand;
-#ifdef CGEN_ASM_INIT_HOOK
-CGEN_ASM_INIT_HOOK
-#endif
 "
-   /asm-init-code
+   -asm-init-code
 "}\n\n"
    )
 )
@@ -86,23 +83,20 @@ CGEN_ASM_INIT_HOOK
   (string-write
    ; No need for copyright, appended to file with one.
    "\n"
-   (lambda () (gen-extra-asm.c (opc-file-path) (current-arch-name)))
+   (lambda () (gen-extra-asm.c srcdir (current-arch-name))) ; from <arch>.opc
    "\n"
-   /gen-parse-switch
+   -gen-parse-switch
    (lambda () (gen-handler-table "parse" opc-parse-handlers))
-   /gen-init-asm-fn
+   -gen-init-asm-fn
    )
 )
 
 ; Disassembler support.
 
-(define (/gen-print-switch)
+(define (-gen-print-switch)
   (logit 2 "Generating print switch ...\n")
   (string-list
    "\
-void @arch@_cgen_print_operand
-  (CGEN_CPU_DESC, int, PTR, CGEN_FIELDS *, void const *, bfd_vma, int);
-
 /* Main entry point for printing operands.
    XINFO is a `void *' and not a `disassemble_info *' to not put a requirement
    of dis-asm.h on cgen.h.
@@ -116,18 +110,20 @@ void @arch@_cgen_print_operand
 
    This function could be moved into `print_insn_normal', but keeping it
    separate makes clear the interface between `print_insn_normal' and each of
-   the handlers.  */
+   the handlers.
+*/
 
 void
-@arch@_cgen_print_operand (CGEN_CPU_DESC cd,
-			   int opindex,
-			   void * xinfo,
-			   CGEN_FIELDS *fields,
-			   void const *attrs ATTRIBUTE_UNUSED,
-			   bfd_vma pc,
-			   int length)
+@arch@_cgen_print_operand (cd, opindex, xinfo, fields, attrs, pc, length)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     PTR xinfo;
+     CGEN_FIELDS *fields;
+     void const *attrs;
+     bfd_vma pc;
+     int length;
 {
-  disassemble_info *info = (disassemble_info *) xinfo;
+ disassemble_info *info = (disassemble_info *) xinfo;
 
   switch (opindex)
     {
@@ -146,25 +142,26 @@ void
 ; Disassembler initialization C code.
 ; Code is appended during processing.
 
-(define /dis-init-code "")
+(define -dis-init-code "")
 (define (add-dis-init code)
-  (set! /dis-init-code (string-append /dis-init-code code))
+  (set! -dis-init-code (string-append -dis-init-code code))
 )
 
 ; Return C code to define the disassembler init function.
 
-(define (/gen-init-dis-fn)
+(define (-gen-init-dis-fn)
   (string-append
    "
 void
-@arch@_cgen_init_dis (CGEN_CPU_DESC cd)
+@arch@_cgen_init_dis (cd)
+     CGEN_CPU_DESC cd;
 {
   @arch@_cgen_init_opcode_table (cd);
   @arch@_cgen_init_ibld_table (cd);
   cd->print_handlers = & @arch@_cgen_print_handlers[0];
   cd->print_operand = @arch@_cgen_print_operand;
 "
-   /dis-init-code
+   -dis-init-code
 "}\n\n"
    )
 )
@@ -176,10 +173,10 @@ void
   (string-write
    ; No need for copyright, appended to file with one.
    "\n"
-   (lambda () (gen-extra-dis.c (opc-file-path) (current-arch-name)))
+   (lambda () (gen-extra-dis.c srcdir (current-arch-name))) ; from <arch>.opc
    "\n"
-   /gen-print-switch
+   -gen-print-switch
    (lambda () (gen-handler-table "print" opc-print-handlers))
-   /gen-init-dis-fn
+   -gen-init-dis-fn
    )
 )
