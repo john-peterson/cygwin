@@ -1,28 +1,27 @@
 /* ldctor.c -- constructor support routines
-   Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011
+   Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001
    Free Software Foundation, Inc.
    By Steve Chamberlain <sac@cygnus.com>
 
-   This file is part of the GNU Binutils.
+This file is part of GLD, the Gnu Linker.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+GLD is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+GLD is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with GLD; see the file COPYING.  If not, write to the Free
+Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "bfdlink.h"
 #include "safe-ctype.h"
 
@@ -34,6 +33,9 @@
 #include "ldmain.h"
 #include "ldctor.h"
 
+static int ctor_prio PARAMS ((const char *));
+static int ctor_cmp PARAMS ((const PTR, const PTR));
+
 /* The list of statements needed to handle constructors.  These are
    invoked by the command CONSTRUCTORS in the linker script.  */
 lang_statement_list_type constructor_list;
@@ -41,7 +43,7 @@ lang_statement_list_type constructor_list;
 /* Whether the constructors should be sorted.  Note that this is
    global for the entire link; we assume that there is only a single
    CONSTRUCTORS command in the linker script.  */
-bfd_boolean constructors_sorted;
+boolean constructors_sorted;
 
 /* The sets we have seen.  */
 struct set_info *sets;
@@ -50,25 +52,26 @@ struct set_info *sets;
    RELOC is the relocation to use for an entry in the set.  SECTION
    and VALUE are the value to add.  This is called during the first
    phase of the link, when we are still gathering symbols together.
-   We just record the information now.  The ldctor_build_sets
+   We just record the information now.  The ldctor_find_constructors
    function will construct the sets.  */
 
 void
-ldctor_add_set_entry (struct bfd_link_hash_entry *h,
-		      bfd_reloc_code_real_type reloc,
-		      const char *name,
-		      asection *section,
-		      bfd_vma value)
+ldctor_add_set_entry (h, reloc, name, section, value)
+     struct bfd_link_hash_entry *h;
+     bfd_reloc_code_real_type reloc;
+     const char *name;
+     asection *section;
+     bfd_vma value;
 {
   struct set_info *p;
   struct set_element *e;
   struct set_element **epp;
 
-  for (p = sets; p != NULL; p = p->next)
+  for (p = sets; p != (struct set_info *) NULL; p = p->next)
     if (p->h == h)
       break;
 
-  if (p == NULL)
+  if (p == (struct set_info *) NULL)
     {
       p = (struct set_info *) xmalloc (sizeof (struct set_info));
       p->next = sets;
@@ -123,7 +126,8 @@ ldctor_add_set_entry (struct bfd_link_hash_entry *h,
    symbol name.  */
 
 static int
-ctor_prio (const char *name)
+ctor_prio (name)
+     const char *name;
 {
   /* The name will look something like _GLOBAL_$I$65535$test02__Fv.
      There might be extra leading underscores, and the $ characters
@@ -132,7 +136,7 @@ ctor_prio (const char *name)
   while (*name == '_')
     ++name;
 
-  if (! CONST_STRNEQ (name, "GLOBAL_"))
+  if (strncmp (name, "GLOBAL_", sizeof "GLOBAL_" - 1) != 0)
     return -1;
 
   name += sizeof "GLOBAL_" - 1;
@@ -151,12 +155,12 @@ ctor_prio (const char *name)
    is called via qsort.  */
 
 static int
-ctor_cmp (const void *p1, const void *p2)
+ctor_cmp (p1, p2)
+     const PTR p1;
+     const PTR p2;
 {
-  const struct set_element * const *pe1 =
-      (const struct set_element * const *) p1;
-  const struct set_element * const *pe2 =
-      (const struct set_element * const *) p2;
+  const struct set_element **pe1 = (const struct set_element **) p1;
+  const struct set_element **pe2 = (const struct set_element **) p2;
   const char *n1;
   const char *n2;
   int prio1;
@@ -198,17 +202,18 @@ ctor_cmp (const void *p1, const void *p2)
    themselves into constructor_list.  */
 
 void
-ldctor_build_sets (void)
+ldctor_build_sets ()
 {
-  static bfd_boolean called;
-  bfd_boolean header_printed;
+  static boolean called;
+  lang_statement_list_type *old;
+  boolean header_printed;
   struct set_info *p;
 
   /* The emulation code may call us directly, but we only want to do
      this once.  */
   if (called)
     return;
-  called = TRUE;
+  called = true;
 
   if (constructors_sorted)
     {
@@ -246,11 +251,13 @@ ldctor_build_sets (void)
 	}
     }
 
-  lang_list_init (&constructor_list);
-  push_stat_ptr (&constructor_list);
+  old = stat_ptr;
+  stat_ptr = &constructor_list;
 
-  header_printed = FALSE;
-  for (p = sets; p != NULL; p = p->next)
+  lang_list_init (stat_ptr);
+
+  header_printed = false;
+  for (p = sets; p != (struct set_info *) NULL; p = p->next)
     {
       struct set_element *e;
       reloc_howto_type *howto;
@@ -271,21 +278,21 @@ ldctor_build_sets (void)
 	     .long elementN
 	     .long 0
 	 except that we use the right size instead of .long.  When
-	 generating relocatable output, we generate relocs instead of
+	 generating relocateable output, we generate relocs instead of
 	 addresses.  */
-      howto = bfd_reloc_type_lookup (link_info.output_bfd, p->reloc);
-      if (howto == NULL)
+      howto = bfd_reloc_type_lookup (output_bfd, p->reloc);
+      if (howto == (reloc_howto_type *) NULL)
 	{
-	  if (link_info.relocatable)
+	  if (link_info.relocateable)
 	    {
 	      einfo (_("%P%X: %s does not support reloc %s for set %s\n"),
-		     bfd_get_target (link_info.output_bfd),
+		     bfd_get_target (output_bfd),
 		     bfd_get_reloc_code_name (p->reloc),
 		     p->h->root.string);
 	      continue;
 	    }
 
-	  /* If this is not a relocatable link, all we need is the
+	  /* If this is not a relocateable link, all we need is the
 	     size, which we can get from the input BFD.  */
 	  if (p->elements->section->owner != NULL)
 	    howto = bfd_reloc_type_lookup (p->elements->section->owner,
@@ -319,16 +326,14 @@ ldctor_build_sets (void)
 	  break;
 	}
 
-      lang_add_assignment (exp_assign (".",
-				       exp_unop (ALIGN_K,
-						 exp_intop (reloc_size)),
-				       FALSE));
-      lang_add_assignment (exp_assign (p->h->root.string,
-				       exp_nameop (NAME, "."),
-				       FALSE));
-      lang_add_data (size, exp_intop (p->count));
+      lang_add_assignment (exp_assop ('=', ".",
+				      exp_unop (ALIGN_K,
+						exp_intop (reloc_size))));
+      lang_add_assignment (exp_assop ('=', p->h->root.string,
+				      exp_nameop (NAME, ".")));
+      lang_add_data (size, exp_intop ((bfd_vma) p->count));
 
-      for (e = p->elements; e != NULL; e = e->next)
+      for (e = p->elements; e != (struct set_element *) NULL; e = e->next)
 	{
 	  if (config.map_file != NULL)
 	    {
@@ -337,7 +342,7 @@ ldctor_build_sets (void)
 	      if (! header_printed)
 		{
 		  minfo (_("\nSet                 Symbol\n\n"));
-		  header_printed = TRUE;
+		  header_printed = true;
 		}
 
 	      minfo ("%s", p->h->root.string);
@@ -364,7 +369,7 @@ ldctor_build_sets (void)
 	  if (! bfd_is_abs_section (e->section))
 	    e->section->flags |= SEC_KEEP;
 
-	  if (link_info.relocatable)
+	  if (link_info.relocateable)
 	    lang_add_reloc (p->reloc, howto, e->section, e->name,
 			    exp_intop (e->value));
 	  else
@@ -374,5 +379,5 @@ ldctor_build_sets (void)
       lang_add_data (size, exp_intop (0));
     }
 
-  pop_stat_ptr ();
+  stat_ptr = old;
 }
