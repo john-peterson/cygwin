@@ -27,9 +27,8 @@
  * SUCH DAMAGE.
  */
 
-#include "gprof.h"
 #include "libiberty.h"
-#include "bfdver.h"
+#include "gprof.h"
 #include "search_list.h"
 #include "source.h"
 #include "symtab.h"
@@ -45,12 +44,12 @@
 #include "demangle.h"
 #include "getopt.h"
 
-static void usage (FILE *, int) ATTRIBUTE_NORETURN;
+static void usage PARAMS ((FILE *, int)) ATTRIBUTE_NORETURN;
+int main PARAMS ((int, char **));
 
-const char * whoami;
-const char * function_mapping_file;
-static const char * external_symbol_table;
-const char * a_out_name = A_OUTNAME;
+const char *whoami;
+const char *function_mapping_file;
+const char *a_out_name = A_OUTNAME;
 long hz = HZ_WRONG;
 
 /*
@@ -59,24 +58,27 @@ long hz = HZ_WRONG;
 int debug_level = 0;
 int output_style = 0;
 int output_width = 80;
-bfd_boolean bsd_style_output = FALSE;
-bfd_boolean demangle = TRUE;
-bfd_boolean ignore_direct_calls = FALSE;
-bfd_boolean ignore_static_funcs = FALSE;
-bfd_boolean ignore_zeros = TRUE;
-bfd_boolean line_granularity = FALSE;
-bfd_boolean print_descriptions = TRUE;
-bfd_boolean print_path = FALSE;
-bfd_boolean ignore_non_functions = FALSE;
+boolean bsd_style_output = false;
+boolean demangle = true;
+boolean discard_underscores = true;
+boolean ignore_direct_calls = false;
+boolean ignore_static_funcs = false;
+boolean ignore_zeros = true;
+boolean line_granularity = false;
+boolean print_descriptions = true;
+boolean print_path = false;
+boolean ignore_non_functions = false;
 File_Format file_format = FF_AUTO;
 
-bfd_boolean first_output = TRUE;
+boolean first_output = true;
 
 char copyright[] =
  "@(#) Copyright (c) 1983 Regents of the University of California.\n\
  All rights reserved.\n";
 
 static char *gmon_name = GMONNAME;	/* profile filename */
+
+bfd *abfd;
 
 /*
  * Functions that get excluded by default:
@@ -85,6 +87,7 @@ static char *default_excluded_list[] =
 {
   "_gprof_mcount", "mcount", "_mcount", "__mcount", "__mcount_internal",
   "__mcleanup",
+  "<locore>", "<hicore>",
   0
 };
 
@@ -99,7 +102,6 @@ static struct option long_options[] =
   {"line", no_argument, 0, 'l'},
   {"no-static", no_argument, 0, 'a'},
   {"ignore-non-functions", no_argument, 0, 'D'},
-  {"external-symbol-table", required_argument, 0, 'S'},
 
     /* output styles: */
 
@@ -154,10 +156,12 @@ static struct option long_options[] =
 
 
 static void
-usage (FILE *stream, int status)
+usage (stream, status)
+     FILE *stream;
+     int status;
 {
   fprintf (stream, _("\
-Usage: %s [-[abcDhilLsTvwxyz]] [-[ACeEfFJnNOpPqSQZ][name]] [-I dirs]\n\
+Usage: %s [-[abcDhilLsTvwxyz]] [-[ACeEfFJnNOpPqQZ][name]] [-I dirs]\n\
 	[-d[num]] [-k from/to] [-m min-count] [-t table-length]\n\
 	[--[no-]annotated-source[=name]] [--[no-]exec-counts[=name]]\n\
 	[--[no-]flat-profile[=name]] [--[no-]graph[=name]]\n\
@@ -168,17 +172,19 @@ Usage: %s [-[abcDhilLsTvwxyz]] [-[ACeEfFJnNOpPqSQZ][name]] [-I dirs]\n\
 	[--no-static] [--print-path] [--separate-files]\n\
 	[--static-call-graph] [--sum] [--table-length=len] [--traditional]\n\
 	[--version] [--width=n] [--ignore-non-functions]\n\
-	[--demangle[=STYLE]] [--no-demangle] [--external-symbol-table=name] [@FILE]\n\
+	[--demangle[=STYLE]] [--no-demangle]\n\
 	[image-file] [profile-file...]\n"),
 	   whoami);
-  if (REPORT_BUGS_TO[0] && status == 0)
+  if (status == 0)
     fprintf (stream, _("Report bugs to %s\n"), REPORT_BUGS_TO);
   done (status);
 }
 
 
 int
-main (int argc, char **argv)
+main (argc, argv)
+     int argc;
+     char **argv;
 {
   char **sp, *str;
   Sym **cg = 0;
@@ -190,25 +196,21 @@ main (int argc, char **argv)
 #if defined (HAVE_SETLOCALE)
   setlocale (LC_CTYPE, "");
 #endif
-#ifdef ENABLE_NLS
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
-#endif
 
   whoami = argv[0];
   xmalloc_set_program_name (whoami);
 
-  expandargv (&argc, &argv);
-
   while ((ch = getopt_long (argc, argv,
-	"aA::bBcC::d::De:E:f:F:hiI:J::k:lLm:n:N:O:p::P::q::Q::rR:sS:t:Tvw:xyzZ::",
+	"aA::bBcCd::De:E:f:F:hiI:J::k:lLm:n::N::O:p::P::q::Q::st:Tvw:xyzZ::",
 			    long_options, 0))
 	 != EOF)
     {
       switch (ch)
 	{
 	case 'a':
-	  ignore_static_funcs = TRUE;
+	  ignore_static_funcs = true;
 	  break;
 	case 'A':
 	  if (optarg)
@@ -219,14 +221,14 @@ main (int argc, char **argv)
 	  user_specified |= STYLE_ANNOTATED_SOURCE;
 	  break;
 	case 'b':
-	  print_descriptions = FALSE;
+	  print_descriptions = false;
 	  break;
 	case 'B':
 	  output_style |= STYLE_CALL_GRAPH;
 	  user_specified |= STYLE_CALL_GRAPH;
 	  break;
 	case 'c':
-	  ignore_direct_calls = TRUE;
+	  ignore_direct_calls = true;
 	  break;
 	case 'C':
 	  if (optarg)
@@ -252,7 +254,7 @@ main (int argc, char **argv)
 #endif	/* DEBUG */
 	  break;
 	case 'D':
-	  ignore_non_functions = TRUE;
+	  ignore_non_functions = true;
 	  break;
 	case 'E':
 	  sym_id_add (optarg, EXCL_TIME);
@@ -295,10 +297,10 @@ main (int argc, char **argv)
 	  sym_id_add (optarg, EXCL_ARCS);
 	  break;
 	case 'l':
-	  line_granularity = TRUE;
+	  line_granularity = true;
 	  break;
 	case 'L':
-	  print_path = TRUE;
+	  print_path = true;
 	  break;
 	case 'm':
 	  bb_min_calls = (unsigned long) strtoul (optarg, (char **) NULL, 10);
@@ -400,10 +402,6 @@ main (int argc, char **argv)
 	  output_style |= STYLE_SUMMARY_FILE;
 	  user_specified |= STYLE_SUMMARY_FILE;
 	  break;
-	case 'S':
-	  external_symbol_table = optarg;
-	  DBG (AOUTDEBUG, printf ("external-symbol-table: %s\n", optarg));
-	  break;
 	case 't':
 	  bb_table_length = atoi (optarg);
 	  if (bb_table_length < 0)
@@ -412,11 +410,11 @@ main (int argc, char **argv)
 	    }
 	  break;
 	case 'T':
-	  bsd_style_output = TRUE;
+	  bsd_style_output = true;
 	  break;
 	case 'v':
 	  /* This output is intended to follow the GNU standards document.  */
-	  printf (_("GNU gprof %s\n"), BFD_VERSION_STRING);
+	  printf (_("GNU gprof %s\n"), VERSION);
 	  printf (_("Based on BSD gprof, copyright 1983 Regents of the University of California.\n"));
 	  printf (_("\
 This program is free software.  This program has absolutely no warranty.\n"));
@@ -429,13 +427,13 @@ This program is free software.  This program has absolutely no warranty.\n"));
 	    }
 	  break;
 	case 'x':
-	  bb_annotate_all_lines = TRUE;
+	  bb_annotate_all_lines = true;
 	  break;
 	case 'y':
-	  create_annotation_files = TRUE;
+	  create_annotation_files = true;
 	  break;
 	case 'z':
-	  ignore_zeros = FALSE;
+	  ignore_zeros = false;
 	  break;
 	case 'Z':
 	  if (optarg)
@@ -450,7 +448,7 @@ This program is free software.  This program has absolutely no warranty.\n"));
 	  user_specified |= STYLE_ANNOTATED_SOURCE;
 	  break;
 	case OPTION_DEMANGLE:
-	  demangle = TRUE;
+	  demangle = true;
 	  if (optarg != NULL)
 	    {
 	      enum demangling_styles style;
@@ -468,7 +466,7 @@ This program is free software.  This program has absolutely no warranty.\n"));
 	   }
 	  break;
 	case OPTION_NO_DEMANGLE:
-	  demangle = FALSE;
+	  demangle = false;
 	  break;
 	default:
 	  usage (stderr, 1);
@@ -485,87 +483,141 @@ This program is free software.  This program has absolutely no warranty.\n"));
       done (1);
     }
 
-  /* --sum implies --line, otherwise we'd lose basic block counts in
-       gmon.sum */
+  /* --sum implies --line, otherwise we'd lose b-b counts in gmon.sum */
   if (output_style & STYLE_SUMMARY_FILE)
-    line_granularity = 1;
+    {
+      line_granularity = 1;
+    }
 
   /* append value of GPROF_PATH to source search list if set: */
   str = (char *) getenv ("GPROF_PATH");
   if (str)
-    search_list_append (&src_search_list, str);
+    {
+      search_list_append (&src_search_list, str);
+    }
 
   if (optind < argc)
-    a_out_name = argv[optind++];
-
+    {
+      a_out_name = argv[optind++];
+    }
   if (optind < argc)
-    gmon_name = argv[optind++];
+    {
+      gmon_name = argv[optind++];
+    }
 
-  /* Turn off default functions.  */
+  /*
+   * Turn off default functions:
+   */
   for (sp = &default_excluded_list[0]; *sp; sp++)
     {
       sym_id_add (*sp, EXCL_TIME);
       sym_id_add (*sp, EXCL_GRAPH);
+#ifdef __alpha__
       sym_id_add (*sp, EXCL_FLAT);
+#endif
     }
 
-  /* Read symbol table from core file.  */
+  /*
+   * For line-by-line profiling, also want to keep those
+   * functions off the flat profile:
+   */
+  if (line_granularity)
+    {
+      for (sp = &default_excluded_list[0]; *sp; sp++)
+	{
+	  sym_id_add (*sp, EXCL_FLAT);
+	}
+    }
+
+  /*
+   * Read symbol table from core file:
+   */
   core_init (a_out_name);
 
-  /* If we should ignore direct function calls, we need to load to
-     core's text-space.  */
+  /*
+   * If we should ignore direct function calls, we need to load
+   * to core's text-space:
+   */
   if (ignore_direct_calls)
-    core_get_text_space (core_bfd);
+    {
+      core_get_text_space (core_bfd);
+    }
 
-  /* Create symbols from core image.  */
-  if (external_symbol_table)
-    core_create_syms_from (external_symbol_table);
-  else if (line_granularity)
-    core_create_line_syms ();
+  /*
+   * Create symbols from core image:
+   */
+  if (line_granularity)
+    {
+      core_create_line_syms (core_bfd);
+    }
   else
-    core_create_function_syms ();
+    {
+      core_create_function_syms (core_bfd);
+    }
 
-  /* Translate sym specs into syms.  */
+  /*
+   * Translate sym specs into syms:
+   */
   sym_id_parse ();
 
   if (file_format == FF_PROF)
     {
+#ifdef PROF_SUPPORT_IMPLEMENTED
+      /*
+       * Get information about mon.out file(s):
+       */
+      do
+	{
+	  mon_out_read (gmon_name);
+	  if (optind < argc)
+	    {
+	      gmon_name = argv[optind];
+	    }
+	}
+      while (optind++ < argc);
+#else
       fprintf (stderr,
 	       _("%s: sorry, file format `prof' is not yet supported\n"),
 	       whoami);
       done (1);
+#endif
     }
   else
     {
-      /* Get information about gmon.out file(s).  */
+      /*
+       * Get information about gmon.out file(s):
+       */
       do
 	{
 	  gmon_out_read (gmon_name);
 	  if (optind < argc)
-	    gmon_name = argv[optind];
+	    {
+	      gmon_name = argv[optind];
+	    }
 	}
       while (optind++ < argc);
     }
 
-  /* If user did not specify output style, try to guess something
-     reasonable.  */
+  /*
+   * If user did not specify output style, try to guess something
+   * reasonable:
+   */
   if (output_style == 0)
     {
       if (gmon_input & (INPUT_HISTOGRAM | INPUT_CALL_GRAPH))
 	{
-	  if (gmon_input & INPUT_HISTOGRAM)
-	    output_style |= STYLE_FLAT_PROFILE;
-	  if (gmon_input & INPUT_CALL_GRAPH)
-	    output_style |= STYLE_CALL_GRAPH;
+	  output_style = STYLE_FLAT_PROFILE | STYLE_CALL_GRAPH;
 	}
       else
-	output_style = STYLE_EXEC_COUNTS;
-
+	{
+	  output_style = STYLE_EXEC_COUNTS;
+	}
       output_style &= ~user_specified;
     }
 
-  /* Dump a gmon.sum file if requested (before any other
-     processing!)  */
+  /*
+   * Dump a gmon.sum file if requested (before any other processing!):
+   */
   if (output_style & STYLE_SUMMARY_FILE)
     {
       gmon_out_write (GMONSUM);
@@ -581,7 +633,8 @@ This program is free software.  This program has absolutely no warranty.\n"));
       cg = cg_assemble ();
     }
 
-  /* Do some simple sanity checks.  */
+  /* do some simple sanity checks: */
+
   if ((output_style & STYLE_FLAT_PROFILE)
       && !(gmon_input & INPUT_HISTOGRAM))
     {
@@ -596,46 +649,50 @@ This program is free software.  This program has absolutely no warranty.\n"));
       done (1);
     }
 
-  /* Output whatever user whishes to see.  */
+  /* output whatever user whishes to see: */
+
   if (cg && (output_style & STYLE_CALL_GRAPH) && bsd_style_output)
     {
-      /* Print the dynamic profile.  */
-      cg_print (cg);
+      cg_print (cg);		/* print the dynamic profile */
     }
 
   if (output_style & STYLE_FLAT_PROFILE)
     {
-      /* Print the flat profile.  */
-      hist_print ();		
+      hist_print ();		/* print the flat profile */
     }
 
   if (cg && (output_style & STYLE_CALL_GRAPH))
     {
       if (!bsd_style_output)
 	{
-	  /* Print the dynamic profile.  */
-	  cg_print (cg);	
+	  cg_print (cg);	/* print the dynamic profile */
 	}
       cg_print_index ();
     }
 
   if (output_style & STYLE_EXEC_COUNTS)
-    print_exec_counts ();
-  
-  if (output_style & STYLE_ANNOTATED_SOURCE)
-    print_annotated_source ();
-  
-  if (output_style & STYLE_FUNCTION_ORDER)
-    cg_print_function_ordering ();
-  
-  if (output_style & STYLE_FILE_ORDER)
-    cg_print_file_ordering ();
+    {
+      print_exec_counts ();
+    }
 
+  if (output_style & STYLE_ANNOTATED_SOURCE)
+    {
+      print_annotated_source ();
+    }
+  if (output_style & STYLE_FUNCTION_ORDER)
+    {
+      cg_print_function_ordering ();
+    }
+  if (output_style & STYLE_FILE_ORDER)
+    {
+      cg_print_file_ordering ();
+    }
   return 0;
 }
 
 void
-done (int status)
+done (status)
+     int status;
 {
   exit (status);
 }

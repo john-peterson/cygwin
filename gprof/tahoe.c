@@ -58,14 +58,15 @@ typedef enum tahoe_opermodes tahoe_operandenum;
  */
 static Sym indirectchild;
 
-static tahoe_operandenum tahoe_operandmode (unsigned char *);
-static char *tahoe_operandname (tahoe_operandenum);
-static long tahoe_operandlength (unsigned char *);
-static bfd_signed_vma tahoe_offset (unsigned char *);
-void tahoe_find_call (Sym *, bfd_vma, bfd_vma);
+static tahoe_operandenum tahoe_operandmode PARAMS ((unsigned char *));
+static char *tahoe_operandname PARAMS ((tahoe_operandenum));
+static long tahoe_operandlength PARAMS ((unsigned char *));
+static bfd_signed_vma tahoe_offset PARAMS ((unsigned char *));
+void tahoe_find_call PARAMS ((Sym *, bfd_vma, bfd_vma));
 
 static tahoe_operandenum
-tahoe_operandmode (unsigned char *modep)
+tahoe_operandmode (modep)
+     unsigned char *modep;
 {
   long usesreg = *modep & 0xf;
 
@@ -106,7 +107,8 @@ tahoe_operandmode (unsigned char *modep)
 }
 
 static char *
-tahoe_operandname (tahoe_operandenum mode)
+tahoe_operandname (mode)
+     tahoe_operandenum mode;
 {
 
   switch (mode)
@@ -159,8 +161,8 @@ tahoe_operandname (tahoe_operandenum mode)
 }
 
 static long
-tahoe_operandlength (unsigned char *modep
-)
+tahoe_operandlength (modep)
+     unsigned char *modep;
 {
 
   switch (tahoe_operandmode (modep))
@@ -197,7 +199,8 @@ tahoe_operandlength (unsigned char *modep
 }
 
 static bfd_signed_vma
-tahoe_offset (unsigned char *modep)
+tahoe_offset (modep)
+     unsigned char *modep;
 {
   tahoe_operandenum mode = tahoe_operandmode (modep);
 
@@ -217,7 +220,10 @@ tahoe_offset (unsigned char *modep)
 }
 
 void
-tahoe_find_call (Sym *parent, bfd_vma p_lowpc, bfd_vma p_highpc)
+tahoe_find_call (parent, p_lowpc, p_highpc)
+     Sym *parent;
+     bfd_vma p_lowpc;
+     bfd_vma p_highpc;
 {
   unsigned char *instructp;
   long length;
@@ -225,16 +231,28 @@ tahoe_find_call (Sym *parent, bfd_vma p_lowpc, bfd_vma p_highpc)
   tahoe_operandenum mode;
   tahoe_operandenum firstmode;
   bfd_vma pc, destpc;
-  static bfd_boolean inited = FALSE;
+  static boolean inited = false;
 
   if (!inited)
     {
-      inited = TRUE;
+      inited = true;
       sym_init (&indirectchild);
       indirectchild.cg.prop.fract = 1.0;
       indirectchild.cg.cyc.head = &indirectchild;
     }
 
+  if (core_text_space == 0)
+    {
+      return;
+    }
+  if (p_lowpc < s_lowpc)
+    {
+      p_lowpc = s_lowpc;
+    }
+  if (p_highpc > s_highpc)
+    {
+      p_highpc = s_highpc;
+    }
   DBG (CALLDEBUG, printf ("[findcall] %s: 0x%lx to 0x%lx\n",
 			  parent->name, (unsigned long) p_lowpc,
 			  (unsigned long) p_highpc));
@@ -295,27 +313,24 @@ tahoe_find_call (Sym *parent, bfd_vma p_lowpc, bfd_vma p_highpc)
 	       *      a function.
 	       */
 	      destpc = pc + tahoe_offset (instructp + length);
-	      if (hist_check_address (destpc))
+	      if (destpc >= s_lowpc && destpc <= s_highpc)
 		{
 		  child = sym_lookup (&symtab, destpc);
-                  if (child)
+		  DBG (CALLDEBUG,
+		       printf ("[findcall]\tdestpc 0x%lx",
+			       (unsigned long) destpc);
+		       printf (" child->name %s", child->name);
+		       printf (" child->addr 0x%lx\n",
+			       (unsigned long) child->addr);
+		    );
+		  if (child->addr == destpc)
 		    {
-		      DBG (CALLDEBUG,
-		           printf ("[findcall]\tdestpc 0x%lx",
-			           (unsigned long) destpc);
-		           printf (" child->name %s", child->name);
-		           printf (" child->addr 0x%lx\n",
-			           (unsigned long) child->addr);
-		        );
-		      if (child->addr == destpc)
-		        {
-		          /*
-		           *    a hit
-		           */
-		          arc_add (parent, child, (unsigned long) 0);
-		          length += tahoe_operandlength (instructp + length);
-		          continue;
-		        }
+		      /*
+		       *    a hit
+		       */
+		      arc_add (parent, child, (unsigned long) 0);
+		      length += tahoe_operandlength (instructp + length);
+		      continue;
 		    }
 		  goto botched;
 		}
