@@ -1,12 +1,12 @@
 /* Interface to C preprocessor macro expansion for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #ifndef MACROEXP_H
@@ -84,16 +86,5 @@ char *macro_expand_next (char **lexptr,
                          macro_lookup_ftype *lookup_func,
                          void *lookup_baton);
 
-/* Functions to classify characters according to cpp rules.  */
-
-int macro_is_whitespace (int c);
-int macro_is_identifier_nondigit (int c);
-int macro_is_digit (int c);
-
-
-/* Stringify STR according to C rules and return an xmalloc'd pointer
-   to the result.  */
-
-char *macro_stringify (const char *str);
 
 #endif /* MACROEXP_H */
