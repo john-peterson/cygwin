@@ -1,9 +1,6 @@
-/* TUI display registers in window.
+/* Main function for TUI gdb.
 
-   Copyright 1998, 1999, 2000, 2001, 2004 Free Software Foundation,
-   Inc.
-
-   Contributed by Hewlett-Packard Company.
+   Copyright 2002, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,18 +19,19 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#ifndef TUI_REGS_H
-#define TUI_REGS_H
+#include "defs.h"
+#include "main.h"
+#include "gdb_string.h"
+#include "interps.h"
 
-#include "tui/tui-data.h"	/* For struct tui_register_display_type.  */
-
-extern void tui_check_register_values (struct frame_info *);
-extern void tui_show_registers (struct reggroup *group);
-extern void tui_display_registers_from (int);
-extern int tui_display_registers_from_line (int, int);
-extern int tui_last_regs_line_no (void);
-extern int tui_first_reg_element_inline (int);
-extern int tui_line_from_reg_element_no (int);
-extern int tui_first_reg_element_no_inline (int lineno);
-
-#endif
+int
+main (int argc, char **argv)
+{
+  struct captured_main_args args;
+  memset (&args, 0, sizeof args);
+  args.argc = argc;
+  args.argv = argv;
+  args.use_windows = 0;
+  args.interpreter_p = INTERP_TUI;
+  return gdb_main (&args);
+}
