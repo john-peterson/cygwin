@@ -1,64 +1,16 @@
-/* signal.h
-
-  Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2010, 2011, 2012, 2013
-  Red Hat, Inc.
-
-  This file is part of Cygwin.
-
-  This software is a copyrighted work licensed under the terms of the
-  Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
-  details. */
-
 #ifndef _CYGWIN_SIGNAL_H
 #define _CYGWIN_SIGNAL_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-struct _fpstate
-{
-  unsigned long cw;
-  unsigned long sw;
-  unsigned long tag;
-  unsigned long ipoff;
-  unsigned long cssel;
-  unsigned long dataoff;
-  unsigned long datasel;
-  unsigned char _st[80];
-  unsigned long nxst;
-};
-
+#if 0
 struct ucontext
 {
-  unsigned long cr2;
-  unsigned long dr0;
-  unsigned long dr1;
-  unsigned long dr2;
-  unsigned long dr3;
-  unsigned long dr6;
-  unsigned long dr7;
-  struct _fpstate fpstate;
-  unsigned long gs;
-  unsigned long fs;
-  unsigned long es;
-  unsigned long ds;
-  unsigned long edi;
-  unsigned long esi;
-  unsigned long ebx;
-  unsigned long edx;
-  unsigned long ecx;
-  unsigned long eax;
-  unsigned long ebp;
-  unsigned long eip;
-  unsigned long cs;
-  unsigned long eflags;
-  unsigned long esp;
-  unsigned long ss;
-  unsigned char _internal;
-  unsigned long oldmask;
+  unsigned long uc_flags;
+  void *uc_link;
+  stack_t uc_stack;
+  struct sigcontext uc_mcontext;
+  sigset_t uc_sigmask;
 };
-
-#define __COPY_CONTEXT_SIZE ((unsigned) &((struct ucontext *) 0)->_internal)
+#endif
 
 typedef union sigval
 {
@@ -66,43 +18,7 @@ typedef union sigval
   void  *sival_ptr;			/* pointer signal value */
 } sigval_t;
 
-typedef struct sigevent
-{
-  sigval_t sigev_value;			/* signal value */
-  int sigev_signo;			/* signal number */
-  int sigev_notify;			/* notification type */
-  void (*sigev_notify_function) (sigval_t); /* notification function */
-  pthread_attr_t *sigev_notify_attributes; /* notification attributes */
-} sigevent_t;
-
 #pragma pack(push,4)
-struct _sigcommune
-{
-  __uint32_t _si_code;
-  void *_si_read_handle;
-  void *_si_write_handle;
-  void *_si_process_handle;
-  __extension__ union
-  {
-    int _si_fd;
-    void *_si_pipe_fhandler;
-    char *_si_str;
-  };
-};
-
-#define __SI_PAD_SIZE 32
-#ifdef __INSIDE_CYGWIN__
-# ifndef max
-#   define max(a,b) (((a) > (b)) ? (a) : (b))
-# endif /*max*/
-# define __uint32_size(__x) (max(sizeof (__x) / sizeof (uint32_t), 1))
-
-/* This padding represents the elements of the last struct in siginfo_t,
-   aligning the elements to the end to avoid conflicts with other struct
-   members. */
-# define __SI_CYG_PAD (__SI_PAD_SIZE - __uint32_size (void *))
-#endif /*__INSIDE_CYGWIN__*/
-
 typedef struct
 {
   int si_signo;				/* signal number */
@@ -111,50 +27,44 @@ typedef struct
   uid_t si_uid;				/* sender's uid */
   int si_errno;				/* errno associated with signal */
 
-  __extension__ union
+  union
   {
-    __uint32_t __pad[__SI_PAD_SIZE];	/* plan for future growth */
-    struct _sigcommune _si_commune;	/* cygwin ipc */
-    __extension__ struct
+    __uint32_t __pad[120];		/* plan for future growth */
+    union
     {
-      __extension__ union
+      /* timers */
+      struct
       {
+	union
+	{
+	  struct
+	  {
+	    unsigned int si_tid;	/* timer id */
+	    unsigned int si_overrun;	/* overrun count */
+	  };
+	};
 	sigval_t si_sigval;		/* signal value */
-	sigval_t si_value;		/* signal value */
-      };
-      __extension__ struct
-      {
-	timer_t si_tid;			/* timer id */
-	unsigned int si_overrun;	/* overrun count */
       };
     };
+
     /* SIGCHLD */
-    __extension__ struct
+    struct
     {
       int si_status;			/* exit code */
       clock_t si_utime;			/* user time */
       clock_t si_stime;			/* system time */
     };
 
-    void *si_addr;			/* faulting address for core dumping
-					   signals */
-    /* Cygwin internal fields */
-#ifdef __INSIDE_CYGWIN__
-    __extension__ struct 
-    {
-      __uint32_t __pad2[__SI_CYG_PAD];	/* Locate at end of struct */
-      void *si_cyg;			/* pointer to block containing
-					   cygwin-special info */
-    };
-#endif /*__INSIDE_CYGWIN__*/
+    /* core dumping signals */
+    void *si_addr;			/* faulting address */
   };
 } siginfo_t;
 #pragma pack(pop)
 
 enum
 {
-  SI_USER = 0,				/* sent by kill, raise, pthread_kill */
-  SI_ASYNCIO = 2,			/* sent by AIO completion (currently
+  SI_USER = 1,				/* sent by kill, raise, pthread_kill */
+  SI_ASYNCIO,				/* sent by AIO completion (currently
 					   unimplemented) */
   SI_MESGQ,				/* sent by real time mesq state change
 					   (currently unimplemented) */
@@ -196,6 +106,15 @@ enum
   CLD_CONTINUED				/* stopped child has continued */
 };
 
+typedef struct sigevent
+{
+  sigval_t sigev_value;			/* signal value */
+  int sigev_signo;			/* signal number */
+  int sigev_notify;			/* notification type */
+  void (*sigev_notify_function) (sigval_t); /* notification function */
+  pthread_attr_t *sigev_notify_attributes; /* notification attributes */
+} sigevent_t;
+
 enum
 {
   SIGEV_SIGNAL = 0,			/* a queued signal, with an application
@@ -208,13 +127,11 @@ enum
 					   perform notification */
 };
 
-typedef __uint32_t sigset_t;
-
 typedef void (*_sig_func_ptr)(int);
 
 struct sigaction
 {
-  __extension__ union
+  union
   {
     _sig_func_ptr sa_handler;  		/* SIG_DFL, SIG_IGN, or pointer to a function */
     void  (*sa_sigaction) ( int, siginfo_t *, void * );
@@ -232,12 +149,6 @@ struct sigaction
 #define SA_NODEFER   0x40000000		/* Don't automatically block the signal
 					   when its handler is being executed  */
 #define SA_RESETHAND 0x80000000		/* Reset to SIG_DFL on entry to handler */
-#define SA_ONESHOT   SA_RESETHAND	/* Historical linux name */
-#define SA_NOMASK    SA_NODEFER		/* Historical linux name */
-
-/* Used internally by cygwin.  Included here to group everything in one place.
-   Do not use.  */
-#define _SA_INTERNAL_MASK 0xf000	/* bits in this range are internal */
 
 #define	SIGHUP	1	/* hangup */
 #define	SIGINT	2	/* interrupt */
@@ -270,36 +181,7 @@ struct sigaction
 #define	SIGPROF	27	/* profiling time alarm */
 #define	SIGWINCH 28	/* window changed */
 #define	SIGLOST 29	/* resource lost (eg, record-lock lost) */
-#define	SIGPWR  SIGLOST	/* power failure */
 #define	SIGUSR1 30	/* user defined signal 1 */
 #define	SIGUSR2 31	/* user defined signal 2 */
-
-/* Real-Time signals per SUSv3.  RT_SIGMAX is defined as 8 in limits.h */
-#define SIGRTMIN 32
-#define SIGRTMAX ((SIGRTMIN) + 0)
-#define NSIG	33      /* signal 0 implied */
-
-#define SIG_HOLD ((_sig_func_ptr)2)	/* Signal in signal mask */
-
-void psiginfo (const siginfo_t *, const char *);
-int sigwait (const sigset_t *, int *);
-int sigwaitinfo (const sigset_t *, siginfo_t *);
-int sighold (int);
-int sigignore (int);
-int sigrelse (int);
-_sig_func_ptr sigset (int, _sig_func_ptr);
-
-int sigqueue(pid_t, int, const union sigval);
-int siginterrupt (int, int);
-#ifdef __INSIDE_CYGWIN__
-extern const char *sys_sigabbrev[];
-extern const char *sys_siglist[];
-#else
-extern const char __declspec(dllimport) *sys_sigabbrev[];
-extern const char __declspec(dllimport) *sys_siglist[];
-#endif
-
-#ifdef __cplusplus
-}
-#endif
+#define NSIG	32      /* signal 0 implied */
 #endif /*_CYGWIN_SIGNAL_H*/
