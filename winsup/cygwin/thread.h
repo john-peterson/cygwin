@@ -1,7 +1,10 @@
 /* thread.h: Locking and threading module definitions
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009,
-   2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001 Red Hat, Inc.
+   Copyright 2001 Red Hat, Inc.
+
+   Written by Marco Fuykschot <marco@ddi.nl>
+   Major update 2001 Robert Collins <rbtcollins@hotmail.com>
 
 This file is part of Cygwin.
 
@@ -9,73 +12,136 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
+#ifndef _CYGNUS_THREADS_
+#define _CYGNUS_THREADS_
 
-#define LOCK_MMAP_LIST   1
+#define LOCK_FD_LIST     1
+#define LOCK_MEMORY_LIST 2
+#define LOCK_MMAP_LIST   3
+#define LOCK_DLL_LIST    4
 
 #define WRITE_LOCK 1
 #define READ_LOCK  2
 
-/* Default is a 1 Megs stack with a 4K guardpage.  The pthread stacksize
-   does not include the guardpage size, so we subtract the default guardpage
-   size. Additionally, the Windows stack handling disallows to use the last
-   two pages as guard page  (tested on XP and W7).  That results in a zone of
-   three pages which have to be subtract to get the actual stack size. */
-#define PTHREAD_DEFAULT_STACKSIZE (1024 * 1024 - 3 * wincap.page_size ())
-#define PTHREAD_DEFAULT_GUARDSIZE (wincap.page_size ())
+extern "C"
+{
+#if defined (_CYG_THREAD_FAILSAFE) && defined (_MT_SAFE)
+  void AssertResourceOwner (int, int);
+#else
+#define AssertResourceOwner(i,ii)
+#endif
+}
+
+#ifndef _MT_SAFE
+
+#define SetResourceLock(i,n,c)
+#define ReleaseResourceLock(i,n,c)
+
+#else
 
 #include <pthread.h>
-#include <limits.h>
-#include "security.h"
-#include <errno.h>
-#include "cygerrno.h"
-#include "cygwait.h"
+#include <signal.h>
+#include <pwd.h>
+#include <grp.h>
+#define _NOMNTENT_FUNCS
+#include <mntent.h>
 
-class fast_mutex
+extern "C"
 {
-public:
-  fast_mutex () :
-    lock_counter (0), win32_obj_id (0)
-  {
-  }
 
-  ~fast_mutex ()
-  {
-    if(win32_obj_id)
-      CloseHandle (win32_obj_id);
-  }
+struct _winsup_t
+{
+  /*
+     Needed for the group functions
+   */
+  struct group _grp;
+  char *_namearray[2];
+  int _grp_pos;
 
-  bool init ()
-  {
-    lock_counter = 0;
-    win32_obj_id = ::CreateEvent (&sec_none_nih, false, false, NULL);
-    if (!win32_obj_id)
-      {
-	debug_printf ("CreateEvent failed. %E");
-	return false;
-      }
-    return true;
-  }
+  /* console.cc */
+  unsigned _rarg;
 
-  void lock ()
-  {
-    if (InterlockedIncrement (&lock_counter) != 1)
-      cygwait (win32_obj_id, cw_infinite, cw_sig);
-  }
+  /* dlfcn.cc */
+  int _dl_error;
+  char _dl_buffer[256];
 
-  void unlock ()
-  {
-    if (InterlockedDecrement (&lock_counter))
-      ::SetEvent (win32_obj_id);
-  }
+  /* passwd.cc */
+  struct passwd _res;
+  char _pass[_PASSWORD_LEN];
+  int _pw_pos;
 
-private:
-  LONG lock_counter;
-  HANDLE win32_obj_id;
+  /* path.cc */
+  struct mntent mntbuf;
+  int _iteration;
+  DWORD available_drives;
+  char mnt_type[80];
+  char mnt_opts[80];
+  char mnt_fsname[MAX_PATH];
+  char mnt_dir[MAX_PATH];
+
+  /* strerror */
+  char _strerror_buf[20];
+
+  /* sysloc.cc */
+  char *_process_ident;
+  int _process_logopt;
+  int _process_facility;
+  int _process_logmask;
+
+  /* times.cc */
+  char timezone_buf[20];
+  struct tm _localtime_buf;
+
+  /* uinfo.cc */
+  char _username[UNLEN + 1];
+
+  /* net.cc */
+  char *_ntoa_buf;
+  struct protoent *_protoent_buf;
+  struct servent *_servent_buf;
+  struct hostent *_hostent_buf;
 };
+
+
+struct __reent_t
+{
+  struct _reent *_clib;
+  struct _winsup_t *_winsup;
+};
+
+_reent *_reent_clib ();
+_winsup_t *_reent_winsup ();
+void SetResourceLock (int, int, const char *) __attribute__ ((regparm (3)));
+void ReleaseResourceLock (int, int, const char *)
+  __attribute__ ((regparm (3)));
+
+#ifdef _CYG_THREAD_FAILSAFE
+void AssertResourceOwner (int, int);
+#else
+#define AssertResourceOwner(i,ii)
+#endif
+}
 
 class per_process;
 class pinfo;
+
+class ResourceLocks
+{
+public:
+  ResourceLocks ()
+  {
+  }
+  LPCRITICAL_SECTION Lock (int);
+  void Init ();
+  void Delete ();
+#ifdef _CYG_THREAD_FAILSAFE
+  DWORD owner;
+  DWORD count;
+#endif
+private:
+  CRITICAL_SECTION lock;
+  bool inited;
+};
 
 #define PTHREAD_MAGIC 0xdf0df045
 #define PTHREAD_MUTEX_MAGIC PTHREAD_MAGIC+1
@@ -85,269 +151,77 @@ class pinfo;
 #define PTHREAD_COND_MAGIC PTHREAD_MAGIC+5
 #define PTHREAD_CONDATTR_MAGIC PTHREAD_MAGIC+6
 #define SEM_MAGIC PTHREAD_MAGIC+7
-#define PTHREAD_ONCE_MAGIC PTHREAD_MAGIC+8
-#define PTHREAD_RWLOCK_MAGIC PTHREAD_MAGIC+9
-#define PTHREAD_RWLOCKATTR_MAGIC PTHREAD_MAGIC+10
-#define PTHREAD_SPINLOCK_MAGIC PTHREAD_MAGIC+11
-
-#define MUTEX_OWNER_ANONYMOUS ((pthread_t) -1)
-
-typedef unsigned long thread_magic_t;
+#define PTHREAD_ONCE_MAGIC PTHREAD_MAGIC+8;
 
 /* verifyable_object should not be defined here - it's a general purpose class */
 
 class verifyable_object
 {
 public:
-  thread_magic_t magic;
+  long magic;
 
-  verifyable_object (thread_magic_t verifyer): magic (verifyer) {}
-  virtual ~verifyable_object () { magic = 0; }
+    verifyable_object (long);
+   ~verifyable_object ();
 };
 
-typedef enum
+int verifyable_object_isvalid (void const *, long);
+
+class pthread_key:public verifyable_object
 {
-  VALID_OBJECT,
-  INVALID_OBJECT,
-  VALID_STATIC_OBJECT
-} verifyable_object_state;
-
-template <class list_node> inline void
-List_insert (list_node *&head, list_node *node)
-{
-  if (!node)
-    return;
-  do
-    node->next = head;
-  while (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					    node, node->next) != node->next);
-}
-
-template <class list_node> inline void
-List_remove (fast_mutex &mx, list_node *&head, list_node *node)
-{
-  if (!node)
-    return;
-  mx.lock ();
-  if (head)
-    {
-      if (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					     node->next, node) != node)
-	{
-	  list_node *cur = head;
-
-	  while (cur->next && node != cur->next)
-	    cur = cur->next;
-	  if (node == cur->next)
-	    cur->next = cur->next->next;
-	}
-    }
-  mx.unlock ();
-}
-
-
-template <class list_node> class List
-{
- public:
-  List() : head(NULL)
-  {
-    mx_init ();
-  }
-
-  ~List()
-  {
-  }
-
-  void fixup_after_fork ()
-  {
-    mx_init ();
-  }
-
-  void insert (list_node *node)
-  {
-    List_insert (head, node);
-  }
-
-  void remove (list_node *node)
-  {
-    List_remove (mx, head, node);
-  }
-
-  void for_each (void (list_node::*callback) ())
-  {
-    mx.lock ();
-    list_node *cur = head;
-    while (cur)
-      {
-	(cur->*callback) ();
-	cur = cur->next;
-      }
-    mx.unlock ();
-  }
-
-  fast_mutex mx;
-  list_node *head;
-
-protected:
-  void mx_init ()
-  {
-    if (!mx.init ())
-      api_fatal ("Could not create mutex for list synchronisation.");
-  }
-};
-
-class pthread_key: public verifyable_object
-{
-  DWORD tls_index;
 public:
-  static bool is_good_object (pthread_key_t const *);
 
-  int set (const void *value) {TlsSetValue (tls_index, (void *) value); return 0;}
-  void *get () const {return TlsGetValue (tls_index);}
+  DWORD dwTlsIndex;
+  int set (const void *);
+  void *get ();
 
-  pthread_key (void (*)(void *));
-  ~pthread_key ();
-  static void fixup_before_fork ()
-  {
-    keys.for_each (&pthread_key::_fixup_before_fork);
-  }
+    pthread_key (void (*)(void *));
+   ~pthread_key ();
+};
 
-  static void fixup_after_fork ()
-  {
-    keys.fixup_after_fork ();
-    keys.for_each (&pthread_key::_fixup_after_fork);
-  }
-
-  static void run_all_destructors ()
-  {
-    keys.for_each (&pthread_key::run_destructor);
-  }
-
-  /* List support calls */
-  class pthread_key *next;
-private:
-  static List<pthread_key> keys;
-  void _fixup_before_fork ();
-  void _fixup_after_fork ();
+/* FIXME: test using multiple inheritance and merging key_destructor into pthread_key
+ * for efficiency */
+class pthread_key_destructor
+{
+public:
   void (*destructor) (void *);
-  void run_destructor ();
-  void *fork_buf;
+  pthread_key_destructor *InsertAfter (pthread_key_destructor * node);
+  pthread_key_destructor *UnlinkNext ();
+  pthread_key_destructor *Next ();
+
+    pthread_key_destructor (void (*thedestructor) (void *), pthread_key * key);
+  pthread_key_destructor *next;
+  pthread_key *key;
 };
 
-class pthread_attr: public verifyable_object
+class pthread_key_destructor_list
 {
 public:
-  static bool is_good_object(pthread_attr_t const *);
+  void Insert (pthread_key_destructor * node);
+/* remove a given dataitem, wherever in the list it is */
+  pthread_key_destructor *Remove (pthread_key_destructor * item);
+/* get the first item and remove at the same time */
+  pthread_key_destructor *Pop ();
+  pthread_key_destructor *Remove (pthread_key * key);
+  void IterateNull ();
+private:
+    pthread_key_destructor * head;
+};
+
+
+class pthread_attr:public verifyable_object
+{
+public:
   int joinable;
   int contentionscope;
   int inheritsched;
   struct sched_param schedparam;
-  void *stackaddr;
   size_t stacksize;
-  size_t guardsize;
 
-  pthread_attr ();
-  ~pthread_attr ();
+    pthread_attr ();
+   ~pthread_attr ();
 };
 
-class pthread_mutexattr: public verifyable_object
-{
-public:
-  static bool is_good_object(pthread_mutexattr_t const *);
-  int pshared;
-  int mutextype;
-  pthread_mutexattr ();
-  ~pthread_mutexattr ();
-};
-
-class pthread_mutex: public verifyable_object
-{
-public:
-  static void init_mutex ();
-  static int init (pthread_mutex_t *, const pthread_mutexattr_t *attr,
-		   const pthread_mutex_t);
-  static bool is_good_object (pthread_mutex_t const *);
-  static bool is_initializer (pthread_mutex_t const *);
-  static bool is_initializer_or_object (pthread_mutex_t const *);
-  static bool is_initializer_or_bad_object (pthread_mutex_t const *);
-
-  int lock ();
-  int trylock ();
-  int unlock ();
-  int destroy ();
-  void set_type (int in_type) {type = in_type;}
-
-  int lock_recursive ()
-  {
-    if (recursion_counter == UINT_MAX)
-      return EAGAIN;
-    recursion_counter++;
-    return 0;
-  }
-
-  bool can_be_unlocked ();
-
-  pthread_mutex (pthread_mutexattr * = NULL);
-  pthread_mutex (pthread_mutex_t *, pthread_mutexattr *);
-  ~pthread_mutex ();
-
-  class pthread_mutex *next;
-  static void fixup_after_fork ()
-  {
-    mutexes.fixup_after_fork ();
-    mutexes.for_each (&pthread_mutex::_fixup_after_fork);
-  }
-
-protected:
-  LONG lock_counter;
-  HANDLE win32_obj_id;
-  pthread_t owner;
-#ifdef DEBUGGING
-  DWORD tid;		/* the thread id of the owner */
-#endif
-
-  void set_shared (int in_shared) { pshared = in_shared; }
-  void set_owner (pthread_t self)
-  {
-    recursion_counter = 1;
-    owner = self;
-#ifdef DEBUGGING
-    tid = GetCurrentThreadId ();
-#endif
-  }
-
-  static const pthread_t _new_mutex;
-  static const pthread_t _unlocked_mutex;
-  static const pthread_t _destroyed_mutex;
-
-private:
-  unsigned int recursion_counter;
-  LONG condwaits;
-  int type;
-  int pshared;
-
-  bool no_owner ();
-  void _fixup_after_fork ();
-
-  static List<pthread_mutex> mutexes;
-  static fast_mutex mutex_initialization_lock;
-  friend class pthread_cond;
-};
-
-class pthread_spinlock: public pthread_mutex
-{
-public:
-  static bool is_good_object (pthread_spinlock_t const *);
-  static int init (pthread_spinlock_t *, int);
-
-  int lock ();
-  int unlock ();
-
-  pthread_spinlock (int);
-};
-
-class _cygtls;
-class pthread: public verifyable_object
+class pthread:public verifyable_object
 {
 public:
   HANDLE win32_obj_id;
@@ -355,257 +229,87 @@ public:
   void *(*function) (void *);
   void *arg;
   void *return_ptr;
-  bool valid;
   bool suspended;
-  bool canceled;
   int cancelstate, canceltype;
-  _cygtls *cygtls;
-  HANDLE cancel_event;
-  pthread_t joiner;
+  // int joinable;
 
-  virtual bool create (void *(*)(void *), pthread_attr *, void *);
-
-  pthread ();
-  virtual ~pthread ();
-
-  static void init_mainthread ();
-  static bool is_good_object(pthread_t const *);
-  static void atforkprepare();
-  static void atforkparent();
-  static void atforkchild();
-
-  /* API calls */
-  static int cancel (pthread_t);
-  static int join (pthread_t * thread, void **return_val);
-  static int detach (pthread_t * thread);
-  static int create (pthread_t * thread, const pthread_attr_t * attr,
-			      void *(*start_routine) (void *), void *arg);
-  static int once (pthread_once_t *, void (*)(void));
-  static int atfork(void (*)(void), void (*)(void), void (*)(void));
-  static int suspend (pthread_t * thread);
-  static int resume (pthread_t * thread);
-
-  virtual void exit (void *value_ptr) __attribute__ ((noreturn));
-
-  virtual int cancel ();
-
-  virtual void testcancel ();
-  static HANDLE get_cancel_event ();
-  static void static_cancel_self () __attribute__ ((noreturn));
-
-  virtual int setcancelstate (int state, int *oldstate);
-  virtual int setcanceltype (int type, int *oldtype);
-
-  virtual void push_cleanup_handler (__pthread_cleanup_handler *handler);
-  virtual void pop_cleanup_handler (int const execute);
-
-  static pthread* self ();
-  static DWORD WINAPI thread_init_wrapper (void *);
-
-  virtual unsigned long getsequence_np();
-
-  static int equal (pthread_t t1, pthread_t t2)
+  DWORD GetThreadId ()
   {
-    return t1 == t2;
+    return thread_id;
+  }
+  void setThreadIdtoCurrent ()
+  {
+    thread_id = GetCurrentThreadId ();
   }
 
-  /* List support calls */
-  class pthread *next;
-  static void fixup_after_fork ()
-  {
-    threads.fixup_after_fork ();
-    threads.for_each (&pthread::_fixup_after_fork);
-  }
+  /* signal handling */
+  struct sigaction *sigs;
+  sigset_t *sigmask;
+  LONG *sigtodo;
+  void create (void *(*)(void *), pthread_attr *, void *);
 
-  static void suspend_all_except_self ()
-  {
-    threads.for_each (&pthread::suspend_except_self);
-  }
-
-  static void resume_all ()
-  {
-    threads.for_each (&pthread::resume);
-  }
+    pthread ();
+   ~pthread ();
 
 private:
-  static List<pthread> threads;
-  DWORD thread_id;
-  __pthread_cleanup_handler *cleanup_stack;
-  pthread_mutex mutex;
-  sigset_t parent_sigmask;
-
-  void suspend_except_self ();
-  void resume ();
-
-  void _fixup_after_fork ();
-
-  void pop_all_cleanup_handlers ();
-  void precreate (pthread_attr *);
-  void postcreate ();
-  bool create_cancel_event ();
-  static void set_tls_self_pointer (pthread *);
-  void cancel_self () __attribute__ ((noreturn));
-  DWORD get_thread_id ();
+    DWORD thread_id;
 };
 
-class pthread_null : public pthread
-{
-  public:
-  static pthread *get_null_pthread();
-  ~pthread_null();
-
-  /* From pthread These should never get called
-  * as the ojbect is not verifyable
-  */
-  bool create (void *(*)(void *), pthread_attr *, void *);
-  void exit (void *value_ptr) __attribute__ ((noreturn));
-  int cancel ();
-  void testcancel ();
-  int setcancelstate (int state, int *oldstate);
-  int setcanceltype (int type, int *oldtype);
-  void push_cleanup_handler (__pthread_cleanup_handler *handler);
-  void pop_cleanup_handler (int const execute);
-  unsigned long getsequence_np();
-
-  private:
-  pthread_null ();
-  static pthread_null _instance;
-};
-
-class pthread_condattr: public verifyable_object
+class pthread_mutexattr:public verifyable_object
 {
 public:
-  static bool is_good_object(pthread_condattr_t const *);
+  int pshared;
+  int mutextype;
+    pthread_mutexattr ();
+   ~pthread_mutexattr ();
+};
+
+class pthread_mutex:public verifyable_object
+{
+public:
+  CRITICAL_SECTION criticalsection;
+  HANDLE win32_obj_id;
+  LONG condwaits;
+  int pshared;
+  class pthread_mutex * next;
+
+  int Lock ();
+  int TryLock ();
+  int UnLock ();
+  void fixup_after_fork ();
+
+  pthread_mutex (unsigned short);
+  pthread_mutex (pthread_mutexattr *);
+  pthread_mutex (pthread_mutex_t *, pthread_mutexattr *);
+  ~pthread_mutex ();
+};
+
+class pthread_condattr:public verifyable_object
+{
+public:
   int shared;
-  clockid_t clock_id;
 
   pthread_condattr ();
   ~pthread_condattr ();
 };
 
-class pthread_cond: public verifyable_object
+class pthread_cond:public verifyable_object
 {
 public:
-  static bool is_good_object (pthread_cond_t const *);
-  static bool is_initializer (pthread_cond_t const *);
-  static bool is_initializer_or_object (pthread_cond_t const *);
-  static bool is_initializer_or_bad_object (pthread_cond_t const *);
-  static void init_mutex ();
-  static int init (pthread_cond_t *, const pthread_condattr_t *);
-
   int shared;
-  clockid_t clock_id;
-
-  unsigned long waiting;
-  unsigned long pending;
-  HANDLE sem_wait;
-
-  pthread_mutex mtx_in;
-  pthread_mutex mtx_out;
-
-  pthread_mutex_t mtx_cond;
-
-  void unblock (const bool all);
-  int wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout = NULL);
-
-  pthread_cond (pthread_condattr *);
-  ~pthread_cond ();
-
+  LONG waiting;
+  pthread_mutex *mutex;
+  /* to allow atomic behaviour for cond_broadcast */
+  pthread_mutex_t cond_access;
+  HANDLE win32_obj_id;
   class pthread_cond * next;
-  static void fixup_after_fork ()
-  {
-    conds.fixup_after_fork ();
-    conds.for_each (&pthread_cond::_fixup_after_fork);
-  }
+  int TimedWait (DWORD dwMilliseconds);
+  void BroadCast ();
+  void Signal ();
+  void fixup_after_fork ();
 
-private:
-  void _fixup_after_fork ();
-
-  static List<pthread_cond> conds;
-  static fast_mutex cond_initialization_lock;
-};
-
-class pthread_rwlockattr: public verifyable_object
-{
-public:
-  static bool is_good_object(pthread_rwlockattr_t const *);
-  int shared;
-
-  pthread_rwlockattr ();
-  ~pthread_rwlockattr ();
-};
-
-class pthread_rwlock: public verifyable_object
-{
-public:
-  static bool is_good_object (pthread_rwlock_t const *);
-  static bool is_initializer (pthread_rwlock_t const *);
-  static bool is_initializer_or_object (pthread_rwlock_t const *);
-  static bool is_initializer_or_bad_object (pthread_rwlock_t const *);
-  static void init_mutex ();
-  static int init (pthread_rwlock_t *, const pthread_rwlockattr_t *);
-
-  int shared;
-
-  unsigned long waiting_readers;
-  unsigned long waiting_writers;
-  pthread_t writer;
-  struct RWLOCK_READER
-  {
-    struct RWLOCK_READER *next;
-    pthread_t thread;
-    unsigned long n;
-    RWLOCK_READER (): next (NULL), thread (pthread::self ()), n (0) {}
-  } *readers;
-  fast_mutex readers_mx;
-
-  int rdlock ();
-  int tryrdlock ();
-
-  int wrlock ();
-  int trywrlock ();
-
-  int unlock ();
-
-  pthread_mutex mtx;
-  pthread_cond cond_readers;
-  pthread_cond cond_writers;
-
-  pthread_rwlock (pthread_rwlockattr *);
-  ~pthread_rwlock ();
-
-  class pthread_rwlock * next;
-  static void fixup_after_fork ()
-  {
-    rwlocks.fixup_after_fork ();
-    rwlocks.for_each (&pthread_rwlock::_fixup_after_fork);
-  }
-
-private:
-  static List<pthread_rwlock> rwlocks;
-
-  RWLOCK_READER *add_reader ();
-  void remove_reader (struct RWLOCK_READER *rd);
-  struct RWLOCK_READER *lookup_reader ();
-
-  void release ()
-  {
-    if (waiting_writers)
-      {
-	if (!readers)
-	  cond_writers.unblock (false);
-      }
-    else if (waiting_readers)
-      cond_readers.unblock (true);
-  }
-
-
-  static void rdlock_cleanup (void *arg);
-  static void wrlock_cleanup (void *arg);
-
-  void _fixup_after_fork ();
-
-  static fast_mutex rwlock_initialization_lock;
+    pthread_cond (pthread_condattr *);
+   ~pthread_cond ();
 };
 
 class pthread_once
@@ -616,60 +320,20 @@ public:
 };
 
 /* shouldn't be here */
-class semaphore: public verifyable_object
+class semaphore:public verifyable_object
 {
 public:
-  static bool is_good_object(sem_t const *);
-  /* API calls */
-  static int init (sem_t *sem, int pshared, unsigned int value);
-  static int destroy (sem_t *sem);
-  static sem_t *open (unsigned long long hash, LUID luid, int fd, int oflag,
-		      mode_t mode, unsigned int value, bool &wasopen);
-  static int close (sem_t *sem);
-  static int wait (sem_t *sem);
-  static int post (sem_t *sem);
-  static int getvalue (sem_t *sem, int *sval);
-  static int trywait (sem_t *sem);
-  static int timedwait (sem_t *sem, const struct timespec *abstime);
-
-  static int getinternal (sem_t *sem, int *sfd, unsigned long long *shash,
-			  LUID *sluid, unsigned int *sval);
-
   HANDLE win32_obj_id;
+  class semaphore * next;
   int shared;
   long currentvalue;
-  int fd;
-  unsigned long long hash;
-  LUID luid;
-  sem_t *sem;
+  void Wait ();
+  void Post ();
+  int TryWait ();
+  void fixup_after_fork ();
 
-  semaphore (int, unsigned int);
-  semaphore (unsigned long long, LUID, int, sem_t *, int, mode_t, unsigned int);
-  ~semaphore ();
-
-  class semaphore * next;
-  static void fixup_after_fork ()
-  {
-    semaphores.fixup_after_fork ();
-    semaphores.for_each (&semaphore::_fixup_after_fork);
-  }
-  static void terminate ()
-  {
-    save_errno save;
-    semaphores.for_each (&semaphore::_terminate);
-  }
-
-private:
-  int _wait ();
-  void _post ();
-  int _getvalue (int *sval);
-  int _trywait ();
-  int _timedwait (const struct timespec *abstime);
-
-  void _fixup_after_fork ();
-  void _terminate ();
-
-  static List<semaphore> semaphores;
+    semaphore (int, unsigned int);
+   ~semaphore ();
 };
 
 class callback
@@ -679,27 +343,170 @@ public:
   class callback * next;
 };
 
-struct MTinterface
+class MTinterface
 {
+public:
   // General
+  DWORD reent_index;
+  DWORD thread_self_dwTlsIndex;
+  /* we may get 0 for the Tls index.. grrr */
+  int indexallocated;
   int concurrency;
-  LONG threadcount;
+  long int threadcount;
 
+  // Used for main thread data, and sigproc thread
+  struct __reent_t reents;
+  struct _winsup_t winsup_reent;
+  pthread mainthread;
+
+  pthread_key_destructor_list destructors;
   callback *pthread_prepare;
   callback *pthread_child;
   callback *pthread_parent;
 
-  void Init ();
-  void fixup_before_fork ();
-  void fixup_after_fork ();
+  // list of mutex's. USE THREADSAFE INSERTS AND DELETES.
+  class pthread_mutex * mutexs;
+  class pthread_cond  * conds;
+  class semaphore     * semaphores;
 
-#if 0 // avoid initialization since zero is implied and
-  MTinterface () :
-    concurrency (0), threadcount (0),
-    pthread_prepare (NULL), pthread_child (NULL), pthread_parent (NULL)
+  void Init (int);
+  void fixup_after_fork (void);
+
+    MTinterface ():reent_index (0), indexallocated (0), threadcount (1)
   {
+    pthread_prepare = NULL;
+    pthread_child   = NULL;
+    pthread_parent  = NULL;
   }
-#endif
 };
 
-#define MT_INTERFACE user_data->threadinterface
+void __pthread_atforkprepare(void);
+void __pthread_atforkparent(void);
+void __pthread_atforkchild(void);
+
+extern "C"
+{
+void *thread_init_wrapper (void *);
+
+/*  ThreadCreation */
+int __pthread_create (pthread_t * thread, const pthread_attr_t * attr,
+		      void *(*start_routine) (void *), void *arg);
+int __pthread_once (pthread_once_t *, void (*)(void));
+int __pthread_atfork(void (*)(void), void (*)(void), void (*)(void));
+
+int __pthread_attr_init (pthread_attr_t * attr);
+int __pthread_attr_destroy (pthread_attr_t * attr);
+int __pthread_attr_setdetachstate (pthread_attr_t *, int);
+int __pthread_attr_getdetachstate (const pthread_attr_t *, int *);
+int __pthread_attr_setstacksize (pthread_attr_t * attr, size_t size);
+int __pthread_attr_getstacksize (const pthread_attr_t * attr, size_t * size);
+
+int __pthread_attr_getinheritsched (const pthread_attr_t *, int *);
+int __pthread_attr_getschedparam (const pthread_attr_t *,
+				  struct sched_param *);
+int __pthread_attr_getschedpolicy (const pthread_attr_t *, int *);
+int __pthread_attr_getscope (const pthread_attr_t *, int *);
+int __pthread_attr_getstackaddr (const pthread_attr_t *, void **);
+int __pthread_attr_setinheritsched (pthread_attr_t *, int);
+int __pthread_attr_setschedparam (pthread_attr_t *,
+				  const struct sched_param *);
+int __pthread_attr_setschedpolicy (pthread_attr_t *, int);
+int __pthread_attr_setscope (pthread_attr_t *, int);
+int __pthread_attr_setstackaddr (pthread_attr_t *, void *);
+
+
+
+/* Thread Exit */
+void __pthread_exit (void *value_ptr);
+int __pthread_join (pthread_t * thread, void **return_val);
+int __pthread_detach (pthread_t * thread);
+
+/* Thread suspend */
+
+int __pthread_suspend (pthread_t * thread);
+int __pthread_continue (pthread_t * thread);
+
+unsigned long __pthread_getsequence_np (pthread_t * thread);
+
+/* Thread SpecificData */
+int __pthread_key_create (pthread_key_t * key, void (*destructor) (void *));
+int __pthread_key_delete (pthread_key_t key);
+int __pthread_setspecific (pthread_key_t key, const void *value);
+void *__pthread_getspecific (pthread_key_t key);
+
+/* Thead synchroniation */
+int __pthread_cond_destroy (pthread_cond_t * cond);
+int __pthread_cond_init (pthread_cond_t * cond,
+			 const pthread_condattr_t * attr);
+int __pthread_cond_signal (pthread_cond_t * cond);
+int __pthread_cond_broadcast (pthread_cond_t * cond);
+int __pthread_cond_timedwait (pthread_cond_t * cond,
+			      pthread_mutex_t * mutex,
+			      const struct timespec *abstime);
+int __pthread_cond_wait (pthread_cond_t * cond, pthread_mutex_t * mutex);
+int __pthread_condattr_init (pthread_condattr_t * condattr);
+int __pthread_condattr_destroy (pthread_condattr_t * condattr);
+int __pthread_condattr_getpshared (const pthread_condattr_t * attr,
+				   int *pshared);
+int __pthread_condattr_setpshared (pthread_condattr_t * attr, int pshared);
+
+/* Thread signal */
+int __pthread_kill (pthread_t thread, int sig);
+int __pthread_sigmask (int operation, const sigset_t * set,
+		       sigset_t * old_set);
+
+/*  ID */
+pthread_t __pthread_self ();
+int __pthread_equal (pthread_t * t1, pthread_t * t2);
+
+
+/* Mutexes  */
+int __pthread_mutex_init (pthread_mutex_t *, const pthread_mutexattr_t *);
+int __pthread_mutex_lock (pthread_mutex_t *);
+int __pthread_mutex_trylock (pthread_mutex_t *);
+int __pthread_mutex_unlock (pthread_mutex_t *);
+int __pthread_mutex_destroy (pthread_mutex_t *);
+int __pthread_mutex_setprioceiling (pthread_mutex_t * mutex,
+				    int prioceiling, int *old_ceiling);
+int __pthread_mutex_getprioceiling (const pthread_mutex_t * mutex,
+				    int *prioceiling);
+
+
+int __pthread_mutexattr_destroy (pthread_mutexattr_t *);
+int __pthread_mutexattr_getprioceiling (const pthread_mutexattr_t *, int *);
+int __pthread_mutexattr_getprotocol (const pthread_mutexattr_t *, int *);
+int __pthread_mutexattr_getpshared (const pthread_mutexattr_t *, int *);
+int __pthread_mutexattr_gettype (const pthread_mutexattr_t *, int *);
+int __pthread_mutexattr_init (pthread_mutexattr_t *);
+int __pthread_mutexattr_setprioceiling (pthread_mutexattr_t *, int);
+int __pthread_mutexattr_setprotocol (pthread_mutexattr_t *, int);
+int __pthread_mutexattr_setpshared (pthread_mutexattr_t *, int);
+int __pthread_mutexattr_settype (pthread_mutexattr_t *, int);
+
+
+/* Scheduling */
+int __pthread_getconcurrency (void);
+int __pthread_setconcurrency (int new_level);
+int __pthread_getschedparam (pthread_t thread, int *policy,
+			     struct sched_param *param);
+int __pthread_setschedparam (pthread_t thread, int policy,
+			     const struct sched_param *param);
+
+/* cancelability states */
+int __pthread_cancel (pthread_t thread);
+int __pthread_setcancelstate (int state, int *oldstate);
+int __pthread_setcanceltype (int type, int *oldtype);
+void __pthread_testcancel (void);
+
+
+/* Semaphores */
+int __sem_init (sem_t * sem, int pshared, unsigned int value);
+int __sem_destroy (sem_t * sem);
+int __sem_wait (sem_t * sem);
+int __sem_trywait (sem_t * sem);
+int __sem_post (sem_t * sem);
+};
+
+#endif // MT_SAFE
+
+#endif // _CYGNUS_THREADS_
