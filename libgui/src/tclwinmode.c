@@ -28,7 +28,7 @@ static struct pair values[] =
 
 static int
 seterrormode_command (ClientData cd, Tcl_Interp *interp,
-		      int argc, CONST84 char *argv[])
+		      int argc, char *argv[])
 {
 #ifdef __CYGWIN32__
   int len, i;
@@ -61,11 +61,11 @@ seterrormode_command (ClientData cd, Tcl_Interp *interp,
 	{
 	  Tcl_AppendResult (interp, "unrecognized key \"", list[i],
 			    "\"", (char *) NULL);
-	  ckfree ((char *) list);
+	  Tcl_Free ((char *) list);
 	  return TCL_ERROR;
 	}
     }
-  ckfree ((char *) list);
+  Tcl_Free ((char *) list);
 
   val = SetErrorMode (val);
 

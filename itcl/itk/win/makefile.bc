@@ -66,6 +66,7 @@ LNLIBS_dll =	$(ITCLLIBDIR)\$(ITCLLIB) $(TKLIBDIR)\$(TKLIB) $(TCLLIBDIR)\$(TCLLIB
 .path.obj=$(TMPDIR)
 
 ITKWISHOBJS = \
+	$(TKLIBDIR)\tkConsole.obj \
 	$(TMPDIR)\winMain.obj
 
 ITKOBJS = \

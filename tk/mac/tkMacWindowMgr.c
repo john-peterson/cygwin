@@ -3,7 +3,7 @@
  *
  *	Implements common window manager functions for the Macintosh.
  *
- * Copyright (c) 1995-1998 Sun Microsystems, Inc.
+ * Copyright (c) 1995-1997 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -63,7 +63,7 @@ static int 	GenerateActivateEvents _ANSI_ARGS_((EventRecord *eventPtr,
 static int 	GenerateFocusEvent _ANSI_ARGS_((EventRecord *eventPtr,
 			Window window));
 static int	GenerateKeyEvent _ANSI_ARGS_((EventRecord *eventPtr,
-			Window window, UInt32 savedCode));
+			Window window));
 static int	GenerateUpdateEvent _ANSI_ARGS_((EventRecord *eventPtr,
 			Window window));
 static void 	GenerateUpdates _ANSI_ARGS_((RgnHandle updateRgn,
@@ -99,19 +99,13 @@ WindowManagerMouse(
     EventRecord *eventPtr,	/* Macintosh event record. */
     Window window)		/* Window pointer. */
 {
-    WindowRef whichWindow, frontWindow, frontNonFloating;
+    WindowRef whichWindow, frontWindow;
     Tk_Window tkwin;
     Point where, where2;
     int xOffset, yOffset;
     short windowPart;
-    TkDisplay *dispPtr;
 				
     frontWindow = FrontWindow();
-    if (TkMacHaveAppearance() >= 0x110) {
-        frontNonFloating = FrontNonFloatingWindow();
-    } else {
-        frontNonFloating = frontWindow;				
-    }
 
     /* 
      * The window manager only needs to know about mouse down events
@@ -128,14 +122,13 @@ WindowManagerMouse(
     }
 
     windowPart = FindWindow(eventPtr->where, &whichWindow);
-    dispPtr = TkGetDisplayList();
-    tkwin = Tk_IdToWindow(dispPtr->display, window);
+    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
     switch (windowPart) {
 	case inSysWindow:
 	    SystemClick(eventPtr, (GrafPort *) whichWindow);
 	    return false;
 	case inDrag:
-	    if (!(TkpIsWindowFloating(whichWindow)) && (whichWindow != frontNonFloating)) {
+	    if (whichWindow != frontWindow) {
 		if (!(eventPtr->modifiers & cmdKey)) {
 		    if ((gGrabWinPtr != NULL) && (gGrabWinPtr != tkwin)) {
 			SysBeep(1);
@@ -169,8 +162,7 @@ WindowManagerMouse(
 	    return true;
 	case inGrow:
 	case inContent:
-	    if (!(TkpIsWindowFloating(whichWindow)) 
-	            && (whichWindow != frontNonFloating)) {
+	    if (whichWindow != frontWindow ) {
 		/*
 		 * This click moves the window forward.  We don't want
 		 * the corasponding mouse-up to be reported to the application
@@ -180,9 +172,9 @@ WindowManagerMouse(
 		    SysBeep(1);
 		    return false;
 		}
+		BringWindowForward(whichWindow);
 		gEatButtonUp = true;
 		SetPort((GrafPort *) whichWindow);
-		BringWindowForward(whichWindow);
 		return false;
 	    } else {
 		/*
@@ -217,10 +209,6 @@ WindowManagerMouse(
 		GetKeys(theKeys);
 		oldMode = Tcl_SetServiceMode(TCL_SERVICE_ALL);
 		TkMacClearMenubarActive();
-		/*
-		 * Handle -postcommand
-		 */
-		TkMacPreprocessMenu();
 		TkMacHandleMenuSelect(MenuSelect(eventPtr->where),
 			theKeys[1] & 4);
 		Tcl_SetServiceMode(oldMode);
@@ -273,14 +261,10 @@ TkAboutDlg()
     while (itemHit != 1) {
 	ModalDialog( NULL, &itemHit);
     }
-    DisposeDialog(aboutDlog);
+    DisposDialog(aboutDlog);
     aboutDlog = NULL;
 	
-    if (TkMacHaveAppearance() >= 0x110) {
-        SelectWindow(FrontNonFloatingWindow());
-    } else {
     SelectWindow(FrontWindow());
-    }
 
     return;
 }
@@ -309,10 +293,8 @@ GenerateUpdateEvent(
 {
     WindowRef macWindow;
     register TkWindow *winPtr;
-    TkDisplay *dispPtr;
 	
-    dispPtr = TkGetDisplayList();
-    winPtr = (TkWindow *) Tk_IdToWindow(dispPtr->display, window);
+    winPtr = (TkWindow *) Tk_IdToWindow(tkDisplayList->display, window);
 
     if (winPtr == NULL) {
 	 return false;
@@ -426,7 +408,7 @@ GenerateUpdates(
      
     for (childPtr = winPtr->childList; childPtr != NULL;
 				       childPtr = childPtr->nextPtr) {
-	if (!Tk_IsMapped(childPtr) || Tk_TopWinHierarchy(childPtr)) {
+	if (!Tk_IsMapped(childPtr) || Tk_IsTopLevel(childPtr)) {
 	    continue;
 	}
 
@@ -482,7 +464,6 @@ TkGenerateButtonEvent(
     Point where;
     Tk_Window tkwin;
     int dummy;
-    TkDisplay *dispPtr;
 
     /* 
      * ButtonDown events will always occur in the front
@@ -493,19 +474,13 @@ TkGenerateButtonEvent(
     where.h = x;
     where.v = y;
     FindWindow(where, &whichWin);
-    if (TkMacHaveAppearance() >= 0x110) {
-        frontWin = FrontNonFloatingWindow();
-    } else {
-        frontWin = FrontWindow();
-    }
-        		
-    if ((frontWin == NULL) || ((!(TkpIsWindowFloating(whichWin)) && (frontWin != whichWin))
-            && gGrabWinPtr == NULL)) {
+    frontWin = FrontWindow();
+			
+    if ((frontWin == NULL) || (frontWin != whichWin && gGrabWinPtr == NULL)) {
 	return false;
     }
 
-    dispPtr = TkGetDisplayList();
-    tkwin = Tk_IdToWindow(dispPtr->display, window);
+    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
     
     GlobalToLocal(&where);
     if (tkwin != NULL) {
@@ -542,10 +517,8 @@ GenerateActivateEvents(
     Window window)		/* Root X window for event. */
 {
     TkWindow *winPtr;
-    TkDisplay *dispPtr;
     
-    dispPtr = TkGetDisplayList();
-    winPtr = (TkWindow *) Tk_IdToWindow(dispPtr->display, window);
+    winPtr = (TkWindow *) Tk_IdToWindow(tkDisplayList->display, window);
     if (winPtr == NULL || winPtr->window == None) {
 	return false;
     }
@@ -656,10 +629,8 @@ GenerateFocusEvent(
 {
     XEvent event;
     Tk_Window tkwin;
-    TkDisplay *dispPtr;
     
-    dispPtr = TkGetDisplayList();
-    tkwin = Tk_IdToWindow(dispPtr->display, window);
+    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
     if (tkwin == NULL) {
 	return false;
     }
@@ -675,9 +646,9 @@ GenerateFocusEvent(
 	event.xany.type = FocusOut;
     }
 
-    event.xany.serial = dispPtr->display->request;
+    event.xany.serial = tkDisplayList->display->request;
     event.xany.send_event = False;
-    event.xfocus.display = dispPtr->display;
+    event.xfocus.display = tkDisplayList->display;
     event.xfocus.window = window;
     event.xfocus.mode = NotifyNormal;
     event.xfocus.detail = NotifyDetailNone;
@@ -708,46 +679,23 @@ GenerateFocusEvent(
 static int
 GenerateKeyEvent(
     EventRecord *eventPtr,	/* Incoming Mac event */
-    Window window,		/* Root X window for event. */
-    UInt32 savedKeyCode)	/* If non-zero, this is a lead byte which
-    				 * should be combined with the character
-    				 * in this event to form one multi-byte 
-    				 * character. */
+    Window window)		/* Root X window for event. */
 {
     Point where;
     Tk_Window tkwin;
     XEvent event;
-    unsigned char byte;
-    char buf[16];
-    TkDisplay *dispPtr;
-    
+
     /*
      * The focus must be in the FrontWindow on the Macintosh.
      * We then query Tk to determine the exact Tk window
      * that owns the focus.
      */
 
-    dispPtr = TkGetDisplayList();
-    tkwin = Tk_IdToWindow(dispPtr->display, window);
-    
-    if (tkwin == NULL) {
-        return false;
-    }
+    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
     tkwin = (Tk_Window) ((TkWindow *) tkwin)->dispPtr->focusPtr;
     if (tkwin == NULL) {
 	return false;
     }
-    byte = (unsigned char) (eventPtr->message & charCodeMask);
-    if ((savedKeyCode == 0) && 
-            (Tcl_ExternalToUtf(NULL, NULL, (char *) &byte, 1, 0, NULL, 
-            	    buf, sizeof(buf), NULL, NULL, NULL) != TCL_OK)) {
-        /*
-         * This event specifies a lead byte.  Wait for the second byte
-         * to come in before sending the XEvent.
-         */
-         
-        return false;
-    }   
 
     where.v = eventPtr->where.v;
     where.h = eventPtr->where.h;
@@ -762,10 +710,7 @@ GenerateKeyEvent(
     GlobalToLocal(&where);
     Tk_TopCoordsToWindow(tkwin, where.h, where.v, 
 	    &event.xkey.x, &event.xkey.y);
-    
-    event.xkey.keycode = byte |
-            ((savedKeyCode & charCodeMask) << 8) |
-            ((eventPtr->message & keyCodeMask) << 8);
+    event.xkey.keycode = eventPtr->message;
 
     event.xany.serial = Tk_Display(tkwin)->request;
     event.xkey.window = Tk_WindowId(tkwin);
@@ -819,14 +764,13 @@ GeneratePollingEvents()
 {
     Tk_Window tkwin, rootwin;
     Window window;
-    WindowRef whichWindow, frontWin, frontNonFloating;
+    WindowRef whichwindow, frontWin;
     Point whereLocal, whereGlobal;
     Boolean inContentRgn;
     short part;
     int local_x, local_y;
     int generatedEvents = false;
-    TkDisplay *dispPtr;
-
+    
     /*
      * First we get the current mouse position and determine
      * what Tk window the mouse is over (if any).
@@ -841,33 +785,14 @@ GeneratePollingEvents()
     whereGlobal = whereLocal;
     LocalToGlobal(&whereGlobal);
 	
-    part = FindWindow(whereGlobal, &whichWindow);
+    part = FindWindow(whereGlobal, &whichwindow);
     inContentRgn = (part == inContent || part == inGrow);
 
-    if (TkMacHaveAppearance() >= 0x110) {
-        /* 
-         * If the mouse is over the front non-floating window, then we
-         * need to set the local coordinates relative to that window
-         * rather than a possibly floating window above it.
-         */
-         
-        frontNonFloating = FrontNonFloatingWindow();
-        if (whichWindow == frontNonFloating 
-                && (whichWindow != frontWin)) {
-            SetPort((GrafPort *) frontNonFloating);
-            whereLocal = whereGlobal;
-            GlobalToLocal(&whereLocal);
-        }
-    } else {
-        frontNonFloating = frontWin;
-    }
-
-    if ((!TkpIsWindowFloating(whichWindow) && (frontNonFloating != whichWindow)) || !inContentRgn) {
+    if ((frontWin != whichwindow) || !inContentRgn) {
 	tkwin = NULL;
     } else {
-	window = TkMacGetXWindow(whichWindow);
-	dispPtr = TkGetDisplayList();
-	rootwin = Tk_IdToWindow(dispPtr->display, window);
+	window = TkMacGetXWindow(whichwindow);
+	rootwin = Tk_IdToWindow(tkDisplayList->display, window);
 	if (rootwin == NULL) {
 	    tkwin = NULL;
 	} else {
@@ -934,7 +859,6 @@ GeneratePollingEvents2(
     int local_x, local_y;
     int generatedEvents = false;
     Rect bounds;
-    TkDisplay *dispPtr;
     
     /*
      * First we get the current mouse position and determine
@@ -957,8 +881,7 @@ GeneratePollingEvents2(
     if (whichwindow != frontWin) {
 	tkwin = NULL;
     } else {
-        dispPtr = TkGetDisplayList();
-	rootwin = Tk_IdToWindow(dispPtr->display, window);
+	rootwin = Tk_IdToWindow(tkDisplayList->display, window);
 	TkMacWinBounds((TkWindow *) rootwin, &bounds);
 	if (!PtInRect(whereLocal, &bounds)) {
 	    tkwin = NULL;
@@ -1187,7 +1110,6 @@ TkMacConvertEvent(
     WindowRef whichWindow;
     Window window;
     int eventFound = false;
-    static UInt32 savedKeyCode;
     
     switch (eventPtr->what) {
 	case nullEvent:
@@ -1231,32 +1153,11 @@ TkMacConvertEvent(
 		    break;
 		}
 	    }
-	    /* fall through */
-	    
 	case keyUp:
-	    if (TkMacHaveAppearance() >= 0x110) {
-	    whichWindow = FrontNonFloatingWindow();
-	    } else {
-	        whichWindow = FrontWindow();
-	    }
-	    if (whichWindow == NULL) {
-	        /*
-	         * This happens if we get a key event before Tk has had a
-	         * chance to actually create and realize ".", if they type
-	         * when "." is withdrawn(!), or between the time "." is 
-	         * destroyed and the app exits.
-	         */
-	         
-	        return false;
-	    }
+	    whichWindow = FrontWindow();
 	    window = TkMacGetXWindow(whichWindow);
-	    if (GenerateKeyEvent(eventPtr, window, savedKeyCode) == 0) {
-	        savedKeyCode = eventPtr->message;
-	        return false;
-	    }
-	    eventFound = true;
+	    eventFound |= GenerateKeyEvent(eventPtr, window);
 	    break;
-	    	    
 	case activateEvt:
 	    window = TkMacGetXWindow((WindowRef) eventPtr->message);
 	    eventFound |= GenerateActivateEvents(eventPtr, window);
@@ -1291,13 +1192,6 @@ TkMacConvertEvent(
 			TkSuspendClipboard();
 		    }
 		    tkMacAppInFront = (eventPtr->message & resumeFlag);
-		    if (TkMacHaveAppearance() >= 0x110) {
-		        if (tkMacAppInFront) {
-		            ShowFloatingWindows();
-		        } else {
-		            HideFloatingWindows();
-		        }
-		    }
 		    break;
 	    }
 	    break;
@@ -1316,7 +1210,6 @@ TkMacConvertEvent(
 	    break;
     }
     
-    savedKeyCode = 0;
     return eventFound;
 }
 
@@ -1344,7 +1237,6 @@ TkMacConvertTkEvent(
 {
     int eventFound = false;
     Point where;
-    static UInt32 savedKeyCode;
     
     /*
      * By default, assume it is legal for us to set the cursor 
@@ -1400,16 +1292,9 @@ TkMacConvertTkEvent(
 		    break;
 		}
 	    }
-	    /* fall through. */
-	    
 	case keyUp:
-	    if (GenerateKeyEvent(eventPtr, window, savedKeyCode) == 0) {
-	        savedKeyCode = eventPtr->message;
-	        return false;
-	    }	        
-	    eventFound = true;
+	    eventFound |= GenerateKeyEvent(eventPtr, window);
 	    break;
-	    
 	case activateEvt:
         /*
          * It is probably not legal for us to set the cursor
@@ -1456,13 +1341,6 @@ TkMacConvertTkEvent(
 			TkSuspendClipboard();
 		    }
 		    tkMacAppInFront = (eventPtr->message & resumeFlag);
-		    if (TkMacHaveAppearance() >= 0x110) {
-		        if (tkMacAppInFront) {
-		            ShowFloatingWindows();
-		        } else {
-		            HideFloatingWindows();
-		        }
-		    }
 		    break;
 	    }
 	    break;
@@ -1480,7 +1358,7 @@ TkMacConvertTkEvent(
 	    }
 	    break;
     }
-    savedKeyCode = 0;    
+    
     return eventFound;
 }
 
@@ -1546,7 +1424,7 @@ void
 TkpSetCapture(
     TkWindow *winPtr)			/* Capture window, or NULL. */
 {
-    while ((winPtr != NULL) && !Tk_TopWinHierarchy(winPtr)) {
+    while ((winPtr != NULL) && !Tk_IsTopLevel(winPtr)) {
 	winPtr = winPtr->parentPtr;
     }
     gGrabWinPtr = (Tk_Window) winPtr;
@@ -1597,12 +1475,6 @@ TkMacWindowOffset(
 
 	if (!strucRgn || !contRgn) {
 	    err = MemError( );
-	    
-	} else if (TkMacHaveAppearance()) {
-	    GetWindowRegion(wRef, kWindowStructureRgn, strucRgn);
-	    GetWindowRegion(wRef, kWindowContentRgn, contRgn);
-	    strucRect = (**strucRgn).rgnBBox;
-	    contRect = (**contRgn).rgnBBox;
 	} else {
 	    CopyRgn(wPeek->strucRgn, strucRgn);
 	    CopyRgn(wPeek->contRgn, contRgn);
@@ -1718,10 +1590,7 @@ static void
 BringWindowForward(
     WindowRef wRef)
 {
-    if (!TkpIsWindowFloating(wRef)) {
-        if ((TkMacHaveAppearance() < 0x110) || IsValidWindowPtr(wRef))
-        SelectWindow(wRef);
-    }
+    SelectWindow(wRef);
 }
 
 /*
@@ -1758,34 +1627,4 @@ TkpGetMS()
     *int64Ptr /= 1000;
 
     return (long) *int64Ptr;
-}
-/*
- *----------------------------------------------------------------------
- *
- * TkpIsWindowFloating --
- *
- *	Returns 1 if a window is floating, 0 otherwise.
- *
- * Results:
- *	1 or 0 depending on window's floating attribute.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-int
-TkpIsWindowFloating(WindowRef wRef)
-{
-    WindowClass class;
-    
-    if (TkMacHaveAppearance() < 0x110) {
-        return 0;
-    }
-    
-    GetWindowClass(wRef, &class);
-    
-    return (class == kFloatingWindowClass);
-        
 }

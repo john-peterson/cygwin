@@ -4,10 +4,10 @@
 
 #ifdef _WIN32
 
-#include <windows.h>
-
 #include <tcl.h>
 #include <tk.h>
+
+#include <windows.h>
 
 /* FIXME: We use some internal Tcl and Tk Windows stuff.  */
 #include <tkWinInt.h>
@@ -96,7 +96,7 @@ msgbox_init ()
   class.hInstance = TclWinGetTclInstance();
   class.hbrBackground = NULL;
   class.lpszMenuName = NULL;
-  class.lpszClassName = TEXT ("ide_messagebox");
+  class.lpszClassName = "ide_messagebox";
   class.lpfnWndProc = msgbox_wndproc;
   class.hIcon = NULL;
   class.hCursor = NULL;
@@ -104,7 +104,7 @@ msgbox_init ()
   if (! RegisterClass (&class))
     return TCL_ERROR;
 
-  hidden_hwnd = CreateWindow (TEXT ("ide_messagebox"), TEXT ("ide_messagebox"), WS_TILED,
+  hidden_hwnd = CreateWindow ("ide_messagebox", "ide_messagebox", WS_TILED,
 			      0, 0, 0, 0, NULL, NULL, class.hInstance, NULL);
   if (hidden_hwnd == NULL)
     return TCL_ERROR;
@@ -119,7 +119,7 @@ msgbox_exit (ClientData cd)
 {
   if (hidden_hwnd != NULL)
     {
-      UnregisterClass (TEXT ("ide_messagebox"), TclWinGetTclInstance ());
+      UnregisterClass ("ide_messagebox", TclWinGetTclInstance ());
       DestroyWindow (hidden_hwnd);
       hidden_hwnd = NULL;
 
@@ -136,7 +136,7 @@ msgbox_thread (LPVOID arg)
 {
   struct msgbox_data *md = (struct msgbox_data *) arg;
 
-  md->result = MessageBoxA (md->hwnd, md->message, md->title,
+  md->result = MessageBox (md->hwnd, md->message, md->title,
 			   md->flags | MB_SETFOREGROUND);
   PostMessage (md->hidden_hwnd, MSGBOX_MESSAGE, 0, (LPARAM) arg);
   return 0;
@@ -155,7 +155,7 @@ msgbox_wndproc (HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     return DefWindowProc (hwnd, message, wparam, lparam);
 
   /* Queue up a Tcl event.  */
-  me = (struct msgbox_event *) ckalloc (sizeof *me);
+  me = (struct msgbox_event *) Tcl_Alloc (sizeof *me);
   me->header.proc = msgbox_eventproc;
   me->md = (struct msgbox_data *) lparam;
   Tcl_QueueEvent ((Tcl_Event *) me, TCL_QUEUE_TAIL);
@@ -202,10 +202,10 @@ msgbox_eventproc (Tcl_Event *event, int flags)
 
   /* We are now done with the msgbox_data structure, so we can free
      the fields and the structure itself.  */
-  ckfree (me->md->code);
-  ckfree (me->md->message);
-  ckfree (me->md->title);
-  ckfree ((char *) me->md);
+  Tcl_Free (me->md->code);
+  Tcl_Free (me->md->message);
+  Tcl_Free (me->md->title);
+  Tcl_Free ((char *) me->md);
 
   if (ret != TCL_OK)
     Tcl_BackgroundError (me->md->interp);
@@ -241,18 +241,18 @@ msgTypeInfo[NUM_TYPES] = {
 
 static int
 msgbox_internal (ClientData clientData, Tcl_Interp *interp, int argc,
-		 CONST84 char **argv, CONST84 char *code)
+		 char **argv, char *code)
 {
     int flags;
     Tk_Window parent = NULL;
     HWND hWnd;
-    CONST84 char *message = "";
-    CONST84 char *title = "";
+    char *message = "";
+    char *title = "";
     int icon = MB_ICONINFORMATION;
     int type = MB_OK;
     int modal = MB_SYSTEMMODAL;
     int i, j;
-    CONST84 char *defaultBtn = NULL;
+    char *defaultBtn = NULL;
     int defaultBtnIdx = -1;
 
     for (i=1; i<argc; i+=2) {
@@ -401,15 +401,15 @@ msgbox_internal (ClientData clientData, Tcl_Interp *interp, int argc,
 
       msgbox_init ();
 
-      md = (struct msgbox_data *) ckalloc (sizeof *md);
+      md = (struct msgbox_data *) Tcl_Alloc (sizeof *md);
       md->interp = interp;
-      md->code = ckalloc (strlen (code) + 1);
+      md->code = Tcl_Alloc (strlen (code) + 1);
       strcpy (md->code, code);
       md->hidden_hwnd = hidden_hwnd;
       md->hwnd = hWnd;
-      md->message = ckalloc (strlen (message) + 1);
+      md->message = Tcl_Alloc (strlen (message) + 1);
       strcpy (md->message, message);
-      md->title = ckalloc (strlen (title) + 1);
+      md->title = Tcl_Alloc (strlen (title) + 1);
       strcpy (md->title, title);
       md->flags = flags | modal;
 
@@ -430,7 +430,7 @@ msgbox_internal (ClientData clientData, Tcl_Interp *interp, int argc,
 /* This is the ide_messageBox function.  */
 
 static int
-msgbox (ClientData cd, Tcl_Interp *interp, int argc, CONST84 char **argv)
+msgbox (ClientData cd, Tcl_Interp *interp, int argc, char **argv)
 {
   if (argc < 2)
     {

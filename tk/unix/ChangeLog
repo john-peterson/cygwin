@@ -1,38 +1,3 @@
-2002-07-15  Keith Seitz  <keiths@redhat.com>
-
-        From Mo DeJong  <supermo@bayarea.net>:
-        * configure.in: Use TCL_BUILD_STUB_LIB_SPEC instead of
-        TCL_STUB_LIB_SPEC when defining MAKE_LIB since we want to
-        link to the libtclstub in the build directory.
-        * configure: Regenerated.
-
-2002-02-09  Chris Demetriou  <cgd@broadcom.com>
-
-	* configure.in: When building for NetBSD host systems, tell
-	linker to provide RPATH for the X11 library directory.
-	* configure: Regenerate.
-
-2002-01-10  Keith Seitz  <keiths@redhat.com>
-
-	* unix/Makefile.in (TK_RANLIB): Renamed from just "RANLIB".
-	Changed all references to "RANLIB" to "TK_RANLIB" so that
-	toplevel Makefile doesn't override our own settings.
-
-2001-09-18  Ian Roxborough  <irox@redhat.com>
-
-	* Makefile.in: Fixed bad merge when installing
-	../doc/*.n man files.
-
-	* Makefile.in: Added TK_CFLAGS for flags that
-	shouldn't be supressed by the top level Makefile's
-	CFLAGS settings.
-	
-2001-02-13  Jeff Holcomb  <jeffh@redhat.com>
-
-	* configure.in: Use "*-*-solaris2*" so linking works correctly
-	on i386-pc-solaris machines.
-	* configure: Regenerated.
-
 Mon Aug 30 12:41:17 1999  Jeffrey A Law  (law@cygnus.com)
 
 	* configure.in: Do not force static linking for hpux11 in wide

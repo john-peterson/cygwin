@@ -13,19 +13,14 @@
 # See the file "license.terms" for information on usage and
 # redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
-if {[lsearch [namespace children] ::tcltest] == -1} {
-    package require tcltest 2.1
-    namespace import -force ::tcltest::test
-}
-
-::tcltest::loadTestedCommands
+if {[string compare test [info procs test]] == 1} then {source defs}
 
 test ensemble-1.1 {ensemble name must be specified} {
-    list [catch {itcl::ensemble} msg] $msg
-} {1 {wrong # args: should be "itcl::ensemble name ?command arg arg...?"}}
+    list [catch {ensemble} msg] $msg
+} {1 {wrong # args: should be "ensemble name ?command arg arg...?"}}
 
 test ensemble-1.2 {creating a new ensemble} {
-    itcl::ensemble test_numbers {
+    ensemble test_numbers {
         part one {x} {
             return "one: $x"
         }
@@ -35,7 +30,7 @@ test ensemble-1.2 {creating a new ensemble} {
     }
 } ""
 test ensemble-1.3 {adding to an existing ensemble} {
-    itcl::ensemble test_numbers part three {x y z} {
+    ensemble test_numbers part three {x y z} {
         return "three: $x $y $z"
     }
 } ""
@@ -45,13 +40,8 @@ test ensemble-1.4 {invoking ensemble parts} {
 } {{one: 1} {two: 2 3} {three: 3 4 5}}
 
 test ensemble-1.5 {invoking parts with improper arguments} {
-    set res [catch "test_numbers three x" msg]
-    if {[package vsatisfies [package provide Tcl] 8.4]} {
-	lappend res [string match "wrong # args*" $msg]
-    } else {
-	lappend res [string match "no value given*" $msg]
-    }
-} {1 1}
+    list [catch "test_numbers three x" msg] $msg
+} {1 {no value given for parameter "y" to "test_numbers three"}}
 
 test ensemble-1.6 {errors trigger a usage summary} {
     list [catch "test_numbers foo x y" msg] $msg
@@ -62,7 +52,7 @@ test ensemble-1.6 {errors trigger a usage summary} {
 
 test ensemble-1.7 {one part can't overwrite another} {
     set cmd {
-        itcl::ensemble test_numbers part three {} {
+        ensemble test_numbers part three {} {
             return "three: new version"
         }
     }
@@ -71,7 +61,7 @@ test ensemble-1.7 {one part can't overwrite another} {
 
 test ensemble-1.8 {an ensemble can't overwrite another part} {
     set cmd {
-        itcl::ensemble test_numbers ensemble three part new {} {
+        ensemble test_numbers ensemble three part new {} {
             return "three: new version"
         }
     }
@@ -79,34 +69,34 @@ test ensemble-1.8 {an ensemble can't overwrite another part} {
 } {1 {part "three" is not an ensemble}}
 
 test ensemble-1.9 {body errors are handled gracefully} {
-    list [catch "itcl::ensemble test_numbers {foo bar baz}" msg] $msg $errorInfo
+    list [catch "ensemble test_numbers {foo bar baz}" msg] $msg $errorInfo
 } {1 {invalid command name "foo"} {invalid command name "foo"
     while executing
 "foo bar baz"
     ("ensemble" body line 1)
     invoked from within
-"itcl::ensemble test_numbers {foo bar baz}"}}
+"ensemble test_numbers {foo bar baz}"}}
 
 test ensemble-1.10 {part errors are handled gracefully} {
-    list [catch "itcl::ensemble test_numbers {part foo}" msg] $msg $errorInfo
+    list [catch "ensemble test_numbers {part foo}" msg] $msg $errorInfo
 } {1 {wrong # args: should be "part name args body"} {wrong # args: should be "part name args body"
     while executing
 "part foo"
     ("ensemble" body line 1)
     invoked from within
-"itcl::ensemble test_numbers {part foo}"}}
+"ensemble test_numbers {part foo}"}}
 
 test ensemble-1.11 {part argument errors are handled gracefully} {
-    list [catch "itcl::ensemble test_numbers {part foo {{}} {}}" msg] $msg $errorInfo
+    list [catch "ensemble test_numbers {part foo {{}} {}}" msg] $msg $errorInfo
 } {1 {procedure "foo" has argument with no name} {procedure "foo" has argument with no name
     while executing
 "part foo {{}} {}"
     ("ensemble" body line 1)
     invoked from within
-"itcl::ensemble test_numbers {part foo {{}} {}}"}}
+"ensemble test_numbers {part foo {{}} {}}"}}
 
 test ensemble-2.0 {defining subensembles} {
-    itcl::ensemble test_numbers {
+    ensemble test_numbers {
         ensemble hex {
             part base {} {
                 return 16
@@ -168,7 +158,7 @@ test ensemble-2.6 {errors from sub-ensembles} {
 
 test ensemble-2.7 {sub-ensembles can't be accidentally redefined} {
     set cmd {
-        itcl::ensemble test_numbers part octal {args} {
+        ensemble test_numbers part octal {args} {
             return "octal: $args"
         }
     }
@@ -176,7 +166,7 @@ test ensemble-2.7 {sub-ensembles can't be accidentally redefined} {
 } {1 {part "octal" already exists in ensemble}}
 
 test ensemble-3.0 {an error handler part can be used to handle errors} {
-    itcl::ensemble test_numbers {
+    ensemble test_numbers {
         part @error {args} {
             return "error: $args"
         }
@@ -193,6 +183,3 @@ test ensemble-3.1 {the error handler part shows up as generic "...and"} {
   test_numbers three x y z
   test_numbers two x y
 ...and others described on the man page}}
-
-::tcltest::cleanupTests
-return

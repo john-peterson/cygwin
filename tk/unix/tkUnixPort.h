@@ -7,6 +7,7 @@
  *
  * Copyright (c) 1991-1993 The Regents of the University of California.
  * Copyright (c) 1994-1996 Sun Microsystems, Inc.
+ * Copyright (c) 1998 by Scriptics Corporation.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -49,7 +50,13 @@
 #else
 #   include <stdlib.h>
 #endif
-#include <string.h>
+/* CYGNUS LOCAL: Don't include the system string.h if we've already
+   included tcl/compat/string.h.  Otherwise you can't include both
+   tclInt.h and tkInt.h (not that you should anyhow, but some SN code
+   does).  */
+#ifndef _STRING
+#   include <string.h>
+#endif
 #include <sys/types.h>
 #include <sys/file.h>
 #ifdef HAVE_SYS_SELECT_H
@@ -145,8 +152,6 @@ extern int errno;
 	(Region) b, (Region) r)
 #define TkRectInRegion(r, x, y, w, h) XRectInRegion((Region) r, x, y, w, h)
 #define TkSetRegion(d, gc, rgn) XSetRegion(d, gc, (Region) rgn)
-#define TkSubtractRegion(a, b, r) XSubtractRegion((Region) a, \
-	(Region) b, (Region) r)
 #define TkUnionRectWithRegion(rect, src, ret) XUnionRectWithRegion(rect, \
 	(Region) src, (Region) ret)
 
@@ -181,12 +186,12 @@ extern int errno;
  * in any other header file.
  */
 
+extern void		panic _ANSI_ARGS_(TCL_VARARGS(char *, string));
 
 /*
  * These functions do nothing under Unix, so we just eliminate calls to them.
  */
 
-#define TkpButtonSetDefaults(specPtr) {}
 #define TkpDestroyButton(butPtr) {}
 #define TkSelUpdateClipboard(a,b) {}
 #define TkSetPixmapColormap(p,c) {}
@@ -202,12 +207,18 @@ extern int errno;
 
 /*
  * This macro stores a representation of the window handle in a string.
- * This should perhaps use the real size of an XID.
  */
 
 #define TkpPrintWindowId(buf,w) \
-	sprintf((buf), "%#08lx", (unsigned long) (w))
+	sprintf((buf), "0x%x", (unsigned int) (w))
+	    
+/*
+ * TkpScanWindowId is just an alias for Tcl_GetInt on Unix.
+ */
 
+#define TkpScanWindowId(i,s,wp) \
+	Tcl_GetInt((i),(s),(wp))
+	    
 /*
  * This macro indicates that entry and text widgets should display
  * the selection highlight regardless of which window has the focus.
@@ -220,8 +231,6 @@ extern int errno;
  * that is needed for portability reasons.
  */
 
-#ifndef _TCLINT
-#include <tclInt.h>
-#endif
+EXTERN void		TclpGetTime _ANSI_ARGS_((Tcl_Time *time));
 
 #endif /* _UNIXPORT */

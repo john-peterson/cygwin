@@ -16,7 +16,6 @@
 #include "tkScrollbar.h"
 #include "tkMacInt.h"
 #include <Controls.h>
-#include <ControlDefinitions.h>
 
 /*
  * The following definitions should really be in MacOS
@@ -114,13 +113,13 @@ static pascal void	ThumbActionProc _ANSI_ARGS_((void));
 static void		UpdateControlValues _ANSI_ARGS_((MacScrollbar *macScrollPtr));
 		    
 /*
- * The class procedure table for the scrollbar widget.  Leave the proc fields
- * initialized to NULL, which should happen automatically because of the scope
- * at which the variable is declared.
+ * The class procedure table for the scrollbar widget.
  */
 
-Tk_ClassProcs tkpScrollbarProcs = {
-    sizeof(Tk_ClassProcs)	/* size */
+TkClassProcs tkpScrollbarProcs = { 
+    NULL,			/* createProc. */
+    NULL,			/* geometryProc. */
+    NULL			/* modalProc */
 };
 
 /*
@@ -211,20 +210,17 @@ TkpDisplayScrollbar(
      * Draw the focus or any 3D relief we may have.
      */
     if (scrollPtr->highlightWidth != 0) {
-	GC fgGC, bgGC;
-
-	bgGC = Tk_GCForColor(scrollPtr->highlightBgColorPtr,
-		Tk_WindowId(tkwin));
+	GC gc;
 
 	if (scrollPtr->flags & GOT_FOCUS) {
-	    fgGC = Tk_GCForColor(scrollPtr->highlightColorPtr,
+	    gc = Tk_GCForColor(scrollPtr->highlightColorPtr,
 		    Tk_WindowId(tkwin));
-	    TkpDrawHighlightBorder(tkwin, fgGC, bgGC, scrollPtr->highlightWidth,
-		Tk_WindowId(tkwin));
 	} else {
-	    TkpDrawHighlightBorder(tkwin, bgGC, bgGC, scrollPtr->highlightWidth,
-		Tk_WindowId(tkwin));
+	    gc = Tk_GCForColor(scrollPtr->highlightBgColorPtr,
+		    Tk_WindowId(tkwin));
 	}
+	Tk_DrawFocusHighlight(tkwin, gc, scrollPtr->highlightWidth,
+		Tk_WindowId(tkwin));
     }
     Tk_Draw3DRectangle(tkwin, Tk_WindowId(tkwin), scrollPtr->bgBorder,
 	    scrollPtr->highlightWidth, scrollPtr->highlightWidth,
@@ -243,7 +239,6 @@ TkpDisplayScrollbar(
 
     if (macScrollPtr->sbHandle == NULL) {
         Rect r;
-        WindowRef frontNonFloating;
         
         r.left = r.top = 0;
         r.right = r.bottom = 1;
@@ -254,14 +249,7 @@ TkpDisplayScrollbar(
 	/*
 	 * If we are foremost than make us active.
 	 */
-	
-	if (TkMacHaveAppearance() >= 0x110) {
-	    frontNonFloating = FrontNonFloatingWindow();
-	} else {
-	    frontNonFloating = FrontWindow();
-	}
-	
-	if ((WindowPtr) destPort == FrontWindow() || TkpIsWindowFloating((WindowPtr) destPort)) {
+	if ((WindowPtr) destPort == FrontWindow()) {
 	    macScrollPtr->macFlags |= ACTIVE;
 	}
     }
@@ -517,15 +505,15 @@ TkpScrollbarPosition(
 	(**macScrollPtr->sbHandle).contrlHilite = 255;
     }
     switch (part) {
-    	case kControlUpButtonPart:
+    	case inUpButton:
 	    return TOP_ARROW;
-    	case kControlPageUpPart:
+    	case inPageUp:
 	    return TOP_GAP;
-    	case kControlIndicatorPart:
+    	case inThumb:
 	    return SLIDER;
-    	case kControlPageDownPart:
+    	case inPageDown:
 	    return BOTTOM_GAP;
-    	case kControlDownButtonPart:
+    	case inDownButton:
 	    return BOTTOM_ARROW;
     	default:
 	    return OUTSIDE;
@@ -688,22 +676,22 @@ ScrollbarActionProc(
     ControlRef theControl, 	/* Handle to scrollbat control */
     ControlPartCode partCode)	/* Part of scrollbar that was "hit" */
 {
-    register TkScrollbar *scrollPtr = (TkScrollbar *) GetControlReference(theControl);
+    register TkScrollbar *scrollPtr = (TkScrollbar *) GetCRefCon(theControl);
     Tcl_DString cmdString;
     
     Tcl_DStringInit(&cmdString);
     Tcl_DStringAppend(&cmdString, scrollPtr->command,
 	    scrollPtr->commandSize);
 
-    if (partCode == kControlUpButtonPart || partCode == kControlDownButtonPart) {
+    if (partCode == inUpButton || partCode == inDownButton) {
 	Tcl_DStringAppendElement(&cmdString, "scroll");
 	Tcl_DStringAppendElement(&cmdString,
-		(partCode == kControlUpButtonPart ) ? "-1" : "1");
+		(partCode == inUpButton ) ? "-1" : "1");
 	Tcl_DStringAppendElement(&cmdString, "unit");
-    } else if (partCode == kControlPageUpPart || partCode == kControlPageDownPart) {
+    } else if (partCode == inPageUp || partCode == inPageDown) {
 	Tcl_DStringAppendElement(&cmdString, "scroll");
 	Tcl_DStringAppendElement(&cmdString,
-		(partCode == kControlPageUpPart ) ? "-1" : "1");
+		(partCode == inPageUp ) ? "-1" : "1");
 	Tcl_DStringAppendElement(&cmdString, "page");
     }
     Tcl_Preserve((ClientData) scrollPtr->interp);
@@ -771,7 +759,7 @@ ScrollbarBindProc(
     	where.h = eventPtr->xbutton.x + bounds.left;
     	where.v = eventPtr->xbutton.y + bounds.top;
 	part = TestControl(macScrollPtr->sbHandle, where);
-	if (part == kControlIndicatorPart && scrollPtr->jump == false) {
+	if (part == inThumb && scrollPtr->jump == false) {
 	    /*
 	     * Case 1: In thumb, no jump scrolling.  Call track control
 	     * with the thumb action proc which will do most of the work.
@@ -782,14 +770,14 @@ ScrollbarBindProc(
 	    part = TrackControl(macScrollPtr->sbHandle, where,
 		    (ControlActionUPP) thumbActionProc);
 	    activeScrollPtr = NULL;
-	} else if (part == kControlIndicatorPart) {
+	} else if (part == inThumb) {
 	    /*
 	     * Case 2: in thumb with jump scrolling.  Call TrackControl
 	     * with a NULL action proc.  Use the new value of the control
 	     * to set update the control.
 	     */
 	    part = TrackControl(macScrollPtr->sbHandle, where, NULL);
-	    if (part == kControlIndicatorPart) {
+	    if (part == inThumb) {
 	    	double newFirstFraction, thumbWidth;
 		Tcl_DString cmdString;
 		char vauleString[TCL_DOUBLE_SPACE];

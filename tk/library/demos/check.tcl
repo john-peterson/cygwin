@@ -3,7 +3,7 @@
 # This demonstration script creates a toplevel window containing
 # several checkbuttons.
 #
-# RCS: @(#) $Id$
+# SCCS: @(#) check.tcl 1.4 97/03/02 16:19:57
 
 if {![info exists widgetDemo]} {
     error "This script should be run from the \"widget\" demo."

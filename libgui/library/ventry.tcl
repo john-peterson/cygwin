@@ -1,14 +1,14 @@
 # ventry.tcl - Entry with validation
-# Copyright (C) 1997,2008 Red Hat, Inc.
+# Copyright (C) 1997 Cygnus Solutions.
 # Written by Tom Tromey <tromey@cygnus.com>.
 
-itcl::class Validated_entry {
+itcl_class Validated_entry {
   # The validation command.  It is passed the contents of the entry.
   # It should throw an error if there is a problem; the error text
   # will be displayed to the user.
-  public variable command {}
+  public command {}
 
-  constructor {} {
+  constructor {config} {
     upvar \#0 $this state
 
     # The standard widget-making trick.
@@ -26,8 +26,7 @@ itcl::class Validated_entry {
 
     bind [namespace tail $this].entry <Map> [list $this _map]
     bind [namespace tail $this].entry <Unmap> [list $this _unmap]
-    bind [namespace tail $this].entry <Destroy> \
-	[itcl::code itcl::delete object $this]
+    bind [namespace tail $this].entry <Destroy> [list $this delete]
     # We never want the focus on the frame.
     bind [namespace tail $this] <FocusIn> [list focus [namespace tail $this].entry]
 
@@ -56,6 +55,8 @@ itcl::class Validated_entry {
     uplevel \#0 [list trace vdelete ${this}(value) w [list $this _trace]]
     unset state
   }
+
+  method configure {config} {}
 
   # Return 1 if we're in the error state, 0 otherwise.
   method is_error {} {

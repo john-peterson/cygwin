@@ -6,7 +6,7 @@
  *	prototype implementation by Paul Mackerras.
  *
  * Copyright (c) 1994 The Regents of the University of California.
- * Copyright (c) 1994-1997 Sun Microsystems, Inc.
+ * Copyright (c) 1994-1995 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -74,7 +74,7 @@ struct TkColormap {
  * Results:
  *	The return value is normally a pointer to a visual.  If an
  *	error occurred in looking up the visual, NULL is returned and
- *	an error message is left in the interp's result.  The depth of the
+ *	an error message is left in interp->result.  The depth of the
  *	visual is returned to *depthPtr under normal returns.  If
  *	colormapPtr is non-NULL, then this procedure also finds a
  *	suitable colormap for use with the visual in tkwin, and it
@@ -92,7 +92,7 @@ Tk_GetVisual(interp, tkwin, string, depthPtr, colormapPtr)
 					 * reporting. */
     Tk_Window tkwin;			/* Window in which visual will be
 					 * used. */
-    CONST char *string;			/* String describing visual.  See
+    char *string;			/* String describing visual.  See
 					 * manual entry for details. */
     int *depthPtr;			/* The depth of the returned visual
 					 * is stored here. */
@@ -106,7 +106,7 @@ Tk_GetVisual(interp, tkwin, string, depthPtr, colormapPtr)
     long mask;
     Visual *visual;
     int length, c, numVisuals, prio, bestPrio, i;
-    CONST char *p;
+    char *p;
     VisualDictionary *dictPtr;
     TkColormap *cmapPtr;
     TkDisplay *dispPtr = ((TkWindow *) tkwin)->dispPtr;
@@ -243,8 +243,7 @@ Tk_GetVisual(interp, tkwin, string, depthPtr, colormapPtr)
     visInfoList = XGetVisualInfo(Tk_Display(tkwin), mask, &template,
 	    &numVisuals);
     if (visInfoList == NULL) {
-	Tcl_SetResult(interp, "couldn't find an appropriate visual",
-		TCL_STATIC);
+	interp->result = "couldn't find an appropriate visual";
 	return NULL;
     }
 
@@ -353,7 +352,7 @@ Tk_GetVisual(interp, tkwin, string, depthPtr, colormapPtr)
  * Results:
  *	The return value is normally the X resource identifier for the
  *	colormap.  If an error occurs, None is returned and an error
- *	message is placed in the interp's result.
+ *	message is placed in interp->result.
  *
  * Side effects:
  *	A reference count is incremented for the colormap, so
@@ -369,7 +368,7 @@ Tk_GetColormap(interp, tkwin, string)
 					 * reporting. */
     Tk_Window tkwin;			/* Window where colormap will be
 					 * used. */
-    CONST char *string;			/* String that identifies colormap:
+    char *string;			/* String that identifies colormap:
 					 * either "new" or the name of
 					 * another window. */
 {

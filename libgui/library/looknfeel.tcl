@@ -1,5 +1,5 @@
 # looknfeel.tcl - Standard look and feel decisions.
-# Copyright (C) 1997-2012 Red Hat, Inc.
+# Copyright (C) 1997 Cygnus Solutions.
 # Written by Tom Tromey <tromey@cygnus.com>.
 
 # Run this once just after Tk is initialized.  It will do whatever
@@ -22,29 +22,24 @@ proc standard_look_and_feel {} {
   # The fixed font is guaranteed not to be proportional.
   # The status font should be used in status bars and tooltips.
   if {$tcl_platform(platform) == "windows"} then {
-    define_font global/default -family "Tahoma" -size 10
+    define_font global/default -family windows-message
     # FIXME: this isn't actually a bold font...
     define_font global/bold -family windows-caption
-    define_font global/fixed -family "Lucida Console" -size 9
-    define_font global/status -family "Tahoma" -size 10
+    define_font global/fixed -family fixedsys
+    define_font global/status -family windows-status
     # FIXME: we'd like this font to update automatically as well.  But
     # for now we can't.
     array set actual [font actual windows-message]
     set actual(-slant) italic
     eval define_font global/italic [array get actual]
-
-    # The menu font used to be set via the "windows-menu"
-    # font family, however this seems to have been deprecated
-    # for Tcl/Tk version 8.3, so we hard code it instead.
-    define_font global/menu -family {MS Sans Serif} -size 8
+    define_font global/menu -family windows-menu
   } else {
-    set size 12
-    define_font global/default -family courier -size $size 
-    define_font global/bold -family courier -size $size -weight bold
-    define_font global/fixed -family courier -size $size
-    define_font global/status -family helvetica -size [expr $size - 1]
-    define_font global/italic -family courier -size $size -slant italic
-    define_font global/menu -family helvetica -size $size
+    define_font global/default -family courier -size 9
+    define_font global/bold -family courier -size 9 -weight bold
+    define_font global/fixed -family courier -size 9
+    define_font global/status -family courier -size 9
+    define_font global/italic -family courier -size 9 -slant italic
+    define_font global/menu -family courier -size 9
   }
 
   # Make sure this font is actually used by default.

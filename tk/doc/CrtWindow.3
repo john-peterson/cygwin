@@ -20,9 +20,6 @@ Tk_Window
 \fBTk_CreateWindow\fR(\fIinterp, parent, name, topLevScreen\fR)
 .sp
 Tk_Window
-\fBTk_CreateAnonymousWindow\fR(\fIinterp, parent, topLevScreen\fR)
-.sp
-Tk_Window
 \fBTk_CreateWindowFromPath\fR(\fIinterp, tkwin, pathName, topLevScreen\fR)
 .sp
 \fBTk_DestroyWindow\fR(\fItkwin\fR)
@@ -36,10 +33,10 @@ then \fI*interp\fR isn't modified.
 .AP Tk_Window parent in
 Token for the window that is to serve as the logical parent of
 the new window.
-.AP "CONST char" *name in
+.AP char *name in
 Name to use for this window.  Must be unique among all children of
 the same \fIparent\fR.
-.AP "CONST char" *topLevScreen in
+.AP char *topLevScreen in
 Has same format as \fIscreenName\fR.  If NULL, then new window is
 created as an internal window.  If non-NULL, new window is created as
 a top-level window on screen \fItopLevScreen\fR.  If \fItopLevScreen\fR
@@ -47,16 +44,16 @@ is an empty string (``'') then new
 window is created as top-level window of \fIparent\fR's screen.
 .AP Tk_Window tkwin in
 Token for window.
-.AP "CONST char" *pathName in
+.AP char *pathName in
 Name of new window, specified as path name within application
 (e.g. \fB.a.b.c\fR).
 .BE
 
 .SH DESCRIPTION
 .PP
-The procedures \fBTk_CreateWindow\fR, 
+The procedures \fBTk_CreateWindow\fR
 .VS
-\fBTk_CreateAnonymousWindow\fR, and \fBTk_CreateWindowFromPath\fR
+and \fBTk_CreateWindowFromPath\fR
 are used to create new windows for
 use in Tk-based applications.  Each of the procedures returns a token
 that can be used to manipulate the window in other calls to the Tk
@@ -88,12 +85,6 @@ will not be a child of \fIparent\fR's X window.  For example, a pull-down
 menu's \fIparent\fR would be the button-like window used to invoke it,
 which would in turn be a child of the menu bar window.  A dialog box might
 have the application's main window as its parent.
-.PP
-\fBTk_CreateAnonymousWindow\fR differs from \fBTk_CreateWindow\fR in
-that it creates an unnamed window.  This window will be manipulable
-only using C interfaces, and will not be visible to Tcl scripts.  Both
-interior windows and top-level windows may be created with
-\fBTk_CreateAnonymousWindow\fR.
 .PP
 \fBTk_CreateWindowFromPath\fR offers an alternate way of specifying
 new windows.  In \fBTk_CreateWindowFromPath\fR the new
@@ -134,7 +125,7 @@ created with \fBTk_CreateEventHandler\fR.  In addition,
 \fBTk_DestroyWindow\fR will delete any children of \fItkwin\fR
 recursively (where children are defined in the Tk sense, consisting
 of all windows that were created with the given window as \fIparent\fR).
-If \fItkwin\fR is an internal window, then event
+If \fItkwin\fR was created by \fBTk_CreateInternalWindow\fR then event
 handlers interested in destroy events
 are invoked immediately.  If \fItkwin\fR is a top-level or main window,
 then the event handlers will be invoked later, after X has seen

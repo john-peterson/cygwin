@@ -52,20 +52,20 @@ PrintCanvasCmd(clientData, interp, argc, argv)
     int tiles_wide,tiles_high;
     int tile_y, tile_x;
     int screenX1, screenX2, screenY1, screenY2, width, height;
-    DOCINFOA *lpdi = (DOCINFOA *) ckalloc(sizeof(DOCINFOA));
+    DOCINFO *lpdi = malloc(sizeof(DOCINFO));
 
     if (argc < 2) {
 	Tcl_AppendResult(interp, "wrong # args: should be \"",
 			 argv[0], " canvas \"",
 			 (char *) NULL);
-	goto error;
+	return TCL_ERROR;
     }
 
     /* The second arg is the canvas widget */
     if (!Tcl_GetCommandInfo(interp, argv[1], &canvCmd)) {
 	Tcl_AppendResult(interp, "couldn't get canvas information for \"",
 			 argv[1], "\"", (char *) NULL);
-	goto error;
+	return TCL_ERROR;
     }
     
     memset(&dm,0,sizeof(DEVMODE));
@@ -74,8 +74,8 @@ PrintCanvasCmd(clientData, interp, argc, argv)
 
     memset(lpdi,0,sizeof(DOCINFO));
     lpdi->cbSize=sizeof(DOCINFO);
-    lpdi->lpszDocName= (LPCSTR) ckalloc(255);
-    strcpy((char *)lpdi->lpszDocName,"SN - Printing");
+    lpdi->lpszDocName=malloc(255);
+    sprintf((char*)lpdi->lpszDocName,"SN - Printing\0");
     lpdi->lpszOutput=NULL;
 
     canvasPtr = (TkCanvas *)(canvCmd.clientData);
@@ -144,7 +144,7 @@ PrintCanvasCmd(clientData, interp, argc, argv)
     tiles_high = ( widget_Y_size / page_Y_size ); /* start at zero */
     tiles_wide = ( widget_X_size / page_X_size ); /* start at zero */
 
-    StartDocA(pd.hDC,lpdi);
+    StartDoc(pd.hDC,lpdi);
 
     for (tile_x = 0; tile_x <= tiles_wide;tile_x++) {
     for (tile_y = 0; tile_y <= tiles_high;tile_y++) {
@@ -154,7 +154,7 @@ PrintCanvasCmd(clientData, interp, argc, argv)
  	for (itemPtr = canvasPtr->firstItemPtr; itemPtr != NULL;
 		itemPtr = itemPtr->nextPtr) {
 	    (*itemPtr->typePtr->displayProc)((Tk_Canvas) canvasPtr, itemPtr,
-		    canvasPtr->display, (Drawable) PrinterDrawable/*pixmap*/, screenX1, screenY1, width,
+		    canvasPtr->display, (unsigned long) PrinterDrawable/*pixmap*/, screenX1, screenY1, width,
 		    height);
 	}
     
@@ -164,12 +164,8 @@ PrintCanvasCmd(clientData, interp, argc, argv)
     EndDoc(pd.hDC);
 
 done:
-    ckfree ((char*) lpdi->lpszDocName);
-    ckfree ((char*) lpdi);
     return TCL_OK;
-error:
-    ckfree ((char*) lpdi->lpszDocName);
-    ckfree ((char*) lpdi);
+ error:
     return TCL_ERROR;
 }
 

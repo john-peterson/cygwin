@@ -50,13 +50,13 @@
 /* Implement the ide_win_choose_font procedure.  */
 
 static int
-win_choose_font (ClientData cd, Tcl_Interp *interp, int argc, CONST84 char **argv)
+win_choose_font (ClientData cd, Tcl_Interp *interp, int argc, char **argv)
 {
-  CONST84 char *deffont;
+  char *deffont;
   Tk_Window parent;
   int i, oldMode;
-  CHOOSEFONTA cf;
-  LOGFONTA lf;
+  CHOOSEFONT cf;
+  LOGFONT lf;
   HDC hdc;
   HFONT hfont;
   char facebuf[LF_FACESIZE];
@@ -154,7 +154,7 @@ win_choose_font (ClientData cd, Tcl_Interp *interp, int argc, CONST84 char **arg
     }
 
   oldMode = Tcl_SetServiceMode(TCL_SERVICE_ALL);
-  if (!ChooseFontA (&cf))
+  if (! ChooseFont (&cf))
     {
       DWORD code;
 
@@ -191,7 +191,7 @@ win_choose_font (ClientData cd, Tcl_Interp *interp, int argc, CONST84 char **arg
      specification it will wind up with the font that the user expects
      to see.  Some of this code is taken from AllocFont.  */
 
-  hfont = CreateFontIndirectA (&lf);
+  hfont = CreateFontIndirect (&lf);
   if (hfont == NULL)
     {
       /* This should be impossible.  */
@@ -208,7 +208,7 @@ win_choose_font (ClientData cd, Tcl_Interp *interp, int argc, CONST84 char **arg
 
   hdc = GetDC (cf.hwndOwner);
   hfont = SelectObject (hdc, hfont);
-  GetTextFaceA (hdc, sizeof (facebuf), facebuf);
+  GetTextFace (hdc, sizeof (facebuf), facebuf);
   GetTextMetrics (hdc, &tm);
 
   Tcl_ResetResult (interp);

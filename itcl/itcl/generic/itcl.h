@@ -51,24 +51,11 @@
 
 #include "tcl.h"
 
-#ifndef TCL_ALPHA_RELEASE
-#   define TCL_ALPHA_RELEASE	0
-#endif
-#ifndef TCL_BETA_RELEASE
-#   define TCL_BETA_RELEASE	1
-#endif
-#ifndef TCL_FINAL_RELEASE
-#   define TCL_FINAL_RELEASE	2
-#endif
-
-
-#define ITCL_MAJOR_VERSION	3
-#define ITCL_MINOR_VERSION	3
-#define ITCL_RELEASE_LEVEL	TCL_FINAL_RELEASE
-#define ITCL_RELEASE_SERIAL	0
-
-#define ITCL_VERSION		"3.3"
-#define ITCL_PATCH_LEVEL	"3.3.0"
+#define ITCL_VERSION "3.0"
+#define ITCL_PATCH_LEVEL "3.0"
+#define ITCL_MAJOR_VERSION 3
+#define ITCL_MINOR_VERSION 0
+#define ITCL_RELEASE_LEVEL 0
 
 /* 
  * A special definition used to allow this header file to be included 
@@ -77,68 +64,14 @@
  * and procedure declarations, that occur below.
  */
 
-#ifndef RC_INVOKED
+#ifndef RESOURCE_INCLUDED
 
-#undef TCL_STORAGE_CLASS
+#include "tclInt.h"
+
 #ifdef BUILD_itcl
-#   define TCL_STORAGE_CLASS DLLEXPORT
-#else
-#   ifdef USE_ITCL_STUBS
-#	define TCL_STORAGE_CLASS
-#   else
-#	define TCL_STORAGE_CLASS DLLIMPORT
-#   endif
+# undef TCL_STORAGE_CLASS
+# define TCL_STORAGE_CLASS DLLEXPORT
 #endif
-
-/*
- * Fix the Borland bug that's in the EXTERN macro from tcl.h.
- */
-#ifndef TCL_EXTERN
-#   undef DLLIMPORT
-#   undef DLLEXPORT
-#   ifdef __cplusplus
-#	define TCL_EXTERNC extern "C"
-#   else
-#	define TCL_EXTERNC extern
-#   endif
-#   if defined(STATIC_BUILD)
-#	define DLLIMPORT
-#	define DLLEXPORT
-#	define TCL_EXTERN(RTYPE) TCL_EXTERNC RTYPE
-#   elif (defined(__WIN32__) && ( \
-	    defined(_MSC_VER) || (__BORLANDC__ >= 0x0550) || \
-	    defined(__LCC__) || defined(__WATCOMC__) || \
-	    (defined(__GNUC__) && defined(__declspec)) \
-	)) || (defined(MAC_TCL) && FUNCTION_DECLSPEC)
-#	define DLLIMPORT __declspec(dllimport)
-#	define DLLEXPORT __declspec(dllexport)
-#	define TCL_EXTERN(RTYPE) TCL_EXTERNC TCL_STORAGE_CLASS RTYPE
-#   elif defined(__BORLANDC__)
-#	define DLLIMPORT __import
-#	define DLLEXPORT __export
-	/* Pre-5.5 Borland requires the attributes be placed after the */
-	/* return type instead. */
-#	define TCL_EXTERN(RTYPE) TCL_EXTERNC RTYPE TCL_STORAGE_CLASS
-#   else
-#	define DLLIMPORT
-#	define DLLEXPORT
-#	define TCL_EXTERN(RTYPE) TCL_EXTERNC TCL_STORAGE_CLASS RTYPE
-#   endif
-#endif
-
-
-/*
- * Starting from the 8.4 core, Tcl API is CONST'ified.  Our API is always
- * CONST, but we need to build with Tcl when it isn't CONST and fake it
- * when needed with <= 8.3
- *
- * http://wiki.tcl.tk/3669
- */
-
-#ifndef CONST84
-#   define CONST84
-#endif
-
 
 /*
  * Protection levels:
@@ -197,35 +130,57 @@ typedef struct Itcl_InterpState_ *Itcl_InterpState;
 
 
 /*
- * Include the public function declarations that are accessible via
- * the stubs table.
+ *  Exported functions
  */
+EXTERN int Itcl_Init _ANSI_ARGS_((Tcl_Interp *interp));
+EXTERN int Itcl_SafeInit _ANSI_ARGS_((Tcl_Interp *interp));
 
-#include "itclDecls.h"
+EXTERN int Itcl_RegisterC _ANSI_ARGS_((Tcl_Interp *interp,
+    char *name, Tcl_CmdProc *proc, ClientData clientData,
+    Tcl_CmdDeleteProc *deleteProc));
+EXTERN int Itcl_RegisterObjC _ANSI_ARGS_((Tcl_Interp *interp,
+    char *name, Tcl_ObjCmdProc *proc, ClientData clientData,
+    Tcl_CmdDeleteProc *deleteProc));
+EXTERN int Itcl_FindC _ANSI_ARGS_((Tcl_Interp *interp, char *name,
+    Tcl_CmdProc **argProcPtr, Tcl_ObjCmdProc **objProcPtr,
+    ClientData *cDataPtr));
 
+EXTERN void Itcl_InitStack _ANSI_ARGS_((Itcl_Stack *stack));
+EXTERN void Itcl_DeleteStack _ANSI_ARGS_((Itcl_Stack *stack));
+EXTERN void Itcl_PushStack _ANSI_ARGS_((ClientData cdata,
+    Itcl_Stack *stack));
+EXTERN ClientData Itcl_PopStack _ANSI_ARGS_((Itcl_Stack *stack));
+EXTERN ClientData Itcl_PeekStack _ANSI_ARGS_((Itcl_Stack *stack));
+EXTERN ClientData Itcl_GetStackValue _ANSI_ARGS_((Itcl_Stack *stack,
+    int pos));
 
-/*
- * Itcl_InitStubs is used by extensions like Itk that can be linked
- * against the itcl stubs library.  If we are not using stubs
- * then this reduces to package require.
- */
+EXTERN void Itcl_InitList _ANSI_ARGS_((Itcl_List *listPtr));
+EXTERN void Itcl_DeleteList _ANSI_ARGS_((Itcl_List *listPtr));
+EXTERN Itcl_ListElem* Itcl_CreateListElem _ANSI_ARGS_((Itcl_List *listPtr));
+EXTERN Itcl_ListElem* Itcl_DeleteListElem _ANSI_ARGS_((Itcl_ListElem *elemPtr));
+EXTERN Itcl_ListElem* Itcl_InsertList _ANSI_ARGS_((Itcl_List *listPtr,
+    ClientData val));
+EXTERN Itcl_ListElem* Itcl_InsertListElem _ANSI_ARGS_((Itcl_ListElem *pos,
+    ClientData val));
+EXTERN Itcl_ListElem* Itcl_AppendList _ANSI_ARGS_((Itcl_List *listPtr,
+    ClientData val));
+EXTERN Itcl_ListElem* Itcl_AppendListElem _ANSI_ARGS_((Itcl_ListElem *pos,
+    ClientData val));
+EXTERN void Itcl_SetListValue _ANSI_ARGS_((Itcl_ListElem *elemPtr,
+    ClientData val));
 
-#ifdef USE_ITCL_STUBS
+EXTERN void Itcl_EventuallyFree _ANSI_ARGS_((ClientData cdata,
+    Tcl_FreeProc *fproc));
+EXTERN void Itcl_PreserveData _ANSI_ARGS_((ClientData cdata));
+EXTERN void Itcl_ReleaseData _ANSI_ARGS_((ClientData cdata));
 
-TCL_EXTERNC CONST char *
-	Itcl_InitStubs _ANSI_ARGS_((Tcl_Interp *interp,
-			    CONST char *version, int exact));
-#else
-#define Itcl_InitStubs(interp, version, exact) \
-      Tcl_PkgRequire(interp, "Itcl", version, exact)
-#endif
+EXTERN Itcl_InterpState Itcl_SaveInterpState _ANSI_ARGS_((Tcl_Interp* interp,
+    int status));
+EXTERN int Itcl_RestoreInterpState _ANSI_ARGS_((Tcl_Interp* interp,
+    Itcl_InterpState state));
+EXTERN void Itcl_DiscardInterpState _ANSI_ARGS_((Itcl_InterpState state));
 
-/*
- * Public functions that are not accessible via the stubs table.
- */
-
-
-#endif /* RC_INVOKED */
+#endif /* RESOURCE_INCLUDED */
 
 #undef TCL_STORAGE_CLASS
 #define TCL_STORAGE_CLASS DLLIMPORT

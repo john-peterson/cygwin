@@ -3,7 +3,7 @@
 # This demonstration script creates a text widget with bindings set
 # up for hypertext-like effects.
 #
-# RCS: @(#) $Id$
+# SCCS: @(#) bind.tcl 1.6 97/03/02 16:19:01
 
 if {![info exists widgetDemo]} {
     error "This script should be run from the \"widget\" demo."

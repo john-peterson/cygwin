@@ -139,12 +139,12 @@ static void		ComputeEdgeBbox _ANSI_ARGS_((Tk_Canvas canvas,
 			    EdgeItem *edgePtr));
 static int		ConfigureEdge _ANSI_ARGS_((Tcl_Interp *interp,
 			    Tk_Canvas canvas, Tk_Item *itemPtr, int argc,
-			    Tcl_Obj **ObjArgv, int flags));
+			    char **argv, int flags));
 static int		ConfigureArrows _ANSI_ARGS_((Tk_Canvas canvas,
 			    EdgeItem *edgePtr));
 static int		CreateEdge _ANSI_ARGS_((Tcl_Interp *interp,
                             Tk_Canvas canvas, struct Tk_Item *itemPtr, 
-			    int argc, Tcl_Obj **ObjArgv));
+                            int argc, char **argv));
 static void		DeleteEdge _ANSI_ARGS_((Tk_Canvas canvas,
 			    Tk_Item *itemPtr, Display *display));
 static void		DisplayEdge _ANSI_ARGS_((Tk_Canvas canvas,
@@ -152,7 +152,7 @@ static void		DisplayEdge _ANSI_ARGS_((Tk_Canvas canvas,
                              int x, int y, int width, int height));
 static int		EdgeCoords _ANSI_ARGS_((Tcl_Interp *interp,
                             Tk_Canvas canvas, Tk_Item *itemPtr,
-			    int argc, Tcl_Obj **ObjArgv));
+                            int argc, char **argv));
 static int		EdgeToArea _ANSI_ARGS_((Tk_Canvas canvas,
 			    Tk_Item *itemPtr, double *rectPtr));
 static double		EdgeToPoint _ANSI_ARGS_((Tk_Canvas canvas,
@@ -179,14 +179,8 @@ static void		TranslateEdge _ANSI_ARGS_((Tk_Canvas canvas,
 static Tk_CustomOption arrowShapeOption =
 { ParseArrowShape, PrintArrowShape, (ClientData) NULL};
 
-/*
- * The callbacks for tagsOption are initialized in ConfigureEdge()
- */
-
-static Tk_CustomOption tagsOption =
-{ (Tk_OptionParseProc *) NULL,
-  (Tk_OptionPrintProc *) NULL,
-  (ClientData) NULL};
+static Tk_CustomOption tagsOption = {Tk_CanvasTagsParseProc,
+    Tk_CanvasTagsPrintProc, (ClientData) NULL};
 
 static Tk_ConfigSpec configSpecs[] = {
   {TK_CONFIG_UID, "-arrow", (char *) NULL, (char *) NULL,
@@ -255,7 +249,7 @@ Tk_ItemType tkEdgeType = {
     EdgeCoords,				/* coordProc */
     DeleteEdge,				/* deleteProc */
     DisplayEdge,			/* displayProc */
-    TK_CONFIG_OBJS,			/* flags */
+    0,					/* alwaysRedraw */
     EdgeToPoint,			/* pointProc */
     EdgeToArea,				/* areaProc */
     EdgeToPostscript,			/* postscriptProc */
@@ -306,15 +300,14 @@ static Tk_Uid bothUid = NULL;
  */
 
 static int
-CreateEdge(interp, canvas, itemPtr, argc, ObjArgv)
+CreateEdge(interp, canvas, itemPtr, argc, argv)
      Tcl_Interp *interp;		/* Interpreter for error reporting. */
      Tk_Canvas canvas;	                /* Canvas to hold new item. */
      Tk_Item *itemPtr;			/* Record to hold new item;  header
 					 * has been initialized by caller. */
      int argc;				/* Number of arguments in argv. */
-     Tcl_Obj **ObjArgv;			/* Arguments describing edge. */
+     char **argv;			/* Arguments describing edge. */
 {
-  char **argv;
   EdgeItem *edgePtr = (EdgeItem *) itemPtr;
   int i;
   
@@ -377,29 +370,19 @@ CreateEdge(interp, canvas, itemPtr, argc, ObjArgv)
    * array.  Leading arguments are assumed to be points if they
    * start with a digit or a minus sign followed by a digit.
    */
-
-  /* TODO: tidy up for loop, we shouldn't need to do
-   * ckalloc and Tcl_GetString, should we?
-   */
-
-  /*
-   * FIXME: memory leak here. 
-   */  
-  argv = (char**) ckalloc(argc * sizeof(char**));
+  
   for (i = 4; i < (argc-1); i+=2) {
-    argv[i]=Tcl_GetString(ObjArgv[i]);
     if ((!isdigit(UCHAR(argv[i][0]))) &&
 	((argv[i][0] != '-') || (!isdigit(UCHAR(argv[i][1]))))) {
       break;
     }
   }
-
-  if (EdgeCoords(interp, canvas, itemPtr, i, ObjArgv) != TCL_OK) {
+  if (EdgeCoords(interp, canvas, itemPtr, i, argv) != TCL_OK) {
     goto error;
   }
-  if (ConfigureEdge(interp, canvas, itemPtr, argc-i, ObjArgv+i, 0) == TCL_OK) {
+  if (ConfigureEdge(interp, canvas, itemPtr, argc-i, argv+i, 0) == TCL_OK) {
     return TCL_OK;
-  } 
+  }
   
  error:
   DeleteEdge(canvas, itemPtr, Tk_Display(Tk_CanvasTkwin(canvas)));
@@ -425,14 +408,14 @@ CreateEdge(interp, canvas, itemPtr, argc, ObjArgv)
  */
 
 static int
-EdgeCoords(interp, canvas, itemPtr, argc, ObjArgv)
+EdgeCoords(interp, canvas, itemPtr, argc, argv)
      Tcl_Interp *interp;		/* Used for error reporting. */
      Tk_Canvas canvas;	                /* Canvas containing item. */
      Tk_Item *itemPtr;			/* Item whose coordinates are to be
 					 * read or modified. */
      int argc;				/* Number of coordinates supplied in
 					 * argv. */
-     Tcl_Obj **ObjArgv;			/* Array of coordinates: x1, y1,
+     char **argv;			/* Array of coordinates: x1, y1,
 					 * x2, y2, ... */
 {
   EdgeItem *edgePtr = (EdgeItem *) itemPtr;
@@ -480,7 +463,7 @@ EdgeCoords(interp, canvas, itemPtr, argc, ObjArgv)
       edgePtr->numPoints = numPoints;
     }
     for (i = argc-1; i >= 0; i--) {
-      if (Tk_CanvasGetCoord(interp, canvas, Tcl_GetString(ObjArgv[i]), &edgePtr->coordPtr[i])
+      if (Tk_CanvasGetCoord(interp, canvas, argv[i], &edgePtr->coordPtr[i])
 	  != TCL_OK) {
 	return TCL_ERROR;
       }
@@ -527,12 +510,12 @@ EdgeCoords(interp, canvas, itemPtr, argc, ObjArgv)
  */
 
 static int
-ConfigureEdge(interp, canvas, itemPtr, argc, ObjArgv, flags)
+ConfigureEdge(interp, canvas, itemPtr, argc, argv, flags)
      Tcl_Interp *interp;	/* Used for error reporting. */
      Tk_Canvas canvas;	        /* Canvas containing itemPtr. */
      Tk_Item *itemPtr;		/* Edge item to reconfigure. */
      int argc;			/* Number of elements in argv.  */
-     Tcl_Obj **ObjArgv;		/* Arguments describing things to configure. */
+     char **argv;		/* Arguments describing things to configure. */
      int flags;			/* Flags to pass to Tk_ConfigureWidget. */
 {
   EdgeItem *edgePtr = (EdgeItem *) itemPtr;
@@ -544,26 +527,9 @@ ConfigureEdge(interp, canvas, itemPtr, argc, ObjArgv, flags)
   Tcl_DString varName, fileName, buffer;
   Tk_Window tkwin;
   Tk_3DBorder bgBorder;
-  char **argv;
-  int loopcount;
 
   tkwin = Tk_CanvasTkwin(canvas);
   bgBorder = ((TkCanvas *) canvas)->bgBorder;
-
-  argv = (char**) ckalloc(argc * sizeof(char**));
-  for (loopcount = 0 ; loopcount < argc ; loopcount++) {
-      argv[loopcount] = Tcl_GetString( ObjArgv[loopcount] );
-  }
-  /*
-   * Init callbacks in tagsOption before accessing configSpecs.
-   * This init can't be done statically when using Windows gcc
-   * since these symbols are imported from the Tk dll.
-   */
-
-  if (tagsOption.parseProc == NULL) {
-    tagsOption.parseProc = Tk_CanvasTagsParseProc;
-    tagsOption.printProc = Tk_CanvasTagsPrintProc;
-  }
 
   if (Tk_ConfigureWidget(interp, tkwin,
 			 configSpecs, argc, argv,

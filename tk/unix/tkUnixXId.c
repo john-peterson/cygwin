@@ -12,7 +12,7 @@
  *	George C. Kaplan and Michael Hoegeman.
  *
  * Copyright (c) 1993 The Regents of the University of California.
- * Copyright (c) 1994-1997 Sun Microsystems, Inc.
+ * Copyright (c) 1994-1995 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -28,8 +28,9 @@
 
 #define XLIB_ILLEGAL_ACCESS 1
 
-#include "tkUnixInt.h"
+#include "tkInt.h"
 #include "tkPort.h"
+#include "tkUnixInt.h"
 
 /*
  * A structure of the following type is used to hold one or more
@@ -69,7 +70,7 @@ static void		WindowIdCleanup2 _ANSI_ARGS_((ClientData clientData));
  *	None.
  *
  * Side effects:
- *	The official allocator for the display is set up to be AllocXId.
+ *	The official allocator for the display is set up to be Tk_AllocXID.
  *
  *----------------------------------------------------------------------
  */
@@ -84,50 +85,7 @@ TkInitXId(dispPtr)
             dispPtr->display->resource_alloc;
     dispPtr->display->resource_alloc = AllocXId;
     dispPtr->windowStackPtr = NULL;
-    dispPtr->idCleanupScheduled = (Tcl_TimerToken) 0;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TkFreeXId --
- *
- *	This procedure is called to free resources for the id allocator
- *	for a given display.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	Frees the id and window stack pools.
- *
- *----------------------------------------------------------------------
- */
-
-void
-TkFreeXId(dispPtr)
-    TkDisplay *dispPtr;			/* Tk's information about the
-					 * display. */
-{
-    TkIdStack *stackPtr, *freePtr;
-
-    if (dispPtr->idCleanupScheduled) {
-	Tcl_DeleteTimerHandler(dispPtr->idCleanupScheduled);
-    }
-
-    for (stackPtr = dispPtr->idStackPtr; stackPtr != NULL; ) {
-	freePtr = stackPtr;
-	stackPtr = stackPtr->nextPtr;
-	ckfree((char *) freePtr);
-    }
-    dispPtr->idStackPtr = NULL;
-
-    for (stackPtr = dispPtr->windowStackPtr; stackPtr != NULL; ) {
-	freePtr = stackPtr;
-	stackPtr = stackPtr->nextPtr;
-	ckfree((char *) freePtr);
-    }
-    dispPtr->windowStackPtr = NULL;
+    dispPtr->idCleanupScheduled = 0;
 }
 
 /*
@@ -336,8 +294,8 @@ TkFreeWindowId(dispPtr, w)
      */
 
     if (!dispPtr->idCleanupScheduled) {
-	dispPtr->idCleanupScheduled =
-	    Tcl_CreateTimerHandler(100, WindowIdCleanup, (ClientData) dispPtr);
+	dispPtr->idCleanupScheduled = 1;
+	Tcl_CreateTimerHandler(100, WindowIdCleanup, (ClientData) dispPtr);
     }
 }
 
@@ -371,7 +329,7 @@ WindowIdCleanup(clientData)
     ClientData oldData;
     static Tcl_Time timeout = {0, 0};
 
-    dispPtr->idCleanupScheduled = (Tcl_TimerToken) 0;
+    dispPtr->idCleanupScheduled = 0;
 
     /*
      * See if it's safe to recycle the window ids.  It's safe if:
@@ -418,8 +376,8 @@ WindowIdCleanup(clientData)
      */
 
     tryAgain:
-    dispPtr->idCleanupScheduled =
-	Tcl_CreateTimerHandler(500, WindowIdCleanup, (ClientData) dispPtr);
+    dispPtr->idCleanupScheduled = 1;
+    Tcl_CreateTimerHandler(500, WindowIdCleanup, (ClientData) dispPtr);
 }
 
 /*
@@ -577,37 +535,3 @@ TkpWindowWasRecentlyDeleted(win, dispPtr)
     }
     return 0;
 }
-
-/*
- *----------------------------------------------------------------------
- *
- * TkpScanWindowId --
- *
- *	Given a string, produce the corresponding Window Id.
- *
- * Results:
- *      The return value is normally TCL_OK;  in this case *idPtr
- *      will be set to the Window value equivalent to string.  If
- *      string is improperly formed then TCL_ERROR is returned and
- *      an error message will be left in the interp's result.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-int
-TkpScanWindowId(interp, string, idPtr)
-    Tcl_Interp *interp;	
-    CONST char *string;
-    Window *idPtr;
-{
-    int value;
-    if (Tcl_GetInt(interp, string, &value) != TCL_OK) {
-	return TCL_ERROR;
-    }
-    *idPtr = (Window) value;
-    return TCL_OK;
-}
-

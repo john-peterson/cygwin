@@ -80,7 +80,7 @@ static int gTkOwnsCursor = true;             /* A boolean indicating whether
  */
 
 static  void FindCursorByName _ANSI_ARGS_ ((TkMacCursor *macCursorPtr,
-	             CONST char *string));
+	             char *string));
 
 /*
  *----------------------------------------------------------------------
@@ -105,27 +105,17 @@ static  void FindCursorByName _ANSI_ARGS_ ((TkMacCursor *macCursorPtr,
 void 
 FindCursorByName(
     TkMacCursor *macCursorPtr,
-    CONST char *string)
+    char *string)
 {
     Handle resource;
     Str255 curName;
-    int destWrote, inCurLen;
     
-    inCurLen = strlen(string);
-    if (inCurLen > 255) {
+    curName[0] = strlen(string);
+    if (curName[0] > 255) {
         return;
     }
-
-    /*
-     * macRoman is the encoding that the resource fork uses.
-     */
-
-    Tcl_UtfToExternal(NULL, Tcl_GetEncoding(NULL, "macRoman"), string,
-	    inCurLen, 0, NULL, 
-	    (char *) &curName[1],
-	    255, NULL, &destWrote, NULL); /* Internalize native */
-    curName[0] = destWrote;
-
+    
+    strcpy((char *) curName + 1, string);
     resource = GetNamedResource('crsr', curName);
 
     if (resource != NULL) {
@@ -200,7 +190,7 @@ TkGetCursorByName(
         FindCursorByName(macCursorPtr, string);
 
 	if (macCursorPtr->macCursor == NULL) {
-	    CONST char **argv;
+	    char **argv;
 	    int argc, err;
 	    
 	    /*
@@ -249,8 +239,8 @@ TkGetCursorByName(
 TkCursor *
 TkCreateCursorFromData(
     Tk_Window tkwin,		/* Window in which cursor will be used. */
-    CONST char *source,		/* Bitmap data for cursor shape. */
-    CONST char *mask,		/* Bitmap data for cursor mask. */
+    char *source,		/* Bitmap data for cursor shape. */
+    char *mask,			/* Bitmap data for cursor mask. */
     int width, int height,	/* Dimensions of cursor. */
     int xHot, int yHot,		/* Location of hot-spot in cursor. */
     XColor fgColor,		/* Foreground color for cursor. */
@@ -262,7 +252,7 @@ TkCreateCursorFromData(
 /*
  *----------------------------------------------------------------------
  *
- * TkpFreeCursor --
+ * TkFreeCursor --
  *
  *	This procedure is called to release a cursor allocated by
  *	TkGetCursorByName.
@@ -277,7 +267,7 @@ TkCreateCursorFromData(
  */
 
 void
-TkpFreeCursor(
+TkFreeCursor(
     TkCursor *cursorPtr)
 {
     TkMacCursor *macCursorPtr = (TkMacCursor *) cursorPtr;
@@ -294,6 +284,8 @@ TkpFreeCursor(
     if (macCursorPtr == gCurrentCursor) {
 	gCurrentCursor = NULL;
     }
+    
+    ckfree((char *) macCursorPtr);
 }
 
 /*
@@ -393,8 +385,7 @@ TkpSetCursor(
  *----------------------------------------------------------------------
  */
 
-void
-Tk_MacTkOwnsCursor(
+void Tk_MacTkOwnsCursor(
     int tkOwnsIt)
 {
     gTkOwnsCursor = tkOwnsIt;

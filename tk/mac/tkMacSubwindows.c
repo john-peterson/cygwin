@@ -724,14 +724,14 @@ TkMacUpdateClipRgn(
 	 * This is not currently enforced, however.
 	 */
 	
-	if (!Tk_TopWinHierarchy(winPtr)) { 
+	if (!Tk_IsTopLevel(winPtr)) { 
 	    TkMacUpdateClipRgn(winPtr->parentPtr);
 	    SectRgn(rgn, 
 		    winPtr->parentPtr->privatePtr->aboveClipRgn, rgn);
 				
 	    win2Ptr = winPtr->nextPtr;
 	    while (win2Ptr != NULL) {
-		if (Tk_TopWinHierarchy(win2Ptr) || !Tk_IsMapped(win2Ptr)) {
+		if (Tk_IsTopLevel(win2Ptr) || !Tk_IsMapped(win2Ptr)) {
 		    win2Ptr = win2Ptr->nextPtr;
 		    continue;
 		}
@@ -776,7 +776,7 @@ TkMacUpdateClipRgn(
 		
 	win2Ptr = winPtr->childList;
 	while (win2Ptr != NULL) {
-	    if (Tk_TopWinHierarchy(win2Ptr) || !Tk_IsMapped(win2Ptr)) {
+	    if (Tk_IsTopLevel(win2Ptr) || !Tk_IsMapped(win2Ptr)) {
 		win2Ptr = win2Ptr->nextPtr;
 		continue;
 	    }
@@ -930,23 +930,14 @@ TkMacGetDrawablePort(
 	contWinPtr = TkpGetOtherWindow(macWin->toplevel->winPtr);
 	
     	if (contWinPtr != NULL) {
-    	    resultPort = TkMacGetDrawablePort(
-		(Drawable) contWinPtr->privatePtr);
+    	    resultPort = TkMacGetDrawablePort((Drawable) contWinPtr->privatePtr);
     	} else if (gMacEmbedHandler != NULL) {
 	    resultPort = gMacEmbedHandler->getPortProc(
                     (Tk_Window) macWin->winPtr);
     	} 
 	
 	if (resultPort == NULL) {
-	    /*
-	     * FIXME:
-	     *
-	     * So far as I can tell, the only time that this happens is when
-	     * we are tearing down an embedded child interpreter, and most
-	     * of the time, this is harmless...  However, we really need to
-	     * find why the embedding loses.
-	     */
-	    DebugStr("\pTkMacGetDrawablePort couldn't find container");
+    	    panic("TkMacGetDrawablePort couldn't find container");
     	    return NULL;
     	}	
 	    
@@ -1000,7 +991,7 @@ TkMacInvalClipRgns(
      */
     childPtr = winPtr->childList;
     while (childPtr != NULL) {
-	if (!Tk_TopWinHierarchy(childPtr) && Tk_IsMapped(childPtr)) {
+	if (!Tk_IsTopLevel(childPtr) && Tk_IsMapped(childPtr)) {
 	    TkMacInvalClipRgns(childPtr);
 	}
 	childPtr = childPtr->nextPtr;
@@ -1083,13 +1074,9 @@ tkMacMoveWindow(
 {
     int xOffset, yOffset;
 
-    if (TkMacHaveAppearance() >= 0x110) {
-        MoveWindowStructure((WindowRef) window, (short) x, (short) y);
-    } else {
     TkMacWindowOffset(window, &xOffset, &yOffset);
     MoveWindow((WindowRef) window, 
 	(short) (x + xOffset), (short) (y + yOffset), false);
-}
 }
 
 /*
@@ -1133,7 +1120,7 @@ UpdateOffsets(
 
     childPtr = winPtr->childList;
     while (childPtr != NULL) {
-	if (!Tk_TopWinHierarchy(childPtr)) {
+	if (!Tk_IsTopLevel(childPtr)) {
 	    UpdateOffsets(childPtr, deltaX, deltaY);
 	}
 	childPtr = childPtr->nextPtr;

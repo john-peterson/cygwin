@@ -16,6 +16,7 @@
 #include "tkPort.h"
 #include "tkUnixInt.h"
 
+extern int tclFocusDebug;
 
 /*
  *----------------------------------------------------------------------

@@ -106,12 +106,6 @@ static int bltModes[] = {
 typedef BOOL (CALLBACK *WinDrawFunc) _ANSI_ARGS_((HDC dc,
 			    CONST POINT* points, int npoints));
 
-typedef struct ThreadSpecificData {
-    POINT *winPoints;    /* Array of points that is reused. */
-    int nWinPoints;	/* Current size of point array. */
-} ThreadSpecificData;
-static Tcl_ThreadDataKey dataKey;
-
 /*
  * Forward declarations for procedures defined in this file:
  */
@@ -125,7 +119,6 @@ static void		DrawOrFillArc _ANSI_ARGS_((Display *display,
 static void		RenderObject _ANSI_ARGS_((HDC dc, GC gc,
 			    XPoint* points, int npoints, int mode, HPEN pen,
 			    WinDrawFunc func));
-static HPEN		SetUpGraphicsPort _ANSI_ARGS_((GC gc));
 
 /*
  *----------------------------------------------------------------------
@@ -173,7 +166,6 @@ TkWinGetDrawableDC(display, d, state)
 	cmap = twdPtr->bitmap.colormap;
     }
     state->palette = TkWinSelectPalette(dc, cmap);
-    state->bkmode  = GetBkMode(dc);
     return dc;
 }
 
@@ -200,7 +192,6 @@ TkWinReleaseDrawableDC(d, dc, state)
     TkWinDCState *state;
 {
     TkWinDrawable *twdPtr = (TkWinDrawable *)d;
-    SetBkMode(dc, state->bkmode);
     SelectPalette(dc, state->palette, TRUE);
     RealizePalette(dc);
     if (twdPtr->type == TWD_WINDOW) {
@@ -221,8 +212,7 @@ TkWinReleaseDrawableDC(d, dc, state)
  *	Returns the converted array of POINTs.
  *
  * Side effects:
- *	Allocates a block of memory in thread local storage that 
- *      should not be freed.
+ *	Allocates a block of memory that should not be freed.
  *
  *----------------------------------------------------------------------
  */
@@ -234,8 +224,8 @@ ConvertPoints(points, npoints, mode, bbox)
     int mode;			/* CoordModeOrigin or CoordModePrevious. */
     RECT *bbox;			/* Bounding box of points. */
 {
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
+    static POINT *winPoints = NULL; /* Array of points that is reused. */
+    static int nWinPoints = -1;	    /* Current size of point array. */
     int i;
 
     /*
@@ -243,16 +233,16 @@ ConvertPoints(points, npoints, mode, bbox)
      * we reuse the last array if it is large enough.
      */
 
-    if (npoints > tsdPtr->nWinPoints) {
-	if (tsdPtr->winPoints != NULL) {
-	    ckfree((char *) tsdPtr->winPoints);
+    if (npoints > nWinPoints) {
+	if (winPoints != NULL) {
+	    ckfree((char *) winPoints);
 	}
-	tsdPtr->winPoints = (POINT *) ckalloc(sizeof(POINT) * npoints);
-	if (tsdPtr->winPoints == NULL) {
-	    tsdPtr->nWinPoints = -1;
+	winPoints = (POINT *) ckalloc(sizeof(POINT) * npoints);
+	if (winPoints == NULL) {
+	    nWinPoints = -1;
 	    return NULL;
 	}
-	tsdPtr->nWinPoints = npoints;
+	nWinPoints = npoints;
     }
 
     bbox->left = bbox->right = points[0].x;
@@ -260,26 +250,26 @@ ConvertPoints(points, npoints, mode, bbox)
     
     if (mode == CoordModeOrigin) {
 	for (i = 0; i < npoints; i++) {
-	    tsdPtr->winPoints[i].x = points[i].x;
-	    tsdPtr->winPoints[i].y = points[i].y;
-	    bbox->left = MIN(bbox->left, tsdPtr->winPoints[i].x);
-	    bbox->right = MAX(bbox->right, tsdPtr->winPoints[i].x);
-	    bbox->top = MIN(bbox->top, tsdPtr->winPoints[i].y);
-	    bbox->bottom = MAX(bbox->bottom, tsdPtr->winPoints[i].y);
+	    winPoints[i].x = points[i].x;
+	    winPoints[i].y = points[i].y;
+	    bbox->left = MIN(bbox->left, winPoints[i].x);
+	    bbox->right = MAX(bbox->right, winPoints[i].x);
+	    bbox->top = MIN(bbox->top, winPoints[i].y);
+	    bbox->bottom = MAX(bbox->bottom, winPoints[i].y);
 	}
     } else {
-	tsdPtr->winPoints[0].x = points[0].x;
-	tsdPtr->winPoints[0].y = points[0].y;
+	winPoints[0].x = points[0].x;
+	winPoints[0].y = points[0].y;
 	for (i = 1; i < npoints; i++) {
-	    tsdPtr->winPoints[i].x = tsdPtr->winPoints[i-1].x + points[i].x;
-	    tsdPtr->winPoints[i].y = tsdPtr->winPoints[i-1].y + points[i].y;
-	    bbox->left = MIN(bbox->left, tsdPtr->winPoints[i].x);
-	    bbox->right = MAX(bbox->right, tsdPtr->winPoints[i].x);
-	    bbox->top = MIN(bbox->top, tsdPtr->winPoints[i].y);
-	    bbox->bottom = MAX(bbox->bottom, tsdPtr->winPoints[i].y);
+	    winPoints[i].x = winPoints[i-1].x + points[i].x;
+	    winPoints[i].y = winPoints[i-1].y + points[i].y;
+	    bbox->left = MIN(bbox->left, winPoints[i].x);
+	    bbox->right = MAX(bbox->right, winPoints[i].x);
+	    bbox->top = MIN(bbox->top, winPoints[i].y);
+	    bbox->bottom = MAX(bbox->bottom, winPoints[i].y);
 	}
     }
-    return tsdPtr->winPoints;
+    return winPoints;
 }
 
 /*
@@ -565,7 +555,33 @@ TkPutImage(colors, ncolors, display, d, gc, image, src_x, src_y, dest_x,
 	
 	infoPtr->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
 	infoPtr->bmiHeader.biWidth = image->width;
-	infoPtr->bmiHeader.biHeight = -image->height; /* Top-down order */
+
+	/*
+	 * The following code works around a bug in Win32s.  CreateDIBitmap
+	 * fails under Win32s for top-down images.  So we have to reverse the
+	 * order of the scanlines.  If we are not running under Win32s, we can
+	 * just declare the image to be top-down.
+	 */
+
+	if (tkpIsWin32s) {
+	    int y;
+	    char *srcPtr, *dstPtr, *temp;
+
+	    temp = ckalloc((unsigned) image->bytes_per_line);
+	    srcPtr = image->data;
+	    dstPtr = image->data+(image->bytes_per_line * (image->height - 1));
+	    for (y = 0; y < (image->height/2); y++) {
+		memcpy(temp, srcPtr, image->bytes_per_line);
+		memcpy(srcPtr, dstPtr, image->bytes_per_line);
+		memcpy(dstPtr, temp, image->bytes_per_line);
+		srcPtr += image->bytes_per_line;
+		dstPtr -= image->bytes_per_line;
+	    }
+	    ckfree(temp);
+	    infoPtr->bmiHeader.biHeight = image->height; /* Bottom-up order */
+	} else {
+	    infoPtr->bmiHeader.biHeight = -image->height; /* Top-down order */
+	}
 	infoPtr->bmiHeader.biPlanes = 1;
 	infoPtr->bmiHeader.biBitCount = image->bits_per_pixel;
 	infoPtr->bmiHeader.biCompression = BI_RGB;
@@ -588,12 +604,6 @@ TkPutImage(colors, ncolors, display, d, gc, image, src_x, src_y, dest_x,
 	bitmap = CreateDIBitmap(dc, &infoPtr->bmiHeader, CBM_INIT,
 		image->data, infoPtr, DIB_RGB_COLORS);
 	ckfree((char *) infoPtr);
-    }
-    if(!bitmap) {
-	panic("Fail to allocate bitmap\n");
-	DeleteDC(dcMem);
-    	TkWinReleaseDrawableDC(d, dc, &state);
-	return;
     }
     bitmap = SelectObject(dcMem, bitmap);
     BitBlt(dc, dest_x, dest_y, width, height, dcMem, src_x, src_y, SRCCOPY);
@@ -751,13 +761,15 @@ RenderObject(dc, gc, points, npoints, mode, pen, func)
 	}
 
 	/*
-	 * Grow the bounding box enough to account for line width.
+	 * Grow the bounding box enough to account for wide lines.
 	 */
 
-	rect.left -= gc->line_width;
-	rect.top -= gc->line_width;
-	rect.right += gc->line_width;
-	rect.bottom += gc->line_width;
+	if (gc->line_width > 1) {
+	    rect.left -= gc->line_width;
+	    rect.top -= gc->line_width;
+	    rect.right += gc->line_width;
+	    rect.bottom += gc->line_width;
+	}
 
 	width = rect.right - rect.left;
 	height = rect.bottom - rect.top;
@@ -869,8 +881,42 @@ XDrawLines(display, d, gc, points, npoints, mode)
 
     dc = TkWinGetDrawableDC(display, d, &state);
 
-    pen = SetUpGraphicsPort(gc);
-    SetBkMode(dc, TRANSPARENT);
+    if (!tkpIsWin32s && (gc->line_width > 1)) {
+	LOGBRUSH lb;
+	DWORD style;
+
+	lb.lbStyle = BS_SOLID;
+	lb.lbColor = gc->foreground;
+	lb.lbHatch = 0;
+
+	style = PS_GEOMETRIC|PS_COSMETIC;
+	switch (gc->cap_style) {
+	    case CapNotLast:
+	    case CapButt:
+		style |= PS_ENDCAP_FLAT; 
+		break;
+	    case CapRound:
+		style |= PS_ENDCAP_ROUND; 
+		break;
+	    default:
+		style |= PS_ENDCAP_SQUARE; 
+		break;
+	}
+	switch (gc->join_style) {
+	    case JoinMiter: 
+		style |= PS_JOIN_MITER; 
+		break;
+	    case JoinRound:
+		style |= PS_JOIN_ROUND; 
+		break;
+	    default:
+		style |= PS_JOIN_BEVEL; 
+		break;
+	}
+	pen = ExtCreatePen(style, gc->line_width, &lb, 0, NULL);
+    } else {
+	pen = CreatePen(PS_SOLID, gc->line_width, gc->foreground);
+    }
     RenderObject(dc, gc, points, npoints, mode, pen, Polyline);
     DeleteObject(pen);
     
@@ -956,8 +1002,7 @@ XDrawRectangle(display, d, gc, x, y, width, height)
 
     dc = TkWinGetDrawableDC(display, d, &state);
 
-    pen = SetUpGraphicsPort(gc);
-    SetBkMode(dc, TRANSPARENT);
+    pen = CreatePen(PS_SOLID, gc->line_width, gc->foreground);
     oldPen = SelectObject(dc, pen);
     oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
     SetROP2(dc, tkpWinRopModes[gc->function]);
@@ -1119,7 +1164,7 @@ DrawOrFillArc(display, d, gc, x, y, width, height, start, extent, fill)
      * difference in pixel definitions between X and Windows.
      */
 
-    pen = SetUpGraphicsPort(gc);
+    pen = CreatePen(PS_SOLID, gc->line_width, gc->foreground);
     oldPen = SelectObject(dc, pen);
     if (!fill) {
 	/*
@@ -1128,7 +1173,6 @@ DrawOrFillArc(display, d, gc, x, y, width, height, start, extent, fill)
 	 * it's only supported under Windows NT.
 	 */
 
-	SetBkMode(dc, TRANSPARENT);
 	Arc(dc, x, y, x+width+1, y+height+1, xstart, ystart, xend, yend);
     } else {
 	brush = CreateSolidBrush(gc->foreground);
@@ -1142,92 +1186,6 @@ DrawOrFillArc(display, d, gc, x, y, width, height, start, extent, fill)
     }
     DeleteObject(SelectObject(dc, oldPen));
     TkWinReleaseDrawableDC(d, dc, &state);
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * SetUpGraphicsPort --
- *
- *	Set up the graphics port from the given GC.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	The current port is adjusted.
- *
- *----------------------------------------------------------------------
- */
-
-static HPEN
-SetUpGraphicsPort(gc)
-    GC gc;
-{
-    DWORD style;
-
-    if (gc->line_style == LineOnOffDash) {
-	unsigned char *p = (unsigned char *) &(gc->dashes);
-				/* pointer to the dash-list */
-
-	/*
-	 * Below is a simple translation of serveral dash patterns
-	 * to valid windows pen types. Far from complete,
-	 * but I don't know how to do it better.
-	 * Any ideas: <mailto:j.nijtmans@chello.nl>
-	 */
-
-	if (p[1] && p[2]) {
-	    if (!p[3] || p[4]) {
-		style = PS_DASHDOTDOT;		/*	-..	*/
-	    } else {
-		style = PS_DASHDOT;		/*	-.	*/
-	    }
-	} else {
-	    if (p[0] > (4 * gc->line_width)) {
-		style = PS_DASH;		/*	-	*/
-	    } else {
-		style = PS_DOT;			/*	.	*/
-	    }
-	}
-    } else {
-	style = PS_SOLID;
-    }
-    if (gc->line_width < 2) {
-	return CreatePen(style, gc->line_width, gc->foreground);
-    } else {
-	LOGBRUSH lb;
-
-	lb.lbStyle = BS_SOLID;
-	lb.lbColor = gc->foreground;
-	lb.lbHatch = 0;
-
-	style |= PS_GEOMETRIC;
-	switch (gc->cap_style) {
-	    case CapNotLast:
-	    case CapButt:
-		style |= PS_ENDCAP_FLAT; 
-		break;
-	    case CapRound:
-		style |= PS_ENDCAP_ROUND; 
-		break;
-	    default:
-		style |= PS_ENDCAP_SQUARE; 
-		break;
-	}
-	switch (gc->join_style) {
-	    case JoinMiter: 
-		style |= PS_JOIN_MITER; 
-		break;
-	    case JoinRound:
-		style |= PS_JOIN_ROUND; 
-		break;
-	    default:
-		style |= PS_JOIN_BEVEL; 
-		break;
-	}
-	return ExtCreatePen(style, gc->line_width, &lb, 0, NULL);
-    }
 }
 
 /*
@@ -1303,37 +1261,4 @@ TkWinFillRect(dc, x, y, width, height, pixel)
     SetBkMode(dc, OPAQUE);
     ExtTextOut(dc, 0, 0, ETO_OPAQUE, &rect, NULL, 0, NULL);
     SetBkColor(dc, oldColor);
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TkpDrawHighlightBorder --
- *
- *	This procedure draws a rectangular ring around the outside of
- *	a widget to indicate that it has received the input focus.
- *
- *      On Windows, we just draw the simple inset ring.  On other sytems,
- *      e.g. the Mac, the focus ring is a little more complicated, so we
- *      need this abstraction.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	A rectangle "width" pixels wide is drawn in "drawable",
- *	corresponding to the outer area of "tkwin".
- *
- *----------------------------------------------------------------------
- */
-
-void 
-TkpDrawHighlightBorder(tkwin, fgGC, bgGC, highlightWidth, drawable)
-    Tk_Window tkwin;
-    GC fgGC;
-    GC bgGC;
-    int highlightWidth;
-    Drawable drawable;
-{
-    TkDrawInsetFocusHighlight(tkwin, fgGC, highlightWidth, drawable, 0);
 }

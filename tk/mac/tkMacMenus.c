@@ -13,7 +13,7 @@
  */
 
 #include "tcl.h"
-#include "tclMacInt.h" /* Needed for FSpLocationFromPath */
+#include "tclMacInt.h"
 #include "tk.h"
 #include "tkInt.h"
 #include "tkMacInt.h"
@@ -80,7 +80,6 @@ TkMacHandleMenuSelect(
     Str255 name;
     Tk_Window tkwin;
     Window window;
-    TkDisplay *dispPtr;
 
     if (mResult == 0) {
     	TkMacHandleTearoffMenu();
@@ -106,7 +105,7 @@ TkMacHandleMenuSelect(
 			break;
 		    }
 		default:
-		    GetMenuItemText(tkAppleMenu, theItem, name);
+		    GetItem(tkAppleMenu, theItem, name);
 		    HiliteMenu(0);
 		    OpenDeskAcc(name);
 		    return;
@@ -120,13 +119,8 @@ TkMacHandleMenuSelect(
 		    break;
 		case kCloseItem:
 		    /* Send close event */
-		    if (TkMacHaveAppearance() >= 0x110) {
-		        window = TkMacGetXWindow(FrontNonFloatingWindow());
-		    } else {
-		        window = TkMacGetXWindow(FrontWindow());
-		    }
-		    dispPtr = TkGetDisplayList();
-		    tkwin = Tk_IdToWindow(dispPtr->display, window);
+		    window = TkMacGetXWindow(FrontWindow());
+		    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
 		    TkGenWMDestroyEvent(tkwin);
 		    break;
 		case kQuitItem:
@@ -193,9 +187,9 @@ TkMacInitMenus(
 	panic("memory - menus");
     }
     InsertMenu(tkAppleMenu, 0);
-    AppendMenu(tkAppleMenu, "\pAbout Tcl & TkŠ");
+    AppendMenu(tkAppleMenu, "\pAbout Tcl & TkÉ");
     AppendMenu(tkAppleMenu, "\p(-");
-    AppendResMenu(tkAppleMenu, 'DRVR');
+    AddResMenu(tkAppleMenu, 'DRVR');
 
     if (TkMacUseMenuID(kFileMenu) != TCL_OK) {
     	panic("Menu ID %d is already in use!", kFileMenu);
@@ -205,7 +199,7 @@ TkMacInitMenus(
 	panic("memory - menus");
     }
     InsertMenu(tkFileMenu, 0);
-    AppendMenu(tkFileMenu, "\pSourceŠ");
+    AppendMenu(tkFileMenu, "\pSourceÉ");
     AppendMenu(tkFileMenu, "\pClose/W");
     AppendMenu(tkFileMenu, "\p(-");
     AppendMenu(tkFileMenu, "\pQuit/Q");
@@ -257,15 +251,9 @@ GenerateEditEvent(
     Point where;
     Tk_Window tkwin;
     Window window;
-    TkDisplay *dispPtr;
 
-    if (TkMacHaveAppearance() >= 0x110) {
-        window = TkMacGetXWindow(FrontNonFloatingWindow());
-    } else {
-        window = TkMacGetXWindow(FrontWindow());
-    }
-    dispPtr = TkGetDisplayList();
-    tkwin = Tk_IdToWindow(dispPtr->display, window);
+    window = TkMacGetXWindow(FrontWindow());
+    tkwin = Tk_IdToWindow(tkDisplayList->display, window);
     tkwin = (Tk_Window) ((TkWindow *) tkwin)->dispPtr->focusPtr;
     if (tkwin == NULL) {
 	return;
@@ -329,26 +317,29 @@ GenerateEditEvent(
 static void 
 SourceDialog()
 {
-    int result;
-    CONST char *path;
-    char openCmd[] = "tk_getOpenFile -filetypes {\
-            {{TCL Scripts} {.tcl} TEXT} {{Text Files} {} TEXT}}";
+    StandardFileReply reply;
+    OSType fileTypes[1];
+    OSErr err;
+    int length, result;
+    Handle path;
     
     if (gInterp == NULL) {
 	return;
     }
     
-    if (Tcl_Eval(gInterp, openCmd) != TCL_OK) {
+    fileTypes[0] = 'TEXT';
+    StandardGetFile(NULL, 1, fileTypes, &reply);
+    if (reply.sfGood == false) {
 	return;
     }
     
-    path = Tcl_GetStringResult(gInterp);
-    
-    if (strlen(path) == 0) {
-        return;
+    err = FSpPathFromLocation(&reply.sfFile, &length, &path);
+    if (err == noErr) {
+	HLock(path);
+	result = Tcl_EvalFile(gInterp, *path);
+	HUnlock(path);
+	DisposeHandle(path);
     }
-    
-    result = Tcl_EvalFile(gInterp, path);
     if (result == TCL_ERROR) {
 	Tcl_BackgroundError(gInterp);
     }	   

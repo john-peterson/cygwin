@@ -1,19 +1,19 @@
 # cframe.tcl - Frame controlled by checkbutton.
-# Copyright (C) 1997,2008 Red Hat, Inc
+# Copyright (C) 1997 Cygnus Solutions.
 # Written by Tom Tromey <tromey@cygnus.com>.
 
-itcl::class Checkframe {
+itcl_class Checkframe {
   inherit Widgetframe
 
   # The checkbutton text.
-  public variable text {} {
+  public text {} {
     _set_option -text $text 0
   }
 
   # This holds the last value of -variable.  We use it to unset our
   # trace when the variable changes (or is deleted).  Private
   # variable.
-  protected variable _saved_variable {}
+  protected _saved_variable {}
 
   # The checkbutton variable.
   public variable {} {
@@ -21,22 +21,22 @@ itcl::class Checkframe {
   }
 
   # The checkbutton -onvalue.
-  public variable onvalue 1 {
+  public onvalue 1 {
     _set_option -onvalue $onvalue
   }
 
   # The checkbutton -offvalue.
-  public variable offvalue 0 {
+  public offvalue 0 {
     _set_option -offvalue $offvalue
   }
 
   # The checkbutton -command.
-  public variable command {} {
+  public command {} {
     _set_option -command $command 0
   }
 
   # This holds balloon help for the checkbutton.
-  public variable help {} {
+  public help {} {
     if {[winfo exists [namespace tail $this].check]} then {
       balloon register [namespace tail $this].check $help
     }
@@ -44,9 +44,9 @@ itcl::class Checkframe {
 
   # This holds a list of all widgets which should be immune to
   # enabling/disabling.  Private variable.
-  protected variable _avoid {}
+  protected _avoid {}
 
-  constructor {} {
+  constructor {config} {
     checkbutton [namespace tail $this].check -text $text -variable $variable -padx 2 \
       -command $command -onvalue $onvalue -offvalue $offvalue
     balloon register [namespace tail $this].check $help

@@ -40,17 +40,17 @@ namespace eval ::debug {
 
   proc logfile {file} {
     variable logfile
-    if {$logfile != "" && $logfile != "stdout" && $logfile != "stderr"} {
+    if {$logfile != "" && $logfile != "stdout"} {
       catch {close $logfile}
     }
     
     if {$file == ""} {
       set logfile ""
-    } elseif {$file == "stdout" || $file == "stderr"} {
+    } elseif {$file == "stdout"} {
       set logfile $file
     } else {
       set logfile [open $file w+]
-      fconfigure $logfile -buffering line -blocking 0
+      fconfigure $logfile -buffering line
     }
   }
 

@@ -11,18 +11,18 @@ AC_INIT(generic/tk.h)
 AC_CANONICAL_HOST
 
 case "${host}" in
-*cygwin* | *mingw32* | *windows32*)
+*-*-cygwin* | *-*-mingw32*)
 	CONFIGDIR="win"
-	AC_CONFIG_SUBDIRS("win")
+	AC_SUBST(CONFIGDIR)
 	;;
 *)
 	CONFIGDIR="unix"
-	AC_CONFIG_SUBDIRS("unix")
-	AC_CONFIG_AUX_DIR("unix")	
+	AC_SUBST(CONFIGDIR)
+	AC_CONFIG_AUX_DIR($CONFIGDIR)	
 	;;
 esac
 
-AC_SUBST(CONFIGDIR)
 AC_PROG_MAKE_SET
+AC_CONFIG_SUBDIRS($CONFIGDIR)
 AC_OUTPUT(Makefile)
 

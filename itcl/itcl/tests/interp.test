@@ -13,12 +13,7 @@
 # See the file "license.terms" for information on usage and
 # redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
-if {[lsearch [namespace children] ::tcltest] == -1} {
-    package require tcltest 2.1
-    namespace import -force ::tcltest::test
-}
-
-::tcltest::loadTestedCommands
+if {[string compare test [info procs test]] == 1} then {source defs}
 
 # ----------------------------------------------------------------------
 #  Make sure that slave interpreters can be created and loaded
@@ -71,21 +66,3 @@ test interp-1.4 {one namespace can cause another to be destroyed} {
     }
     interp delete slave
 } {}
-
-test interp-1.5 {cleanup interp object list, this should not
-        include an object that deletes itself in ctor} {
-    interp create slave
-    load "" Itcl slave
-    slave eval {
-        itcl::class DeleteSelf {
-            constructor {} {
-                itcl::delete object $this
-            }
-        }
-        DeleteSelf ds
-    }
-    interp delete slave
-} {}
-
-::tcltest::cleanupTests
-return

@@ -49,7 +49,7 @@ _Tcl_GetCallFrame(interp, level)
     CallFrame *framePtr;
 
     if (level < 0) {
-        Tcl_Panic("itcl: _Tcl_GetCallFrame called with bad number of levels");
+        panic("itcl: _Tcl_GetCallFrame called with bad number of levels");
     }
 
     framePtr = iPtr->varFramePtr;

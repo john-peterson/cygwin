@@ -202,7 +202,7 @@ OdocHandler(
      */
 
     if ((interp == NULL) || 
-    	(Tcl_GetCommandInfo(interp, "::tk::mac::OpenDocument", &dummy)) == 0) {
+    	(Tcl_GetCommandInfo(interp, "tkOpenDocument", &dummy)) == 0) {
     	return noErr;
     }
     
@@ -228,11 +228,13 @@ OdocHandler(
     }
 
     Tcl_DStringInit(&command);
-    Tcl_DStringAppend(&command, "::tk::mac::OpenDocument", -1);
+    Tcl_DStringInit(&pathName);
+    Tcl_DStringAppend(&command, "tkOpenDocument", -1);
     for (index = 1; index <= count; index++) {
 	int length;
 	Handle fullPath;
 	
+	Tcl_DStringSetLength(&pathName, 0);
 	err = AEGetNthPtr(&fileSpecList, index, typeFSS,
 		&keyword, &type, (Ptr) &file, sizeof(FSSpec), &actual);
 	if ( err != noErr ) {
@@ -241,17 +243,17 @@ OdocHandler(
 
 	err = FSpPathFromLocation(&file, &length, &fullPath);
 	HLock(fullPath);
-        Tcl_ExternalToUtfDString(NULL, *fullPath, length, &pathName);
+	Tcl_DStringAppend(&pathName, *fullPath, length);
 	HUnlock(fullPath);
 	DisposeHandle(fullPath);
 
-	Tcl_DStringAppendElement(&command, Tcl_DStringValue(&pathName));
-	Tcl_DStringFree(&pathName);
+	Tcl_DStringAppendElement(&command, pathName.string);
     }
     
-    Tcl_GlobalEval(interp, Tcl_DStringValue(&command));
+    Tcl_GlobalEval(interp, command.string);
 
     Tcl_DStringFree(&command);
+    Tcl_DStringFree(&pathName);
     return noErr;
 }
 
@@ -310,7 +312,6 @@ ScriptHandler(
 	theErr = -1771;
     } else {
 	if (theDesc.descriptorType == (DescType)'TEXT') {
-	    Tcl_DString encodedText;
 	    short length, i;
 	    
 	    length = GetHandleSize(theDesc.dataHandle);
@@ -323,10 +324,7 @@ ScriptHandler(
 	    }
 
 	    HLock(theDesc.dataHandle);
-	    Tcl_ExternalToUtfDString(NULL, *theDesc.dataHandle, length,
-		    &encodedText);
-	    tclErr = Tcl_GlobalEval(interp, Tcl_DStringValue(&encodedText));
-	    Tcl_DStringFree(&encodedText);
+	    tclErr = Tcl_GlobalEval(interp, *theDesc.dataHandle);
 	    HUnlock(theDesc.dataHandle);
 	} else if (theDesc.descriptorType == (DescType)'alis') {
 	    Boolean dummy;
@@ -363,12 +361,10 @@ ScriptHandler(
     if (tclErr >= 0) {
 	if (tclErr == TCL_OK)  {
 	    AEPutParamPtr(reply, keyDirectObject, typeChar,
-		Tcl_GetStringResult(interp),
-		strlen(Tcl_GetStringResult(interp)));
+		interp->result, strlen(interp->result));
 	} else {
 	    AEPutParamPtr(reply, keyErrorString, typeChar,
-		Tcl_GetStringResult(interp),
-		strlen(Tcl_GetStringResult(interp)));
+		interp->result, strlen(interp->result));
 	    AEPutParamPtr(reply, keyErrorNumber, typeInteger,
 		(Ptr) &tclErr, sizeof(int));
 	}

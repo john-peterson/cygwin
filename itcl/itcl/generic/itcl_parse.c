@@ -255,8 +255,14 @@ Itcl_ClassCmd(clientData, interp, objc, objv)
         /* isProcCallFrame */ 0);
 
     if (result == TCL_OK) {
-        result = Tcl_EvalObj(interp, objv[2]);
-        Tcl_PopCallFrame(interp);
+      /* CYGNUS LOCAL - Fix for Tcl8.1 */
+#if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION == 0
+      result = Tcl_EvalObj(interp, objv[2]);
+#else
+      result = Tcl_EvalObj(interp, objv[2], 0);
+#endif
+      /* END CYGNUS LOCAL */
+      Tcl_PopCallFrame(interp);
     }
     Itcl_PopStack(&info->cdefnStack);
 
@@ -364,7 +370,7 @@ Itcl_ClassInheritCmd(clientData, interp, objc, objv)
          *  parent namespace (currently active).  If not, try
          *  to autoload its definition.
          */
-        token = Tcl_GetString(*objv);
+        token = Tcl_GetStringFromObj(*objv, (int*)NULL);
         baseCdefnPtr = Itcl_FindClass(interp, token, /* autoload */ 1);
         if (!baseCdefnPtr) {
             Tcl_Obj *resultPtr = Tcl_GetObjResult(interp);
@@ -574,7 +580,13 @@ Itcl_ClassProtectionCmd(clientData, interp, objc, objv)
     oldLevel = Itcl_Protection(interp, pInfo->pLevel);
 
     if (objc == 2) {
-        result = Tcl_EvalObj(interp, objv[1]);
+      /* CYGNUS LOCAL - Fix for Tcl8.1 */
+#if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION == 0
+      result = Tcl_EvalObj(interp, objv[1]);
+#else
+      result = Tcl_EvalObj(interp, objv[1], 0);
+#endif
+      /* END CYGNUS LOCAL */
     } else {
         result = Itcl_EvalArgs(interp, objc-1, objv+1);
     }
@@ -643,13 +655,13 @@ Itcl_ClassConstructorCmd(clientData, interp, objc, objv)
      *  If there is an object initialization statement, pick this
      *  out and take the last argument as the constructor body.
      */
-    arglist = Tcl_GetString(objv[1]);
+    arglist = Tcl_GetStringFromObj(objv[1], (int*)NULL);
     if (objc == 3) {
-        body = Tcl_GetString(objv[2]);
+        body = Tcl_GetStringFromObj(objv[2], (int*)NULL);
     } else {
         cdefnPtr->initCode = objv[2];
         Tcl_IncrRefCount(cdefnPtr->initCode);
-        body = Tcl_GetString(objv[3]);
+        body = Tcl_GetStringFromObj(objv[3], (int*)NULL);
     }
 
     if (Itcl_CreateMethod(interp, cdefnPtr, name, arglist, body) != TCL_OK) {
@@ -960,10 +972,10 @@ Itcl_ClassCommonCmd(clientData, interp, objc, objv)
     Itcl_BuildVirtualTables(cdefnPtr);
 
     if (init) {
-        CONST char *val = Tcl_SetVar(interp, vdefn->member->name, init,
+        init = Tcl_SetVar(interp, vdefn->member->name, init,
             TCL_NAMESPACE_ONLY);
 
-        if (!val) {
+        if (!init) {
             Tcl_AppendStringsToObj(Tcl_GetObjResult(interp),
                 "cannot initialize common variable \"",
                 vdefn->member->name, "\"",
@@ -1013,7 +1025,7 @@ Itcl_ClassCommonCmd(clientData, interp, objc, objv)
 int
 Itcl_ParseVarResolver(interp, name, contextNs, flags, rPtr)
     Tcl_Interp *interp;        /* current interpreter */
-    CONST char* name;                /* name of the variable being accessed */
+    char* name;                /* name of the variable being accessed */
     Tcl_Namespace *contextNs;  /* namespace context */
     int flags;                 /* TCL_GLOBAL_ONLY => global variable
                                 * TCL_NAMESPACE_ONLY => namespace variable */
@@ -1055,8 +1067,6 @@ Itcl_ParseVarResolver(interp, name, contextNs, flags, rPtr)
      */
     return TCL_CONTINUE;
 }
-
-
 
 /*
  * ------------------------------------------------------------------------

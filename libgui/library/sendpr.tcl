@@ -1,5 +1,5 @@
 # sendpr.tcl - GUI to send-pr.
-# Copyright (C) 1997,2008 Red Hat, Inc.
+# Copyright (C) 1997 Cygnus Solutions.
 # Written by Tom Tromey <tromey@cygnus.com>.
 
 # FIXME:
@@ -13,7 +13,7 @@
 # FIXME: shouldn't have global variable.
 defarray SENDPR_state
 
-itcl::class Sendpr {
+itcl_class Sendpr {
   inherit Ide_window
 
   # This array holds information about this site.  It is a private
@@ -31,7 +31,7 @@ itcl::class Sendpr {
     set _site(field,Submitter-Id) cygnus
     set _site(field,Originator) Nobody
     set _site(field,Release) "Internal"
-    set _site(field,Organization) "Red Hat, Inc."
+    set _site(field,Organization) "Cygnus Solutions"
     set _site(field,Environment) ""
     foreach item {byteOrder machine os osVersion platform} {
       append _site(field,Environment) "$item = $tcl_platform($item)\n"
@@ -198,8 +198,7 @@ itcl::class Sendpr {
     grid rowconfigure  [namespace tail $this] 3 -weight 1
     grid columnconfigure  [namespace tail $this] 0 -weight 1
 
-    bind [namespace tail $this].buttons <Destroy> \
-	[itcl::code itcl::delete object $this]
+    bind [namespace tail $this].buttons <Destroy> [list $this delete]
 
     wm deiconify  [namespace tail $this]
   }

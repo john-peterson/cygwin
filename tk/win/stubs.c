@@ -1,10 +1,14 @@
-#include "tk.h"
+#include <X11/X.h>
+#include <X11/Xlib.h>
+#include <stdio.h>
+#include <tkInt.h>
+#include <tkPort.h>
 
 /*
  * Undocumented Xlib internal function
  */
 
-int _XInitImageFuncPtrs(XImage *image)
+_XInitImageFuncPtrs(XImage *image)
 {
     return 0;
 }
@@ -253,7 +257,7 @@ void
 XSetCommand(display, w, argv, argc)
     Display* display;
     Window w;
-    CONST char** argv;
+    char** argv;
     int argc;
 {
 }

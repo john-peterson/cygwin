@@ -19,31 +19,10 @@
 #include "tkInt.h"
 #endif
 
-#ifndef _TKMENU
-#include "tkMenu.h"
-#endif
-
 #ifdef BUILD_tk
 # undef TCL_STORAGE_CLASS
 # define TCL_STORAGE_CLASS DLLEXPORT
 #endif
-
-/*
- * Legal values for the "orient" field of TkMenubutton records.
- */
-
-enum direction {
-    DIRECTION_ABOVE, DIRECTION_BELOW, DIRECTION_FLUSH, 
-    DIRECTION_LEFT, DIRECTION_RIGHT
-};
-
-/*
- * Legal values for the "state" field of TkMenubutton records.
- */
-
-enum state {
-    STATE_ACTIVE, STATE_DISABLED, STATE_NORMAL
-};
 
 /*
  * A data structure of the following type is kept for each
@@ -60,8 +39,6 @@ typedef struct {
 				 * freed up even after tkwin has gone away. */
     Tcl_Interp *interp;		/* Interpreter associated with menubutton. */
     Tcl_Command widgetCmd;	/* Token for menubutton's widget command. */
-    Tk_OptionTable optionTable;	/* Table that defines configuration options
-				 * available for this widget. */
     char *menuName;		/* Name of menu associated with widget.
 				 * Malloc-ed. */
 
@@ -88,7 +65,7 @@ typedef struct {
      * Information used when displaying widget:
      */
 
-    enum state state;          	/* State of button for display purposes:
+    Tk_Uid state;		/* State of button for display purposes:
 				 * normal, active, or disabled. */
     Tk_3DBorder normalBorder;	/* Structure used to draw 3-D
 				 * border and background when window
@@ -166,11 +143,7 @@ typedef struct {
      * Miscellaneous information:
      */
 
-    int compound;               /* Value of -compound option; specifies whether
-                                 * the menubutton should show both an image and
-                                 * text, and, if so, how. */
-
-    enum direction direction;	/* Direction for where to pop the menu.
+    Tk_Uid direction;		/* Direction for where to pop the menu.
     				 * Valid directions are "above", "below",
     				 * "left", "right", and "flush". "flush"
     				 * means that the upper left corner of the
@@ -219,7 +192,7 @@ typedef struct {
  * Declaration of variables shared between the files in the button module.
  */
 
-extern Tk_ClassProcs tkpMenubuttonClass;
+extern TkClassProcs tkpMenubuttonClass;
 
 /*
  * Declaration of procedures used in the implementation of the button

@@ -11,9 +11,6 @@ include_HEADERS = \
 
 endif
 
-datadir = @datadir@
-guidir  = $(datadir)/redhat/gui
-
 # tkTable version info
 include $(srcdir)/tkTable_version.in
 
@@ -22,8 +19,8 @@ include $(srcdir)/tkTable_version.in
 # for those with another built-in "table" command
 TBL_COMMAND     = table
 
-tkTable.tcl.h: $(srcdir)/tkTable.tcl
-	sed -e '/^$\#/d' -e '/^$$/d' -e 's/\"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' <$(srcdir)/tkTable.tcl >tkTable.tcl.h || rm tkTable.tcl.h 
+tkTabletcl.h: $(srcdir)/tkTable.tcl
+	sed -e '/^$\#/d' -e '/^$$/d' -e 's/\"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' <$(srcdir)/tkTable.tcl >tkTabletcl.h || rm tkTabletcl.h 
 
 
 
@@ -41,20 +38,21 @@ LIBGUI_CFLAGS=@LIBGUI_CFLAGS@
 
 ## Some of the files in this directory want to see Tk internals.
 ## Nasty.
-INCLUDES = $(LIBGUI_CFLAGS) $(TCL_INCLUDES) \
-$(TK_INCLUDES) $(TK_XINCLUDES) $(TCL_DEFS) $(TK_DEFS) \
+INCLUDES = $(LIBGUI_CFLAGS) $(TCLHDIR) \
+$(TKHDIR) \
+$(TK_XINCLUDES) $(TCL_DEFS) $(TK_DEFS) \
+$(TKHDIR)/../unix $(TKHDIR)/../win \
 -DTBL_VERSION=\"$(TBL_VERSION)\"\
 -DTBL_COMMAND=\"$(TBL_COMMAND)\"\
--DTBL_RUNTIME=\"tkTable.tcl\" -DTBL_RUNTIME_DIR=\"$(guidir)\"\
--DSTATIC_BUILD
+-DTCL_RUNTIME=\"tkTable.tcl\"
 
-TKTABLE_SOURCES = tkTable.c tkTableCell.c tkTableCellSort.c \
-tkTableCmds.c tkTableEdit.c tkTableTag.c tkTableWin.c tkTableUtil.c
-
-libgui_a_SOURCES = guitcl.h subcommand.c subcommand.h \
-tclwinprint.c tclshellexe.c paths.c \
-tclwingrab.c tclwinpath.c tclmsgbox.c tclcursor.c \
-tkWinPrintText.c tkWinPrintCanvas.c tkWarpPointer.c $(TKTABLE_SOURCES)
+libgui_a_SOURCES = guitcl.h paths.c subcommand.c subcommand.h \
+tkTreeTable.c tkTreeTable.h xpmlib.c tclmain.c tkGraphCanvas.c \
+tkCanvEdge.c tkCanvLayout.c tkCanvLayout.h tclhelp.c tclgetdir.c \
+tclwinprint.c tclsizebox.c tclshellexe.c tclmapi.c tclwinfont.c	\
+tclwingrab.c tclwinmode.c tclwinpath.c tclmsgbox.c tclcursor.c \
+tkTable.c tkTableCmd.c tkTableCell.c tkTableTag.c tkTableWin.c \
+tkWinPrintText.c tkWinPrintCanvas.c tkWarpPointer.c
 
 ## Dependencies
 
@@ -63,6 +61,7 @@ subcommand.$(OBJEXT): subcommand.c subcommand.h
 tkCanvEdge.$(OBJEXT): tkCanvEdge.c ../config.h
 tkCanvLayout.$(OBJEXT): tkCanvLayout.c ../config.h tkCanvLayout.h
 tkGraphCanvas.$(OBJEXT): tkGraphCanvas.c tkCanvLayout.h
+tkTreeTable.$(OBJEXT): tkTreeTable.c tkTreeTable.h
 xpmlib.$(OBJEXT): xpmlib.c guitcl.h
 assertions.$(OBJEXT): assertions.c ../config.h assertions.h
 tclcursor.$(OBJEXT): tclcursor.c ../config.h guitcl.h subcommand.h
@@ -77,14 +76,10 @@ tclwinfont.$(OBJEXT): tclwinfont.c guitcl.h
 tclwingrab.$(OBJEXT): tclwingrab.c guitcl.h
 tclwinpath.$(OBJEXT): tclwinpath.c guitcl.h subcommand.h
 tclwinmode.$(OBJEXT): tclwinmode.c guitcl.h
-tkTable.$(OBJEXT): tkTable.c tkTable.h tkTableInitScript.h tkTable.tcl.h
-tkTableCell.$(OBJEXT): tkTableCell.c tkTable.h
-tkTableCellSort.$(OBJEXT): tkTableCellSort.c tkTable.h
-tkTableCmds.$(OBJEXT): tkTableCmds.c tkTable.h
-tkTableEdit.$(OBJEXT): tkTableEdit.c tkTable.h
-tkTableTag.$(OBJEXT): tkTableTag.c tkTable.h
-tkTablePs.$(OBJECT): tkTablePs.c tkTable.h
-tkTableWin.$(OBJEXT):tkTableWin.c  tkTable.h
-tkTableUtil.$(OBJEXT): tkTableUtil.c tkTable.h
-tkTable.tcl.h: tkTable.tcl
+tkTable.$(OBJEXT): tkTable.c tkTable.h tkTableCmd.h tkTabletcl.h
+tkTableCell.$(OBJEXT): tkTableCell.c tkTable.h tkTableCmd.h
+tkTableTag.$(OBJEXT): tkTableTag.c tkTable.h tkTableCmd.h
+tkTableWin.$(OBJEXT):tkTableWin.c  tkTable.h tkTableCmd.h
+tkTableCmd.$(OBJEXT): tkTableCmd.c tkTableCmd.h
+tkTabletcl.h: tkTable.tcl
 

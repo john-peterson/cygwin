@@ -32,7 +32,7 @@
  *
  * Results:
  *	Returns a standard Tcl result.  Leaves an error message or result
- *	in the interp's result.
+ *	in interp->result.
  *
  * Side effects:
  *	Sets "tk_library" Tcl variable, runs "tk.tcl" script.
@@ -71,7 +71,7 @@ TkpGetAppName(interp, namePtr)
     Tcl_Interp *interp;
     Tcl_DString *namePtr;	/* A previously initialized Tcl_DString. */
 {
-    CONST char *p, *name;
+    char *p, *name;
 
     name = Tcl_GetVar(interp, "argv0", TCL_GLOBAL_ONLY);
     if ((name == NULL) || (*name == 0)) {
@@ -104,14 +104,14 @@ TkpGetAppName(interp, namePtr)
 
 void
 TkpDisplayWarning(msg, title)
-    CONST char *msg;		/* Message to be displayed. */
-    CONST char *title;		/* Title of warning. */
+    char *msg;			/* Message to be displayed. */
+    char *title;		/* Title of warning. */
 {
     Tcl_Channel errChannel = Tcl_GetStdChannel(TCL_STDERR);
     if (errChannel) {
-	Tcl_WriteChars(errChannel, title, -1);
-	Tcl_WriteChars(errChannel, ": ", 2);
-	Tcl_WriteChars(errChannel, msg, -1);
-	Tcl_WriteChars(errChannel, "\n", 1);
+	Tcl_Write(errChannel, title, -1);
+	Tcl_Write(errChannel, ": ", 2);
+	Tcl_Write(errChannel, msg, -1);
+	Tcl_Write(errChannel, "\n", 1);
     }
 }

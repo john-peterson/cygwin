@@ -3,17 +3,19 @@
 #
 # Copyright (c) 1994 The Regents of the University of California.
 # Copyright (c) 1994-1995 Sun Microsystems, Inc.
-# Copyright (c) 1998-1999 by Scriptics Corporation.
-# All rights reserved.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 #
 # RCS: @(#) $Id$
 
-package require tcltest 2.1
-namespace import -force tcltest::configure
-namespace import -force tcltest::testsDirectory
-configure -testdir [file join [pwd] [file dirname [info script]]]
-configure -loadfile [file join [testsDirectory] constraints.tcl]
-tcltest::loadTestedCommands
+if {[string compare test [info procs test]] == 1} then \
+  {source defs}
+
+foreach i [winfo child  .] {
+    catch {destroy $i}
+}
+
 
 # Create entries in the option database to be sure that geometry options
 # like border width have predictable values.
@@ -822,20 +824,3 @@ pack .t
 
 catch {destroy .t}
 option clear
-
-# cleanup
-::tcltest::cleanupTests
-return
-
-
-
-
-
-
-
-
-
-
-
-
-

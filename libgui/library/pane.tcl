@@ -43,7 +43,7 @@ itk::usual Pane {
 # ------------------------------------------------------------------
 #                               PANE
 # ------------------------------------------------------------------
-itcl::class cyg::Pane {
+class cyg::Pane {
   inherit itk::Widget
   
   constructor {args} {}
@@ -66,7 +66,7 @@ proc ::cyg::pane {pathName args} {
 # ------------------------------------------------------------------
 #                        CONSTRUCTOR
 # ------------------------------------------------------------------
-itcl::body cyg::Pane::constructor {args} {
+body cyg::Pane::constructor {args} {
   # 
   # Create the pane childsite.
   #
@@ -95,7 +95,7 @@ itcl::body cyg::Pane::constructor {args} {
 #
 # Specifies the minimum size that the pane may reach.
 # ------------------------------------------------------------------
-itcl::configbody cyg::Pane::minimum {
+configbody cyg::Pane::minimum {
   set pixels [winfo pixels $itk_component(hull) $itk_option(-minimum)]
   set $itk_option(-minimum) $pixels
 }
@@ -105,7 +105,7 @@ itcl::configbody cyg::Pane::minimum {
 #
 # Specifies the maximum size that the pane may reach.
 # ------------------------------------------------------------------
-itcl::configbody cyg::Pane::maximum {
+configbody cyg::Pane::maximum {
   set pixels [winfo pixels $itk_component(hull) $itk_option(-maximum)]
   set $itk_option(-maximum) $pixels
 }
@@ -116,7 +116,7 @@ itcl::configbody cyg::Pane::maximum {
 # Specifies the border distance between the pane and pane contents.
 # This is done by setting the borderwidth of the pane to the margin.
 # ------------------------------------------------------------------
-itcl::configbody cyg::Pane::margin {
+configbody cyg::Pane::margin {
   set pixels [winfo pixels $itk_component(hull) $itk_option(-margin)]
   set itk_option(-margin) $pixels
   $itk_component(childsite) configure -borderwidth $itk_option(-margin)
@@ -131,6 +131,6 @@ itcl::configbody cyg::Pane::margin {
 #
 # Return the pane child site path name.
 # ------------------------------------------------------------------
-itcl::body cyg::Pane::childSite {} {
+body cyg::Pane::childSite {} {
   return $itk_component(childsite)
 }

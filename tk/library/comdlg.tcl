@@ -3,7 +3,7 @@
 #	Some functions needed for the common dialog boxes. Probably need to go
 #	in a different file.
 #
-# RCS: @(#) $Id$
+# SCCS: @(#) comdlg.tcl 1.4 96/09/05 09:07:54
 #
 # Copyright (c) 1996 Sun Microsystems, Inc.
 #
@@ -52,12 +52,13 @@ proc tclParseConfigSpec {w specs flags argList} {
 	set verproc($cmdsw) [lindex $spec 4]
     }
 
-    if {[llength $argList] & 1} {
-	set cmdsw [lindex $argList end]
-	if {![info exists cmd($cmdsw)]} {
-	    error "bad option \"$cmdsw\": must be [tclListValidFlags cmd]"
+    if {([llength $argList]%2) != 0} {
+	foreach {cmdsw value} $argList {
+	    if {![info exists cmd($cmdsw)]} {
+	        error "unknown option \"$cmdsw\", must be [tclListValidFlags cmd]"
+	    }
 	}
-	error "value for \"$cmdsw\" missing"
+	error "value for \"[lindex $argList end]\" missing"
     }
 
     # 2: set the default values
@@ -70,7 +71,7 @@ proc tclParseConfigSpec {w specs flags argList} {
     #
     foreach {cmdsw value} $argList {
 	if {![info exists cmd($cmdsw)]} {
-	    error "bad option \"$cmdsw\": must be [tclListValidFlags cmd]"
+	    error "unknown option \"$cmdsw\", must be [tclListValidFlags cmd]"
 	}
 	set data($cmdsw) $value
     }
@@ -89,13 +90,28 @@ proc tclListValidFlags {v} {
 	append errormsg "$separator$cmdsw"
 	incr i
 	if {$i == $len} {
-	    set separator ", or "
+	    set separator " or "
 	} else {
 	    set separator ", "
 	}
     }
     return $errormsg
 }
+
+# This procedure is used to sort strings in a case-insenstive mode.
+#
+proc tclSortNoCase {str1 str2} {
+    return [string compare [string toupper $str1] [string toupper $str2]]
+}
+
+
+# Gives an error if the string does not contain a valid integer
+# number
+#
+proc tclVerifyInteger {string} {
+    lindex {1 2 3} $string
+}
+
 
 #----------------------------------------------------------------------
 #
@@ -112,157 +128,146 @@ proc tclListValidFlags {v} {
 #----------------------------------------------------------------------
 
 
-# ::tk::FocusGroup_Create --
+# tkFocusGroup_Create --
 #
 #	Create a focus group. All the widgets in a focus group must be
 #	within the same focus toplevel. Each toplevel can have only
 #	one focus group, which is identified by the name of the
 #	toplevel widget.
 #
-proc ::tk::FocusGroup_Create {t} {
-    variable ::tk::Priv
+proc tkFocusGroup_Create {t} {
+    global tkPriv
     if {[string compare [winfo toplevel $t] $t]} {
 	error "$t is not a toplevel window"
     }
-    if {![info exists Priv(fg,$t)]} {
-	set Priv(fg,$t) 1
-	set Priv(focus,$t) ""
-	bind $t <FocusIn>  [list tk::FocusGroup_In  $t %W %d]
-	bind $t <FocusOut> [list tk::FocusGroup_Out $t %W %d]
-	bind $t <Destroy>  [list tk::FocusGroup_Destroy $t %W]
+    if {![info exists tkPriv(fg,$t)]} {
+	set tkPriv(fg,$t) 1
+	set tkPriv(focus,$t) ""
+	bind $t <FocusIn>  "tkFocusGroup_In  $t %W %d"
+	bind $t <FocusOut> "tkFocusGroup_Out $t %W %d"
+	bind $t <Destroy>  "tkFocusGroup_Destroy $t %W"
     }
 }
 
-# ::tk::FocusGroup_BindIn --
+# tkFocusGroup_BindIn --
 #
 # Add a widget into the "FocusIn" list of the focus group. The $cmd will be
 # called when the widget is focused on by the user.
 #
-proc ::tk::FocusGroup_BindIn {t w cmd} {
-    variable FocusIn
-    variable ::tk::Priv
-    if {![info exists Priv(fg,$t)]} {
+proc tkFocusGroup_BindIn {t w cmd} {
+    global tkFocusIn tkPriv
+    if {![info exists tkPriv(fg,$t)]} {
 	error "focus group \"$t\" doesn't exist"
     }
-    set FocusIn($t,$w) $cmd
+    set tkFocusIn($t,$w) $cmd
 }
 
 
-# ::tk::FocusGroup_BindOut --
+# tkFocusGroup_BindOut --
 #
 #	Add a widget into the "FocusOut" list of the focus group. The
 #	$cmd will be called when the widget loses the focus (User
 #	types Tab or click on another widget).
 #
-proc ::tk::FocusGroup_BindOut {t w cmd} {
-    variable FocusOut
-    variable ::tk::Priv
-    if {![info exists Priv(fg,$t)]} {
+proc tkFocusGroup_BindOut {t w cmd} {
+    global tkFocusOut tkPriv
+    if {![info exists tkPriv(fg,$t)]} {
 	error "focus group \"$t\" doesn't exist"
     }
-    set FocusOut($t,$w) $cmd
+    set tkFocusOut($t,$w) $cmd
 }
 
-# ::tk::FocusGroup_Destroy --
+# tkFocusGroup_Destroy --
 #
 #	Cleans up when members of the focus group is deleted, or when the
 #	toplevel itself gets deleted.
 #
-proc ::tk::FocusGroup_Destroy {t w} {
-    variable FocusIn
-    variable FocusOut
-    variable ::tk::Priv
+proc tkFocusGroup_Destroy {t w} {
+    global tkPriv tkFocusIn tkFocusOut
 
-    if {[string equal $t $w]} {
-	unset Priv(fg,$t)
-	unset Priv(focus,$t) 
+    if {![string compare $t $w]} {
+	unset tkPriv(fg,$t)
+	unset tkPriv(focus,$t) 
 
-	foreach name [array names FocusIn $t,*] {
-	    unset FocusIn($name)
+	foreach name [array names tkFocusIn $t,*] {
+	    unset tkFocusIn($name)
 	}
-	foreach name [array names FocusOut $t,*] {
-	    unset FocusOut($name)
+	foreach name [array names tkFocusOut $t,*] {
+	    unset tkFocusOut($name)
 	}
     } else {
-	if {[info exists Priv(focus,$t)] && \
-		[string equal $Priv(focus,$t) $w]} {
-	    set Priv(focus,$t) ""
+	if {[info exists tkPriv(focus,$t)]} {
+	    if {![string compare $tkPriv(focus,$t) $w]} {
+		set tkPriv(focus,$t) ""
+	    }
 	}
 	catch {
-	    unset FocusIn($t,$w)
+	    unset tkFocusIn($t,$w)
 	}
 	catch {
-	    unset FocusOut($t,$w)
+	    unset tkFocusOut($t,$w)
 	}
     }
 }
 
-# ::tk::FocusGroup_In --
+# tkFocusGroup_In --
 #
 #	Handles the <FocusIn> event. Calls the FocusIn command for the newly
 #	focused widget in the focus group.
 #
-proc ::tk::FocusGroup_In {t w detail} {
-    variable FocusIn
-    variable ::tk::Priv
+proc tkFocusGroup_In {t w detail} {
+    global tkPriv tkFocusIn
 
-    if {[string compare $detail NotifyNonlinear] && \
-	    [string compare $detail NotifyNonlinearVirtual]} {
-	# This is caused by mouse moving out&in of the window *or*
-	# ordinary keypresses some window managers (ie: CDE [Bug: 2960]).
+    if {![info exists tkFocusIn($t,$w)]} {
+	set tkFocusIn($t,$w) ""
 	return
     }
-    if {![info exists FocusIn($t,$w)]} {
-	set FocusIn($t,$w) ""
+    if {![info exists tkPriv(focus,$t)]} {
 	return
     }
-    if {![info exists Priv(focus,$t)]} {
-	return
-    }
-    if {[string equal $Priv(focus,$t) $w]} {
+    if {![string compare $tkPriv(focus,$t) $w]} {
 	# This is already in focus
 	#
 	return
     } else {
-	set Priv(focus,$t) $w
-	eval $FocusIn($t,$w)
+	set tkPriv(focus,$t) $w
+	eval $tkFocusIn($t,$w)
     }
 }
 
-# ::tk::FocusGroup_Out --
+# tkFocusGroup_Out --
 #
 #	Handles the <FocusOut> event. Checks if this is really a lose
 #	focus event, not one generated by the mouse moving out of the
 #	toplevel window.  Calls the FocusOut command for the widget
 #	who loses its focus.
 #
-proc ::tk::FocusGroup_Out {t w detail} {
-    variable FocusOut
-    variable ::tk::Priv
+proc tkFocusGroup_Out {t w detail} {
+    global tkPriv tkFocusOut
 
-    if {[string compare $detail NotifyNonlinear] && \
-	    [string compare $detail NotifyNonlinearVirtual]} {
+    if {[string compare $detail NotifyNonlinear] &&
+	[string compare $detail NotifyNonlinearVirtual]} {
 	# This is caused by mouse moving out of the window
 	return
     }
-    if {![info exists Priv(focus,$t)]} {
+    if {![info exists tkPriv(focus,$t)]} {
 	return
     }
-    if {![info exists FocusOut($t,$w)]} {
+    if {![info exists tkFocusOut($t,$w)]} {
 	return
     } else {
-	eval $FocusOut($t,$w)
-	set Priv(focus,$t) ""
+	eval $tkFocusOut($t,$w)
+	set tkPriv(focus,$t) ""
     }
 }
 
-# ::tk::FDGetFileTypes --
+# tkFDGetFileTypes --
 #
 #	Process the string given by the -filetypes option of the file
 #	dialogs. Similar to the C function TkGetFileFilters() on the Mac
 #	and Windows platform.
 #
-proc ::tk::FDGetFileTypes {string} {
+proc tkFDGetFileTypes {string} {
     foreach t $string {
 	if {[llength $t] < 2 || [llength $t] > 3} {
 	    error "bad file type \"$t\", should be \"typeName {extension ?extensions ...?} ?{macType ?macTypes ...?}?\""
@@ -282,7 +287,7 @@ proc ::tk::FDGetFileTypes {string} {
 	set name "$label ("
 	set sep ""
 	foreach ext $fileTypes($label) {
-	    if {[string equal $ext ""]} {
+	    if {![string compare $ext ""]} {
 		continue
 	    }
 	    regsub {^[.]} $ext "*." ext

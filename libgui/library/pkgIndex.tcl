@@ -8,5 +8,4 @@
 # script is sourced, the variable $dir must contain the
 # full path name of this file's directory.
 
-package ifneeded combobox 2.3 [list source [file join $dir combobox.tcl]]
-package ifneeded debug 1.0 [list source [file join $dir debug.tcl]]
+package ifneeded combobox 1.05 [list tclPkgSetup $dir combobox 1.05 {{combobox.tcl source ::combobox::combobox}}]

@@ -25,23 +25,11 @@
  */
 #include "itk.h"
 
-/*  
- * The following script is used to initialize Itcl in a safe interpreter.
- */
- 
-static char safeInitScript[] =
-"proc ::itcl::local {class name args} {\n\
-    set ptr [uplevel [list $class $name] $args]\n\
-    uplevel [list set itcl-local-$ptr $ptr]\n\
-    set cmd [uplevel namespace which -command $ptr]\n\
-    uplevel [list trace variable itcl-local-$ptr u \"::itcl::delete object $cmd; list\"]\n\
-    return $ptr\n\
-}";  
-
 /*
  *  FORWARD DECLARATIONS
  */
 static int Initialize _ANSI_ARGS_((Tcl_Interp *interp));
+
 /*
  * The following string is the startup script executed in new
  * interpreters.  It looks on disk in several different directories
@@ -57,47 +45,11 @@ namespace eval ::itk {\n\
         variable library\n\
         variable version\n\
         rename _find_init {}\n\
-        if {[info exists library]} {\n\
-            lappend dirs $library\n\
-        } else {\n\
-            if {[catch {uplevel #0 source -rsrc itk}] == 0} {\n\
-                return\n\
-            }\n\
-            set dirs {}\n\
-            if {[info exists env(ITK_LIBRARY)]} {\n\
-                lappend dirs $env(ITK_LIBRARY)\n\
-            }\n\
-            lappend dirs [file join [file dirname $tcl_library] itk$version]\n\
-            set bindir [file dirname [info nameofexecutable]]\n\
-            lappend dirs [file join $bindir .. lib itk$version]\n\
-            lappend dirs [file join $bindir .. library]\n\
-            lappend dirs [file join $bindir .. .. library]\n\
-            lappend dirs [file join $bindir .. .. itk library]\n\
-            # On MacOSX, check the directories in the tcl_pkgPath\n\
-            if {[string equal $::tcl_platform(platform) \"unix\"] && \
-                    [string equal $::tcl_platform(os) \"Darwin\"]} {\n\
-                foreach d $::tcl_pkgPath {\n\
-                    lappend dirs [file join $d itk$version]\n\
-                }\n\
-            }\n\
-        }\n\
-        foreach i $dirs {\n\
-            set library $i\n\
-            set itkfile [file join $i itk.tcl]\n\
-            if {![catch {uplevel #0 [list source $itkfile]} msg]} {\n\
-                return\n\
-            }\n\
-        }\n\
-        set msg \"Can't find a usable itk.tcl in the following directories:\n\"\n\
-        append msg \"    $dirs\n\"\n\
-        append msg \"This probably means that Itcl/Itk weren't installed properly.\n\"\n\
-        append msg \"If you know where the Itk library directory was installed,\n\"\n\
-        append msg \"you can set the environment variable ITK_LIBRARY to point\n\"\n\
-        append msg \"to the library directory.\n\"\n\
-        error $msg\n\
-    }\n\
+        tcl_findLibrary itk 3.0 {} itk.tcl ITK_LIBRARY ::itk::library {} {} itcl\n\
+   }\n\
     _find_init\n\
 }";
+
 
 /*
  * ------------------------------------------------------------------------
@@ -119,28 +71,23 @@ Initialize(interp)
     Tcl_Namespace *itkNs, *parserNs;
     ClientData parserInfo;
 
-#ifndef USE_TCL_STUBS
-    if (Tcl_PkgRequire(interp, "Tcl", TCL_VERSION, 0) == NULL) {
-      return TCL_ERROR;
-    }
     if (Tcl_PkgRequire(interp, "Tk", TK_VERSION, 0) == NULL) {
-      return TCL_ERROR;
+	return TCL_ERROR;
     }
     if (Tcl_PkgRequire(interp, "Itcl", ITCL_VERSION, 0) == NULL) {
-      return TCL_ERROR;
-    }
-#else
-    if (Tcl_InitStubs(interp, "8.1", 0) == NULL) {
-      return TCL_ERROR;
-    }
-    if (Tk_InitStubs(interp, "8.1", 0) == NULL) {
-	return TCL_ERROR;
-    };
-    if (Itcl_InitStubs(interp, ITCL_VERSION, 1) == NULL) {
 	return TCL_ERROR;
     }
-#endif
 
+    /*
+     *  Install [incr Tk] facilities if not already installed.
+     */
+    itkNs = Tcl_FindNamespace(interp, "::itk", (Tcl_Namespace*)NULL,
+        /* flags */ 0);
+
+    if (itkNs) {
+        Tcl_SetResult(interp, "already installed: [incr Tk]", TCL_STATIC);
+        return TCL_ERROR;
+    }
 
     /*
      *  Add the "itk_option" ensemble to the itcl class definition parser.
@@ -183,20 +130,12 @@ Initialize(interp)
     }
 
     /*
-     *  Install [incr Tk] facilities if not already installed.
+     *  Create the "itk" namespace.  Export all the commands in
+     *  the namespace so that they can be imported by a command
+     *  such as "namespace import itk::*"
      */
-    itkNs = Tcl_FindNamespace(interp, "::itk", (Tcl_Namespace*)NULL,
-        /* flags */ 0);
-
-    if (itkNs == NULL) {
-	/*
-	 *  Create the "itk" namespace.  Export all the commands in
-	 *  the namespace so that they can be imported by a command
-	 *  such as "namespace import itk::*"
-	 */
-	itkNs = Tcl_CreateNamespace(interp, "::itk",
-	    (ClientData)NULL, (Tcl_NamespaceDeleteProc*)NULL);
-    }
+    itkNs = Tcl_CreateNamespace(interp, "::itk",
+        (ClientData)NULL, (Tcl_NamespaceDeleteProc*)NULL);
 
     if (!itkNs ||
         Tcl_Export(interp, itkNs, "*", /* resetListFirst */ 1) != TCL_OK) {
@@ -217,29 +156,15 @@ Initialize(interp)
     Tcl_CreateObjCommand(interp, "::itcl::configbody", Itk_ConfigBodyCmd,
         (ClientData)NULL, (Tcl_CmdDeleteProc*)NULL);
 
-    Tcl_SetVar(interp, "::itk::version", ITK_VERSION, 0);
-    Tcl_SetVar(interp, "::itk::patchLevel", ITK_PATCH_LEVEL, 0);
+    Tcl_SetVar(interp, "::itk::version", ITCL_VERSION, 0);
+    Tcl_SetVar(interp, "::itk::patchLevel", ITCL_PATCH_LEVEL, 0);
 
     /*
-     *  Signal that the package has been loaded and provide the Itk Stubs table
-     *  for dependent modules.  I know this is unlikely, but possible that
-     *  someone could be extending Itk.  Who is to say that Itk is the
-     *  end-of-the-line?
+     *  Signal that the package has been loaded.
      */
-
-#if TCL_DOES_STUBS
-    {
-	extern ItkStubs itkStubs;
-	if (Tcl_PkgProvideEx(interp, "Itk", ITK_VERSION,
-		(ClientData) &itkStubs) != TCL_OK) {
-	    return TCL_ERROR;
-	}
-    }
-#else
-    if (Tcl_PkgProvide(interp, "Itk", ITK_VERSION) != TCL_OK) {
+    if (Tcl_PkgProvide(interp, "Itk", ITCL_VERSION) != TCL_OK) {
 	return TCL_ERROR;
     }
-#endif
     return TCL_OK;
 }
 
@@ -266,31 +191,6 @@ Itk_Init(interp)
     }
     return Tcl_Eval(interp, initScript);
     return TCL_OK;
-}
-
-
-/*
- * ------------------------------------------------------------------------
- *  Itk_SafeInit()
- *   
- *  Invoked whenever a new SAFE INTERPRETER is created to install
- *  the [incr Tcl] package.
- *      
- *  Creates the "::itk" namespace and installs access commands for
- *  creating classes and querying info.
- *  
- *  Returns TCL_OK on success, or TCL_ERROR (along with an error 
- *  message in the interpreter) if anything goes wrong.
- * ------------------------------------------------------------------------
- */  
-int 
-Itk_SafeInit(interp)
-    Tcl_Interp *interp;  /* interpreter to be updated */ 
-{   
-    if (Initialize(interp) != TCL_OK) {
-        return TCL_ERROR;
-    }
-    return Tcl_Eval(interp, safeInitScript);
 }
 
 

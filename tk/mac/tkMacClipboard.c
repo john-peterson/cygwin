@@ -32,7 +32,7 @@
  * Results:
  *	The return value is a standard Tcl return value.
  *	If an error occurs (such as no selection exists)
- *	then an error message is left in the interp's result.
+ *	then an error message is left in interp->result.
  *
  * Side effects:
  *	None.
@@ -66,17 +66,12 @@ TkSelGetSelection(
 	handle = NewHandle(1);
 	length = GetScrap(handle, 'TEXT', &offset);
 	if (length > 0) {
-	    Tcl_DString encodedText;
-
 	    SetHandleSize(handle, (Size) length + 1);
 	    HLock(handle);
 	    (*handle)[length] = '\0';
-
-	    Tcl_ExternalToUtfDString(NULL, *handle, length, &encodedText);
-	    result = (*proc)(clientData, interp,
-		    Tcl_DStringValue(&encodedText));
-	    Tcl_DStringFree(&encodedText);
-
+	    
+	    result = (*proc)(clientData, interp, *handle);
+	    
 	    HUnlock(handle);
 	    DisposeHandle(handle);
 	    return result;
@@ -124,7 +119,7 @@ XSetSelectionOwner(
      * It expects a Tk_Window, even though it only needs a Tk_Display.
      */
 
-    tkwin = (Tk_Window) TkGetMainInfoList()->winPtr;
+    tkwin = (Tk_Window)tkMainWindowList->winPtr;
 
     if (selection == Tk_InternAtom(tkwin, "CLIPBOARD")) {
 
@@ -133,7 +128,7 @@ XSetSelectionOwner(
 	 * owner of the clipboard.
 	 */
 
-	dispPtr = TkGetMainInfoList()->winPtr->dispPtr;
+	dispPtr = tkMainWindowList->winPtr->dispPtr;
 	if (dispPtr->clipboardActive) {
 	    return;
 	}
@@ -246,7 +241,7 @@ TkSuspendClipboard()
     char *buffer, *p, *endPtr, *buffPtr;
     long length;
 
-    dispPtr = TkGetDisplayList();
+    dispPtr = tkDisplayList;
     if ((dispPtr == NULL) || !dispPtr->clipboardActive) {
 	return;
     }
@@ -257,8 +252,6 @@ TkSuspendClipboard()
 	    break;
     }
     if (targetPtr != NULL) {
-	Tcl_DString encodedText;
-
 	length = 0;
 	for (cbPtr = targetPtr->firstBufferPtr; cbPtr != NULL;
 		cbPtr = cbPtr->nextPtr) {
@@ -280,10 +273,7 @@ TkSuspendClipboard()
 	}
 
 	ZeroScrap();
-	Tcl_UtfToExternalDString(NULL, buffer, length, &encodedText);
-	PutScrap(Tcl_DStringLength(&encodedText), 'TEXT',
-		Tcl_DStringValue(&encodedText));
-	Tcl_DStringFree(&encodedText);
+	PutScrap(length, 'TEXT', buffer);
 	ckfree(buffer);
     }
 
@@ -293,9 +283,9 @@ TkSuspendClipboard()
      * it needs it.  (Window list NULL if quiting.)
      */
 
-    if (TkGetMainInfoList() != NULL) {
-	Tk_ClearSelection((Tk_Window) TkGetMainInfoList()->winPtr, 
-		Tk_InternAtom((Tk_Window) TkGetMainInfoList()->winPtr,
+    if (tkMainWindowList != NULL) {
+	Tk_ClearSelection((Tk_Window) tkMainWindowList->winPtr, 
+		Tk_InternAtom((Tk_Window) tkMainWindowList->winPtr,
 			"CLIPBOARD"));
     }
 

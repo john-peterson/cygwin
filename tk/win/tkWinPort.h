@@ -6,6 +6,7 @@
  *	file that contains #ifdefs to handle different flavors of OS.
  *
  * Copyright (c) 1995-1996 Sun Microsystems, Inc.
+ * Copyright (c) 1998 by Scriptics Corporation.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -31,37 +32,24 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <io.h>
-
-/*
- * Need to block out this include for building extensions with MetroWerks
- * compiler for Win32.
- */
-
-#ifndef __MWERKS__
 #include <sys/stat.h>
-#endif
-
 #include <time.h>
-#ifdef __CYGWIN__
-#    define _T(x) L##x
-#else
-#    include <tchar.h>
-#endif
 
 #ifdef _MSC_VER
 #    define hypot _hypot
 #endif /* _MSC_VER */
 
-#ifndef __GNUC__
-#    define strncasecmp strnicmp
-#    define strcasecmp stricmp
+#ifdef __CYGWIN32__
+#define strnicmp strncasecmp
+#define stricmp strcasecmp
+#else
+#define strncasecmp strnicmp
+#define strcasecmp stricmp
 #endif
 
 #define NBBY 8
 
-#ifndef OPEN_MAX
 #define OPEN_MAX 32
-#endif
 
 /*
  * The following define causes Tk to use its internal keysym hash table
@@ -74,11 +62,11 @@
  * input data available for a stdio FILE.
  */
 
-#ifdef _MSC_VER
+#if defined (_MSC_VER) || defined (__MINGW32__)
 #    define TK_READ_DATA_PENDING(f) ((f)->_cnt > 0)
-#else /* _MSC_VER */
+#else /* _MSC_VER || __MINGW32__ */
 #    define TK_READ_DATA_PENDING(f) ((f)->level > 0)
-#endif /* _MSC_VER */
+#endif /* _MSC_VER || __MINGW32__ */
 
 /*
  * The following stubs implement various calls that don't do anything
@@ -120,6 +108,13 @@
 #define TkpGetNativeAppBitmap(display, name, w, h) None
 
 /*
+ * timezone et al are already defined in Windows32api headers used by
+ * GNU mingw32 port.
+ */
+
+#ifndef __MINGW32__
+
+/*
  * Define timezone for gettimeofday.
  */
 
@@ -128,8 +123,13 @@ struct timezone {
     int tz_dsttime;
 };
 
-#ifndef _TCLINT
-#include <tclInt.h>
-#endif
+
+struct timeval;
+
+extern int gettimeofday(struct timeval *, struct timezone *);
+
+#endif /* ! __MINGW32__ */
+
+EXTERN void		panic _ANSI_ARGS_(TCL_VARARGS(char *,format));
 
 #endif /* _WINPORT */

@@ -16,12 +16,10 @@ message \- Create and manipulate message widgets
 .SH SYNOPSIS
 \fBmessage\fR \fIpathName \fR?\fIoptions\fR?
 .SO
-\-anchor	\-highlightbackground	\-takefocus
-\-background	\-highlightcolor	\-text
-\-borderwidth	\-highlightthickness	\-textvariable
-\-cursor	\-padx	\-width
-\-font	\-pady
-\-foreground	\-relief
+\-anchor	\-font	\-highlightthickness	\-takefocus
+\-background	\-foreground	\-padx	\-text
+\-borderwidth	\-highlightbackground	\-pady	\-textvariable
+\-cursor	\-highlightcolor	\-relief	\-width
 .SE
 .SH "WIDGET-SPECIFIC OPTIONS"
 .OP \-aspect aspect Aspect

@@ -4,7 +4,7 @@
  *	This file contains Mac-specific interpreter initialization
  *	functions.
  *
- * Copyright (c) 1995-1997 Sun Microsystems, Inc.
+ * Copyright (c) 1995-1996 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -41,7 +41,7 @@ QDGlobalsPtr tcl_macQdPtr = NULL;
  *
  * Results:
  *	A standard Tcl completion code (TCL_OK or TCL_ERROR).  Also
- *	leaves information in the interp's result.
+ *	leaves information in interp->result.
  *
  * Side effects:
  *	Sets "tk_library" Tcl variable, runs initialization scripts
@@ -54,43 +54,35 @@ int
 TkpInit(
     Tcl_Interp *interp)		/* Interp to initialize. */
 {
-    CONST char *libDir, *tempPath;
-    Tcl_DString path, ds;
+    char *libDir, *tempPath;
+    Tcl_DString path;
     int result;
 
-    static char initCmd[] = "if {[info proc tkInit]==\"\"} {\n\
-proc tkInit {} {\n\
-proc sourcePath {file} {\n\
-  global tk_library\n\
-  if {[catch {uplevel #0 [list source [file join $tk_library $file.tcl]]}] == 0} {\n\
-    return\n\
-  }\n\
-  if {[catch {uplevel #0 [list source -rsrc $file]}] == 0} {\n\
-    return\n\
-  }\n\
-  rename sourcePath {}\n\
-  set msg \"Can't find $file resource or a usable $file.tcl file\"\n\
-  append msg \" perhaps you need to install Tk or set your\"\n\
-  append msg \" TK_LIBRARY environment variable?\"\n\
-  error $msg\n\
-}\n\
-sourcePath tk\n\
-sourcePath dialog\n\
-sourcePath focus\n\
-sourcePath optMenu\n\
-sourcePath palette\n\
-sourcePath tearoff\n\
-if {[catch {package require msgcat}]} {sourcePath msgcat}\n\
-sourcePath bgerror\n\
-sourcePath msgbox\n\
-sourcePath comdlg\n\
-rename sourcePath {}\n\
-rename tkInit {}\n\
-} }\n\
-tkInit";
+    /*
+     * The following does not work with
+     * safe interps because file exists is restricted.
+     * to be fixed using [interp issafe] like in Unix & Windows.
+     */
+    static char initCmd[] =
+	"if [file exists $tk_library:tk.tcl] {\n\
+	    source $tk_library:tk.tcl\n\
+	    source $tk_library:button.tcl\n\
+	    source $tk_library:entry.tcl\n\
+	    source $tk_library:listbox.tcl\n\
+	    source $tk_library:menu.tcl\n\
+	    source $tk_library:scale.tcl\n\
+	    source $tk_library:scrlbar.tcl\n\
+	    source $tk_library:text.tcl\n\
+	    source $tk_library:comdlg.tcl\n\
+	    source $tk_library:msgbox.tcl\n\
+	} else {\n\
+	    set msg \"can't find tk resource or $tk_library:tk.tcl;\"\n\
+	    append msg \" perhaps you need to\\ninstall Tk or set your \"\n\
+	    append msg \"TK_LIBRARY environment variable?\"\n\
+	    error $msg\n\
+	}";
 
     Tcl_DStringInit(&path);
-    Tcl_DStringInit(&ds);
 
     /*
      * The tk_library path can be found in several places.  Here is the order
@@ -102,21 +94,21 @@ tkInit";
      
     libDir = Tcl_GetVar(interp, "tk_library", TCL_GLOBAL_ONLY);
     if (libDir == NULL) {
-    libDir = TclGetEnv("TK_LIBRARY", &ds);
+	libDir = Tcl_GetVar2(interp, "env", "TK_LIBRARY", TCL_GLOBAL_ONLY);
     }
-    if ((libDir == NULL) || (libDir[0] == '\0')) {
-    tempPath = TclGetEnv("EXT_FOLDER", &ds);
-    if ((tempPath != NULL) && (tempPath[0] != '\0')) {
+    if (libDir == NULL) {
+	tempPath = Tcl_GetVar2(interp, "env", "EXT_FOLDER", TCL_GLOBAL_ONLY);
+	if (tempPath != NULL) {
 	    Tcl_DString libPath;
-	    CONST char *argv[3];
 	    
-	    argv[0] = tempPath;
-	    argv[1] = "Tool Command Language";	    
+	    Tcl_JoinPath(1, &tempPath, &path);
+	    
 	    Tcl_DStringInit(&libPath);
-	    Tcl_DStringAppend(&libPath, "tk", -1);
-	    argv[2] = Tcl_DStringAppend(&libPath, TK_VERSION, -1);
-	    libDir = Tcl_JoinPath(3, argv, &path);
+	    Tcl_DStringAppend(&libPath, ":Tool Command Language:tk", -1);
+	    Tcl_DStringAppend(&libPath, TK_VERSION, -1);
+	    Tcl_JoinPath(1, &libPath.string, &path);
 	    Tcl_DStringFree(&libPath);
+	    libDir = path.string;
 	}
     }
     if (libDir == NULL) {
@@ -128,9 +120,31 @@ tkInit";
      */
     Tcl_SetVar(interp, "tk_library", libDir, TCL_GLOBAL_ONLY);
     Tcl_DStringFree(&path);
-    Tcl_DStringFree(&ds);
 
+    /*
+     * Source the needed Tk libraries from the resource
+     * fork of the application.
+     */
+    result = Tcl_MacEvalResource(interp, "tk", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "button", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "entry", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "listbox", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "menu", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "scale", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "scrollbar", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "text", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "dialog", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "focus", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "optionMenu", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "palette", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "tearoff", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "tkerror", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "comdlg", 0, NULL);
+    result |= Tcl_MacEvalResource(interp, "msgbox", 0, NULL);
+
+    if (result != TCL_OK) {
 	result = Tcl_Eval(interp, initCmd);
+    }
     return result;
 }
 
@@ -160,8 +174,7 @@ TkpGetAppName(
     Tcl_DString *namePtr)	/* A previously initialized Tcl_DString. */
 {
     int argc;
-    CONST char **argv = NULL, *name, *p;
-    int nameLength = -1;
+    char **argv = NULL, *name, *p;
     Handle h = NULL;
 
     h = GetNamedResource('STR ', "\pTk App Name");
@@ -180,17 +193,16 @@ TkpGetAppName(
 	    name = argv[argc-1];
 	    p = strrchr(name, '.');
 	    if (p != NULL) {
-		nameLength = p - name;
+		*p = '\0';
 	    }
 	} else {
 	    name = NULL;
 	}
     }
-    if ((name == NULL) || (*name == 0) || (nameLength == 0)) {
+    if ((name == NULL) || (*name == 0)) {
 	name = "tk";
-	nameLength = -1;
     }
-    Tcl_DStringAppend(namePtr, name, nameLength);
+    Tcl_DStringAppend(namePtr, name, -1);
     if (argv != NULL) {
 	ckfree((char *)argv);
     }
@@ -215,8 +227,8 @@ TkpGetAppName(
 
 void
 TkpDisplayWarning(
-    CONST char *msg,		/* Message to be displayed. */
-    CONST char *title)		/* Title of warning. */
+    char *msg,			/* Message to be displayed. */
+    char *title)		/* Title of warning. */
 {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);

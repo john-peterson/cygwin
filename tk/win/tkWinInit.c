@@ -31,7 +31,7 @@
  *
  * Results:
  *	A standard Tcl completion code (TCL_OK or TCL_ERROR).  Also
- *	leaves information in the interp's result.
+ *	leaves information in interp->result.
  *
  * Side effects:
  *	Sets "tk_library" Tcl variable, runs "tk.tcl" script.
@@ -43,12 +43,6 @@ int
 TkpInit(interp)
     Tcl_Interp *interp;
 {
-    /*
-     * This is necessary for static initialization, and is ok
-     * otherwise because TkWinXInit flips a static bit to do
-     * its work just once.
-     */
-    TkWinXInit(GetModuleHandle(NULL));
     return Tcl_Eval(interp, initScript);
 }
 
@@ -75,18 +69,17 @@ TkpGetAppName(interp, namePtr)
     Tcl_Interp *interp;
     Tcl_DString *namePtr;	/* A previously initialized Tcl_DString. */
 {
-    int argc, namelength;
-    CONST char **argv = NULL, *name, *p;
+    int argc;
+    char **argv = NULL, *name, *p;
 
     name = Tcl_GetVar(interp, "argv0", TCL_GLOBAL_ONLY);
-    namelength = -1;
     if (name != NULL) {
 	Tcl_SplitPath(name, &argc, &argv);
 	if (argc > 0) {
 	    name = argv[argc-1];
 	    p = strrchr(name, '.');
 	    if (p != NULL) {
-		namelength = p - name;
+		*p = '\0';
 	    }
 	} else {
 	    name = NULL;
@@ -94,9 +87,8 @@ TkpGetAppName(interp, namePtr)
     }
     if ((name == NULL) || (*name == 0)) {
 	name = "tk";
-	namelength = -1;
     }
-    Tcl_DStringAppend(namePtr, name, namelength);
+    Tcl_DStringAppend(namePtr, name, -1);
     if (argv != NULL) {
 	ckfree((char *)argv);
     }
@@ -121,18 +113,9 @@ TkpGetAppName(interp, namePtr)
 
 void
 TkpDisplayWarning(msg, title)
-    CONST char *msg;		/* Message to be displayed. */
-    CONST char *title;		/* Title of warning. */
+    char *msg;			/* Message to be displayed. */
+    char *title;		/* Title of warning. */
 {
-    Tcl_DString msgString, titleString;
-    Tcl_Encoding unicodeEncoding = TkWinGetUnicodeEncoding();
-
-    Tcl_UtfToExternalDString(unicodeEncoding, msg, -1, &msgString);
-    Tcl_UtfToExternalDString(unicodeEncoding, title, -1, &titleString);
-    MessageBoxW(NULL, (WCHAR *) Tcl_DStringValue(&msgString),
-	    (WCHAR *) Tcl_DStringValue(&titleString),
-	    MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL
+    MessageBox(NULL, msg, title, MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL
 	    | MB_SETFOREGROUND | MB_TOPMOST);
-    Tcl_DStringFree(&msgString);
-    Tcl_DStringFree(&titleString);
 }

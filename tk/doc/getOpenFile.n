@@ -12,6 +12,8 @@
 '\" Note:  do not modify the .SH NAME line immediately below!
 .SH NAME
 tk_getOpenFile, tk_getSaveFile \- pop up a dialog box for the user to select a file to open or save.
+.PP
+.PP
 .SH SYNOPSIS
 \fBtk_getOpenFile \fR?\fIoption value ...\fR?
 .br
@@ -42,11 +44,7 @@ Specifies a string that will be appended to the filename if the user
 enters a filename without an extension. The defaut value is the empty
 string, which means no extension will be appended to the filename in
 any case. This option is ignored on the Macintosh platform, which
-does not require extensions to filenames,
-.VS 8.4
-and the UNIX implementation guesses reasonable values for this from
-the \fB\-filetypes\fR option when this is not supplied.
-.VE 8.4
+does not require extensions to filenames.
 .TP
 \fB\-filetypes\fR \fIfilePatternList\fR
 If a \fBFile types\fR listbox exists in the file dialog on the particular
@@ -69,18 +67,8 @@ control panel on the Mac allows the end user to override the
 application default directory.
 .TP
 \fB\-initialfile\fR \fIfilename\fR
-Specifies a filename to be displayed in the dialog when it pops up.  This
-option is ignored on the Macintosh platform.
-.TP
-\fB\-multiple\fR
-Allows the user to choose multiple files from the Open dialog.
-On the Macintosh, this is only available when Navigation Services are
-installed.
-.TP
-\fB\-message\fR \fIstring\fR
-Specifies a message to include in the client area of the dialog.
-This is only available on the Macintosh, and only when Navigation
-Services are installed.
+Specifies a filename to be displayed in the dialog when it pops
+up. This option is ignored by the \fBtk_getOpenFile\fR command.
 .TP
 \fB\-parent\fR \fIwindow\fR
 Makes \fIwindow\fR the logical parent of the file dialog. The file
@@ -88,7 +76,8 @@ dialog is displayed on top of its parent window.
 .TP
 \fB\-title\fR \fItitleString\fR
 Specifies a string to display as the title of the dialog box. If this
-option is not specified, then a default title is displayed. 
+option is not specified, then a default title is displayed. This
+option is ignored on the Macintosh platform.
 .PP
 If the user selects a file, both \fBtk_getOpenFile\fR and
 \fBtk_getSaveFile\fR return the full pathname of this file. If the
@@ -163,9 +152,6 @@ if {$filename != ""} {
     # Open the file ...
 }
 .CE
-
-.SH "SEE ALSO"
-tk_chooseDirectory
 
 .SH KEYWORDS
 file selection dialog

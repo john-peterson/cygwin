@@ -4,19 +4,30 @@
  *	This file implements the Dll entry point as needed by Windows.
  */
 
+/* 
+ * dllEntryPoint.c --
+ *
+ *	This file implements the Dll entry point as needed by Windows.
+ */
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#if defined(_MSC_VER)
-    /* Only do this when MSVC++ is compiling us. */
-#   define DllEntryPoint DllMain
-#   if defined(USE_TCL_STUBS) && (!defined(_MT) || !defined(_DLL) || defined(_DEBUG))
-	/*
-	 * This fixes a bug with how the Stubs library was compiled.
-	 * The requirement for msvcrt.lib from tclstubXX.lib should
-	 * be removed.
-	 */
-#	pragma comment(linker, "-nodefaultlib:msvcrt.lib")
-#   endif
+#include <tcl.h>
+
+/*
+ * The following declaration is for the VC++ DLL entry point.
+ */
+
+BOOL APIENTRY		DllMain _ANSI_ARGS_((HINSTANCE hInst,
+			    DWORD reason, LPVOID reserved));
+
+/* CYGNUS LOCAL */
+#ifdef __CYGWIN32__
+
+/* cygwin32 requires an impure pointer variable, which must be
+   explicitly initialized when the DLL starts up.  */
+struct _reent *_impure_ptr;
+extern struct _reent *_imp__reent_data;
 #endif
 
 /*
@@ -24,15 +35,15 @@
  *
  * DllEntryPoint --
  *
- *	This wrapper function is used by Windows to invoke the
- *	initialization code for the DLL.  If we are compiling
- *	with Visual C++, this routine will be renamed to DllMain.
+ *	This wrapper function is used by Borland to invoke the
+ *	initialization code for Tk.  It simply calls the DllMain
+ *	routine.
  *
  * Results:
- *	Returns TRUE;
+ *	See DllMain.
  *
  * Side effects:
- *	None.
+ *	See DllMain.
  *
  *----------------------------------------------------------------------
  */
@@ -43,5 +54,39 @@ DllEntryPoint(hInst, reason, reserved)
     DWORD reason;		/* Reason this function is being called. */
     LPVOID reserved;		/* Not used. */
 {
-    return TRUE;
+    return DllMain(hInst, reason, reserved);
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * DllMain --
+ *
+ *	DLL entry point.
+ *
+ * Results:
+ *	TRUE on sucess, FALSE on failure.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+BOOL APIENTRY
+DllMain(hInstance, reason, reserved)
+    HINSTANCE hInstance;
+    DWORD reason;
+    LPVOID reserved;
+{
+/* CYGNUS LOCAL */
+#ifdef __CYGWIN32__
+    /* CYGNUS LOCAL */
+    /* cygwin32 requires the impure data pointer to be initialized
+       when the DLL starts up.  */
+    _impure_ptr = _imp__reent_data;
+    /* END CYGNUS LOCAL */
+#endif
+    
+    return(TRUE);
 }

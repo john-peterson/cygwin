@@ -26,7 +26,7 @@ subcommand_deleted (ClientData cd)
 
   if (data->delete)
     (*data->delete) (data->subdata);
-  ckfree ((char *) data);
+  Tcl_Free ((char *) data);
 }
 
 /* This function implements any Tcl command registered as having
@@ -34,7 +34,7 @@ subcommand_deleted (ClientData cd)
    table.  */
 static int
 subcommand_implementation (ClientData cd, Tcl_Interp *interp,
-			   int argc, CONST84 char *argv[])
+			   int argc, char *argv[])
 {
   struct subcommand_clientdata *data = (struct subcommand_clientdata *) cd;
   const struct ide_subcommand_table *commands = data->commands;
@@ -90,7 +90,7 @@ subcommand_implementation (ClientData cd, Tcl_Interp *interp,
 
 /* Define a command with subcommands.  */
 int
-ide_create_command_with_subcommands (Tcl_Interp *interp, const char *name,
+ide_create_command_with_subcommands (Tcl_Interp *interp, char *name,
 				     const struct ide_subcommand_table *table,
 				     ClientData subdata,
 				     Tcl_CmdDeleteProc *delete)
@@ -113,7 +113,7 @@ ide_create_command_with_subcommands (Tcl_Interp *interp, const char *name,
 	}
     }
 
-  data = (struct subcommand_clientdata *) ckalloc (sizeof *data);
+  data = (struct subcommand_clientdata *) Tcl_Alloc (sizeof *data);
   data->commands = table;
   data->subdata = subdata;
   data->delete = delete;

@@ -126,16 +126,3 @@ foreach i {1 2 3} {
 .t.t insert end rrr r1
 .t.t insert end *****
 .t.t insert end rrr r1
-
-
-
-
-
-
-
-
-
-
-
-
-

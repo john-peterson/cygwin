@@ -91,6 +91,11 @@ Tcl_ObjType itclEnsInvocType = {
     SetEnsInvocFromAny                  /* setFromAnyProc */
 };
 
+/*
+ *  Boolean flag indicating whether or not the "ensemble" object
+ *  type has been registered with the Tcl compiler.
+ */
+static int ensInitialized = 0;
 
 /*
  *  Forward declarations for the procedures used in this file.
@@ -105,7 +110,7 @@ static int CreateEnsemble _ANSI_ARGS_((Tcl_Interp *interp,
     Ensemble *parentEnsData, char *ensName));
 
 static int AddEnsemblePart _ANSI_ARGS_((Tcl_Interp *interp,
-    Ensemble* ensData, CONST char* partName, CONST char* usageInfo,
+    Ensemble* ensData, char* partName, char* usageInfo,
     Tcl_ObjCmdProc *objProc, ClientData clientData,
     Tcl_CmdDeleteProc *deleteProc, EnsemblePart **rVal));
 
@@ -115,15 +120,15 @@ static int FindEnsemble _ANSI_ARGS_((Tcl_Interp *interp, char **nameArgv,
     int nameArgc, Ensemble** ensDataPtr));
 
 static int CreateEnsemblePart _ANSI_ARGS_((Tcl_Interp *interp,
-    Ensemble *ensData, CONST char* partName, EnsemblePart **ensPartPtr));
+    Ensemble *ensData, char* partName, EnsemblePart **ensPartPtr));
 
 static void DeleteEnsemblePart _ANSI_ARGS_((EnsemblePart *ensPart));
 
 static int FindEnsemblePart _ANSI_ARGS_((Tcl_Interp *interp,
-    Ensemble *ensData, CONST char* partName, EnsemblePart **rensPart));
+    Ensemble *ensData, char* partName, EnsemblePart **rensPart));
 
 static int FindEnsemblePartIndex _ANSI_ARGS_((Ensemble *ensData,
-    CONST char *partName, int *posPtr));
+    char *partName, int *posPtr));
 
 static void ComputeMinChars _ANSI_ARGS_((Ensemble *ensData, int pos));
 
@@ -161,8 +166,9 @@ int
 Itcl_EnsembleInit(interp)
     Tcl_Interp *interp;         /* interpreter being initialized */
 {
-    if (Tcl_GetObjType(itclEnsInvocType.name) == NULL) {
+    if (!ensInitialized) {
         Tcl_RegisterObjType(&itclEnsInvocType);
+        ensInitialized = 1;
     }
 
     Tcl_CreateObjCommand(interp, "::itcl::ensemble",
@@ -209,7 +215,7 @@ Itcl_EnsembleInit(interp)
 int
 Itcl_CreateEnsemble(interp, ensName)
     Tcl_Interp *interp;            /* interpreter to be updated */
-    CONST char* ensName;           /* name of the new ensemble */
+    char* ensName;                 /* name of the new ensemble */
 {
     char **nameArgv = NULL;
     int nameArgc;
@@ -219,8 +225,7 @@ Itcl_CreateEnsemble(interp, ensName)
     /*
      *  Split the ensemble name into its path components.
      */
-    if (Tcl_SplitList(interp, (CONST84 char *)ensName, &nameArgc,
-	    &nameArgv) != TCL_OK) {
+    if (Tcl_SplitList(interp, ensName, &nameArgc, &nameArgv) != TCL_OK) {
         goto ensCreateFail;
     }
     if (nameArgc < 1) {
@@ -311,9 +316,9 @@ Itcl_AddEnsemblePart(interp, ensName, partName, usageInfo,
     objProc, clientData, deleteProc)
 
     Tcl_Interp *interp;            /* interpreter to be updated */
-    CONST char* ensName;           /* ensemble containing this part */
-    CONST char* partName;          /* name of the new part */
-    CONST char* usageInfo;         /* usage info for argument list */
+    char* ensName;                 /* ensemble containing this part */
+    char* partName;                /* name of the new part */
+    char* usageInfo;               /* usage info for argument list */
     Tcl_ObjCmdProc *objProc;       /* handling procedure for part */
     ClientData clientData;         /* client data associated with part */
     Tcl_CmdDeleteProc *deleteProc; /* procedure used to destroy client data */
@@ -327,8 +332,7 @@ Itcl_AddEnsemblePart(interp, ensName, partName, usageInfo,
     /*
      *  Parse the ensemble name and look for a containing ensemble.
      */
-    if (Tcl_SplitList(interp, (CONST84 char *)ensName, &nameArgc,
-	    &nameArgv) != TCL_OK) {
+    if (Tcl_SplitList(interp, ensName, &nameArgc, &nameArgv) != TCL_OK) {
         goto ensPartFail;
     }
     if (FindEnsemble(interp, nameArgv, nameArgc, &ensData) != TCL_OK) {
@@ -391,8 +395,8 @@ ensPartFail:
 int
 Itcl_GetEnsemblePart(interp, ensName, partName, infoPtr)
     Tcl_Interp *interp;            /* interpreter to be updated */
-    CONST char *ensName;           /* ensemble containing the part */
-    CONST char *partName;          /* name of the desired part */
+    char *ensName;                 /* ensemble containing the part */
+    char *partName;                /* name of the desired part */
     Tcl_CmdInfo *infoPtr;          /* returns: info associated with part */
 {
     char **nameArgv = NULL;
@@ -409,8 +413,7 @@ Itcl_GetEnsemblePart(interp, ensName, partName, infoPtr)
      */
     state = Itcl_SaveInterpState(interp, TCL_OK);
 
-    if (Tcl_SplitList(interp, (CONST84 char *)ensName, &nameArgc,
-	    &nameArgv) != TCL_OK) {
+    if (Tcl_SplitList(interp, ensName, &nameArgc, &nameArgv) != TCL_OK) {
         goto ensGetFail;
     }
     if (FindEnsemble(interp, nameArgv, nameArgc, &ensData) != TCL_OK) {
@@ -504,7 +507,7 @@ Itcl_IsEnsemble(infoPtr)
 int
 Itcl_GetEnsembleUsage(interp, ensName, objPtr)
     Tcl_Interp *interp;    /* interpreter containing the ensemble */
-    CONST char *ensName;         /* name of the ensemble */
+    char *ensName;         /* name of the ensemble */
     Tcl_Obj *objPtr;       /* returns: summary of usage info */
 {
     char **nameArgv = NULL;
@@ -519,8 +522,7 @@ Itcl_GetEnsembleUsage(interp, ensName, objPtr)
      */
     state = Itcl_SaveInterpState(interp, TCL_OK);
 
-    if (Tcl_SplitList(interp, (CONST84 char *)ensName, &nameArgc,
-	    &nameArgv) != TCL_OK) {
+    if (Tcl_SplitList(interp, ensName, &nameArgc, &nameArgv) != TCL_OK) {
         goto ensUsageFail;
     }
     if (FindEnsemble(interp, nameArgv, nameArgc, &ensData) != TCL_OK) {
@@ -802,22 +804,25 @@ CreateEnsemble(interp, parentEnsData, ensName)
         return TCL_ERROR;
     }
 
-    ensData->cmd		= parentEnsData->cmd;
-    ensData->parent		= ensPart;
+    ensData->cmd = parentEnsData->cmd;
+    ensData->parent = ensPart;
 
-    /*
-     * Initialize non-NULL data only.  This allows us to handle the
-     * structure differences between versions better.
-     */
-    cmdPtr			= (Command *) ckalloc(sizeof(Command));
-    memset((VOID *) cmdPtr, 0, sizeof(Command));
-    cmdPtr->nsPtr		= ((Command *) ensData->cmd)->nsPtr;
-    cmdPtr->objProc		= HandleEnsemble;
-    cmdPtr->objClientData	= (ClientData)ensData;
-    cmdPtr->deleteProc		= DeleteEnsemble;
-    cmdPtr->deleteData		= cmdPtr->objClientData;
+    cmdPtr = (Command*)ckalloc(sizeof(Command));
+    cmdPtr->hPtr = NULL;
+    cmdPtr->nsPtr = ((Command*)ensData->cmd)->nsPtr;
+    cmdPtr->refCount = 0;
+    cmdPtr->cmdEpoch = 0;
+    cmdPtr->compileProc = NULL;
+    cmdPtr->objProc = HandleEnsemble;
+    cmdPtr->objClientData = (ClientData)ensData;
+    cmdPtr->proc = NULL;
+    cmdPtr->clientData = NULL;
+    cmdPtr->deleteProc = DeleteEnsemble;
+    cmdPtr->deleteData = cmdPtr->objClientData;
+    cmdPtr->deleted = 0;
+    cmdPtr->importRefPtr = NULL;
 
-    ensPart->cmdPtr		= cmdPtr;
+    ensPart->cmdPtr = cmdPtr;
 
     return TCL_OK;
 }
@@ -857,8 +862,8 @@ AddEnsemblePart(interp, ensData, partName, usageInfo,
 
     Tcl_Interp *interp;            /* interpreter to be updated */
     Ensemble* ensData;             /* ensemble that will contain this part */
-    CONST char* partName;          /* name of the new part */
-    CONST char* usageInfo;         /* usage info for argument list */
+    char* partName;                /* name of the new part */
+    char* usageInfo;               /* usage info for argument list */
     Tcl_ObjCmdProc *objProc;       /* handling procedure for part */
     ClientData clientData;         /* client data associated with part */
     Tcl_CmdDeleteProc *deleteProc; /* procedure used to destroy client data */
@@ -879,20 +884,23 @@ AddEnsemblePart(interp, ensData, partName, usageInfo,
         strcpy(ensPart->usage, usageInfo);
     }
 
-    /*
-     * Initialize non-NULL data only.  This allows us to handle the
-     * structure differences between versions better.
-     */
-    cmdPtr			= (Command *) ckalloc(sizeof(Command));
-    memset((VOID *) cmdPtr, 0, sizeof(Command));
-    cmdPtr->nsPtr		= ((Command *) ensData->cmd)->nsPtr;
-    cmdPtr->objProc		= objProc;
-    cmdPtr->objClientData	= (ClientData)clientData;
-    cmdPtr->deleteProc		= deleteProc;
-    cmdPtr->deleteData		= (ClientData)clientData;
+    cmdPtr = (Command*)ckalloc(sizeof(Command));
+    cmdPtr->hPtr = NULL;
+    cmdPtr->nsPtr = ((Command*)ensData->cmd)->nsPtr;
+    cmdPtr->refCount = 0;
+    cmdPtr->cmdEpoch = 0;
+    cmdPtr->compileProc = NULL;
+    cmdPtr->objProc = objProc;
+    cmdPtr->objClientData = (ClientData)clientData;
+    cmdPtr->proc = NULL;
+    cmdPtr->clientData = NULL;
+    cmdPtr->deleteProc = deleteProc;
+    cmdPtr->deleteData = (ClientData)clientData;
+    cmdPtr->deleted = 0;
+    cmdPtr->importRefPtr = NULL;
 
-    ensPart->cmdPtr		= cmdPtr;
-    *rVal			= ensPart;
+    ensPart->cmdPtr = cmdPtr;
+    *rVal = ensPart;
 
     return TCL_OK;
 }
@@ -1045,7 +1053,7 @@ static int
 CreateEnsemblePart(interp, ensData, partName, ensPartPtr)
     Tcl_Interp *interp;          /* interpreter containing the ensemble */
     Ensemble *ensData;           /* ensemble being modified */
-    CONST char* partName;        /* name of the new part */
+    char* partName;              /* name of the new part */
     EnsemblePart **ensPartPtr;   /* returns: new ensemble part */
 {
     int i, pos, size;
@@ -1191,7 +1199,7 @@ static int
 FindEnsemblePart(interp, ensData, partName, rensPart)
     Tcl_Interp *interp;       /* interpreter containing the ensemble */
     Ensemble *ensData;        /* ensemble being searched */
-    CONST char* partName;     /* name of the desired part */
+    char* partName;           /* name of the desired part */
     EnsemblePart **rensPart;  /* returns:  pointer to the desired part */
 {
     int pos = 0;
@@ -1306,7 +1314,7 @@ FindEnsemblePart(interp, ensData, partName, rensPart)
 static int
 FindEnsemblePartIndex(ensData, partName, posPtr)
     Ensemble *ensData;        /* ensemble being searched */
-    CONST char *partName;     /* name of desired part */
+    char *partName;           /* name of desired part */
     int *posPtr;              /* returns: index for part */
 {
     int pos = 0;
@@ -1630,7 +1638,7 @@ Itcl_EnsembleCmd(clientData, interp, objc, objv)
             }
             if (FindEnsemblePart(interp, ensData, ensName, &ensPart)
                 != TCL_OK) {
-                Tcl_Panic("Itcl_EnsembleCmd: can't create ensemble");
+                panic("Itcl_EnsembleCmd: can't create ensemble");
             }
         }
 
@@ -1681,12 +1689,22 @@ Itcl_EnsembleCmd(clientData, interp, objc, objv)
     ensInfo->ensData = ensData;
 
     if (objc == 3) {
+      /* CYGNUS LOCAL - fix for Tcl8.1 */
+#if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION == 0
         status = Tcl_EvalObj(ensInfo->parser, objv[2]);
+#else
+        status = Tcl_EvalObj(ensInfo->parser, objv[2], 0);
+#endif
     }
     else if (objc > 3) {
         objPtr = Tcl_NewListObj(objc-2, objv+2);
-        Tcl_IncrRefCount(objPtr);  /* stop Eval trashing it */
+#if TCL_MAJOR_VERSION == 8 && TCL_MINOR_VERSION == 0
         status = Tcl_EvalObj(ensInfo->parser, objPtr);
+#else
+	Tcl_IncrRefCount(objPtr);
+        status = Tcl_EvalObj(ensInfo->parser, objPtr, 0);
+#endif
+	/* END CYGNUS LOCAL */
         Tcl_DecrRefCount(objPtr);  /* we're done with the object */
     }
 
@@ -1697,11 +1715,11 @@ Itcl_EnsembleCmd(clientData, interp, objc, objv)
      *  Otherwise, the offending command is reported twice.
      */
     if (status == TCL_ERROR) {
-        CONST char *errInfo = Tcl_GetVar2(ensInfo->parser, "::errorInfo",
+        char *errInfo = Tcl_GetVar2(ensInfo->parser, "::errorInfo",
             (char*)NULL, TCL_GLOBAL_ONLY);
 
         if (errInfo) {
-            Tcl_AddObjErrorInfo(interp, (CONST84 char *)errInfo, -1);
+            Tcl_AddObjErrorInfo(interp, errInfo, -1);
         }
 
         if (objc == 3) {
@@ -2096,7 +2114,6 @@ DupEnsInvocInternalRep(srcPtr, copyPtr)
 
     if (prevArgObj) {
         objPtr = Tcl_DuplicateObj(prevArgObj);
-        Tcl_IncrRefCount(objPtr);
         copyPtr->internalRep.twoPtrValue.ptr2 = (VOID *) objPtr;
     }
 }
@@ -2148,7 +2165,7 @@ SetEnsInvocFromAny(interp, objPtr)
      *  keep the string around as if it were the command line
      *  invocation.
      */
-    argObj = Tcl_NewStringObj(name, length);
+    argObj = Tcl_NewStringObj(name, -1);
 
     /*
      *  Free the old representation and install a new one.

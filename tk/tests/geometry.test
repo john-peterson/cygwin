@@ -4,18 +4,19 @@
 #
 # Copyright (c) 1994 The Regents of the University of California.
 # Copyright (c) 1994 Sun Microsystems, Inc.
-# Copyright (c) 1998-1999 by Scriptics Corporation.
-# All rights reserved.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 #
 # RCS: @(#) $Id$
 
-package require tcltest 2.1
-namespace import -force tcltest::configure
-namespace import -force tcltest::testsDirectory
-configure -testdir [file join [pwd] [file dirname [info script]]]
-configure -loadfile [file join [testsDirectory] constraints.tcl]
-tcltest::loadTestedCommands
+if {[info procs test] != "test"} {
+    source defs
+}
 
+foreach i [winfo children .] {
+    destroy $i
+}
 wm geometry . 300x300
 raise .
 update
@@ -246,22 +247,5 @@ test geometry-4.10 {Tk_MaintainGeometry and Tk_UnmaintainGeometry} {
     update
     winfo ismapped .t.quit
 } {1}
-
 catch {destroy .t}
-
-# cleanup
-::tcltest::cleanupTests
-return
-
-
-
-
-
-
-
-
-
-
-
-
-
+concat

@@ -12,13 +12,14 @@
 '\" RCS: @(#) $Id$
 '\"
 .so man.macros
-.TH Tk_CreatePhotoImageFormat 3 8.3 Tk "Tk Library Procedures"
+.TH Tk_CreatePhotoImageFormat 3 4.0 Tk "Tk Library Procedures"
 .BS
 .SH NAME
 Tk_CreatePhotoImageFormat \- define new file format for photo images
 .SH SYNOPSIS
 .nf
 \fB#include <tk.h>\fR
+\fB#include <tkPhoto.h>\fR
 .sp
 \fBTk_CreatePhotoImageFormat\fR(\fIformatPtr\fR)
 .SH ARGUMENTS
@@ -68,14 +69,6 @@ structure should be set to NULL.  The handler must provide the
 procedure, and the \fIstringMatchProc\fR procedure if it provides the
 \fIstringReadProc\fR procedure.
 
-.SH PORTABILITY
-.PP
-In Tk 8.2 and earlier, a different interface was used. Tk 8.3 will
-still support the old format handlers if the format name is in upper
-case. If you still want to compile old format handlers with Tk8.3,
-use the flag -DUSE_OLD_IMAGE. This will restore all function prototypes
-to match the pre-8.3 situation.
-
 .SH NAME
 .PP
 \fIformatPtr->name\fR provides a name for the image type.
@@ -83,9 +76,7 @@ Once \fBTk_CreatePhotoImageFormat\fR returns, this name may be used
 in the \fB\-format\fR photo image configuration and subcommand option.
 The manual page for the photo image (photo(n)) describes how image
 file formats are chosen based on their names and the value given to
-the \fB\-format\fR option. For new format handlers, the name should
-be in lower case. Pre-8.3 format handlers are assumed to be in
-upper case.
+the \fB\-format\fR option.
 
 .SH FILEMATCHPROC
 \fIformatPtr->fileMatchProc\fR provides the address of a procedure for
@@ -95,15 +86,14 @@ suitable for reading data in a given file.
 .CS
 typedef int Tk_ImageFileMatchProc(
 	Tcl_Channel \fIchan\fR,
-	CONST char *\fIfileName\fR,
-	Tcl_Obj *\fIformat\fR,
+	char *\fIfileName\fR,
+	char *\fIformatString\fR,
 	int *\fIwidthPtr\fR,
-	int *\fIheightPtr\fR,
-	Tcl_Interp *\fIinterp\fR);
+	int *\fIheightPtr\fR);
 .CE
 The \fIfileName\fR argument is the name of the file containing the
 image data, which is open for reading as \fIchan\fR.  The
-\fIformat\fR argument contains the value given for the
+\fIformatString\fR argument contains the value given for the
 \fB\-format\fR option, or NULL if the option was not specified.
 If the data in the file appears to be in the format supported by this
 handler, the \fIformatPtr->fileMatchProc\fR procedure should store the
@@ -117,14 +107,13 @@ suitable for reading data from a given string.
 \fIformatPtr->stringMatchProc\fR must match the following prototype:
 .CS
 typedef int Tk_ImageStringMatchProc(
-	Tcl_Obj *\fIdata\fR,
-	Tcl_Obj *\fIformat\fR,
+	char *\fIstring\fR,
+	char *\fIformatString\fR,
 	int *\fIwidthPtr\fR,
-	int *\fIheightPtr\fR,
-	Tcl_Interp *\fIinterp\fR);
+	int *\fIheightPtr\fR);
 .CE
-The \fIdata\fR argument points to the object containing the image
-data.  The \fIformat\fR argument contains the value given for
+The \fIstring\fR argument points to the string containing the image
+data.  The \fIformatString\fR argument contains the value given for
 the \fB\-format\fR option, or NULL if the option was not specified.
 If the data in the string appears to be in the format supported by
 this handler, the \fIformatPtr->stringMatchProc\fR procedure should
@@ -140,8 +129,8 @@ Tk to call to read data from an image file into a photo image.
 typedef int Tk_ImageFileReadProc(
 	Tcl_Interp *\fIinterp\fR,
 	Tcl_Channel \fIchan\fR,
-	CONST char *\fIfileName\fR,
-	Tcl_Obj *\fIformat\fR,
+	char *\fIfileName\fR,
+	char *\fIformatString\fR,
 	PhotoHandle \fIimageHandle\fR,
 	int \fIdestX\fR, int \fIdestY\fR,
 	int \fIwidth\fR, int \fIheight\fR,
@@ -150,7 +139,7 @@ typedef int Tk_ImageFileReadProc(
 The \fIinterp\fR argument is the interpreter in which the command was
 invoked to read the image; it should be used for reporting errors.
 The image data is in the file named \fIfileName\fR, which is open for
-reading as \fIchan\fR.  The \fIformat\fR argument contains the
+reading as \fIchan\fR.  The \fIformatString\fR argument contains the
 value given for the \fB\-format\fR option, or NULL if the option was
 not specified.  The image data in the file, or a subimage of it, is to
 be read into the photo image identified by the handle
@@ -168,8 +157,8 @@ Tk to call to read data from a string into a photo image.
 .CS
 typedef int Tk_ImageStringReadProc(
 	Tcl_Interp *\fIinterp\fR,
-	Tcl_Obj *\fIdata\fR,
-	Tcl_Obj *\fIformat\fR,
+	char *\fIstring\fR,
+	char *\fIformatString\fR,
 	PhotoHandle \fIimageHandle\fR,
 	int \fIdestX\fR, int \fIdestY\fR,
 	int \fIwidth\fR, int \fIheight\fR,
@@ -177,8 +166,8 @@ typedef int Tk_ImageStringReadProc(
 .CE
 The \fIinterp\fR argument is the interpreter in which the command was
 invoked to read the image; it should be used for reporting errors.
-The \fIdata\fR argument points to the image data in object form.
-The \fIformat\fR argument contains the
+The \fIstring\fR argument points to the image data in string form.
+The \fIformatString\fR argument contains the
 value given for the \fB\-format\fR option, or NULL if the option was
 not specified.  The image data in the string, or a subimage of it, is to
 be read into the photo image identified by the handle
@@ -196,8 +185,8 @@ Tk to call to write data from a photo image to a file.
 .CS
 typedef int Tk_ImageFileWriteProc(
 	Tcl_Interp *\fIinterp\fR,
-	CONST char *\fIfileName\fR,
-	Tcl_Obj *\fIformat\fR,
+	char *\fIfileName\fR,
+	char *\fIformatString\fR,
 	Tk_PhotoImageBlock *\fIblockPtr\fR);
 .CE
 The \fIinterp\fR argument is the interpreter in which the command was
@@ -206,7 +195,7 @@ The image data to be written are in memory and are described by the
 Tk_PhotoImageBlock structure pointed to by \fIblockPtr\fR; see the
 manual page FindPhoto(3) for details.  The \fIfileName\fR argument
 points to the string giving the name of the file in which to write the
-image data.  The \fIformat\fR argument contains the
+image data.  The \fIformatString\fR argument contains the
 value given for the \fB\-format\fR option, or NULL if the option was
 not specified.  The format string can contain extra characters
 after the name of the format.  If appropriate, the
@@ -221,7 +210,8 @@ Tk to call to translate image data from a photo image into a string.
 .CS
 typedef int Tk_ImageStringWriteProc(
 	Tcl_Interp *\fIinterp\fR,
-	Tcl_Obj *\fIformat\fR,
+	Tcl_DString *\fIdataPtr\fR,
+	char *\fIformatString\fR,
 	Tk_PhotoImageBlock *\fIblockPtr\fR);
 .CE
 The \fIinterp\fR argument is the interpreter in which the command was
@@ -229,8 +219,8 @@ invoked to convert the image; it should be used for reporting errors.
 The image data to be converted are in memory and are described by the
 Tk_PhotoImageBlock structure pointed to by \fIblockPtr\fR; see the
 manual page FindPhoto(3) for details.  The data for the string
-should be put in the interpreter \fIinterp\fR result.
-The \fIformat\fR argument contains the
+should be appended to the dynamic string given by \fIdataPtr\fR.
+The \fIformatString\fR argument contains the
 value given for the \fB\-format\fR option, or NULL if the option was
 not specified.  The format string can contain extra characters
 after the name of the format.  If appropriate, the

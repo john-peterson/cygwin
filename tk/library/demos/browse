@@ -1,13 +1,13 @@
 #!/bin/sh
 # the next line restarts using wish \
-exec wish "$0" ${1+"$@"}
+exec wish "$0" "$@"
 
 # browse --
 # This script generates a directory browser, which lists the working
 # directory and allows you to open files or subdirectories by
 # double-clicking.
 #
-# RCS: @(#) $Id$
+# SCCS: @(#) browse 1.8 96/02/16 10:49:18
 
 # Create a scrollbar on the right side of the main window and a listbox
 # on the left side.
@@ -24,35 +24,29 @@ wm minsize . 1 1
 # the file is a regular file then the Mx editor is invoked to display
 # the file.
 
-set browseScript [file join [pwd] $argv0]
 proc browse {dir file} {
-    global env browseScript
+    global env
     if {[string compare $dir "."] != 0} {set file $dir/$file}
-    switch [file type $file] {
-	directory {
-	    exec [info nameofexecutable] $browseScript $file &
-	}
-	file {
-	    if {[info exists env(EDITOR)]} {
+    if [file isdirectory $file] {
+	exec browse $file &
+    } else {
+	if [file isfile $file] {
+	    if [info exists env(EDITOR)] {
 		eval exec $env(EDITOR) $file &
 	    } else {
 		exec xedit $file &
 	    }
-	}
-	default {
+	} else {
 	    puts stdout "\"$file\" isn't a directory or regular file"
 	}
     }
 }
 
-# Fill the listbox with a list of all the files in the directory.
+# Fill the listbox with a list of all the files in the directory (run
+# the "ls" command to get that information).
 
-if {$argc>0} {set dir [lindex $argv 0]} else {set dir "."}
-foreach i [lsort [glob * .* *.*]] {
-    if {[file type $i] eq "directory"} {
-	# Safe to do since it is still a directory.
-	append i /
-    }
+if $argc>0 {set dir [lindex $argv 0]} else {set dir "."}
+foreach i [exec ls -a $dir] {
     .list insert end $i
 }
 
@@ -60,7 +54,3 @@ foreach i [lsort [glob * .* *.*]] {
 
 bind all <Control-c> {destroy .}
 bind .list <Double-Button-1> {foreach i [selection get] {browse $dir $i}}
-
-# Local Variables:
-# mode: tcl
-# End:

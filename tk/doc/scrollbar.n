@@ -16,11 +16,10 @@ scrollbar \- Create and manipulate scrollbar widgets
 .SH SYNOPSIS
 \fBscrollbar\fR \fIpathName \fR?\fIoptions\fR?
 .SO
-\-activebackground	\-highlightcolor	\-repeatdelay
-\-background	\-highlightthickness	\-repeatinterval
-\-borderwidth	\-jump	\-takefocus
-\-cursor	\-orient	\-troughcolor
-\-highlightbackground	\-relief
+\-activebackground	\-highlightbackground	\-orient	\-takefocus
+\-background	\-highlightcolor	\-relief	\-troughcolor
+\-borderwidth	\-highlightthickness	\-repeatdelay
+\-cursor	\-jump	\-repeatinterval
 .SE
 .SH "WIDGET-SPECIFIC OPTIONS"
 .OP \-activerelief activeRelief ActiveRelief

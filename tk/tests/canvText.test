@@ -3,17 +3,21 @@
 # fashion for Tcl tests.
 #
 # Copyright (c) 1996-1997 Sun Microsystems, Inc.
-# Copyright (c) 1998-1999 by Scriptics Corporation.
-# All rights reserved.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 #
 # RCS: @(#) $Id$
 
-package require tcltest 2.1
-namespace import -force tcltest::configure
-namespace import -force tcltest::testsDirectory
-configure -testdir [file join [pwd] [file dirname [info script]]]
-configure -loadfile [file join [testsDirectory] constraints.tcl]
-tcltest::loadTestedCommands
+if {"[info procs test]" != "test"} {
+    source defs
+}
+
+foreach i [winfo children .] {
+    destroy $i
+}
+wm geometry . {}
+raise .
 
 canvas .c -width 400 -height 300 -bd 2 -relief sunken
 pack .c
@@ -102,7 +106,7 @@ test canvText-3.4 {TextCoords procedure} {
 } {10.0 10.0}
 test canvText-3.5 {TextCoords procedure} {
     list [catch {.c coords test 10} msg] $msg
-} {1 {wrong # coordinates: expected 2, got 1}}
+} {1 {wrong # coordinates: expected 0 or 2, got 1}}
 test canvText-3.6 {TextCoords procedure} {
     list [catch {.c coords test 10 10 10} msg] $msg
 } {1 {wrong # coordinates: expected 0 or 2, got 3}}
@@ -170,7 +174,7 @@ test canvText-5.1 {ConfigureText procedure: adjust cursor} {
     .c delete x
 } {}
 
-test canvText-6.1 {ComputeTextBbox procedure} {fonts nonPortable} {
+test canvText-6.1 {ComputeTextBbox procedure} {fonts} {
     .c itemconfig test -font $font -text 0
     .c coords test 0 0
     set x {}
@@ -196,7 +200,7 @@ test canvText-6.1 {ComputeTextBbox procedure} {fonts nonPortable} {
 focus .c
 .c focus test
 .c itemconfig test -text "abcd\nefghi\njklmnopq"
-test canvText-7.0 {DisplayText procedure: stippling} {
+test canvText-7.1 {DisplayText procedure: stippling} {
     .c itemconfig test -stipple gray50
     update
     .c itemconfig test -stipple {}
@@ -235,20 +239,6 @@ test canvText-7.7 {DisplayText procedure: selected text different color} {
 } {}
 test canvText-7.8 {DisplayText procedure: not selected} {
     .c select clear
-    update
-} {}
-test canvText-7.9 {DisplayText procedure: select end} {
-    catch {destroy .t}
-    toplevel .t
-    wm geometry .t +0+0
-    canvas .t.c
-    pack .t.c
-    set id [.t.c create text 0 0 -text Dummy -anchor nw]
-    update
-    .t.c select from $id 0
-    .t.c select to $id end
-    update
-    #catch {destroy .t}
     update
 } {}
 
@@ -490,9 +480,9 @@ test canvText-17.1 {TextToPostscript procedure} {
 } "/Courier-Oblique findfont [font actual $font -size] scalefont ISOEncode setfont
 0.000 0.000 0.000 setrgbcolor AdjustColor
 100 200 \[
-\[(000)\]
-\[(000)\]
-\[(00)\]
+(000)
+(000)
+(00)
 ] $ay -0.5 0 0 false DrawText
 grestore
 restore showpage
@@ -501,34 +491,3 @@ restore showpage
 end
 %%EOF
 "
-
-test canvText-18.1 {bug fix 2525, find enclosed on text with newlines} {
-    catch {destroy .c}
-    canvas .c
-    pack .c
-    .c delete all
-    .c create text 100 100 -text Hello\n -anchor nw
-    set bbox [.c bbox 1]
-    set x2 [lindex $bbox 2]
-    set y2 [lindex $bbox 3]
-    incr y2
-    update
-    .c find enclosed 99 99 [expr $x2 + $i] [expr $y2 + 1]
-} 1
-
-# cleanup
-::tcltest::cleanupTests
-return
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -11,6 +11,7 @@
  * RCS: @(#) $Id$
  */
 
+#include "tkPort.h"
 #include "tkWinInt.h"
 
 /*
@@ -19,6 +20,14 @@
 
 BOOL APIENTRY		DllMain _ANSI_ARGS_((HINSTANCE hInst,
 			    DWORD reason, LPVOID reserved));
+/* CYGNUS LOCAL */
+#ifdef __CYGWIN32__
+/* cygwin32 requires an impure pointer variable, which must be
+   explicitly initialized when the DLL starts up.  */
+struct _reent *_impure_ptr;
+extern struct _reent *_imp__reent_data;
+#endif
+/* END CYGNUS LOCAL */
 
 /*
  *----------------------------------------------------------------------
@@ -69,6 +78,13 @@ DllMain(hInstance, reason, reserved)
     DWORD reason;
     LPVOID reserved;
 {
+    /* CYGNUS LOCAL */
+#ifdef __CYGWIN32__
+    /* cygwin32 requires the impure data pointer to be initialized
+       when the DLL starts up.  */
+    _impure_ptr = _imp__reent_data;
+#endif
+    /* END CYGNUS LOCAL */
 
     /*
      * If we are attaching to the DLL from a new process, tell Tk about

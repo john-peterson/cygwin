@@ -7,13 +7,13 @@
 '\" RCS: $Id$
 '\"
 .so man.macros
-.TH scope n "" itcl "[incr\ Tcl]"
+.TH scope n "" Tcl "[incr\ Tcl]"
 .BS
 '\" Note:  do not modify the .SH NAME line immediately below!
 .SH NAME
 scope \- capture the namespace context for a variable
 .SH SYNOPSIS
-\fBitcl::scope \fIname\fR
+\fBscope \fIname\fR
 .BE
 
 .SH DESCRIPTION

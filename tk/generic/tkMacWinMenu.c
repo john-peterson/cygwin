@@ -14,11 +14,7 @@
 
 #include "tkMenu.h"
 
-typedef struct ThreadSpecificData {
-    int postCommandGeneration;
-} ThreadSpecificData;
-static Tcl_ThreadDataKey dataKey;
-
+static int postCommandGeneration;
 
 static int			PreprocessMenu _ANSI_ARGS_((TkMenu *menuPtr));
 
@@ -47,8 +43,6 @@ PreprocessMenu(menuPtr)
 {
     int index, result, finished;
     TkMenu *cascadeMenuPtr;
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
    
     Tcl_Preserve((ClientData) menuPtr);
     
@@ -73,16 +67,16 @@ PreprocessMenu(menuPtr)
     	finished = 1;
         for (index = 0; index < menuPtr->numEntries; index++) {
             if ((menuPtr->entries[index]->type == CASCADE_ENTRY)
-            	    && (menuPtr->entries[index]->namePtr != NULL)) {
+            	    && (menuPtr->entries[index]->name != NULL)) {
             	if ((menuPtr->entries[index]->childMenuRefPtr != NULL)
             		&& (menuPtr->entries[index]->childMenuRefPtr->menuPtr
             		!= NULL)) {
             	    cascadeMenuPtr =
             	    	    menuPtr->entries[index]->childMenuRefPtr->menuPtr;
             	    if (cascadeMenuPtr->postCommandGeneration != 
-            	    	    tsdPtr->postCommandGeneration) {
+            	    	    postCommandGeneration) {
             	    	cascadeMenuPtr->postCommandGeneration = 
-            	    		tsdPtr->postCommandGeneration;
+            	    		postCommandGeneration;
             	        result = PreprocessMenu(cascadeMenuPtr);
             	        if (result != TCL_OK) {
             	            goto done;
@@ -134,10 +128,7 @@ int
 TkPreprocessMenu(menuPtr)
     TkMenu *menuPtr;
 {
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
-
-    tsdPtr->postCommandGeneration++;
-    menuPtr->postCommandGeneration = tsdPtr->postCommandGeneration;
+    postCommandGeneration++;
+    menuPtr->postCommandGeneration = postCommandGeneration;
     return PreprocessMenu(menuPtr);
 }

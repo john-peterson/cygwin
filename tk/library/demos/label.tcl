@@ -3,7 +3,7 @@
 # This demonstration script creates a toplevel window containing
 # several label widgets.
 #
-# RCS: @(#) $Id$
+# SCCS: @(#) label.tcl 1.7 97/03/02 16:25:27
 
 if {![info exists widgetDemo]} {
     error "This script should be run from the \"widget\" demo."

@@ -1,5 +1,5 @@
 # balloon.tcl - Balloon help.
-# Copyright (C) 1997, 1998, 2000, 2008 Red Hat, Inc.
+# Copyright (C) 1997, 1998 Cygnus Solutions.
 # Written by Tom Tromey <tromey@cygnus.com>.
 
 # KNOWN BUGS:
@@ -7,36 +7,36 @@
 #   presently they are hard-coded.
 # * Likewise, balloon positioning on Windows is a hack.
 
-itcl::class Balloon {
+itcl_class Balloon {
   # Name of associated global variable which should be set whenever
   # the help is shown.
-  public variable varname {}
+  public variable {}
 
   # Name of associated toplevel.  Private variable.
-  protected variable _top {}
+  protected _top {}
 
   # This is non-empty if there is an after script pending.  Private
   # method.
-  protected variable _after_id {}
+  protected _after_id {}
 
   # This is an array mapping window name to help text.
-  protected variable _help_text
+  protected _help_text
 
   # This is an array mapping window name to notification proc.
-  protected variable _notifiers
+  protected _notifiers
 
   # This is set to the name of the parent widget whenever the mouse is
   # in a widget with balloon help.
-  protected variable _active {}
+  protected _active {}
 
   # This is true when we're already calling a notification proc.
   # Private variable.
-  protected variable _in_notifier 0
+  protected _in_notifier 0
 
   # This holds the parent of the most recently entered widget.  It is
   # used to determine when the user is moving through a toolbar.
   # Private variable.
-  protected variable _recent_parent {}
+  protected _recent_parent {}
 
   constructor {top} {
     global tcl_platform
@@ -74,6 +74,10 @@ itcl::class Balloon {
       %s _cancel
       %s _unshowballoon
     } $this $this]
+    bind $_top <3> [format {
+      %s _cancel
+      %s _unshowballoon
+    } $this $this]
 
     if {$tcl_platform(platform) == "windows"} then {
       set bg SystemInfoBackground
@@ -92,7 +96,7 @@ itcl::class Balloon {
     # Clean up when the label is destroyed.  This has the hidden
     # assumption that the balloon widget is a child of the toplevel to
     # which it is connected.
-    bind [namespace tail $this].label <Destroy> [itcl::code itcl::delete object $this]
+    bind [namespace tail $this].label <Destroy> [list $this delete]
   }
 
   destructor {
@@ -100,6 +104,8 @@ itcl::class Balloon {
     catch {after cancel [list $this _unshowballoon]}
     catch {destroy $this}
   }
+
+  method configure {config} {}
 
   # Register a notifier for a window.
   method notify {command window {tag {}}} {
@@ -254,26 +260,18 @@ itcl::class Balloon {
     if {$index == ""} then {
       set value ""
     } elseif {[info exists _notifiers($index)] && ! $_in_notifier} then {
-      if {$varname != ""} {
-	upvar $varname var
-	set var $_help_text($index)
-      }
       set _in_notifier 1
       uplevel \#0 $_notifiers($index)
       set _in_notifier 0
       # Get value afterwards to give notifier a chance to change it.
-      if {$varname != ""} {
-	upvar $varname var
-	set _help_text($index) $var
-      } 
       set value $_help_text($index)
     } else {
       set value $_help_text($index)
     }
 
-    if {$varname != ""} then {
-      upvar $varname var
-      set var $value
+    if {$variable != ""} then {
+      # itcl 1.5 forces us to do this in a strange way.
+      ::uplevel \#0 [list set $variable $value]
     }
   }
 
@@ -285,6 +283,7 @@ itcl::class Balloon {
       # An ordinary window.  Position below the window, and right of
       # center.
       set _active $W
+      set help $_help_text($W)
       set left [expr {[winfo rootx $W] + round ([winfo width $W] * .75)}]
       set ypos [expr {[winfo rooty $W] + [winfo height $W]}]
       set alt_ypos [winfo rooty $W]
@@ -293,6 +292,8 @@ itcl::class Balloon {
       set _recent_parent [winfo parent $W]
     } else {
       set _active $W,$tag
+      set help $_help_text($W,$tag)
+
       # Switching on class name is bad.  Do something better.  Can't
       # just use the widget's bbox method, because the results differ
       # for Text and Canvas widgets.  Bummer.
@@ -327,8 +328,6 @@ itcl::class Balloon {
 	}
       }
     }
-
-    set help $_help_text($_active)
 
     # On Windows, the popup location is always determined by the
     # cursor.  Actually, the rule seems to be somewhat more complex.
@@ -399,7 +398,7 @@ itcl::class Balloon {
     # Decode window name.
     regsub -all -- ! $name . name
 
-    if {$varname == ""} then {
+    if {$variable == ""} then {
       # There's no point to doing anything.
       return
     }
@@ -490,13 +489,13 @@ proc BALLOON_command_withdraw {window} {
 proc BALLOON_command_variable {window args} {
   if {[llength $args] == 0} then {
     # Fetch.
-    set b [BALLOON_find_balloon $window]
-    return [$b cget -varname]
+    set b [BALLOON_find_balloon [lindex $args 0]]
+    return [lindex [$b configure -variable] 4]
   } else {
     # FIXME: no arg checking here.
     # Set.
     set b [BALLOON_find_balloon $window]
-    $b configure -varname [lindex $args 0]
+    $b configure -variable [lindex $args 0]
   }
 }
 
@@ -524,9 +523,6 @@ proc BALLOON_command_variable {window args} {
 #    balloon help is on.  If NAME is specified but empty,
 #    no variable is set.  If NAME not specified, then the
 #    current variable name is returned.
-#  balloon withdraw WINDOW
-#    Withdraw the balloon window associated with WINDOW.  This should
-#    be used sparingly.
 proc balloon {key args} {
   if {[info commands BALLOON_command_$key] == "" } then {
     error "unrecognized key \"$key\""

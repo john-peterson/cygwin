@@ -103,7 +103,7 @@ Tk_ChooseColorCmd(clientData, interp, argc, argv)
     int argc;			/* Number of arguments. */
     char **argv;		/* Argument strings. */
 {
-    return EvalArgv(interp, "tk::ColorDialog", argc, argv);
+    return EvalArgv(interp, "tkColorDialog", argc, argv);
 }
 
 /*
@@ -126,6 +126,7 @@ Tk_ChooseColorCmd(clientData, interp, argc, argv)
  *
  *----------------------------------------------------------------------
  */
+int SN_donot_call_motif_filedialog_box = 0;
 
 int
 Tk_GetOpenFileCmd(clientData, interp, argc, argv)
@@ -136,10 +137,11 @@ Tk_GetOpenFileCmd(clientData, interp, argc, argv)
 {
     Tk_Window tkwin = (Tk_Window)clientData;
 
-    if (Tk_StrictMotif(tkwin)) {
-	return EvalArgv(interp, "tk::MotifFDialog", argc, argv);
+    /* Don't use motif dialog box */
+    if (SN_donot_call_motif_filedialog_box == 0 && Tk_StrictMotif(tkwin)) {
+	return EvalArgv(interp, "tkMotifFDialog", argc, argv);
     } else {
-	return EvalArgv(interp, "tk::FDialog", argc, argv);
+	return EvalArgv(interp, "tkFDialog", argc, argv);
     }
 }
 
@@ -169,10 +171,11 @@ Tk_GetSaveFileCmd(clientData, interp, argc, argv)
 {
     Tk_Window tkwin = (Tk_Window)clientData;
 
-    if (Tk_StrictMotif(tkwin)) {
-	return EvalArgv(interp, "tk::MotifFDialog", argc, argv);
+    /* Don't use motif dialog box */
+    if (SN_donot_call_motif_filedialog_box == 0 && Tk_StrictMotif(tkwin)) {
+	return EvalArgv(interp, "tkMotifFDialog", argc, argv);
     } else {
-	return EvalArgv(interp, "tk::FDialog", argc, argv);
+	return EvalArgv(interp, "tkFDialog", argc, argv);
     }
 }
 
@@ -202,6 +205,6 @@ Tk_MessageBoxCmd(clientData, interp, argc, argv)
     int argc;			/* Number of arguments. */
     char **argv;		/* Argument strings. */
 {
-    return EvalArgv(interp, "tk::MessageBox", argc, argv);
+    return EvalArgv(interp, "tkMessageBox", argc, argv);
 }
 

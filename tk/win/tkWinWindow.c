@@ -4,7 +4,7 @@
  *	Xlib emulation routines for Windows related to creating,
  *	displaying and destroying windows.
  *
- * Copyright (c) 1995-1997 Sun Microsystems, Inc.
+ * Copyright (c) 1995 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -14,12 +14,17 @@
 
 #include "tkWinInt.h"
 
-typedef struct ThreadSpecificData {
-    int initialized;            /* 0 means table below needs initializing. */
-    Tcl_HashTable windowTable;  /* The windowTable maps from HWND to 
-				 * Tk_Window handles. */
-} ThreadSpecificData;
-static Tcl_ThreadDataKey dataKey;
+/*
+ * The windowTable maps from HWND to Tk_Window handles.
+ */
+
+static Tcl_HashTable windowTable;
+
+/*
+ * Have statics in this module been initialized?
+ */
+
+static int initialized = 0;
 
 /*
  * Forward declarations for procedures defined in this file:
@@ -27,6 +32,8 @@ static Tcl_ThreadDataKey dataKey;
 
 static void		NotifyVisibility _ANSI_ARGS_((XEvent *eventPtr,
 			    TkWindow *winPtr));
+static void 		StackWindow _ANSI_ARGS_((Window w, Window sibling,
+			    int stack_mode));
 
 /*
  *----------------------------------------------------------------------
@@ -54,12 +61,10 @@ Tk_AttachHWND(tkwin, hwnd)
     int new;
     Tcl_HashEntry *entryPtr;
     TkWinDrawable *twdPtr = (TkWinDrawable *) Tk_WindowId(tkwin);
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
 
-    if (!tsdPtr->initialized) {
-	Tcl_InitHashTable(&tsdPtr->windowTable, TCL_ONE_WORD_KEYS);
-	tsdPtr->initialized = 1;
+    if (!initialized) {
+	Tcl_InitHashTable(&windowTable, TCL_ONE_WORD_KEYS);
+	initialized = 1;
     }
 
     /*
@@ -72,7 +77,7 @@ Tk_AttachHWND(tkwin, hwnd)
 	twdPtr->type = TWD_WINDOW;
 	twdPtr->window.winPtr = (TkWindow *) tkwin;
     } else if (twdPtr->window.handle != NULL) {
-	entryPtr = Tcl_FindHashEntry(&tsdPtr->windowTable,
+	entryPtr = Tcl_FindHashEntry(&windowTable,
 		(char *)twdPtr->window.handle);
 	Tcl_DeleteHashEntry(entryPtr);
     }
@@ -82,7 +87,7 @@ Tk_AttachHWND(tkwin, hwnd)
      */
 
     twdPtr->window.handle = hwnd;
-    entryPtr = Tcl_CreateHashEntry(&tsdPtr->windowTable, (char *)hwnd, &new);
+    entryPtr = Tcl_CreateHashEntry(&windowTable, (char *)hwnd, &new);
     Tcl_SetHashValue(entryPtr, (ClientData)tkwin);
 
     return (Window)twdPtr;
@@ -110,14 +115,11 @@ Tk_HWNDToWindow(hwnd)
     HWND hwnd;
 {
     Tcl_HashEntry *entryPtr;
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
-
-    if (!tsdPtr->initialized) {
-	Tcl_InitHashTable(&tsdPtr->windowTable, TCL_ONE_WORD_KEYS);
-	tsdPtr->initialized = 1;
+    if (!initialized) {
+	Tcl_InitHashTable(&windowTable, TCL_ONE_WORD_KEYS);
+	initialized = 1;
     }
-    entryPtr = Tcl_FindHashEntry(&tsdPtr->windowTable, (char*)hwnd);
+    entryPtr = Tcl_FindHashEntry(&windowTable, (char*)hwnd);
     if (entryPtr != NULL) {
 	return (Tk_Window) Tcl_GetHashValue(entryPtr);
     }
@@ -144,7 +146,8 @@ HWND
 Tk_GetHWND(window)
     Window window;
 {
-    return ((TkWinDrawable *) window)->window.handle;
+    TkWinDrawable *twdPtr = (TkWinDrawable *) window;
+    return twdPtr->window.handle;
 }
 
 /*
@@ -172,11 +175,7 @@ TkpPrintWindowId(buf, window)
     Window window;		/* Window to be printed into buffer. */
 {
     HWND hwnd = (window) ? Tk_GetHWND(window) : 0;
-    /*
-     * Use pointer representation, because Win64 is P64 (*not* LP64).
-     * Windows doesn't print the 0x for %p, so we do it.
-     */
-    sprintf(buf, "0x%p", hwnd);
+    sprintf(buf, "0x%x", (unsigned int) hwnd);
 }
 
 /*
@@ -191,7 +190,7 @@ TkpPrintWindowId(buf, window)
  *	The return value is normally TCL_OK;  in this case *idPtr
  *	will be set to the X Window id equivalent to string.  If
  *	string is improperly formed then TCL_ERROR is returned and
- *	an error message will be left in the interp's result.  If the
+ *	an error message will be left in interp->result.  If the
  *	number does not correspond to a Tk Window, then *idPtr will
  *	be set to None.
  *
@@ -204,25 +203,16 @@ TkpPrintWindowId(buf, window)
 int
 TkpScanWindowId(interp, string, idPtr)
     Tcl_Interp *interp;		/* Interpreter to use for error reporting. */
-    CONST char *string;		/* String containing a (possibly signed)
+    char *string;		/* String containing a (possibly signed)
 				 * integer in a form acceptable to strtol. */
-    Window *idPtr;		/* Place to store converted result. */
+    int *idPtr;			/* Place to store converted result. */
 {
+    int number;
     Tk_Window tkwin;
-    Window number;
 
-    /*
-     * We want sscanf for the 64-bit check, but if that doesn't work,
-     * then Tcl_GetInt manages the error correctly.
-     */
-    if (
-#ifdef _WIN64
-	(sscanf(string, "0x%p", &number) != 1) &&
-#endif
-	Tcl_GetInt(interp, string, (int *)&number) != TCL_OK) {
+    if (Tcl_GetInt(interp, string, &number) != TCL_OK) {
 	return TCL_ERROR;
     }
-
     tkwin = Tk_HWNDToWindow((HWND)number);
     if (tkwin) {
 	*idPtr = Tk_WindowId(tkwin);
@@ -305,8 +295,6 @@ XDestroyWindow(display, w)
     TkWinDrawable *twdPtr = (TkWinDrawable *)w;
     TkWindow *winPtr = TkWinGetWinPtr(w);
     HWND hwnd = Tk_GetHWND(w);
-    ThreadSpecificData *tsdPtr = (ThreadSpecificData *) 
-            Tcl_GetThreadData(&dataKey, sizeof(ThreadSpecificData));
 
     display->request++;
 
@@ -317,7 +305,7 @@ XDestroyWindow(display, w)
 
     TkPointerDeadWindow(winPtr);
 
-    entryPtr = Tcl_FindHashEntry(&tsdPtr->windowTable, (char*)hwnd);
+    entryPtr = Tcl_FindHashEntry(&windowTable, (char*)hwnd);
     if (entryPtr != NULL) {
 	Tcl_DeleteHashEntry(entryPtr);
     }
@@ -362,7 +350,7 @@ XMapWindow(display, w)
 
     display->request++;
 
-    ShowWindow(Tk_GetHWND(w), SW_SHOWNORMAL);
+    ShowWindow(TkWinGetHWND(w), SW_SHOWNORMAL);
     winPtr->flags |= TK_MAPPED;
 
     /*
@@ -371,13 +359,13 @@ XMapWindow(display, w)
      * its mapped children have just become visible.
      */
 
-    if (!(winPtr->flags & TK_TOP_HIERARCHY)) {
+    if (!(winPtr->flags & TK_TOP_LEVEL)) {
 	for (parentPtr = winPtr->parentPtr; ;
 	        parentPtr = parentPtr->parentPtr) {
 	    if ((parentPtr == NULL) || !(parentPtr->flags & TK_MAPPED)) {
 		return;
 	    }
-	    if (parentPtr->flags & TK_TOP_HIERARCHY) {
+	    if (parentPtr->flags & TK_TOP_LEVEL) {
 		break;
 	    }
 	}
@@ -475,10 +463,10 @@ XUnmapWindow(display, w)
      * it will be cleared before XUnmapWindow is called.
      */
 
-    ShowWindow(Tk_GetHWND(w), SW_HIDE);
+    ShowWindow(TkWinGetHWND(w), SW_HIDE);
     winPtr->flags &= ~TK_MAPPED;
 
-    if (winPtr->flags & TK_WIN_MANAGED) {
+    if (winPtr->flags & TK_TOP_LEVEL) {
 	event.type = UnmapNotify;
 	event.xunmap.serial = display->request;
 	event.xunmap.send_event = False;
@@ -516,7 +504,7 @@ XMoveResizeWindow(display, w, x, y, width, height)
     unsigned int height;
 {
     display->request++;
-    MoveWindow(Tk_GetHWND(w), x, y, width, height, TRUE);
+    MoveWindow(TkWinGetHWND(w), x, y, width, height, TRUE);
 }
 
 /*
@@ -546,7 +534,7 @@ XMoveWindow(display, w, x, y)
 
     display->request++;
 
-    MoveWindow(Tk_GetHWND(w), x, y, winPtr->changes.width,
+    MoveWindow(TkWinGetHWND(w), x, y, winPtr->changes.width,
 	    winPtr->changes.height, TRUE);
 }
 
@@ -577,7 +565,7 @@ XResizeWindow(display, w, width, height)
 
     display->request++;
 
-    MoveWindow(Tk_GetHWND(w), winPtr->changes.x, winPtr->changes.y, width,
+    MoveWindow(TkWinGetHWND(w), winPtr->changes.x, winPtr->changes.y, width,
 	    height, TRUE);
 }
 
@@ -602,7 +590,7 @@ XRaiseWindow(display, w)
     Display* display;
     Window w;
 {
-    HWND window = Tk_GetHWND(w);
+    HWND window = TkWinGetHWND(w);
 
     display->request++;
     SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
@@ -636,7 +624,7 @@ XConfigureWindow(display, w, value_mask, values)
     XWindowChanges* values;
 {
     TkWindow *winPtr = TkWinGetWinPtr(w);
-    HWND hwnd = Tk_GetHWND(w);
+    HWND hwnd = TkWinGetHWND(w);
 
     display->request++;
 
@@ -689,7 +677,7 @@ XClearWindow(display, w)
     HBRUSH brush;
     HPALETTE oldPalette, palette;
     TkWindow *winPtr;
-    HWND hwnd = Tk_GetHWND(w);
+    HWND hwnd = TkWinGetHWND(w);
     HDC dc = GetDC(hwnd);
 
     palette = TkWinGetPalette(display->screens[0].cmap);

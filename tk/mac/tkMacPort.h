@@ -6,6 +6,7 @@
  *	#includes for system include files and a few other things.
  *
  * Copyright (c) 1994-1996 Sun Microsystems, Inc.
+ * Copyright (c) 1998 by Scriptics Corporation.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -48,7 +49,6 @@
 #include <Xatom.h>
 #include <Xfuncproto.h>
 #include <Xutil.h>
-#include "tkIntXlibDecls.h"
 
 /*
  * Not all systems declare the errno variable in errno.h. so this
@@ -70,17 +70,12 @@ extern int errno;
  * in any other header file.
  */
 
-#ifndef panic	/* In a stubs-aware setting, this could confuse the #define */
-EXTERN void 		panic  _ANSI_ARGS_(TCL_VARARGS(char *, string));
-#endif
-#ifndef strcasecmp
-EXTERN int		strcasecmp _ANSI_ARGS_((CONST char *s1,
+extern void 		panic  _ANSI_ARGS_(TCL_VARARGS(char *, string));
+extern int		strcasecmp _ANSI_ARGS_((CONST char *s1,
 			    CONST char *s2));
-#endif
-#ifndef strncasecmp			    
-EXTERN int		strncasecmp _ANSI_ARGS_((CONST char *s1,
+extern int		strncasecmp _ANSI_ARGS_((CONST char *s1,
 			    CONST char *s2, size_t n));
-#endif
+
 /*
  * Defines for X functions that are used by Tk but are treated as
  * no-op functions on the Macintosh.
@@ -96,15 +91,15 @@ EXTERN int		strncasecmp _ANSI_ARGS_((CONST char *s1,
 #define XVisualIDFromVisual(visual) (visual->visualid)
 
 /*
- * The following functions are not used on the Mac, so we stub them out.
+ * The following functions are not used on the Mac, so we stub it out.
  */
 
 #define TkFreeWindowId(dispPtr,w)
 #define TkInitXId(dispPtr)
-#define TkpButtonSetDefaults(specPtr) {}
 #define TkpCmapStressed(tkwin,colormap) (0)
 #define TkpFreeColor(tkColPtr)
 #define TkSetPixmapColormap(p,c) {}
+#define Tk_FreeXId(display,xid)
 #define TkpSync(display)
 
 /*
@@ -120,18 +115,17 @@ EXTERN int		strncasecmp _ANSI_ARGS_((CONST char *s1,
 
 /*
  * This macro stores a representation of the window handle in a string.
- * This should perhaps use the real size of an XID.
  */
 
 #define TkpPrintWindowId(buf,w) \
 	sprintf((buf), "0x%x", (unsigned int) (w))
-
+	    
 /*
  * TkpScanWindowId is just an alias for Tcl_GetInt on Unix.
  */
 
 #define TkpScanWindowId(i,s,wp) \
-	Tcl_GetInt((i),(s),(int *)(wp))
+	Tcl_GetInt((i),(s),(wp))
 
 /*
  * Magic pixel values for dynamic (or active) colors.
@@ -149,14 +143,5 @@ EXTERN int		strncasecmp _ANSI_ARGS_((CONST char *s1,
 #define MENU_DISABLED_PIXEL		49
 #define MENU_TEXT_PIXEL			51
 #define APPEARANCE_PIXEL		52
-
-/*
- * The following declaration is used to get access to a private Tcl interface
- * that is needed for portability reasons.
- */
-
-#ifndef _TCLINT
-#include <tclInt.h>
-#endif
 
 #endif /* _TKMACPORT */

@@ -12,7 +12,6 @@
  */
 
 #include "tkInt.h"
-#include "tkMacInt.h"
 #include "X.h"
 #include "Xlib.h"
 
@@ -215,34 +214,4 @@ TkClipBox(
     rect_return->y = (**rgn).rgnBBox.top;
     rect_return->width = (**rgn).rgnBBox.right - (**rgn).rgnBBox.left;
     rect_return->height = (**rgn).rgnBBox.bottom - (**rgn).rgnBBox.top;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TkSubtractRegion --
- *
- *	Implements the equivilent of the X window function
- *	XSubtractRegion.  See X window documentation for more details.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-void 
-TkSubtractRegion(
-    TkRegion sra,
-    TkRegion srb,
-    TkRegion dr_return)
-{
-    RgnHandle srcRgnA = (RgnHandle) sra;
-    RgnHandle srcRgnB = (RgnHandle) srb;
-    RgnHandle destRgn = (RgnHandle) dr_return;
-
-    DiffRgn(srcRgnA, srcRgnB, destRgn);
 }

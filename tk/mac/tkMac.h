@@ -14,21 +14,17 @@
 #ifndef _TKMAC
 #define _TKMAC
 
-#ifndef _TK
-#include <tk.h>
-#endif
-
-#ifndef _TKINT
-#include "tkInt.h"
-#endif
-
 #include <Windows.h>
 #include <QDOffscreen.h>
+#include "tkInt.h"
 
-#ifdef BUILD_tk
-# undef TCL_STORAGE_CLASS
-# define TCL_STORAGE_CLASS DLLEXPORT
-#endif
+/*
+ * "export" is a MetroWerks specific pragma.  It flags the linker that  
+ * any symbols that are defined when this pragma is on will be exported 
+ * to shared libraries that link with this library.
+ */
+ 
+#pragma export on
 
 /*
  * This variable is exported and can be used by extensions.  It is the
@@ -48,9 +44,38 @@ typedef int (Tk_MacEmbedMakeContainerExistProc) (Tk_Window window);
 typedef void (Tk_MacEmbedGetClipProc) (Tk_Window window, RgnHandle rgn); 
 typedef void (Tk_MacEmbedGetOffsetInParentProc) (Tk_Window window, Point *ulCorner);
 
-#include "tkPlatDecls.h"
+/* 
+ * Mac Specific functions that are available to extension writers.
+ */
 
-# undef TCL_STORAGE_CLASS
-# define TCL_STORAGE_CLASS DLLIMPORT
+EXTERN void 	Tk_MacSetEmbedHandler _ANSI_ARGS_((
+    		        Tk_MacEmbedRegisterWinProc *registerWinProcPtr,
+    			Tk_MacEmbedGetGrafPortProc *getPortProcPtr,
+    			Tk_MacEmbedMakeContainerExistProc *containerExistProcPtr,
+    			Tk_MacEmbedGetClipProc *getClipProc,
+    			Tk_MacEmbedGetOffsetInParentProc *getOffsetProc));
+    			
+ 
+EXTERN void Tk_MacTurnOffMenus _ANSI_ARGS_ (());
+EXTERN void Tk_MacTkOwnsCursor _ANSI_ARGS_ ((int tkOwnsIt));
+
+/*
+ * These functions are currently in tkMacInt.h.  They are just copied over here
+ * so they can be exported.
+ */
+
+EXTERN void 	TkMacInitMenus _ANSI_ARGS_((Tcl_Interp 	*interp));
+EXTERN void	TkMacInitAppleEvents _ANSI_ARGS_((Tcl_Interp *interp));
+
+EXTERN int	TkMacConvertEvent _ANSI_ARGS_((EventRecord *eventPtr));
+EXTERN int	TkMacConvertTkEvent _ANSI_ARGS_((EventRecord *eventPtr,
+			    Window window));
+EXTERN void	TkGenWMConfigureEvent _ANSI_ARGS_((Tk_Window tkwin,
+			    int x, int y, int width, int height, int flags));
+EXTERN void	TkMacInvalClipRgns _ANSI_ARGS_((TkWindow *winPtr));
+EXTERN int	TkMacHaveAppearance _ANSI_ARGS_((void));
+EXTERN GWorldPtr 	TkMacGetDrawablePort _ANSI_ARGS_((Drawable drawable));
+
+#pragma export reset
 
 #endif /* _TKMAC */
