@@ -1,13 +1,12 @@
 /* tc-m68k.c -- Assemble for the m68k family
    Copyright 1987, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   2000, 2001, 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -17,8 +16,8 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 #include "as.h"
 #include "safe-ctype.h"
@@ -36,10 +35,6 @@
 
 #ifdef M68KCOFF
 #include "obj-coff.h"
-#endif
-
-#ifdef OBJ_ELF
-static void m68k_elf_cons (int);
 #endif
 
 /* This string holds the chars that always start a comment.  If the
@@ -74,6 +69,8 @@ const char FLT_CHARS[] = "rRsSfFdDxXeEpP";
 /* Also be aware that MAXIMUM_NUMBER_OF_CHARS_FOR_FLOAT may have to be
    changed in read.c .  Ideally it shouldn't have to know about it at all,
    but nothing is ideal around here.  */
+
+const int md_reloc_size = 8;	/* Size of relocation record.  */
 
 /* Are we trying to generate PIC code?  If so, absolute references
    ought to be made into linkage table references or pc-relative
@@ -157,192 +154,46 @@ struct m68k_incant
 #define getone(x)	((((x)->m_opcode)>>16)&0xffff)
 #define gettwo(x)	(((x)->m_opcode)&0xffff)
 
-static const enum m68k_register m68000_ctrl[] = { 0 };
-static const enum m68k_register m68010_ctrl[] = {
+static const enum m68k_register m68000_control_regs[] = { 0 };
+static const enum m68k_register m68010_control_regs[] = {
   SFC, DFC, USP, VBR,
   0
 };
-static const enum m68k_register m68020_ctrl[] = {
+static const enum m68k_register m68020_control_regs[] = {
   SFC, DFC, USP, VBR, CACR, CAAR, MSP, ISP,
   0
 };
-static const enum m68k_register m68040_ctrl[] = {
+static const enum m68k_register m68040_control_regs[] = {
   SFC, DFC, CACR, TC, ITT0, ITT1, DTT0, DTT1,
   USP, VBR, MSP, ISP, MMUSR, URP, SRP,
   0
 };
-static const enum m68k_register m68060_ctrl[] = {
+static const enum m68k_register m68060_control_regs[] = {
   SFC, DFC, CACR, TC, ITT0, ITT1, DTT0, DTT1, BUSCR,
   USP, VBR, URP, SRP, PCR,
   0
 };
-static const enum m68k_register mcf_ctrl[] = {
+static const enum m68k_register mcf_control_regs[] = {
   CACR, TC, ACR0, ACR1, ACR2, ACR3, VBR, ROMBAR,
-  RAMBAR0, RAMBAR1, RAMBAR, MBAR,
+  RAMBAR0, RAMBAR1, MBAR,
   0
 };
-static const enum m68k_register mcf51_ctrl[] = {
-  VBR, CPUCR,
+static const enum m68k_register mcf5249_control_regs[] = {
+  CACR, ACR0, ACR1, VBR, RAMBAR0, RAMBAR1, MBAR, MBAR2,
   0
 };
-static const enum m68k_register mcf5206_ctrl[] = {
-  CACR, ACR0, ACR1, VBR, RAMBAR0, RAMBAR_ALT, MBAR,
+static const enum m68k_register mcf528x_control_regs[] = {
+  CACR, ACR0, ACR1, VBR, FLASHBAR, RAMBAR,
   0
 };
-static const enum m68k_register mcf5208_ctrl[] = {
-  CACR, ACR0, ACR1, VBR,  RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5210a_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, ROMBAR, RAMBAR, RAMBAR1, MBAR,
-  0
-};
-static const enum m68k_register mcf5213_ctrl[] = {
-  VBR, RAMBAR, RAMBAR1, FLASHBAR,
-  0
-};
-static const enum m68k_register mcf5216_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5221x_ctrl[] = {
-  VBR, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf52223_ctrl[] = {
-  VBR, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf52235_ctrl[] = {
-  VBR, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5225_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, FLASHBAR, RAMBAR, MBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf52259_ctrl[] = {
-  VBR, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf52277_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5235_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5249_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR0, RAMBAR1, RAMBAR, MBAR, MBAR2,
-  0
-};
-static const enum m68k_register mcf5250_ctrl[] = {
-  VBR,
-  0
-};
-static const enum m68k_register mcf5253_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR0, RAMBAR1, RAMBAR, MBAR, MBAR2,
-  0
-};
-static const enum m68k_register mcf5271_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5272_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, ROMBAR, RAMBAR_ALT, RAMBAR0, MBAR,
-  0
-};
-static const enum m68k_register mcf5275_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5282_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, FLASHBAR, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf53017_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5307_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR0, RAMBAR_ALT, MBAR,
-  0
-};
-static const enum m68k_register mcf5329_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcf5373_ctrl[] = {
-  VBR, CACR, ACR0, ACR1, RAMBAR, RAMBAR1,
-  0
-};
-static const enum m68k_register mcfv4e_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3, MMUBAR,
-  VBR, PC, ROMBAR0, ROMBAR1, RAMBAR0, RAMBAR1,
-  MBAR, SECMBAR,
-  MPCR /* Multiprocessor Control register */,
-  EDRAMBAR /* Embedded DRAM Base Address Register */,
-  /* Permutation control registers.  */
+static const enum m68k_register mcfv4e_control_regs[] = {
+  CACR, TC, ITT0, ITT1, DTT0, DTT1, BUSCR, VBR, PC, ROMBAR,
+  ROMBAR1, RAMBAR0, RAMBAR1, MPCR, EDRAMBAR, SECMBAR, MBAR, MBAR0, MBAR1,
   PCR1U0, PCR1L0, PCR1U1, PCR1L1, PCR2U0, PCR2L0, PCR2U1, PCR2L1,
   PCR3U0, PCR3L0, PCR3U1, PCR3L1,
-  /* Legacy names */
-  TC /* ASID */, BUSCR /* MMUBAR */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  MBAR1 /* MBAR */, MBAR2 /* SECMBAR */, MBAR0 /* SECMBAR */,
-  ROMBAR /* ROMBAR0 */, RAMBAR /* RAMBAR1 */,
   0
 };
-static const enum m68k_register mcf5407_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3,
-  VBR, PC, RAMBAR0, RAMBAR1, MBAR,
-  /* Legacy names */
-  TC /* ASID */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  MBAR1 /* MBAR */, RAMBAR /* RAMBAR1 */,
-  0
-};
-static const enum m68k_register mcf54418_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3, ACR4, ACR5, ACR6, ACR7, MMUBAR, RGPIOBAR,
-  VBR, PC, RAMBAR1,
-  /* Legacy names */
-  TC /* ASID */, BUSCR /* MMUBAR */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  RAMBAR /* RAMBAR1 */,
-  0
-};
-static const enum m68k_register mcf54455_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3, MMUBAR,
-  VBR, PC, RAMBAR1,
-  /* Legacy names */
-  TC /* ASID */, BUSCR /* MMUBAR */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  RAMBAR /* RAMBAR1 */,
-  0
-};
-static const enum m68k_register mcf5475_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3, MMUBAR,
-  VBR, PC, RAMBAR0, RAMBAR1, MBAR,
-  /* Legacy names */
-  TC /* ASID */, BUSCR /* MMUBAR */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  MBAR1 /* MBAR */, RAMBAR /* RAMBAR1 */,
-  0
-};
-static const enum m68k_register mcf5485_ctrl[] = {
-  CACR, ASID, ACR0, ACR1, ACR2, ACR3, MMUBAR,
-  VBR, PC, RAMBAR0, RAMBAR1, MBAR,
-  /* Legacy names */
-  TC /* ASID */, BUSCR /* MMUBAR */,
-  ITT0 /* ACR0 */, ITT1 /* ACR1 */, DTT0 /* ACR2 */, DTT1 /* ACR3 */,
-  MBAR1 /* MBAR */, RAMBAR /* RAMBAR1 */,
-  0
-};
-static const enum m68k_register fido_ctrl[] = {
-  SFC, DFC, USP, VBR, CAC, MBO,
-  0
-};
-#define cpu32_ctrl m68010_ctrl
+#define cpu32_control_regs m68010_control_regs
 
 static const enum m68k_register *control_regs;
 
@@ -395,22 +246,14 @@ struct m68k_it
   reloc[5];			/* Five is enough???  */
 };
 
-#define cpu_of_arch(x)		((x) & (m68000up | mcfisa_a | fido_a))
+#define cpu_of_arch(x)		((x) & (m68000up | mcfisa_a))
 #define float_of_arch(x)	((x) & mfloat)
 #define mmu_of_arch(x)		((x) & mmmu)
 #define arch_coldfire_p(x)	((x) & mcfisa_a)
 #define arch_coldfire_fpu(x)	((x) & cfloat)
 
 /* Macros for determining if cpu supports a specific addressing mode.  */
-#define HAVE_LONG_DISP(x)	\
-	((x) & (m68020|m68030|m68040|m68060|cpu32|fido_a|mcfisa_b|mcfisa_c))
-#define HAVE_LONG_CALL(x)	\
-	((x) & (m68020|m68030|m68040|m68060|cpu32|fido_a|mcfisa_b|mcfisa_c))
-#define HAVE_LONG_COND(x)	\
-	((x) & (m68020|m68030|m68040|m68060|cpu32|fido_a|mcfisa_b|mcfisa_c))
-#define HAVE_LONG_BRANCH(x)	\
-	((x) & (m68020|m68030|m68040|m68060|cpu32|fido_a|mcfisa_b))
-#define LONG_BRANCH_VIA_COND(x) (HAVE_LONG_COND(x) && !HAVE_LONG_BRANCH(x))
+#define HAVE_LONG_BRANCH(x)     ((x) & (m68020|m68030|m68040|m68060|cpu32|mcfisa_b))
 
 static struct m68k_it the_ins;	/* The instruction being assembled.  */
 
@@ -507,248 +350,90 @@ static void s_mri_repeat (int);
 static void s_mri_until (int);
 static void s_mri_while (int);
 static void s_mri_endw (int);
-static void s_m68k_cpu (int);
-static void s_m68k_arch (int);
+
+static int current_architecture;
+static int current_chip;
 
 struct m68k_cpu
-{
-  unsigned long arch;	/* Architecture features.  */
-  const enum m68k_register *control_regs;	/* Control regs on chip */
-  const char *name;	/* Name */
-  int alias;       	/* Alias for a cannonical name.  If 1, then
-			   succeeds canonical name, if -1 then
-			   succeeds canonical name, if <-1 ||>1 this is a
-			   deprecated name, and the next/previous name
-			   should be used. */
-};
-
-/* We hold flags for features explicitly enabled and explicitly
-   disabled.  */
-static int current_architecture;
-static int not_current_architecture;
-static const struct m68k_cpu *selected_arch;
-static const struct m68k_cpu *selected_cpu;
-static int initialized;
-
-/* Architecture models.  */
-static const struct m68k_cpu m68k_archs[] =
-{
-  {m68000,					m68000_ctrl, "68000", 0},
-  {m68010,					m68010_ctrl, "68010", 0},
-  {m68020|m68881|m68851,			m68020_ctrl, "68020", 0},
-  {m68030|m68881|m68851,			m68020_ctrl, "68030", 0},
-  {m68040,					m68040_ctrl, "68040", 0},
-  {m68060,					m68060_ctrl, "68060", 0},
-  {cpu32|m68881,				cpu32_ctrl, "cpu32", 0},
-  {fido_a,					fido_ctrl, "fidoa", 0},
-  {mcfisa_a|mcfhwdiv,				NULL, "isaa", 0},
-  {mcfisa_a|mcfhwdiv|mcfisa_aa|mcfusp,		NULL, "isaaplus", 0},
-  {mcfisa_a|mcfhwdiv|mcfisa_b|mcfusp,		NULL, "isab", 0},
-  {mcfisa_a|mcfhwdiv|mcfisa_c|mcfusp,		NULL, "isac", 0},
-  {mcfisa_a|mcfhwdiv|mcfisa_b|mcfmac|mcfusp,	mcf_ctrl, "cfv4", 0},
-  {mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat, mcfv4e_ctrl, "cfv4e", 0},
-  {0,0,NULL, 0}
-};
-
-/* For -mno-mac we want to turn off all types of mac.  */
-static const unsigned no_mac = mcfmac | mcfemac;
-
-/* Architecture extensions, here 'alias' -1 for m68k, +1 for cf and 0
-   for either.  */
-static const struct m68k_cpu m68k_extensions[] =
-{
-  {m68851,					NULL, "68851", -1},
-  {m68881,					NULL, "68881", -1},
-  {m68881,					NULL, "68882", -1},
-
-  {cfloat|m68881,				NULL, "float", 0},
-
-  {mcfhwdiv,					NULL, "div", 1},
-  {mcfusp,					NULL, "usp", 1},
-  {mcfmac,					(void *)&no_mac, "mac", 1},
-  {mcfemac,					NULL, "emac", 1},
-
-  {0,NULL,NULL, 0}
-};
-
-/* Processor list */
-static const struct m68k_cpu m68k_cpus[] =
-{
-  {m68000,					m68000_ctrl, "68000", 0},
-  {m68000,					m68000_ctrl, "68ec000", 1},
-  {m68000,					m68000_ctrl, "68hc000", 1},
-  {m68000,					m68000_ctrl, "68hc001", 1},
-  {m68000,					m68000_ctrl, "68008", 1},
-  {m68000,					m68000_ctrl, "68302", 1},
-  {m68000,					m68000_ctrl, "68306", 1},
-  {m68000,					m68000_ctrl, "68307", 1},
-  {m68000,					m68000_ctrl, "68322", 1},
-  {m68000,					m68000_ctrl, "68356", 1},
-  {m68010,					m68010_ctrl, "68010", 0},
-  {m68020|m68881|m68851,			m68020_ctrl, "68020", 0},
-  {m68020|m68881|m68851,			m68020_ctrl, "68k", 1},
-  {m68020|m68881|m68851,			m68020_ctrl, "68ec020", 1},
-  {m68030|m68881|m68851,			m68020_ctrl, "68030", 0},
-  {m68030|m68881|m68851,			m68020_ctrl, "68ec030", 1},
-  {m68040,					m68040_ctrl, "68040", 0},
-  {m68040,					m68040_ctrl, "68ec040", 1},
-  {m68060,					m68060_ctrl, "68060", 0},
-  {m68060,					m68060_ctrl, "68ec060", 1},
-
-  {cpu32|m68881,				cpu32_ctrl, "cpu32",  0},
-  {cpu32|m68881,				cpu32_ctrl, "68330", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68331", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68332", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68333", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68334", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68336", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68340", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68341", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68349", 1},
-  {cpu32|m68881,				cpu32_ctrl, "68360", 1},
-
-  {mcfisa_a|mcfisa_c|mcfusp,                    mcf51_ctrl, "51", 0},
-  {mcfisa_a|mcfisa_c|mcfusp,                    mcf51_ctrl, "51ac", 1},
-  {mcfisa_a|mcfisa_c|mcfusp,                    mcf51_ctrl, "51ag", 1},
-  {mcfisa_a|mcfisa_c|mcfusp,                    mcf51_ctrl, "51cn", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfmac,  		mcf51_ctrl, "51em", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfmac,  		mcf51_ctrl, "51je", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfemac,            mcf51_ctrl, "51jf", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfemac,            mcf51_ctrl, "51jg", 1},
-  {mcfisa_a|mcfisa_c|mcfusp,  			mcf51_ctrl, "51jm", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfmac,  		mcf51_ctrl, "51mm", 1},
-  {mcfisa_a|mcfisa_c|mcfusp,                    mcf51_ctrl, "51qe", 1},
-  {mcfisa_a|mcfisa_c|mcfusp|mcfemac,            mcf51_ctrl, "51qm", 1},
-
-  {mcfisa_a,					mcf_ctrl, "5200", 0},
-  {mcfisa_a,					mcf_ctrl, "5202", 1},
-  {mcfisa_a,					mcf_ctrl, "5204", 1},
-  {mcfisa_a,					mcf5206_ctrl, "5206", 1},
-
-  {mcfisa_a|mcfhwdiv|mcfmac,			mcf5206_ctrl, "5206e", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5208_ctrl, "5207", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5208_ctrl, "5208", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,	mcf5210a_ctrl, "5210a", 0},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,	mcf5210a_ctrl, "5211a", 1},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,	mcf5213_ctrl, "5211", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,	mcf5213_ctrl, "5212", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,	mcf5213_ctrl, "5213", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5216_ctrl, "5214", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5216_ctrl, "5216", 0},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5216_ctrl, "521x", 2},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,   mcf5221x_ctrl, "5221x", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,   mcf52223_ctrl, "52221", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,   mcf52223_ctrl, "52223", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52235_ctrl, "52230", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52235_ctrl, "52233", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52235_ctrl, "52234", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52235_ctrl, "52235", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,   mcf5225_ctrl, "5224", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfmac|mcfusp,   mcf5225_ctrl, "5225", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52277_ctrl, "52274", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,  mcf52277_ctrl, "52277", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5235_ctrl, "5232", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5235_ctrl, "5233", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5235_ctrl, "5234", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5235_ctrl, "5235", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5235_ctrl, "523x", 0},
-  
-  {mcfisa_a|mcfhwdiv|mcfemac,			mcf5249_ctrl, "5249", 0},
-  {mcfisa_a|mcfhwdiv|mcfemac,			mcf5250_ctrl, "5250", 0},
-  {mcfisa_a|mcfhwdiv|mcfemac, 			mcf5253_ctrl, "5253", 0},
-
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52252", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52254", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52255", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52256", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52258", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf52259_ctrl, "52259", 0},
-   
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5271_ctrl, "5270", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5271_ctrl, "5271", 0},
-  
-  {mcfisa_a|mcfhwdiv|mcfmac,			mcf5272_ctrl, "5272", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5275_ctrl, "5274", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5275_ctrl, "5275", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5282_ctrl, "5280", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5282_ctrl, "5281", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5282_ctrl, "5282", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5282_ctrl, "528x", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53011", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53012", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53013", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53014", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53015", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53016", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf53017_ctrl, "53017", 0},
-  
-  {mcfisa_a|mcfhwdiv|mcfmac,			mcf5307_ctrl, "5307", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5329_ctrl, "5327", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5329_ctrl, "5328", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5329_ctrl, "5329", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5329_ctrl, "532x", 0},
-  
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5373_ctrl, "5372", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5373_ctrl, "5373", -1},
-  {mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf5373_ctrl, "537x", 0},
-  
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfmac,		mcf5407_ctrl, "5407",0},
-
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54418_ctrl, "54410", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54418_ctrl, "54415", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54418_ctrl, "54416", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54418_ctrl, "54417", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54418_ctrl, "54418", 0},
-
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54450", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54451", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54452", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54453", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54454", -1},
-  {mcfisa_a|mcfisa_c|mcfhwdiv|mcfemac|mcfusp,   mcf54455_ctrl, "54455", 0},
-  
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5470", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5471", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5472", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5473", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5474", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "5475", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5475_ctrl, "547x", 0},
-  
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5480", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5481", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5482", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5483", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5484", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "5485", -1},
-  {mcfisa_a|mcfisa_b|mcfhwdiv|mcfemac|mcfusp|cfloat, mcf5485_ctrl, "548x", 0},
-  
-  {fido_a,				fido_ctrl, "fidoa", 0},
-  {fido_a,				fido_ctrl, "fido", 1},
-
-  {0,NULL,NULL, 0}
+  {
+    unsigned long arch;
+    unsigned long chip;
+    const char *name;
+    int alias;
   };
 
-static const struct m68k_cpu *m68k_lookup_cpu
-(const char *, const struct m68k_cpu *, int, int *);
-static int m68k_set_arch (const char *, int, int);
-static int m68k_set_cpu (const char *, int, int);
-static int m68k_set_extension (const char *, int, int);
-static void m68k_init_arch (void);
+static const struct m68k_cpu archs[] =
+  {
+    { m68000,						m68000, "68000", 0 },
+    { m68010,						m68010, "68010", 0 },
+    { m68020,						m68020, "68020", 0 },
+    { m68030,						m68030, "68030", 0 },
+    { m68040,						m68040, "68040", 0 },
+    { m68060,						m68060, "68060", 0 },
+    { cpu32,						cpu32, "cpu32", 0 },
+    { m68881,						m68881, "68881", 0 },
+    { m68851,						m68851, "68851", 0 },
+    { mcfisa_a,						mcf5200, "5200", 0 },
+    { mcfisa_a|mcfhwdiv|mcfmac,				mcf5206e, "5206e", 0 },
+    { mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf521x, "521x", 0 },
+    { mcfisa_a|mcfhwdiv|mcfemac,			mcf5249, "5249", 0 },
+    { mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac|mcfusp,	mcf528x, "528x", 0 },
+    { mcfisa_a|mcfhwdiv|mcfmac,				mcf5307, "5307", 0 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfmac,		mcf5407, "5407", 0 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "547x", 0 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5480, "548x", 0 },
+    /* Aliases (effectively, so far as gas is concerned) for the above
+       cpus.  */
+    { m68020,						m68020,	"68k", 1 },
+    { m68000,						m68000,	"68008", 1 },
+    { m68000,						m68000,	"68302", 1 },
+    { m68000,						m68000,	"68306", 1 },
+    { m68000,						m68000,	"68307", 1 },
+    { m68000,						m68000,	"68322", 1 },
+    { m68000,						m68000,	"68356", 1 },
+    { m68000,						m68000,	"68ec000", 1 },
+    { m68000,						m68000,	"68hc000", 1 },
+    { m68000,						m68000,	"68hc001", 1 },
+    { m68020,						m68020,	"68ec020", 1 },
+    { m68030,						m68030,	"68ec030", 1 },
+    { m68040,						m68040,	"68ec040", 1 },
+    { m68060,						m68060,	"68ec060", 1 },
+    { cpu32,						cpu32,	"68330", 1 },
+    { cpu32,						cpu32,	"68331", 1 },
+    { cpu32,						cpu32,	"68332", 1 },
+    { cpu32,						cpu32,	"68333", 1 },
+    { cpu32,						cpu32,	"68334", 1 },
+    { cpu32,						cpu32,	"68336", 1 },
+    { cpu32,						cpu32,	"68340", 1 },
+    { cpu32,						cpu32,	"68341", 1 },
+    { cpu32,						cpu32,	"68349", 1 },
+    { cpu32,						cpu32,	"68360", 1 },
+    { m68881,						m68881,	"68882", 1 },
+    { mcfisa_a,						mcf5200, "5202", 1 },
+    { mcfisa_a,						mcf5200, "5204", 1 },
+    { mcfisa_a,						mcf5200, "5206", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_aa|mcfemac,		mcf521x, "5214", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_aa|mcfemac,		mcf521x, "5216", 1 },
+    { mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac,		mcf528x, "5280", 1 },
+    { mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac,		mcf528x, "5281", 1 },
+    { mcfisa_a|mcfisa_aa|mcfhwdiv|mcfemac,		mcf528x, "5282", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfmac,		mcf5407, "cfv4", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5470", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5471", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5472", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5473", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5474", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5475", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5480", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5481", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5482", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5483", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5484", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "5485", 1 },
+    { mcfisa_a|mcfhwdiv|mcfisa_b|mcfemac|mcfusp|cfloat,	mcf5470, "cfv4e", 1 },
+  };
+
+static const int n_archs = sizeof (archs) / sizeof (archs[0]);
 
 /* This is the assembler relaxation table for m68k. m68k is a rich CISC
    architecture and we have a lot of relaxation modes.  */
@@ -805,14 +490,8 @@ static void m68k_init_arch (void);
 #define PCINDEX		8	/* PC + displacement + index. */
 #define ABSTOPCREL	9	/* Absolute relax down to 16-bit PC-relative.  */
 
-/* This relaxation is required for branches where there is no long
-   branch and we are in pcrel mode.  We generate a bne/beq pair.  */
-#define BRANCHBWPL	10      /* Branch byte, word or pair of longs
-				   */
-
 /* Note that calls to frag_var need to specify the maximum expansion
-   needed; this is currently 12 bytes for bne/beq pair.  */
-#define FRAG_VAR_SIZE 12
+   needed; this is currently 10 bytes for DBCC.  */
 
 /* The fields are:
    How far Forward this mode will reach:
@@ -872,11 +551,6 @@ relax_typeS md_relax_table[] =
   { 32767, -32768,  2, TAB (ABSTOPCREL, LONG) },
   {	0,	0,  4, 0 },
   {	1,	1,  0, 0 },
-  
-  {   127,   -128,  0, TAB (BRANCHBWPL, SHORT) },
-  { 32767, -32768,  2, TAB (BRANCHBWPL, LONG) },
-  {     0,	0,  10, 0 },
-  {     1,	1,  0, 0 },
 };
 
 /* These are the machine dependent pseudo-ops.  These are included so
@@ -901,13 +575,9 @@ const pseudo_typeS md_pseudo_table[] =
 #endif
 #ifdef OBJ_ELF
   {"swbeg", s_ignore, 0},
-  {"long", m68k_elf_cons, 4},
 #endif
   {"extend", float_cons, 'x'},
   {"ldouble", float_cons, 'x'},
-
-  {"arch", s_m68k_arch, 0},
-  {"cpu", s_m68k_cpu, 0},
 
   /* The following pseudo-ops are supported for MRI compatibility.  */
   {"chip", s_chip, 0},
@@ -1002,6 +672,131 @@ static char alt_notend_table[256];
       || (*s == ':'						\
 	  && alt_notend_table[(unsigned char) s[1]])))
 
+/* Return a human readable string holding the list of chips that are
+   valid for a particular architecture, suppressing aliases (unless
+   there is only one of them).  */
+
+static char *
+find_cf_chip (int architecture)
+{
+  static char buf[1024];
+  int i, j, n_chips, n_alias;
+  char *cp;
+
+  strcpy (buf, " (");
+  cp = buf + strlen (buf);
+
+  for (i = 0, n_chips = 0, n_alias = 0; i < n_archs; ++i)
+    if (archs[i].arch & architecture)
+      {
+	n_chips++;
+	if (archs[i].alias)
+	  n_alias++;
+      }
+
+  if (n_chips == 0)
+    as_fatal (_("no matching ColdFire architectures found"));
+
+  if (n_alias > 1)
+    n_chips -= n_alias;
+      
+  for (i = 0, j = 0; i < n_archs && j < n_chips; ++i)
+    if (archs[i].arch & architecture)
+      {
+	if (j)
+	  {
+	    if ((j == n_chips - 1 && !(n_alias > 1)) || ! n_alias)
+	      {
+		if (n_chips == 2)
+		  {
+		    strncpy (cp, _(" or "), (sizeof (buf) - (cp - buf)));
+		    cp += strlen (cp);
+		  }
+		else
+		  {
+		    strncpy (cp, _(", or "), (sizeof (buf) - (cp - buf)));
+		    cp += strlen (cp);
+		  }
+	      }
+	    else
+	      {
+		strncpy (cp, ", ", (sizeof (buf) - (cp - buf)));
+		cp += strlen (cp);
+	      }
+	  }
+	strncpy (cp, archs[i].name, (sizeof (buf) - (cp - buf)));
+	cp += strlen (cp);
+	j++;
+      }
+
+  if (n_alias > 1)
+    {
+      strncpy (cp, _(", or aliases"), (sizeof (buf) - (cp - buf)));
+      cp += strlen (cp);
+    }
+
+  strncpy (cp, ")", (sizeof (buf) - (cp - buf)));
+
+  return buf;
+}
+
+#if defined (M68KCOFF) && !defined (BFD_ASSEMBLER)
+
+#ifdef NO_PCREL_RELOCS
+
+int
+make_pcrel_absolute (fixS *fixP, long *add_number)
+{
+  register unsigned char *opcode = fixP->fx_frag->fr_opcode;
+
+  /* Rewrite the PC relative instructions to absolute address ones.
+     these are rumored to be faster, and the apollo linker refuses
+     to deal with the PC relative relocations.  */
+  if (opcode[0] == 0x60 && opcode[1] == 0xff) /* BRA -> JMP.  */
+    {
+      if (flag_keep_pcrel)
+    	as_fatal (_("Tried to convert PC relative branch to absolute jump"));
+      opcode[0] = 0x4e;
+      opcode[1] = 0xf9;
+    }
+  else if (opcode[0] == 0x61 && opcode[1] == 0xff) /* BSR -> JSR.  */
+    {
+      if (flag_keep_pcrel)
+    	as_fatal (_("Tried to convert PC relative BSR to absolute JSR"));
+      opcode[0] = 0x4e;
+      opcode[1] = 0xb9;
+    }
+  else
+    as_fatal (_("Unknown PC relative instruction"));
+  *add_number -= 4;
+  return 0;
+}
+
+#endif /* NO_PCREL_RELOCS */
+
+short
+tc_coff_fix2rtype (fixS *fixP)
+{
+  if (fixP->fx_tcbit && fixP->fx_size == 4)
+    return R_RELLONG_NEG;
+#ifdef NO_PCREL_RELOCS
+  know (fixP->fx_pcrel == 0);
+  return (fixP->fx_size == 1 ? R_RELBYTE
+	  : fixP->fx_size == 2 ? R_DIR16
+	  : R_DIR32);
+#else
+  return (fixP->fx_pcrel
+	  ? (fixP->fx_size == 1 ? R_PCRBYTE
+	     : fixP->fx_size == 2 ? R_PCRWORD
+	     : R_PCRLONG)
+	  : (fixP->fx_size == 1 ? R_RELBYTE
+	     : fixP->fx_size == 2 ? R_RELWORD
+	     : R_RELLONG));
+#endif
+}
+
+#endif
+
 #ifdef OBJ_ELF
 
 /* Return zero if the reference to SYMBOL from within the same segment may
@@ -1074,66 +869,6 @@ get_reloc_code (int size, int pcrel, enum pic_relocation pic)
 	}
       break;
 
-    case pic_tls_gd:
-      switch (size)
-	{
-	case 1:
-	  return BFD_RELOC_68K_TLS_GD8;
-	case 2:
-	  return BFD_RELOC_68K_TLS_GD16;
-	case 4:
-	  return BFD_RELOC_68K_TLS_GD32;
-	}
-      break;
-
-    case pic_tls_ldm:
-      switch (size)
-	{
-	case 1:
-	  return BFD_RELOC_68K_TLS_LDM8;
-	case 2:
-	  return BFD_RELOC_68K_TLS_LDM16;
-	case 4:
-	  return BFD_RELOC_68K_TLS_LDM32;
-	}
-      break;
-
-    case pic_tls_ldo:
-      switch (size)
-	{
-	case 1:
-	  return BFD_RELOC_68K_TLS_LDO8;
-	case 2:
-	  return BFD_RELOC_68K_TLS_LDO16;
-	case 4:
-	  return BFD_RELOC_68K_TLS_LDO32;
-	}
-      break;
-
-    case pic_tls_ie:
-      switch (size)
-	{
-	case 1:
-	  return BFD_RELOC_68K_TLS_IE8;
-	case 2:
-	  return BFD_RELOC_68K_TLS_IE16;
-	case 4:
-	  return BFD_RELOC_68K_TLS_IE32;
-	}
-      break;
-
-    case pic_tls_le:
-      switch (size)
-	{
-	case 1:
-	  return BFD_RELOC_68K_TLS_LE8;
-	case 2:
-	  return BFD_RELOC_68K_TLS_LE16;
-	case 4:
-	  return BFD_RELOC_68K_TLS_LE32;
-	}
-      break;
-
     case pic_none:
       if (pcrel)
 	{
@@ -1202,21 +937,6 @@ tc_m68k_fix_adjustable (fixS *fixP)
     case BFD_RELOC_8_PLTOFF:
     case BFD_RELOC_16_PLTOFF:
     case BFD_RELOC_32_PLTOFF:
-    case BFD_RELOC_68K_TLS_GD32:
-    case BFD_RELOC_68K_TLS_GD16:
-    case BFD_RELOC_68K_TLS_GD8:
-    case BFD_RELOC_68K_TLS_LDM32:
-    case BFD_RELOC_68K_TLS_LDM16:
-    case BFD_RELOC_68K_TLS_LDM8:
-    case BFD_RELOC_68K_TLS_LDO32:
-    case BFD_RELOC_68K_TLS_LDO16:
-    case BFD_RELOC_68K_TLS_LDO8:
-    case BFD_RELOC_68K_TLS_IE32:
-    case BFD_RELOC_68K_TLS_IE16:
-    case BFD_RELOC_68K_TLS_IE8:
-    case BFD_RELOC_68K_TLS_LE32:
-    case BFD_RELOC_68K_TLS_LE16:
-    case BFD_RELOC_68K_TLS_LE8:
       return 0;
 
     case BFD_RELOC_VTABLE_INHERIT:
@@ -1232,11 +952,11 @@ tc_m68k_fix_adjustable (fixS *fixP)
 
 #define get_reloc_code(SIZE,PCREL,OTHER) NO_RELOC
 
-/* PR gas/3041 Weak symbols are not relaxable
-   because they must be treated as extern.  */
-#define relaxable_symbol(symbol)   (!(S_IS_WEAK (symbol)))
+#define relaxable_symbol(symbol) 1
 
 #endif /* OBJ_ELF */
+
+#ifdef BFD_ASSEMBLER
 
 arelent *
 tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
@@ -1294,21 +1014,6 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
 	    case BFD_RELOC_8_PLTOFF:
 	    case BFD_RELOC_16_PLTOFF:
 	    case BFD_RELOC_32_PLTOFF:
-	    case BFD_RELOC_68K_TLS_GD32:
-	    case BFD_RELOC_68K_TLS_GD16:
-	    case BFD_RELOC_68K_TLS_GD8:
-	    case BFD_RELOC_68K_TLS_LDM32:
-	    case BFD_RELOC_68K_TLS_LDM16:
-	    case BFD_RELOC_68K_TLS_LDM8:
-	    case BFD_RELOC_68K_TLS_LDO32:
-	    case BFD_RELOC_68K_TLS_LDO16:
-	    case BFD_RELOC_68K_TLS_LDO8:
-	    case BFD_RELOC_68K_TLS_IE32:
-	    case BFD_RELOC_68K_TLS_IE16:
-	    case BFD_RELOC_68K_TLS_IE8:
-	    case BFD_RELOC_68K_TLS_LE32:
-	    case BFD_RELOC_68K_TLS_LE16:
-	    case BFD_RELOC_68K_TLS_LE8:
 	      break;
 	    default:
 	      as_bad_where (fixp->fx_file, fixp->fx_line,
@@ -1341,34 +1046,7 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
   *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
   reloc->address = fixp->fx_frag->fr_address + fixp->fx_where;
 #ifndef OBJ_ELF
-  if (OUTPUT_FLAVOR == bfd_target_aout_flavour
-      && fixp->fx_addsy
-      && S_IS_WEAK (fixp->fx_addsy)
-      && ! bfd_is_und_section (S_GET_SEGMENT (fixp->fx_addsy)))
-    {
-      /* PR gas/3041 References to weak symbols must be treated as extern
-	 in order to be overridable by the linker, even if they are defined
-	 in the same object file. So the original addend must be written
-	 "as is" into the output section without further processing.
-	 The addend value must be hacked here in order to force
-	 bfd_install_relocation() to write the original value into the
-	 output section.
-	 1) MD_APPLY_SYM_VALUE() is set to 1 for m68k/a.out, so the symbol
-	 value has already been added to the addend in fixup_segment(). We
-	 have to remove it.
-	 2) bfd_install_relocation() will incorrectly treat this symbol as
-	 resolved, so it will write the symbol value plus its addend and
-	 section VMA. As a workaround we can tweak the addend value here in
-	 order to get the original value in the section after the call to
-	 bfd_install_relocation().  */
-      reloc->addend = fixp->fx_addnumber
-		      /* Fix because of MD_APPLY_SYM_VALUE() */
-		      - S_GET_VALUE (fixp->fx_addsy)
-		      /* Fix for bfd_install_relocation() */
-		      - (S_GET_VALUE (fixp->fx_addsy)
-			 + S_GET_SEGMENT (fixp->fx_addsy)->vma);
-    }
-  else if (fixp->fx_pcrel)
+  if (fixp->fx_pcrel)
     reloc->addend = fixp->fx_addnumber;
   else
     reloc->addend = 0;
@@ -1377,16 +1055,20 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
     reloc->addend = fixp->fx_addnumber;
   else
     reloc->addend = (section->vma
-		     + fixp->fx_pcrel_adjust
+		     /* Explicit sign extension in case char is
+			unsigned.  */
+		     + ((fixp->fx_pcrel_adjust & 0xff) ^ 0x80) - 0x80
 		     + fixp->fx_addnumber
 		     + md_pcrel_from (fixp));
 #endif
 
   reloc->howto = bfd_reloc_type_lookup (stdoutput, code);
-  gas_assert (reloc->howto != 0);
+  assert (reloc->howto != 0);
 
   return reloc;
 }
+
+#endif /* BFD_ASSEMBLER */
 
 /* Handle of the OPCODE hash table.  NULL means any use before
    m68k_ip_begin() will crash.  */
@@ -1407,7 +1089,6 @@ m68k_ip (char *instring)
   char c;
   int losing;
   int opsfound;
-  struct m68k_op operands_backup[6];
   LITTLENUM_TYPE words[6];
   LITTLENUM_TYPE *wordp;
   unsigned long ok_arch = 0;
@@ -1532,15 +1213,7 @@ m68k_ip (char *instring)
 	++losing;
       else
 	{
-	  int i;
-
-	  /* Make a copy of the operands of this insn so that
-	     we can modify them safely, should we want to.  */
-	  gas_assert (opsfound <= (int) ARRAY_SIZE (operands_backup));
-	  for (i = 0; i < opsfound; i++)
-	    operands_backup[i] = the_ins.operands[i];
-
-	  for (s = opcode->m_operands, opP = &operands_backup[0];
+	  for (s = opcode->m_operands, opP = &the_ins.operands[0];
 	       *s && !losing;
 	       s += 2, opP++)
 	    {
@@ -1994,26 +1667,14 @@ m68k_ip (char *instring)
 		case 'J':
 		  if (opP->mode != CONTROL
 		      || opP->reg < USP
-		      || opP->reg > last_movec_reg
-		      || !control_regs)
+		      || opP->reg > last_movec_reg)
 		    losing++;
 		  else
 		    {
 		      const enum m68k_register *rp;
-		      
 		      for (rp = control_regs; *rp; rp++)
-			{
-			  if (*rp == opP->reg)
-			    break;
-			  /* In most CPUs RAMBAR refers to control reg
-	     	 	     c05 (RAMBAR1), but a few CPUs have it
-	     	 	     refer to c04 (RAMBAR0).  */
-			  else if (*rp == RAMBAR_ALT && opP->reg == RAMBAR)
-			    {
-			      opP->reg = RAMBAR_ALT;
-			      break;
-			    }
-			}
+			if (*rp == opP->reg)
+			  break;
 		      if (*rp == 0)
 			losing++;
 		    }
@@ -2170,22 +1831,6 @@ m68k_ip (char *instring)
 		    losing++;
 		  break;
 
-		case 'j':
-		  if (opP->mode != IMMED)
-		    losing++;
-		  else if (opP->disp.exp.X_op != O_constant
-			   || TRUNC (opP->disp.exp.X_add_number) - 1 > 7)
-		    losing++;
-		  break;
-
-		case 'K':
-		  if (opP->mode != IMMED)
-		    losing++;
-		  else if (opP->disp.exp.X_op != O_constant
-			   || TRUNC (opP->disp.exp.X_add_number) > 511)
-		    losing++;
-		  break;
-
 		  /* JF these are out of order.  We could put them
 		     in order if we were willing to put up with
 		     bunches of #ifdef m68851s in the code.
@@ -2329,12 +1974,6 @@ m68k_ip (char *instring)
 	      if (losing)
 		break;
 	    }
-
-	  /* Since we have found the correct instruction, copy
-	     in the modifications that we may have made.  */
-	  if (!losing)
-	    for (i = 0; i < opsfound; i++)
-	      the_ins.operands[i] = operands_backup[i];
 	}
 
       if (!losing)
@@ -2347,109 +1986,92 @@ m68k_ip (char *instring)
 	  if (ok_arch
 	      && !(ok_arch & current_architecture))
 	    {
-	      const struct m68k_cpu *cpu;
-	      int any = 0;
-	      size_t space = 400;
-	      char *buf = xmalloc (space + 1);
-	      size_t len;
-	      int paren = 1;
+	      char buf[200], *cp;
 
-	      the_ins.error = buf;
-	      /* Make sure there's a NUL at the end of the buffer -- strncpy
-		 won't write one when it runs out of buffer.  */
-	      buf[space] = 0;
-#define APPEND(STRING) \
-  (strncpy (buf, STRING, space), len = strlen (buf), buf += len, space -= len)
-
-	      APPEND (_("invalid instruction for this architecture; needs "));
+	      strncpy (buf,
+		       _("invalid instruction for this architecture; needs "),
+		       sizeof (buf));
+	      cp = buf + strlen (buf);
 	      switch (ok_arch)
 		{
 		case mcfisa_a:
-		  APPEND ("ColdFire ISA_A");
+		  strncpy (cp, _("ColdFire ISA_A"),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
+		  strncpy (cp, find_cf_chip (ok_arch),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
 		  break;
 		case mcfhwdiv:
-		  APPEND ("ColdFire ");
-		  APPEND (_("hardware divide"));
+		  strncpy (cp, _("ColdFire hardware divide"),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
+		  strncpy (cp, find_cf_chip (ok_arch),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
 		  break;
 		case mcfisa_aa:
-		  APPEND ("ColdFire ISA_A+");
+		  strncpy (cp, _("ColdFire ISA_A+"),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
+		  strncpy (cp, find_cf_chip (ok_arch),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
 		  break;
 		case mcfisa_b:
-		  APPEND ("ColdFire ISA_B");
-		  break;
-		case mcfisa_c:
-		  APPEND ("ColdFire ISA_C");
+		  strncpy (cp, _("ColdFire ISA_B"),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
+		  strncpy (cp, find_cf_chip (ok_arch),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
 		  break;
 		case cfloat:
-		  APPEND ("ColdFire fpu");
+		  strncpy (cp, _("ColdFire fpu"), sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
+		  strncpy (cp, find_cf_chip (ok_arch),
+			   sizeof (buf) - (cp - buf));
+		  cp += strlen (cp);
 		  break;
 		case mfloat:
-		  APPEND ("M68K fpu");
+		  strcpy (cp, _("fpu (68040, 68060 or 68881/68882)"));
 		  break;
 		case mmmu:
-		  APPEND ("M68K mmu");
+		  strcpy (cp, _("mmu (68030 or 68851)"));
 		  break;
 		case m68020up:
-		  APPEND ("68020 ");
-		  APPEND (_("or higher"));
+		  strcpy (cp, _("68020 or higher"));
 		  break;
 		case m68000up:
-		  APPEND ("68000 ");
-		  APPEND (_("or higher"));
+		  strcpy (cp, _("68000 or higher"));
 		  break;
 		case m68010up:
-		  APPEND ("68010 ");
-		  APPEND (_("or higher"));
+		  strcpy (cp, _("68010 or higher"));
 		  break;
 		default:
-		  paren = 0;
-		}
-	      if (paren)
-		APPEND (" (");
-
-	      for (cpu = m68k_cpus; cpu->name; cpu++)
-		if (!cpu->alias && (cpu->arch & ok_arch))
 		  {
-		    const struct m68k_cpu *alias;
-		    int seen_master = 0;
-		    
-		    if (any)
-		      APPEND (", ");
-		    any = 0;
-		    APPEND (cpu->name);
-		    for (alias = cpu; alias != m68k_cpus; alias--)
-		      if (alias[-1].alias >= 0)
-			break;
-		    for (; !seen_master || alias->alias > 0; alias++)
-			{
-			  if (!alias->alias)
-			    seen_master = 1;
-			  else
-			    {
-			      if (any)
-				APPEND (", ");
-			      else
-				APPEND (" [");
-			      APPEND (alias->name);
-			      any = 1;
-			    }
-			}
-		    if (any)
-		      APPEND ("]");
-		    any = 1;
+		    int got_one = 0, idx;
+
+		    for (idx = 0; idx < n_archs; idx++)
+		      {
+			if ((archs[idx].arch & ok_arch)
+			    && ! archs[idx].alias)
+			  {
+			    if (got_one)
+			      {
+				strcpy (cp, " or ");
+				cp += strlen (cp);
+			      }
+			    got_one = 1;
+			    strcpy (cp, archs[idx].name);
+			    cp += strlen (cp);
+			  }
+		      }
 		  }
-	      if (paren)
-		APPEND (")");
-#undef APPEND
-	      if (!space)
-		{
-		  /* We ran out of space, so replace the end of the list
-		     with ellipsis.  */
-		  buf -= 4;
-		  while (*buf != ' ')
-		    buf--;
-		  strcpy (buf, " ...");
 		}
+	      cp = xmalloc (strlen (buf) + 1);
+	      strcpy (cp, buf);
+	      the_ins.error = cp;
 	    }
 	  else
 	    the_ins.error = _("operands mismatch");
@@ -2468,9 +2090,6 @@ m68k_ip (char *instring)
 
   for (s = the_ins.args, opP = &the_ins.operands[0]; *s; s += 2, opP++)
     {
-      int have_disp = 0;
-      int use_pl = 0;
-      
       /* This switch is a doozy.
 	 Watch the first step; its a big one! */
       switch (s[0])
@@ -2639,8 +2258,12 @@ m68k_ip (char *instring)
 		  && m68k_abspcadd)
 		{
 		  opP->disp.exp.X_op = O_symbol;
+#ifndef BFD_ASSEMBLER
+		  opP->disp.exp.X_add_symbol = &abs_symbol;
+#else
 		  opP->disp.exp.X_add_symbol =
 		    section_symbol (absolute_section);
+#endif
 		}
 
 	      /* Force into index mode.  Hope this works.  */
@@ -3130,7 +2753,6 @@ m68k_ip (char *instring)
 
 	case 'B':
 	  tmpreg = get_num (&opP->disp, 90);
-	  
 	  switch (s[1])
 	    {
 	    case 'B':
@@ -3142,37 +2764,23 @@ m68k_ip (char *instring)
 	      break;
 	    case 'L':
 	    long_branch:
+	      if (! HAVE_LONG_BRANCH (current_architecture))
+		as_warn (_("Can't use long branches on 68000/68010/5200"));
 	      the_ins.opcode[0] |= 0xff;
 	      add_fix ('l', &opP->disp, 1, 0);
 	      addword (0);
 	      addword (0);
 	      break;
-	    case 'g': /* Conditional branch */
-	      have_disp = HAVE_LONG_CALL (current_architecture);
-	      goto var_branch;
-	      
-	    case 'b': /* Unconditional branch */
-	      have_disp = HAVE_LONG_BRANCH (current_architecture);
-	      use_pl = LONG_BRANCH_VIA_COND (current_architecture);
-	      goto var_branch;
-	      
-	    case 's': /* Unconditional subroutine */
-	      have_disp = HAVE_LONG_CALL (current_architecture);
-	      
-	      var_branch:
-	      if (subs (&opP->disp)	/* We can't relax it.  */
+	    case 'g':
+	      if (subs (&opP->disp))	/* We can't relax it.  */
+		goto long_branch;
+
 #ifdef OBJ_ELF
-		  /* If the displacement needs pic relocation it cannot be
-		     relaxed.  */
-		  || opP->disp.pic_reloc != pic_none
+	      /* If the displacement needs pic relocation it cannot be
+		 relaxed.  */
+	      if (opP->disp.pic_reloc != pic_none)
+		goto long_branch;
 #endif
-		  || 0)
-		{
-		  if (!have_disp)
-		    as_warn (_("Can't use long branches on this architecture"));
-		  goto long_branch;
-		}
-	      
 	      /* This could either be a symbol, or an absolute
 		 address.  If it's an absolute address, turn it into
 		 an absolute jump right here and keep it out of the
@@ -3198,7 +2806,7 @@ m68k_ip (char *instring)
 	      /* Now we know it's going into the relaxer.  Now figure
 		 out which mode.  We try in this order of preference:
 		 long branch, absolute jump, byte/word branches only.  */
-	      if (have_disp)
+	      if (HAVE_LONG_BRANCH (current_architecture))
 		add_frag (adds (&opP->disp),
 			  SEXT (offs (&opP->disp)),
 			  TAB (BRANCHBWL, SZ_UNDEF));
@@ -3217,8 +2825,7 @@ m68k_ip (char *instring)
 	      else
 		add_frag (adds (&opP->disp),
 			  SEXT (offs (&opP->disp)),
-			  (use_pl ? TAB (BRANCHBWPL, SZ_UNDEF)
-			   : TAB (BRANCHBW, SZ_UNDEF)));
+			  TAB (BRANCHBW, SZ_UNDEF));
 	      break;
 	    case 'w':
 	      if (isvar (&opP->disp))
@@ -3228,7 +2835,7 @@ m68k_ip (char *instring)
 		     jumps.  */
 		  if (((the_ins.opcode[0] & 0xf0f8) == 0x50c8)
 		      && (HAVE_LONG_BRANCH (current_architecture)
-			  || ! flag_keep_pcrel))
+			  || (! flag_keep_pcrel)))
 		    {
 		      if (HAVE_LONG_BRANCH (current_architecture))
 			add_frag (adds (&opP->disp),
@@ -3326,7 +2933,6 @@ m68k_ip (char *instring)
 	      tmpreg = 0x002;
 	      break;
 	    case TC:
-	    case ASID:
 	      tmpreg = 0x003;
 	      break;
 	    case ACR0:
@@ -3346,17 +2952,7 @@ m68k_ip (char *instring)
 	      tmpreg = 0x007;
 	      break;
 	    case BUSCR:
-	    case MMUBAR:
 	      tmpreg = 0x008;
-	      break;
-	    case RGPIOBAR:
-	      tmpreg = 0x009;
-	      break;
-	    case ACR4:
-	    case ACR5:
-	    case ACR6:
-	    case ACR7:
-	      tmpreg = 0x00c + (opP->reg - ACR4);
 	      break;
 
 	    case USP:
@@ -3366,7 +2962,6 @@ m68k_ip (char *instring)
 	      tmpreg = 0x801;
 	      break;
 	    case CAAR:
-	    case CPUCR:
 	      tmpreg = 0x802;
 	      break;
 	    case MSP:
@@ -3388,7 +2983,6 @@ m68k_ip (char *instring)
 	      tmpreg = 0x808;
 	      break;
             case ROMBAR:
-            case ROMBAR0:
 	      tmpreg = 0xC00;
 	      break;
             case ROMBAR1:
@@ -3396,7 +2990,6 @@ m68k_ip (char *instring)
               break;
 	    case FLASHBAR:
 	    case RAMBAR0:
-	    case RAMBAR_ALT:
 	      tmpreg = 0xC04;
 	      break;
 	    case RAMBAR:
@@ -3453,12 +3046,6 @@ m68k_ip (char *instring)
               break;
             case PCR3U1:
               tmpreg = 0xD0F;
-              break;
-            case CAC:
-              tmpreg = 0xFFE;
-              break;
-            case MBO:
-              tmpreg = 0xFFF;
               break;
 	    default:
 	      abort ();
@@ -3723,14 +3310,6 @@ m68k_ip (char *instring)
 	    tmpreg = 0;
 	  install_operand (s[1], tmpreg);
 	  break;
-	case 'j':
-	  tmpreg = get_num (&opP->disp, 10);
-	  install_operand (s[1], tmpreg - 1);
-	  break;
-	case 'K':
-	  tmpreg = get_num (&opP->disp, 65);
-	  install_operand (s[1], tmpreg);
-	  break;
 	default:
 	  abort ();
 	}
@@ -3778,9 +3357,10 @@ reverse_8_bits (int in)
   return out;
 }				/* reverse_8_bits() */
 
-/* Cause an extra frag to be generated here, inserting up to
-   FRAG_VAR_SIZE bytes.  TYPE is the subtype of the frag to be
-   generated; its primary type is rs_machine_dependent.
+/* Cause an extra frag to be generated here, inserting up to 10 bytes
+   (that value is chosen in the frag_var call in md_assemble).  TYPE
+   is the subtype of the frag to be generated; its primary type is
+   rs_machine_dependent.
 
    The TYPE parameter is also used by md_convert_frag_1 and
    md_estimate_size_before_relax.  The appropriate type of fixup will
@@ -3797,9 +3377,6 @@ install_operand (int mode, int val)
       break;
     case 'd':
       the_ins.opcode[0] |= val << 9;
-      break;
-    case 'E':
-      the_ins.opcode[1] |= val << 9;
       break;
     case '1':
       the_ins.opcode[1] |= val << 12;
@@ -4128,7 +3705,6 @@ static const struct init_entry init_table[] =
   { "dfcr", DFC },
   { "cacr", CACR },		/* Cache Control Register.  */
   { "caar", CAAR },		/* Cache Address Register.  */
-  { "cpucr", CPUCR },		/* CPU Control Register.  */
 
   { "usp", USP },		/* User Stack Pointer.  */
   { "vbr", VBR },		/* Vector Base Register.  */
@@ -4146,28 +3722,22 @@ static const struct init_entry init_table[] =
   { "dacr0", DTT0 },		/* Data Access Control Register 0.  */
   { "dacr1", DTT1 },		/* Data Access Control Register 0.  */
 
-  /* Coldfire versions of same.  The ColdFire programmer's reference
+  /* mcf5200 versions of same.  The ColdFire programmer's reference
      manual indicated that the order is 2,3,0,1, but Ken Rose
      <rose@netcom.com> says that 0,1,2,3 is the correct order.  */
   { "acr0", ACR0 },		/* Access Control Unit 0.  */
   { "acr1", ACR1 },		/* Access Control Unit 1.  */
   { "acr2", ACR2 },		/* Access Control Unit 2.  */
   { "acr3", ACR3 },		/* Access Control Unit 3.  */
-  { "acr4", ACR4 },		/* Access Control Unit 4.  */
-  { "acr5", ACR5 },		/* Access Control Unit 5.  */
-  { "acr6", ACR6 },		/* Access Control Unit 6.  */
-  { "acr7", ACR7 },		/* Access Control Unit 7.  */
 
   { "tc", TC },			/* MMU Translation Control Register.  */
   { "tcr", TC },
-  { "asid", ASID },
 
   { "mmusr", MMUSR },		/* MMU Status Register.  */
   { "srp", SRP },		/* User Root Pointer.  */
   { "urp", URP },		/* Supervisor Root Pointer.  */
 
   { "buscr", BUSCR },
-  { "mmubar", MMUBAR },
   { "pcr", PCR },
 
   { "rombar", ROMBAR },		/* ROM Base Address Register.  */
@@ -4177,7 +3747,7 @@ static const struct init_entry init_table[] =
 
   { "mbar0",    MBAR0 },	/* mcfv4e registers.  */
   { "mbar1",    MBAR1 },	/* mcfv4e registers.  */
-  { "rombar0",  ROMBAR0 },	/* mcfv4e registers.  */
+  { "rombar0",  ROMBAR },	/* mcfv4e registers.  */
   { "rombar1",  ROMBAR1 },	/* mcfv4e registers.  */
   { "mpcr",     MPCR },		/* mcfv4e registers.  */
   { "edrambar", EDRAMBAR },	/* mcfv4e registers.  */
@@ -4201,12 +3771,6 @@ static const struct init_entry init_table[] =
   { "rambar",   RAMBAR },  	/* mcf528x registers.  */
 
   { "mbar2",    MBAR2 },  	/* mcf5249 registers.  */
-
-  { "rgpiobar",	RGPIOBAR },	/* mcf54418 registers.  */
-
-  { "cac",    CAC },  		/* fido registers.  */
-  { "mbb",    MBO },  		/* fido registers (obsolete).  */
-  { "mbo",    MBO },  		/* fido registers.  */
   /* End of control registers.  */
 
   { "ac", AC },
@@ -4313,6 +3877,13 @@ init_regtable (void)
     insert_reg (init_table[i].name, init_table[i].number);
 }
 
+static int no_68851, no_68881;
+
+#ifdef OBJ_AOUT
+/* a.out machine type.  Default to 68020.  */
+int m68k_aout_machtype = 2;
+#endif
+
 void
 md_assemble (char *str)
 {
@@ -4324,17 +3895,6 @@ md_assemble (char *str)
   int shorts_this_frag;
   fixS *fixP;
 
-  if (!selected_cpu && !selected_arch)
-    {
-      /* We've not selected an architecture yet.  Set the default
-	 now.  We do this lazily so that an initial .cpu or .arch directive
-	 can specify.  */
-      if (!m68k_set_cpu (TARGET_CPU, 1, 1))
-	as_bad (_("unrecognized default cpu `%s'"), TARGET_CPU);
-    }
-  if (!initialized)
-    m68k_init_arch ();
-  
   /* In MRI mode, the instruction and operands are separated by a
      space.  Anything following the operands is a comment.  The label
      has already been removed.  */
@@ -4461,7 +4021,7 @@ md_assemble (char *str)
     for (n = 1; n < the_ins.nfrag; n++)
       wid += 2 * (the_ins.numo - the_ins.fragb[n - 1].fragoff);
     /* frag_var part.  */
-    wid += FRAG_VAR_SIZE;
+    wid += 10;
     /* Make sure the whole insn fits in one chunk, in particular that
        the var part is attached, as we access one byte before the
        variable frag for byte branches.  */
@@ -4509,7 +4069,7 @@ md_assemble (char *str)
 					      the_ins.reloc[m].pic_reloc));
 	  fixP->fx_pcrel_adjust = the_ins.reloc[m].pcrel_fix;
 	}
-      (void) frag_var (rs_machine_dependent, FRAG_VAR_SIZE, 0,
+      (void) frag_var (rs_machine_dependent, 10, 0,
 		       (relax_substateT) (the_ins.fragb[n].fragty),
 		       the_ins.fragb[n].fadd, the_ins.fragb[n].foff, to_beg_P);
     }
@@ -4556,9 +4116,6 @@ m68k_compare_opcode (const void * v1, const void * v2)
   struct m68k_opcode * op1, * op2;
   int ret;
 
-  if (v1 == v2)
-    return 0;
-
   op1 = *(struct m68k_opcode **) v1;
   op2 = *(struct m68k_opcode **) v2;
 
@@ -4569,7 +4126,7 @@ m68k_compare_opcode (const void * v1, const void * v2)
     return ret;
   if (op1 < op2)
     return -1;
-  return 1;
+  return 0;
 }
 
 void
@@ -4603,7 +4160,7 @@ md_begin (void)
   m68k_sorted_opcodes = xmalloc (m68k_numopcodes * sizeof (* m68k_sorted_opcodes));
   if (!m68k_sorted_opcodes)
     as_fatal (_("Internal Error:  Can't allocate m68k_sorted_opcodes of size %d"),
-	      m68k_numopcodes * ((int) sizeof (* m68k_sorted_opcodes)));
+	      m68k_numopcodes * sizeof (* m68k_sorted_opcodes));
 
   for (i = m68k_numopcodes; i--;)
     m68k_sorted_opcodes[i] = m68k_opcodes + i;
@@ -4616,33 +4173,19 @@ md_begin (void)
   obstack_begin (&robyn, 4000);
   for (i = 0; i < m68k_numopcodes; i++)
     {
-      hack = slak = obstack_alloc (&robyn, sizeof (struct m68k_incant));
+      hack = slak = (struct m68k_incant *) obstack_alloc (&robyn, sizeof (struct m68k_incant));
       do
 	{
 	  ins = m68k_sorted_opcodes[i];
 
-	  /* We must enter all insns into the table, because .arch and
-	     .cpu directives can change things.  */
+	  /* We *could* ignore insns that don't match our
+	     arch here by just leaving them out of the hash.  */
 	  slak->m_operands = ins->args;
+	  slak->m_opnum = strlen (slak->m_operands) / 2;
 	  slak->m_arch = ins->arch;
 	  slak->m_opcode = ins->opcode;
-	  
-	  /* In most cases we can determine the number of opcode words
-	     by checking the second word of the mask.  Unfortunately
-	     some instructions have 2 opcode words, but no fixed bits
-	     in the second word.  A leading dot in the operands
-	     string also indicates 2 opcodes.  */
-	  if (*slak->m_operands == '.')
-	    {
-	      slak->m_operands++;
-	      slak->m_codenum = 2;
-	    }
-	  else if (ins->match & 0xffffL)
-	    slak->m_codenum = 2;
-	  else
-	    slak->m_codenum = 1;
-	  slak->m_opnum = strlen (slak->m_operands) / 2;
-	  
+	  /* This is kludgey.  */
+	  slak->m_codenum = ((ins->match) & 0xffffL) ? 2 : 1;
 	  if (i + 1 != m68k_numopcodes
 	      && !strcmp (ins->name, m68k_sorted_opcodes[i + 1]->name))
 	    {
@@ -4664,7 +4207,7 @@ md_begin (void)
     {
       const char *name = m68k_opcode_aliases[i].primary;
       const char *alias = m68k_opcode_aliases[i].alias;
-      void *val = hash_find (op_hash, name);
+      PTR val = hash_find (op_hash, name);
 
       if (!val)
 	as_fatal (_("Internal Error: Can't find %s in hash table"), name);
@@ -4703,7 +4246,7 @@ md_begin (void)
 	{
 	  const char *name = mri_aliases[i].primary;
 	  const char *alias = mri_aliases[i].alias;
-	  void *val = hash_find (op_hash, name);
+	  PTR val = hash_find (op_hash, name);
 
 	  if (!val)
 	    as_fatal (_("Internal Error: Can't find %s in hash table"), name);
@@ -4782,6 +4325,126 @@ md_begin (void)
 #endif
 }
 
+static void
+select_control_regs (void)
+{
+  /* Note which set of "movec" control registers is available.  */
+  switch (current_chip)
+    {
+    case 0:
+      if (verbose)
+	as_warn (_("architecture not yet selected: defaulting to 68020"));
+      control_regs = m68020_control_regs;
+      break;
+      
+    case m68000:
+      control_regs = m68000_control_regs;
+      break;
+    case m68010:
+      control_regs = m68010_control_regs;
+      break;
+    case m68020:
+    case m68030:
+      control_regs = m68020_control_regs;
+      break;
+    case m68040:
+      control_regs = m68040_control_regs;
+      break;
+    case m68060:
+      control_regs = m68060_control_regs;
+      break;
+    case cpu32:
+      control_regs = cpu32_control_regs;
+      break;
+    case mcf5200:
+    case mcf5206e:
+    case mcf5307:
+    case mcf5407:
+      control_regs = mcf_control_regs;
+      break;
+    case mcf5249:
+      control_regs = mcf5249_control_regs;
+      break;
+    case mcf528x:
+    case mcf521x:
+      control_regs = mcf528x_control_regs;
+      break;
+    case mcf5470:
+    case mcf5480:
+      control_regs = mcfv4e_control_regs;
+      break;
+    default:
+      abort ();
+    }
+}
+
+void
+m68k_init_after_args (void)
+{
+  if (cpu_of_arch (current_architecture) == 0)
+    {
+      int i;
+      const char *default_cpu = TARGET_CPU;
+
+      if (*default_cpu == 'm')
+	default_cpu++;
+      for (i = 0; i < n_archs; i++)
+	if (strcasecmp (default_cpu, archs[i].name) == 0)
+	  break;
+      if (i == n_archs)
+	{
+	  as_bad (_("unrecognized default cpu `%s' ???"), TARGET_CPU);
+	  current_architecture |= m68020;
+	}
+      else
+	current_architecture |= archs[i].arch;
+    }
+  /* Permit m68881 specification with all cpus; those that can't work
+     with a coprocessor could be doing emulation.  */
+  if (current_architecture & m68851)
+    {
+      if (current_architecture & m68040)
+	as_warn (_("68040 and 68851 specified; mmu instructions may assemble incorrectly"));
+    }
+  /* What other incompatibilities could we check for?  */
+
+  /* Toss in some default assumptions about coprocessors.  */
+  if (!no_68881
+      && (cpu_of_arch (current_architecture)
+	  /* Can CPU32 have a 68881 coprocessor??  */
+	  & (m68020 | m68030 | cpu32)))
+    current_architecture |= m68881;
+
+  if (!no_68851
+      && (cpu_of_arch (current_architecture) & m68020up) != 0
+      && (cpu_of_arch (current_architecture) & m68040up) == 0)
+    current_architecture |= m68851;
+
+  if (no_68881 && (current_architecture & m68881))
+    as_bad (_("options for 68881 and no-68881 both given"));
+
+  if (no_68851 && (current_architecture & m68851))
+    as_bad (_("options for 68851 and no-68851 both given"));
+
+#ifdef OBJ_AOUT
+  /* Work out the magic number.  This isn't very general.  */
+  if (current_architecture & m68000)
+    m68k_aout_machtype = 0;
+  else if (current_architecture & m68010)
+    m68k_aout_machtype = 1;
+  else if (current_architecture & m68020)
+    m68k_aout_machtype = 2;
+  else
+    m68k_aout_machtype = 2;
+#endif
+
+  /* Note which set of "movec" control registers is available.  */
+  select_control_regs ();
+
+  if (cpu_of_arch (current_architecture) < m68020
+      || arch_coldfire_p (current_architecture))
+    md_relax_table[TAB (PCINDEX, BYTE)].rlx_more = 0;
+}
 
 /* This is called when a label is defined.  */
 
@@ -4797,10 +4460,6 @@ m68k_frob_label (symbolS *sym)
   n->text = 0;
   labels = n;
   current_label = n;
-
-#ifdef OBJ_ELF
-  dwarf2_emit_label (sym);
-#endif
 }
 
 /* This is called when a value that is not an instruction is emitted.  */
@@ -4880,10 +4539,63 @@ m68k_mri_mode_change (int on)
     }
 }
 
+/* Equal to MAX_PRECISION in atof-ieee.c.  */
+#define MAX_LITTLENUMS 6
+
+/* Turn a string in input_line_pointer into a floating point constant
+   of type TYPE, and store the appropriate bytes in *LITP.  The number
+   of LITTLENUMS emitted is stored in *SIZEP.  An error message is
+   returned, or NULL on OK.  */
+
 char *
 md_atof (int type, char *litP, int *sizeP)
 {
-  return ieee_md_atof (type, litP, sizeP, TRUE);
+  int prec;
+  LITTLENUM_TYPE words[MAX_LITTLENUMS];
+  LITTLENUM_TYPE *wordP;
+  char *t;
+
+  switch (type)
+    {
+    case 'f':
+    case 'F':
+    case 's':
+    case 'S':
+      prec = 2;
+      break;
+
+    case 'd':
+    case 'D':
+    case 'r':
+    case 'R':
+      prec = 4;
+      break;
+
+    case 'x':
+    case 'X':
+      prec = 6;
+      break;
+
+    case 'p':
+    case 'P':
+      prec = 6;
+      break;
+
+    default:
+      *sizeP = 0;
+      return _("Bad call to MD_ATOF()");
+    }
+  t = atof_ieee (input_line_pointer, type, words);
+  if (t)
+    input_line_pointer = t;
+
+  *sizeP = prec * sizeof (LITTLENUM_TYPE);
+  for (wordP = words; prec--;)
+    {
+      md_number_to_chars (litP, (long) (*wordP++), sizeof (LITTLENUM_TYPE));
+      litP += sizeof (LITTLENUM_TYPE);
+    }
+  return 0;
 }
 
 void
@@ -4893,7 +4605,7 @@ md_number_to_chars (char *buf, valueT val, int n)
 }
 
 void
-md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+md_apply_fix3 (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
 {
   offsetT val = *valP;
   addressT upper_limit;
@@ -4920,46 +4632,15 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
 	  && !S_IS_DEFINED (fixP->fx_addsy)
 	  && !S_IS_WEAK (fixP->fx_addsy))
 	S_SET_WEAK (fixP->fx_addsy);
-
-      switch (fixP->fx_r_type)
-	{
-	case BFD_RELOC_68K_TLS_GD32:
-	case BFD_RELOC_68K_TLS_GD16:
-	case BFD_RELOC_68K_TLS_GD8:
-	case BFD_RELOC_68K_TLS_LDM32:
-	case BFD_RELOC_68K_TLS_LDM16:
-	case BFD_RELOC_68K_TLS_LDM8:
-	case BFD_RELOC_68K_TLS_LDO32:
-	case BFD_RELOC_68K_TLS_LDO16:
-	case BFD_RELOC_68K_TLS_LDO8:
-	case BFD_RELOC_68K_TLS_IE32:
-	case BFD_RELOC_68K_TLS_IE16:
-	case BFD_RELOC_68K_TLS_IE8:
-	case BFD_RELOC_68K_TLS_LE32:
-	case BFD_RELOC_68K_TLS_LE16:
-	case BFD_RELOC_68K_TLS_LE8:
-	  S_SET_THREAD_LOCAL (fixP->fx_addsy);
-	  break;
-
-	default:
-	  break;
-	}
-
-      return;
-    }
-#elif defined(OBJ_AOUT)
-  /* PR gas/3041 Do not fix frags referencing a weak symbol.  */
-  if (fixP->fx_addsy && S_IS_WEAK (fixP->fx_addsy))
-    {
-      memset (buf, 0, fixP->fx_size);
-      fixP->fx_addnumber = val;	/* Remember value for emit_reloc.  */
       return;
     }
 #endif
 
+#ifdef BFD_ASSEMBLER
   if (fixP->fx_r_type == BFD_RELOC_VTABLE_INHERIT
       || fixP->fx_r_type == BFD_RELOC_VTABLE_ENTRY)
     return;
+#endif
 
   switch (fixP->fx_size)
     {
@@ -5005,8 +4686,7 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
 
   if ((addressT) val > upper_limit
       && (val > 0 || val < lower_limit))
-    as_bad_where (fixP->fx_file, fixP->fx_line,
-		  _("value %ld out of range"), (long)val);
+    as_bad_where (fixP->fx_file, fixP->fx_line, _("value out of range"));
 
   /* A one byte PC-relative reloc means a short branch.  We can't use
      a short branch with a value of 0 or -1, because those indicate
@@ -5014,13 +4694,15 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
      in write.c may have clobbered fx_pcrel, so we need to examine the
      reloc type.  */
   if ((fixP->fx_pcrel
-       || fixP->fx_r_type == BFD_RELOC_8_PCREL)
+#ifdef BFD_ASSEMBLER
+       || fixP->fx_r_type == BFD_RELOC_8_PCREL
+#endif
+       )
       && fixP->fx_size == 1
       && (fixP->fx_addsy == NULL
 	  || S_IS_DEFINED (fixP->fx_addsy))
       && (val == 0 || val == -1))
-    as_bad_where (fixP->fx_file, fixP->fx_line,
-		  _("invalid byte branch offset"));
+    as_bad_where (fixP->fx_file, fixP->fx_line, _("invalid byte branch offset"));
 }
 
 /* *fragP has been relaxed to its final size, and now needs to have
@@ -5031,7 +4713,7 @@ static void
 md_convert_frag_1 (fragS *fragP)
 {
   long disp;
-  fixS *fixP = NULL;
+  fixS *fixP;
 
   /* Address in object code of the displacement.  */
   register int object_address = fragP->fr_fix + fragP->fr_address;
@@ -5053,7 +4735,6 @@ md_convert_frag_1 (fragS *fragP)
     case TAB (BRABSJUNC, BYTE):
     case TAB (BRABSJCOND, BYTE):
     case TAB (BRANCHBW, BYTE):
-    case TAB (BRANCHBWPL, BYTE):
       know (issbyte (disp));
       if (disp == 0)
 	as_bad_where (fragP->fr_file, fragP->fr_line,
@@ -5066,57 +4747,36 @@ md_convert_frag_1 (fragS *fragP)
     case TAB (BRABSJUNC, SHORT):
     case TAB (BRABSJCOND, SHORT):
     case TAB (BRANCHBW, SHORT):
-    case TAB (BRANCHBWPL, SHORT):
       fragP->fr_opcode[1] = 0x00;
-      fixP = fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC16);
+      fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC16);
       fragP->fr_fix += 2;
       break;
     case TAB (BRANCHBWL, LONG):
       fragP->fr_opcode[1] = (char) 0xFF;
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC32);
-      fragP->fr_fix += 4;
-      break;
-    case TAB (BRANCHBWPL, LONG):
-      /* Here we are converting an unconditional branch into a pair of
-	 conditional branches, in order to get the range.  */
-      fragP->fr_opcode[0] = 0x66; /* bne */
-      fragP->fr_opcode[1] = 0xFF;
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC32);
-      fixP->fx_file = fragP->fr_file;
-      fixP->fx_line = fragP->fr_line;
-      fragP->fr_fix += 4;  /* Skip first offset */
-      buffer_address += 4;
-      *buffer_address++ = 0x67; /* beq */
-      *buffer_address++ = 0xff;
-      fragP->fr_fix += 2;  /* Skip second branch opcode */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC32);
       fragP->fr_fix += 4;
       break;
     case TAB (BRABSJUNC, LONG):
       if (fragP->fr_opcode[0] == 0x61)		/* jbsr */
 	{
 	  if (flag_keep_pcrel)
-    	    as_bad_where (fragP->fr_file, fragP->fr_line,
-			  _("Conversion of PC relative BSR to absolute JSR"));
+    	    as_fatal (_("Tried to convert PC relative BSR to absolute JSR"));
 	  fragP->fr_opcode[0] = 0x4E;
 	  fragP->fr_opcode[1] = (char) 0xB9; /* JSR with ABSL LONG operand.  */
-	  fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-			  fragP->fr_offset, 0, RELAX_RELOC_ABS32);
+	  fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset,
+		   0, RELAX_RELOC_ABS32);
 	  fragP->fr_fix += 4;
 	}
       else if (fragP->fr_opcode[0] == 0x60)	/* jbra */
 	{
 	  if (flag_keep_pcrel)
-	    as_bad_where (fragP->fr_file, fragP->fr_line,
-		      _("Conversion of PC relative branch to absolute jump"));
+	    as_fatal (_("Tried to convert PC relative branch to absolute jump"));
 	  fragP->fr_opcode[0] = 0x4E;
 	  fragP->fr_opcode[1] = (char) 0xF9; /* JMP with ABSL LONG operand.  */
-	  fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-			  fragP->fr_offset, 0, RELAX_RELOC_ABS32);
+	  fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset,
+		   0, RELAX_RELOC_ABS32);
 	  fragP->fr_fix += 4;
 	}
       else
@@ -5128,8 +4788,7 @@ md_convert_frag_1 (fragS *fragP)
       break;
     case TAB (BRABSJCOND, LONG):
       if (flag_keep_pcrel)
-    	as_bad_where (fragP->fr_file, fragP->fr_line,
-		  _("Conversion of PC relative conditional branch to absolute jump"));
+    	as_fatal (_("Tried to convert PC relative conditional branch to absolute jump"));
 
       /* Only Bcc 68000 instructions can come here
 	 Change bcc into b!cc/jmp absl long.  */
@@ -5142,26 +4801,26 @@ md_convert_frag_1 (fragS *fragP)
       *buffer_address++ = 0x4e;	/* put in jmp long (0x4ef9) */
       *buffer_address++ = (char) 0xf9;
       fragP->fr_fix += 2;	/* Account for jmp instruction.  */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 0, RELAX_RELOC_ABS32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
+	       fragP->fr_offset, 0, RELAX_RELOC_ABS32);
       fragP->fr_fix += 4;
       break;
     case TAB (FBRANCH, SHORT):
       know ((fragP->fr_opcode[1] & 0x40) == 0);
-      fixP = fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC16);
+      fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC16);
       fragP->fr_fix += 2;
       break;
     case TAB (FBRANCH, LONG):
       fragP->fr_opcode[1] |= 0x40;	/* Turn on LONG bit.  */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC32);
       fragP->fr_fix += 4;
       break;
     case TAB (DBCCLBR, SHORT):
     case TAB (DBCCABSJ, SHORT):
-      fixP = fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC16);
+      fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC16);
       fragP->fr_fix += 2;
       break;
     case TAB (DBCCLBR, LONG):
@@ -5169,8 +4828,7 @@ md_convert_frag_1 (fragS *fragP)
 	 Change dbcc into dbcc/bral.
 	 JF: these used to be fr_opcode[2-7], but that's wrong.  */
       if (flag_keep_pcrel)
-    	as_bad_where (fragP->fr_file, fragP->fr_line,
-		  _("Conversion of DBcc to absolute jump"));
+    	as_fatal (_("Tried to convert DBcc to absolute jump"));
 
       *buffer_address++ = 0x00;	/* Branch offset = 4.  */
       *buffer_address++ = 0x04;
@@ -5180,8 +4838,8 @@ md_convert_frag_1 (fragS *fragP)
       *buffer_address++ = (char) 0xff;
 
       fragP->fr_fix += 6;	/* Account for bra/jmp instructions.  */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset, 1,
+	       RELAX_RELOC_PC32);
       fragP->fr_fix += 4;
       break;
     case TAB (DBCCABSJ, LONG):
@@ -5189,8 +4847,7 @@ md_convert_frag_1 (fragS *fragP)
 	 Change dbcc into dbcc/jmp.
 	 JF: these used to be fr_opcode[2-7], but that's wrong.  */
       if (flag_keep_pcrel)
-    	as_bad_where (fragP->fr_file, fragP->fr_line,
-		      _("Conversion of PC relative conditional branch to absolute jump"));
+    	as_fatal (_("Tried to convert PC relative conditional branch to absolute jump"));
 
       *buffer_address++ = 0x00;		/* Branch offset = 4.  */
       *buffer_address++ = 0x04;
@@ -5200,15 +4857,15 @@ md_convert_frag_1 (fragS *fragP)
       *buffer_address++ = (char) 0xf9;
 
       fragP->fr_fix += 6;		/* Account for bra/jmp instructions.  */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 0, RELAX_RELOC_ABS32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset, 0,
+	       RELAX_RELOC_ABS32);
       fragP->fr_fix += 4;
       break;
     case TAB (PCREL1632, SHORT):
       fragP->fr_opcode[1] &= ~0x3F;
       fragP->fr_opcode[1] |= 0x3A; /* 072 - mode 7.2 */
-      fixP = fix_new (fragP, (int) (fragP->fr_fix), 2, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC16);
+      fix_new (fragP, (int) (fragP->fr_fix), 2, fragP->fr_symbol,
+	       fragP->fr_offset, 1, RELAX_RELOC_PC16);
       fragP->fr_fix += 2;
       break;
     case TAB (PCREL1632, LONG):
@@ -5223,14 +4880,14 @@ md_convert_frag_1 (fragS *fragP)
       fragP->fr_fix += 4;
       break;
     case TAB (PCINDEX, BYTE):
-      gas_assert (fragP->fr_fix >= 2);
+      assert (fragP->fr_fix >= 2);
       buffer_address[-2] &= ~1;
       fixP = fix_new (fragP, fragP->fr_fix - 1, 1, fragP->fr_symbol,
 		      fragP->fr_offset, 1, RELAX_RELOC_PC8);
       fixP->fx_pcrel_adjust = 1;
       break;
     case TAB (PCINDEX, SHORT):
-      gas_assert (fragP->fr_fix >= 2);
+      assert (fragP->fr_fix >= 2);
       buffer_address[-2] |= 0x1;
       buffer_address[-1] = 0x20;
       fixP = fix_new (fragP, (int) (fragP->fr_fix), 2, fragP->fr_symbol,
@@ -5239,7 +4896,7 @@ md_convert_frag_1 (fragS *fragP)
       fragP->fr_fix += 2;
       break;
     case TAB (PCINDEX, LONG):
-      gas_assert (fragP->fr_fix >= 2);
+      assert (fragP->fr_fix >= 2);
       buffer_address[-2] |= 0x1;
       buffer_address[-1] = 0x30;
       fixP = fix_new (fragP, (int) (fragP->fr_fix), 4, fragP->fr_symbol,
@@ -5248,31 +4905,37 @@ md_convert_frag_1 (fragS *fragP)
       fragP->fr_fix += 4;
       break;
     case TAB (ABSTOPCREL, SHORT):
-      fixP = fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol,
-		      fragP->fr_offset, 1, RELAX_RELOC_PC16);
+      fix_new (fragP, fragP->fr_fix, 2, fragP->fr_symbol, fragP->fr_offset,
+	       1, RELAX_RELOC_PC16);
       fragP->fr_fix += 2;
       break;
     case TAB (ABSTOPCREL, LONG):
       if (flag_keep_pcrel)
-	as_bad_where (fragP->fr_file, fragP->fr_line,
-		      _("Conversion of PC relative displacement to absolute"));
+    	as_fatal (_("Tried to convert PC relative conditional branch to absolute jump"));
       /* The thing to do here is force it to ABSOLUTE LONG, since
 	 ABSTOPCREL is really trying to shorten an ABSOLUTE address anyway.  */
       if ((fragP->fr_opcode[1] & 0x3F) != 0x3A)
 	abort ();
       fragP->fr_opcode[1] &= ~0x3F;
       fragP->fr_opcode[1] |= 0x39;	/* Mode 7.1 */
-      fixP = fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol,
-		      fragP->fr_offset, 0, RELAX_RELOC_ABS32);
+      fix_new (fragP, fragP->fr_fix, 4, fragP->fr_symbol, fragP->fr_offset,
+	       0, RELAX_RELOC_ABS32);
       fragP->fr_fix += 4;
       break;
     }
-  if (fixP)
-    {
-      fixP->fx_file = fragP->fr_file;
-      fixP->fx_line = fragP->fr_line;
-    }
 }
+
+#ifndef BFD_ASSEMBLER
+
+void
+md_convert_frag (object_headers *headers ATTRIBUTE_UNUSED,
+		 segT sec ATTRIBUTE_UNUSED,
+		 fragS *fragP)
+{
+  md_convert_frag_1 (fragP);
+}
+
+#else
 
 void
 md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
@@ -5281,6 +4944,7 @@ md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
 {
   md_convert_frag_1 (fragP);
 }
+#endif
 
 /* Force truly undefined symbols to their maximum size, and generally set up
    the frag list to be relaxed
@@ -5292,7 +4956,6 @@ md_estimate_size_before_relax (fragS *fragP, segT segment)
   switch (fragP->fr_subtype)
     {
     case TAB (BRANCHBWL, SZ_UNDEF):
-    case TAB (BRANCHBWPL, SZ_UNDEF):
     case TAB (BRABSJUNC, SZ_UNDEF):
     case TAB (BRABSJCOND, SZ_UNDEF):
       {
@@ -5440,6 +5103,38 @@ md_ri_to_chars (char *the_bytes, struct reloc_info_generic *ri)
 
 #endif
 
+#ifndef BFD_ASSEMBLER
+void
+tc_aout_fix_to_chars (char *where, fixS *fixP,
+		      relax_addressT segment_address_in_file)
+{
+  /*
+   * In: length of relocation (or of address) in chars: 1, 2 or 4.
+   * Out: GNU LD relocation length code: 0, 1, or 2.
+   */
+
+  static const unsigned char nbytes_r_length[] = {42, 0, 1, 42, 2};
+  long r_symbolnum;
+
+  know (fixP->fx_addsy != NULL);
+
+  md_number_to_chars (where,
+		      (fixP->fx_frag->fr_address
+		       + fixP->fx_where - segment_address_in_file), 4);
+
+  r_symbolnum = (S_IS_DEFINED (fixP->fx_addsy)
+		 ? S_GET_TYPE (fixP->fx_addsy)
+		 : fixP->fx_addsy->sy_number);
+
+  where[4] = (r_symbolnum >> 16) & 0x0ff;
+  where[5] = (r_symbolnum >> 8) & 0x0ff;
+  where[6] = r_symbolnum & 0x0ff;
+  where[7] = (((fixP->fx_pcrel << 7) & 0x80)
+	      | ((nbytes_r_length[fixP->fx_size] << 5) & 0x60)
+	      | ((!S_IS_DEFINED (fixP->fx_addsy) << 4) & 0x10));
+}
+#endif
+
 #endif /* OBJ_AOUT or OBJ_BOUT */
 
 #ifndef WORKING_DOT_WORD
@@ -5496,7 +5191,6 @@ md_create_long_jump (char *ptr, addressT from_addr, addressT to_addr,
    50:  absolute 0:127	   only
    55:  absolute -64:63    only
    60:  absolute -128:127  only
-   65:  absolute 0:511     only
    70:  absolute 0:4095	   only
    80:  absolute -1, 1:7   only
    90:  No bignums.          */
@@ -5552,10 +5246,6 @@ get_num (struct m68k_exp *exp, int ok)
 	  if ((valueT) SEXT (offs (exp)) + 128 > 255)
 	    goto outrange;
 	  break;
-	case 65:
-	  if ((valueT) TRUNC (offs (exp)) > 511)
-	    goto outrange;
-	  break;
 	case 70:
 	  if ((valueT) TRUNC (offs (exp)) > 4095)
 	    {
@@ -5602,7 +5292,7 @@ get_num (struct m68k_exp *exp, int ok)
 	  subs (exp) = 0;
 	  offs (exp) = (ok == 10) ? 1 : 0;
 	  as_warn (_("Can't deal with expression; defaulting to %ld"),
-		   (long) offs (exp));
+		   offs (exp));
 	}
     }
   else
@@ -5614,7 +5304,7 @@ get_num (struct m68k_exp *exp, int ok)
 	  subs (exp) = 0;
 	  offs (exp) = (ok == 10) ? 1 : 0;
 	  as_warn (_("Can't deal with expression; defaulting to %ld"),
-		   (long) offs (exp));
+		   offs (exp));
 	}
     }
 
@@ -5713,10 +5403,10 @@ mri_chip (void)
   while (is_part_of_name (c = *input_line_pointer++))
     ;
   *--input_line_pointer = 0;
-  for (i = 0; m68k_cpus[i].name; i++)
-    if (strcasecmp (s, m68k_cpus[i].name) == 0)
+  for (i = 0; i < n_archs; i++)
+    if (strcasecmp (s, archs[i].name) == 0)
       break;
-  if (!m68k_cpus[i].name)
+  if (i >= n_archs)
     {
       as_bad (_("%s: unrecognized processor name"), s);
       *input_line_pointer = c;
@@ -5729,8 +5419,8 @@ mri_chip (void)
     current_architecture = 0;
   else
     current_architecture &= m68881 | m68851;
-  current_architecture |= m68k_cpus[i].arch & ~(m68881 | m68851);
-  control_regs = m68k_cpus[i].control_regs;
+  current_architecture |= archs[i].arch;
+  current_chip = archs[i].chip;
 
   while (*input_line_pointer == '/')
     {
@@ -5747,6 +5437,9 @@ mri_chip (void)
 	current_architecture |= m68851;
       *input_line_pointer = c;
     }
+
+  /* Update info about available control registers.  */
+  select_control_regs ();
 }
 
 /* The MRI CHIP pseudo-op.  */
@@ -6092,7 +5785,7 @@ struct save_opts
   int keep_locals;
   int short_refs;
   int architecture;
-  const enum m68k_register *control_regs;
+  int chip;
   int quick;
   int rel32;
   int listing;
@@ -6117,7 +5810,7 @@ s_save (int ignore ATTRIBUTE_UNUSED)
   s->keep_locals = flag_keep_locals;
   s->short_refs = flag_short_refs;
   s->architecture = current_architecture;
-  s->control_regs = control_regs;
+  s->chip = current_chip;
   s->quick = m68k_quick;
   s->rel32 = m68k_rel32;
   s->listing = listing;
@@ -6151,7 +5844,7 @@ s_restore (int ignore ATTRIBUTE_UNUSED)
   flag_keep_locals = s->keep_locals;
   flag_short_refs = s->short_refs;
   current_architecture = s->architecture;
-  control_regs = s->control_regs;
+  current_chip = s->chip;
   m68k_quick = s->quick;
   m68k_rel32 = s->rel32;
   listing = s->listing;
@@ -6403,8 +6096,8 @@ swap_mri_condition (int cc)
     case MCC ('g', 't'): return MCC ('l', 't');
     case MCC ('l', 'e'): return MCC ('g', 'e');
     /* Issue a warning for conditions we can not swap.  */
-    case MCC ('n', 'e'): return MCC ('n', 'e'); /* no problem here */
-    case MCC ('e', 'q'): return MCC ('e', 'q'); /* also no problem */
+    case MCC ('n', 'e'): return MCC ('n', 'e'); // no problem here
+    case MCC ('e', 'q'): return MCC ('e', 'q'); // also no problem
     case MCC ('v', 'c'):
     case MCC ('v', 's'):
     default :
@@ -7327,195 +7020,28 @@ s_mri_endw (int ignore ATTRIBUTE_UNUSED)
   demand_empty_rest_of_line ();
 }
 
-/* Parse a .cpu directive.  */
-
-static void
-s_m68k_cpu (int ignored ATTRIBUTE_UNUSED)
-{
-  char saved_char;
-  char *name;
-
-  if (initialized)
-    {
-      as_bad (_("already assembled instructions"));
-      ignore_rest_of_line ();
-      return;
-    }
-  
-  name = input_line_pointer;
-  while (*input_line_pointer && !ISSPACE(*input_line_pointer))
-    input_line_pointer++;
-  saved_char = *input_line_pointer;
-  *input_line_pointer = 0;
-
-  m68k_set_cpu (name, 1, 0);
-  
-  *input_line_pointer = saved_char;
-  demand_empty_rest_of_line ();
-  return;
-}
-
-/* Parse a .arch directive.  */
-
-static void
-s_m68k_arch (int ignored ATTRIBUTE_UNUSED)
-{
-  char saved_char;
-  char *name;
-
-  if (initialized)
-    {
-      as_bad (_("already assembled instructions"));
-      ignore_rest_of_line ();
-      return;
-    }
-  
-  name = input_line_pointer;
-  while (*input_line_pointer && *input_line_pointer != ','
-	 && !ISSPACE (*input_line_pointer))
-    input_line_pointer++;
-  saved_char = *input_line_pointer;
-  *input_line_pointer = 0;
-
-  if (m68k_set_arch (name, 1, 0))
-    {
-      /* Scan extensions. */
-      do
-	{
-	  *input_line_pointer++ = saved_char;
-	  if (!*input_line_pointer || ISSPACE (*input_line_pointer))
-	    break;
-	  name = input_line_pointer;
-	  while (*input_line_pointer && *input_line_pointer != ','
-		 && !ISSPACE (*input_line_pointer))
-	    input_line_pointer++;
-	  saved_char = *input_line_pointer;
-	  *input_line_pointer = 0;
-	}
-      while (m68k_set_extension (name, 1, 0));
-    }
-  
-  *input_line_pointer = saved_char;
-  demand_empty_rest_of_line ();
-  return;
-}
-
-/* Lookup a cpu name in TABLE and return the slot found.  Return NULL
-   if none is found, the caller is responsible for emitting an error
-   message.  If ALLOW_M is non-zero, we allow an initial 'm' on the
-   cpu name, if it begins with a '6' (possibly skipping an intervening
-   'c'.  We also allow a 'c' in the same place.  if NEGATED is
-   non-zero, we accept a leading 'no-' and *NEGATED is set to true, if
-   the option is indeed negated.  */
-
-static const struct m68k_cpu *
-m68k_lookup_cpu (const char *arg, const struct m68k_cpu *table,
-		 int allow_m, int *negated)
-{
-  /* allow negated value? */
-  if (negated)
-    {
-      *negated = 0;
-
-      if (arg[0] == 'n' && arg[1] == 'o' && arg[2] == '-')
-	{
-	  arg += 3;
-	  *negated = 1;
-	}
-    }
-  
-  /* Remove 'm' or 'mc' prefix from 68k variants.  */
-  if (allow_m)
-    {
-      if (arg[0] == 'm')
-	{
-	  if (arg[1] == '6')
-	    arg += 1;
-	  else if (arg[1] == 'c'  && arg[2] == '6')
-	    arg += 2;
-	}
-    }
-  else if (arg[0] == 'c' && arg[1] == '6')
-    arg += 1;
-
-  for (; table->name; table++)
-    if (!strcmp (arg, table->name))
-      {
-	if (table->alias < -1 || table->alias > 1)
-	  as_bad (_("`%s' is deprecated, use `%s'"),
-		  table->name, table[table->alias < 0 ? 1 : -1].name);
-	return table;
-      }
-  return 0;
-}
-
-/* Set the cpu, issuing errors if it is unrecognized.  */
-
-static int
-m68k_set_cpu (char const *name, int allow_m, int silent)
-{
-  const struct m68k_cpu *cpu;
-
-  cpu = m68k_lookup_cpu (name, m68k_cpus, allow_m, NULL);
-
-  if (!cpu)
-    {
-      if (!silent)
-	as_bad (_("cpu `%s' unrecognized"), name);
-      return 0;
-    }
-  selected_cpu = cpu;
-  return 1;
-}
-
-/* Set the architecture, issuing errors if it is unrecognized.  */
-
-static int
-m68k_set_arch (char const *name, int allow_m, int silent)
-{
-  const struct m68k_cpu *arch;
-
-  arch = m68k_lookup_cpu (name, m68k_archs, allow_m, NULL);
-
-  if (!arch)
-    {
-      if (!silent)
-	as_bad (_("architecture `%s' unrecognized"), name);
-      return 0;
-    }
-  selected_arch = arch;
-  return 1;
-}
-
-/* Set the architecture extension, issuing errors if it is
-   unrecognized, or invalid */
-
-static int
-m68k_set_extension (char const *name, int allow_m, int silent)
-{
-  int negated;
-  const struct m68k_cpu *ext;
-
-  ext = m68k_lookup_cpu (name, m68k_extensions, allow_m, &negated);
-
-  if (!ext)
-    {
-      if (!silent)
-	as_bad (_("extension `%s' unrecognized"), name);
-      return 0;
-    }
-
-  if (negated)
-    not_current_architecture |= (ext->control_regs
-				 ? *(unsigned *)ext->control_regs: ext->arch);
-  else
-    current_architecture |= ext->arch;
-  return 1;
-}
-
 /* md_parse_option
    Invocation line includes a switch not recognized by the base assembler.
- */
+   See if it's a processor-specific option.  These are:
+
+   -[A]m[c]68000, -[A]m[c]68008, -[A]m[c]68010, -[A]m[c]68020, -[A]m[c]68030, -[A]m[c]68040
+   -[A]m[c]68881, -[A]m[c]68882, -[A]m[c]68851
+	Select the architecture.  Instructions or features not
+	supported by the selected architecture cause fatal
+	errors.  More than one may be specified.  The default is
+	-m68020 -m68851 -m68881.  Note that -m68008 is a synonym
+	for -m68000, and -m68882 is a synonym for -m68881.
+   -[A]m[c]no-68851, -[A]m[c]no-68881
+	Don't accept 688?1 instructions.  (The "c" is kind of silly,
+	so don't use or document it, but that's the way the parsing
+	works).
+
+   -pic	Indicates PIC.
+   -k	Indicates PIC.  (Sun 3 only.)
+   --pcrel
+	Never turn PC-relative branches into absolute jumps.
+   --bitwise-or
+ 	Permit `|' to be used in expressions.  */
 
 #ifdef OBJ_ELF
 const char *md_shortopts = "lSA:m:kQ:V";
@@ -7563,6 +7089,80 @@ md_parse_option (int c, char *arg)
     case OPTION_PCREL:		/* --pcrel means never turn PC-relative
 				   branches into absolute jumps.  */
       flag_keep_pcrel = 1;
+      break;
+
+    case 'A':
+      if (*arg == 'm')
+	arg++;
+      /* Intentional fall-through.  */
+    case 'm':
+
+      if (arg[0] == 'n' && arg[1] == 'o' && arg[2] == '-')
+	{
+	  int i;
+	  unsigned long arch;
+
+	  arg += 3;
+	  if (*arg == 'm')
+	    {
+	      arg++;
+	      if (arg[0] == 'c' && arg[1] == '6')
+		arg++;
+	    }
+	  for (i = 0; i < n_archs; i++)
+	    if (!strcmp (arg, archs[i].name))
+	      break;
+	  if (i == n_archs)
+	    return 0;
+
+	  arch = archs[i].arch;
+	  if (arch == m68881)
+	    no_68881 = 1;
+	  else if (arch == m68851)
+	    no_68851 = 1;
+	  else
+	    return 0;
+	}
+      else
+	{
+	  int i;
+
+	  if (arg[0] == 'c' && arg[1] == '6')
+	    arg++;
+
+	  for (i = 0; i < n_archs; i++)
+	    if (!strcmp (arg, archs[i].name))
+	      {
+		unsigned long arch = archs[i].arch;
+
+		if (cpu_of_arch (arch))
+		  /* It's a cpu spec.  */
+		  {
+		    current_architecture &= ~m68000up;
+		    current_architecture |= arch;
+		    current_chip = archs[i].chip;
+		  }
+		else if (arch == m68881)
+		  {
+		    current_architecture |= m68881;
+		    no_68881 = 0;
+		  }
+		else if (arch == m68851)
+		  {
+		    current_architecture |= m68851;
+		    no_68851 = 0;
+		  }
+		else
+		  /* ??? */
+		  abort ();
+		break;
+	      }
+	  if (i == n_archs)
+	    {
+	      as_bad (_("unrecognized architecture specification `%s'"), arg);
+	      return 0;
+	    }
+	}
       break;
 
     case OPTION_PIC:
@@ -7618,27 +7218,6 @@ md_parse_option (int c, char *arg)
       m68k_rel32_from_cmdline = 1;
       break;
 
-    case 'A':
-#if WARN_DEPRECATED
-      as_tsktsk (_ ("option `-A%s' is deprecated: use `-%s'",
-		    arg, arg));
-#endif
-      /* Intentional fall-through.  */
-    case 'm':
-      if (!strncmp (arg, "arch=", 5))
-	m68k_set_arch (arg + 5, 1, 0);
-      else if (!strncmp (arg, "cpu=", 4))
-	m68k_set_cpu (arg + 4, 1, 0);
-      else if (m68k_set_extension (arg, 0, 1))
-	;
-      else if (m68k_set_arch (arg, 0, 1))
-	;
-      else if (m68k_set_cpu (arg, 0, 1))
-	;
-      else
-	return 0;
-      break;
-
     default:
       return 0;
     }
@@ -7646,135 +7225,60 @@ md_parse_option (int c, char *arg)
   return 1;
 }
 
-/* Setup tables from the selected arch and/or cpu */
-
-static void
-m68k_init_arch (void)
-{
-  if (not_current_architecture & current_architecture)
-    {
-      as_bad (_("architecture features both enabled and disabled"));
-      not_current_architecture &= ~current_architecture;
-    }
-  if (selected_arch)
-    {
-      current_architecture |= selected_arch->arch;
-      control_regs = selected_arch->control_regs;
-    }
-  else
-    current_architecture |= selected_cpu->arch;
-  
-  current_architecture &= ~not_current_architecture;
-
-  if ((current_architecture & (cfloat | m68881)) == (cfloat | m68881))
-    {
-      /* Determine which float is really meant.  */
-      if (current_architecture & (m68k_mask & ~m68881))
-	current_architecture ^= cfloat;
-      else
-	current_architecture ^= m68881;
-    }
-
-  if (selected_cpu)
-    {
-      control_regs = selected_cpu->control_regs;
-      if (current_architecture & ~selected_cpu->arch)
-	{
-	  as_bad (_("selected processor does not have all features of selected architecture"));
-	  current_architecture
-	    = selected_cpu->arch & ~not_current_architecture;
-	}
-    }
-
-  if ((current_architecture & m68k_mask)
-      && (current_architecture & ~m68k_mask))
-    {
-      as_bad (_ ("m68k and cf features both selected"));
-      if (current_architecture & m68k_mask)
-	current_architecture &= m68k_mask;
-      else
-	current_architecture &= ~m68k_mask;
-    }
-  
-  /* Permit m68881 specification with all cpus; those that can't work
-     with a coprocessor could be doing emulation.  */
-  if (current_architecture & m68851)
-    {
-      if (current_architecture & m68040)
-	as_warn (_("68040 and 68851 specified; mmu instructions may assemble incorrectly"));
-    }
-  /* What other incompatibilities could we check for?  */
-
-  if (cpu_of_arch (current_architecture) < m68020
-      || arch_coldfire_p (current_architecture))
-    md_relax_table[TAB (PCINDEX, BYTE)].rlx_more = 0;
-  
-  initialized = 1;
-}
-
 void
 md_show_usage (FILE *stream)
 {
   const char *default_cpu = TARGET_CPU;
   int i;
+  unsigned int default_arch;
 
   /* Get the canonical name for the default target CPU.  */
   if (*default_cpu == 'm')
     default_cpu++;
-  for (i = 0; m68k_cpus[i].name; i++)
+  for (i = 0; i < n_archs; i++)
     {
-      if (strcasecmp (default_cpu, m68k_cpus[i].name) == 0)
+      if (strcasecmp (default_cpu, archs[i].name) == 0)
 	{
-	  while (m68k_cpus[i].alias > 0)
-	    i--;
-	  while (m68k_cpus[i].alias < 0)
-	    i++;
-	  default_cpu = m68k_cpus[i].name;
+	  default_arch = archs[i].arch;
+	  for (i = 0; i < n_archs; i++)
+	    {
+	      if (archs[i].arch == default_arch
+		  && !archs[i].alias)
+		{
+		  default_cpu = archs[i].name;
+		  break;
+		}
+	    }
 	}
     }
 
   fprintf (stream, _("\
--march=<arch>		set architecture\n\
--mcpu=<cpu>		set cpu [default %s]\n\
-"), default_cpu);
-  for (i = 0; m68k_extensions[i].name; i++)
-    fprintf (stream, _("\
--m[no-]%-16s enable/disable%s architecture extension\n\
-"), m68k_extensions[i].name,
-	     m68k_extensions[i].alias > 0 ? " ColdFire"
-	     : m68k_extensions[i].alias < 0 ? " m68k" : "");
-  
-  fprintf (stream, _("\
+680X0 options:\n\
 -l			use 1 word for refs to undefined symbols [default 2]\n\
+-m68000 | -m68008 | -m68010 | -m68020 | -m68030 | -m68040 | -m68060 |\n\
+-m68302 | -m68331 | -m68332 | -m68333 | -m68340 | -m68360 | -mcpu32 |\n\
+-m5200  | -m5202  | -m5204  | -m5206  | -m5206e | -m521x  | -m5249  |\n\
+-m528x  | -m5307  | -m5407  | -m547x  | -m548x  | -mcfv4  | -mcfv4e\n\
+			specify variant of 680X0 architecture [default %s]\n\
+-m68881 | -m68882 | -mno-68881 | -mno-68882\n\
+			target has/lacks floating-point coprocessor\n\
+			[default yes for 68020, 68030, and cpu32]\n"),
+          default_cpu);
+  fprintf (stream, _("\
+-m68851 | -mno-68851\n\
+			target has/lacks memory-management unit coprocessor\n\
+			[default yes for 68020 and up]\n\
 -pic, -k		generate position independent code\n\
 -S			turn jbsr into jsr\n\
 --pcrel                 never turn PC-relative branches into absolute jumps\n\
 --register-prefix-optional\n\
 			recognize register names without prefix character\n\
---bitwise-or		do not treat `|' as a comment character\n\
+--bitwise-or		do not treat `|' as a comment character\n"));
+  fprintf (stream, _("\
 --base-size-default-16	base reg without size is 16 bits\n\
 --base-size-default-32	base reg without size is 32 bits (default)\n\
 --disp-size-default-16	displacement with unknown size is 16 bits\n\
---disp-size-default-32	displacement with unknown size is 32 bits (default)\n\
-"));
-  
-  fprintf (stream, _("Architecture variants are: "));
-  for (i = 0; m68k_archs[i].name; i++)
-    {
-      if (i)
-	fprintf (stream, " | ");
-      fprintf (stream, "%s", m68k_archs[i].name);
-    }
-  fprintf (stream, "\n");
-
-  fprintf (stream, _("Processor variants are: "));
-  for (i = 0; m68k_cpus[i].name; i++)
-    {
-      if (i)
-	fprintf (stream, " | ");
-      fprintf (stream, "%s", m68k_cpus[i].name);
-    }
-  fprintf (stream, _("\n"));
+--disp-size-default-32	displacement with unknown size is 32 bits (default)\n"));
 }
 
 #ifdef TEST2
@@ -7886,6 +7390,7 @@ valueT
 md_section_align (segT segment ATTRIBUTE_UNUSED, valueT size)
 {
 #ifdef OBJ_AOUT
+#ifdef BFD_ASSEMBLER
   /* For a.out, force the section size to be aligned.  If we don't do
      this, BFD will align it for us, but it will not write out the
      final bytes of the section.  This may be a bug in BFD, but it is
@@ -7895,6 +7400,7 @@ md_section_align (segT segment ATTRIBUTE_UNUSED, valueT size)
 
   align = bfd_get_section_alignment (stdoutput, segment);
   size = ((size + (1 << align) - 1) & ((valueT) -1 << align));
+#endif
 #endif
 
   return size;
@@ -7909,202 +7415,57 @@ md_pcrel_from (fixS *fixP)
 {
   int adjust;
 
-  adjust = fixP->fx_pcrel_adjust;
+  /* Because fx_pcrel_adjust is a char, and may be unsigned, we explicitly
+     sign extend the value here.  */
+  adjust = ((fixP->fx_pcrel_adjust & 0xff) ^ 0x80) - 0x80;
   if (adjust == 64)
     adjust = -1;
   return fixP->fx_where + fixP->fx_frag->fr_address - adjust;
 }
 
+#ifndef BFD_ASSEMBLER
+#ifdef OBJ_COFF
+
+void
+tc_coff_symbol_emit_hook (symbolS *ignore ATTRIBUTE_UNUSED)
+{
+}
+
+int
+tc_coff_sizemachdep (fragS *frag)
+{
+  switch (frag->fr_subtype & 0x3)
+    {
+    case BYTE:
+      return 1;
+    case SHORT:
+      return 2;
+    case LONG:
+      return 4;
+    default:
+      abort ();
+      return 0;
+    }
+}
+
+#endif
+#endif
+
 #ifdef OBJ_ELF
 void
 m68k_elf_final_processing (void)
 {
-  unsigned flags = 0;
-  
-  if (arch_coldfire_fpu (current_architecture))
-    flags |= EF_M68K_CFV4E;
   /* Set file-specific flags if this is a cpu32 processor.  */
   if (cpu_of_arch (current_architecture) & cpu32)
-    flags |= EF_M68K_CPU32;
-  else if (cpu_of_arch (current_architecture) & fido_a)
-    flags |= EF_M68K_FIDO;
+    elf_elfheader (stdoutput)->e_flags |= EF_CPU32;
   else if ((cpu_of_arch (current_architecture) & m68000up)
 	   && !(cpu_of_arch (current_architecture) & m68020up))
-    flags |= EF_M68K_M68000;
-  
-  if (current_architecture & mcfisa_a)
-    {
-      static const unsigned isa_features[][2] =
-      {
-	{EF_M68K_CF_ISA_A_NODIV,mcfisa_a},
-	{EF_M68K_CF_ISA_A,	mcfisa_a|mcfhwdiv},
-	{EF_M68K_CF_ISA_A_PLUS, mcfisa_a|mcfisa_aa|mcfhwdiv|mcfusp},
-	{EF_M68K_CF_ISA_B_NOUSP,mcfisa_a|mcfisa_b|mcfhwdiv},
-	{EF_M68K_CF_ISA_B,	mcfisa_a|mcfisa_b|mcfhwdiv|mcfusp},
-	{EF_M68K_CF_ISA_C,	mcfisa_a|mcfisa_c|mcfhwdiv|mcfusp},
-	{EF_M68K_CF_ISA_C_NODIV,mcfisa_a|mcfisa_c|mcfusp},
-	{0,0},
-      };
-      static const unsigned mac_features[][2] =
-      {
-	{EF_M68K_CF_MAC, mcfmac},
-	{EF_M68K_CF_EMAC, mcfemac},
-	{0,0},
-      };
-      unsigned ix;
-      unsigned pattern;
-      
-      pattern = (current_architecture
-		 & (mcfisa_a|mcfisa_aa|mcfisa_b|mcfisa_c|mcfhwdiv|mcfusp));
-      for (ix = 0; isa_features[ix][1]; ix++)
-	{
-	  if (pattern == isa_features[ix][1])
-	    {
-	      flags |= isa_features[ix][0];
-	      break;
-	    }
-	}
-      if (!isa_features[ix][1])
-	{
-	cf_bad:
-	  as_warn (_("Not a defined coldfire architecture"));
-	}
-      else
-	{
-	  if (current_architecture & cfloat)
-	    flags |= EF_M68K_CF_FLOAT | EF_M68K_CFV4E;
-
-	  pattern = current_architecture & (mcfmac|mcfemac);
-	  if (pattern)
-	    {
-	      for (ix = 0; mac_features[ix][1]; ix++)
-		{
-		  if (pattern == mac_features[ix][1])
-		    {
-		      flags |= mac_features[ix][0];
-		      break;
-		    }
-		}
-	      if (!mac_features[ix][1])
-		goto cf_bad;
-	    }
-	}
-    }
-  elf_elfheader (stdoutput)->e_flags |= flags;
-}
-
-/* Parse @TLSLDO and return the desired relocation.  */
-static bfd_reloc_code_real_type
-m68k_elf_suffix (char **str_p, expressionS *exp_p)
-{
-  char ident[20];
-  char *str = *str_p;
-  char *str2;
-  int ch;
-  int len;
-
-  if (*str++ != '@')
-    return BFD_RELOC_UNUSED;
-
-  for (ch = *str, str2 = ident;
-       (str2 < ident + sizeof (ident) - 1
-	&& (ISALNUM (ch) || ch == '@'));
-       ch = *++str)
-    {
-      *str2++ = ch;
-    }
-
-  *str2 = '\0';
-  len = str2 - ident;
-
-  if (strncmp (ident, "TLSLDO", 6) == 0
-      && len == 6)
-    {
-      /* Now check for identifier@suffix+constant.  */
-      if (*str == '-' || *str == '+')
-	{
-	  char *orig_line = input_line_pointer;
-	  expressionS new_exp;
-
-	  input_line_pointer = str;
-	  expression (&new_exp);
-	  if (new_exp.X_op == O_constant)
-	    {
-	      exp_p->X_add_number += new_exp.X_add_number;
-	      str = input_line_pointer;
-	    }
-
-	  if (&input_line_pointer != str_p)
-	    input_line_pointer = orig_line;
-	}
-      *str_p = str;
-
-      return BFD_RELOC_68K_TLS_LDO32;
-      }
-
-  return BFD_RELOC_UNUSED;
-}
-
-/* Handles .long <tls_symbol>+0x8000 debug info.
-   Clobbers input_line_pointer, checks end-of-line.
-   Adapted from tc-ppc.c:ppc_elf_cons.  */
-static void
-m68k_elf_cons (int nbytes /* 4=.long */)
-{
-  if (is_it_end_of_statement ())
-    {
-      demand_empty_rest_of_line ();
-      return;
-    }
-
-  do
-    {
-      expressionS exp;
-      bfd_reloc_code_real_type reloc;
-
-      expression (&exp);
-      if (exp.X_op == O_symbol
-	  && *input_line_pointer == '@'
-	  && (reloc = m68k_elf_suffix (&input_line_pointer,
-				      &exp)) != BFD_RELOC_UNUSED)
-	{
-	  reloc_howto_type *reloc_howto;
-	  int size;
-
-	  reloc_howto = bfd_reloc_type_lookup (stdoutput, reloc);
-	  size = bfd_get_reloc_size (reloc_howto);
-
-	  if (size > nbytes)
-	    {
-	      as_bad (_("%s relocations do not fit in %d bytes\n"),
-		      reloc_howto->name, nbytes);
-	    }
-	  else
-	    {
-	      char *p;
-	      int offset;
-
-	      p = frag_more (nbytes);
-	      offset = 0;
-	      if (target_big_endian)
-		offset = nbytes - size;
-	      fix_new_exp (frag_now, p - frag_now->fr_literal + offset, size,
-			   &exp, 0, reloc);
-	    }
-	}
-      else
-	emit_expr (&exp, (unsigned int) nbytes);
-    }
-  while (*input_line_pointer++ == ',');
-
-  /* Put terminator back into stream.  */
-  input_line_pointer--;
-  demand_empty_rest_of_line ();
+    elf_elfheader (stdoutput)->e_flags |= EF_M68000;
 }
 #endif
 
 int
-tc_m68k_regname_to_dw2regnum (char *regname)
+tc_m68k_regname_to_dw2regnum (const char *regname)
 {
   unsigned int regnum;
   static const char *const regnames[] =
