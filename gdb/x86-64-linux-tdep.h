@@ -1,8 +1,9 @@
-/* Builtin registers, for GDB, the GNU debugger.
+/* Target-dependent code for the x86-64.
 
-   Copyright 2002 Free Software Foundation, Inc.
+   Copyright 2003
+   Free Software Foundation, Inc.
 
-   Contributed by Red Hat.
+   Contributed by Michal Ludvig, SuSE AG.
 
    This file is part of GDB.
 
@@ -21,19 +22,18 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#ifndef BUILTIN_REGS_H
-#define BUILTIN_REGS_H
+#ifndef X86_64_LINUX_TDEP_H
+#define X86_64_LINUX_TDEP_H
 
-struct frame_info;
+/* Fill GDB's register array with the general-purpose register values
+   in *GREGSETP.  */
 
-extern int builtin_reg_map_name_to_regnum (const char *str, int len);
+void x86_64_linux_supply_gregset (char *regp);
 
-extern const char *builtin_reg_map_regnum_to_name (int regnum);
+/* Fill register REGNO (if it is a general-purpose register) in
+   *GREGSETPS with the value in GDB's register array.  If REGNO is -1,
+   do this for all registers.  */
 
-extern struct value *value_of_builtin_reg (int regnum,
-					   struct frame_info *frame);
+void x86_64_linux_fill_gregset (char *regp, int regno);
 
-extern void add_builtin_reg (const char *name,
-			     struct value *(value) (struct frame_info * frame));
-
-#endif
+#endif /* x86-64-linux-tdep.h */
