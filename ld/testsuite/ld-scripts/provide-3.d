@@ -1,3 +1,3 @@
-#source: provide-3.s
-#ld: -T provide-3.t
+#source: provide-2.s
+#ld: -T provide-2.t
 #error: symbol defined in linker script and object file
