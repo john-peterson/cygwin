@@ -44,18 +44,3 @@ visibility_func_weak ()
   return 2;
 }
 #endif
-
-#ifndef SHARED
-# ifndef XCOFF_TEST
-int overriddenvar = -1;
-
-int
-shlib_overriddencall2 ()
-{
-  return 7;
-}
-# endif
-# ifdef PROTECTED_TEST
-int shared_data = 100;
-# endif
-#endif
