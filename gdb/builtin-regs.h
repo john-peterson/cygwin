@@ -1,6 +1,8 @@
-/* Main interface for GDB, the GNU debugger.
+/* Builtin registers, for GDB, the GNU debugger.
 
    Copyright 2002 Free Software Foundation, Inc.
+
+   Contributed by Red Hat.
 
    This file is part of GDB.
 
@@ -19,16 +21,17 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#ifndef MAIN_H
-#define MAIN_H
+#ifndef BUILTIN_REGS_H
+#define BUILTIN_REGS_H
 
-struct captured_main_args
-{
-  int argc;
-  char **argv;
-  int use_windows;
-};
+extern int builtin_reg_map_name_to_regnum (const char *str, int len);
 
-extern int gdb_main (struct captured_main_args *);
+extern const char *builtin_reg_map_regnum_to_name (int regnum);
+
+extern struct value *value_of_builtin_reg (int regnum,
+					   struct frame_info *frame);
+
+extern void add_builtin_reg (const char *name,
+			     struct value *(value) (struct frame_info * frame));
 
 #endif
