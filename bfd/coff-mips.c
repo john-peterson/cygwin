@@ -1,29 +1,28 @@
 /* BFD back-end for MIPS Extended-Coff files.
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2011, 2012
+   2000, 2001, 2002, 2003, 2004
    Free Software Foundation, Inc.
    Original version by Per Bothner.
    Full support added by Ian Lance Taylor, ian@cygnus.com.
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "bfdlink.h"
 #include "libbfd.h"
 #include "coff/internal.h"
@@ -35,19 +34,37 @@
 #include "libecoff.h"
 
 /* Prototypes for static functions.  */
-static bfd_reloc_status_type
-mips_generic_reloc
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
-static bfd_reloc_status_type
-mips_refhi_reloc
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
-static bfd_reloc_status_type
-mips_reflo_reloc
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
-static bfd_reloc_status_type
-mips_gprel_reloc
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
 
+static bfd_boolean mips_ecoff_bad_format_hook
+  PARAMS ((bfd *abfd, PTR filehdr));
+static void mips_ecoff_swap_reloc_in
+  PARAMS ((bfd *, PTR, struct internal_reloc *));
+static void mips_ecoff_swap_reloc_out
+  PARAMS ((bfd *, const struct internal_reloc *, PTR));
+static void mips_adjust_reloc_in
+  PARAMS ((bfd *, const struct internal_reloc *, arelent *));
+static void mips_adjust_reloc_out
+  PARAMS ((bfd *, const arelent *, struct internal_reloc *));
+static bfd_reloc_status_type mips_generic_reloc
+  PARAMS ((bfd *abfd, arelent *reloc, asymbol *symbol, PTR data,
+	   asection *section, bfd *output_bfd, char **error));
+static bfd_reloc_status_type mips_refhi_reloc
+  PARAMS ((bfd *abfd, arelent *reloc, asymbol *symbol, PTR data,
+	   asection *section, bfd *output_bfd, char **error));
+static bfd_reloc_status_type mips_reflo_reloc
+  PARAMS ((bfd *abfd, arelent *reloc, asymbol *symbol, PTR data,
+	   asection *section, bfd *output_bfd, char **error));
+static bfd_reloc_status_type mips_gprel_reloc
+  PARAMS ((bfd *abfd, arelent *reloc, asymbol *symbol, PTR data,
+	   asection *section, bfd *output_bfd, char **error));
+static void mips_relocate_hi
+  PARAMS ((struct internal_reloc *refhi, struct internal_reloc *reflo,
+	   bfd *input_bfd, asection *input_section, bfd_byte *contents,
+	   bfd_vma relocation));
+static bfd_boolean mips_relocate_section
+  PARAMS ((bfd *, struct bfd_link_info *, bfd *, asection *, bfd_byte *, PTR));
+static reloc_howto_type *mips_bfd_reloc_type_lookup
+  PARAMS ((bfd *, bfd_reloc_code_real_type));
 
 /* ECOFF has COFF sections, but the debugging information is stored in
    a completely different format.  ECOFF targets use some of the
@@ -61,13 +78,12 @@ mips_gprel_reloc
 #define NO_COFF_RELOCS
 #define NO_COFF_SYMBOLS
 #define NO_COFF_LINENOS
-#define coff_swap_filehdr_in  mips_ecoff_swap_filehdr_in
+#define coff_swap_filehdr_in mips_ecoff_swap_filehdr_in
 #define coff_swap_filehdr_out mips_ecoff_swap_filehdr_out
-#define coff_swap_aouthdr_in  mips_ecoff_swap_aouthdr_in
+#define coff_swap_aouthdr_in mips_ecoff_swap_aouthdr_in
 #define coff_swap_aouthdr_out mips_ecoff_swap_aouthdr_out
-#define coff_swap_scnhdr_in   mips_ecoff_swap_scnhdr_in
-#define coff_swap_scnhdr_out  mips_ecoff_swap_scnhdr_out
-
+#define coff_swap_scnhdr_in mips_ecoff_swap_scnhdr_in
+#define coff_swap_scnhdr_out mips_ecoff_swap_scnhdr_out
 #include "coffswap.h"
 
 /* Get the ECOFF swapping routines.  */
@@ -235,7 +251,9 @@ static reloc_howto_type mips_howto_table[] =
 /* See whether the magic number matches.  */
 
 static bfd_boolean
-mips_ecoff_bad_format_hook (bfd * abfd, void * filehdr)
+mips_ecoff_bad_format_hook (abfd, filehdr)
+     bfd *abfd;
+     PTR filehdr;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
 
@@ -267,9 +285,10 @@ mips_ecoff_bad_format_hook (bfd * abfd, void * filehdr)
 /* Swap a reloc in.  */
 
 static void
-mips_ecoff_swap_reloc_in (bfd *  abfd,
-			  void * ext_ptr,
-			  struct internal_reloc *intern)
+mips_ecoff_swap_reloc_in (abfd, ext_ptr, intern)
+     bfd *abfd;
+     PTR ext_ptr;
+     struct internal_reloc *intern;
 {
   const RELOC *ext = (RELOC *) ext_ptr;
 
@@ -305,9 +324,10 @@ mips_ecoff_swap_reloc_in (bfd *  abfd,
 /* Swap a reloc out.  */
 
 static void
-mips_ecoff_swap_reloc_out (bfd * abfd,
-			   const struct internal_reloc * intern,
-			   void * dst)
+mips_ecoff_swap_reloc_out (abfd, intern, dst)
+     bfd *abfd;
+     const struct internal_reloc *intern;
+     PTR dst;
 {
   RELOC *ext = (RELOC *) dst;
   long r_symndx;
@@ -345,9 +365,10 @@ mips_ecoff_swap_reloc_out (bfd * abfd,
    this backend routine.  It must fill in the howto field.  */
 
 static void
-mips_adjust_reloc_in (bfd *abfd,
-		      const struct internal_reloc *intern,
-		      arelent *rptr)
+mips_adjust_reloc_in (abfd, intern, rptr)
+     bfd *abfd;
+     const struct internal_reloc *intern;
+     arelent *rptr;
 {
   if (intern->r_type > MIPS_R_PCREL16)
     abort ();
@@ -369,9 +390,10 @@ mips_adjust_reloc_in (bfd *abfd,
    are needed for MIPS.  */
 
 static void
-mips_adjust_reloc_out (bfd *abfd ATTRIBUTE_UNUSED,
-		       const arelent *rel ATTRIBUTE_UNUSED,
-		       struct internal_reloc *intern ATTRIBUTE_UNUSED)
+mips_adjust_reloc_out (abfd, rel, intern)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     const arelent *rel ATTRIBUTE_UNUSED;
+     struct internal_reloc *intern ATTRIBUTE_UNUSED;
 {
 }
 
@@ -387,13 +409,20 @@ mips_adjust_reloc_out (bfd *abfd ATTRIBUTE_UNUSED,
    relocatable output against an external symbol.  */
 
 static bfd_reloc_status_type
-mips_generic_reloc (bfd *abfd ATTRIBUTE_UNUSED,
-		    arelent *reloc_entry,
-		    asymbol *symbol,
-		    void * data ATTRIBUTE_UNUSED,
-		    asection *input_section,
-		    bfd *output_bfd,
-		    char **error_message ATTRIBUTE_UNUSED)
+mips_generic_reloc (abfd,
+		    reloc_entry,
+		    symbol,
+		    data,
+		    input_section,
+		    output_bfd,
+		    error_message)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     arelent *reloc_entry;
+     asymbol *symbol;
+     PTR data ATTRIBUTE_UNUSED;
+     asection *input_section;
+     bfd *output_bfd;
+     char **error_message ATTRIBUTE_UNUSED;
 {
   if (output_bfd != (bfd *) NULL
       && (symbol->flags & BSF_SECTION_SYM) == 0
@@ -427,13 +456,20 @@ struct mips_hi
 static struct mips_hi *mips_refhi_list;
 
 static bfd_reloc_status_type
-mips_refhi_reloc (bfd *abfd ATTRIBUTE_UNUSED,
-		  arelent *reloc_entry,
-		  asymbol *symbol,
-		  void * data,
-		  asection *input_section,
-		  bfd *output_bfd,
-		  char **error_message ATTRIBUTE_UNUSED)
+mips_refhi_reloc (abfd,
+		  reloc_entry,
+		  symbol,
+		  data,
+		  input_section,
+		  output_bfd,
+		  error_message)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     arelent *reloc_entry;
+     asymbol *symbol;
+     PTR data;
+     asection *input_section;
+     bfd *output_bfd;
+     char **error_message ATTRIBUTE_UNUSED;
 {
   bfd_reloc_status_type ret;
   bfd_vma relocation;
@@ -486,13 +522,20 @@ mips_refhi_reloc (bfd *abfd ATTRIBUTE_UNUSED,
    relocation described above.  */
 
 static bfd_reloc_status_type
-mips_reflo_reloc (bfd *abfd ATTRIBUTE_UNUSED,
-		  arelent *reloc_entry,
-		  asymbol *symbol,
-		  void * data,
-		  asection *input_section,
-		  bfd *output_bfd,
-		  char **error_message ATTRIBUTE_UNUSED)
+mips_reflo_reloc (abfd,
+		  reloc_entry,
+		  symbol,
+		  data,
+		  input_section,
+		  output_bfd,
+		  error_message)
+     bfd *abfd;
+     arelent *reloc_entry;
+     asymbol *symbol;
+     PTR data;
+     asection *input_section;
+     bfd *output_bfd;
+     char **error_message;
 {
   if (mips_refhi_list != NULL)
     {
@@ -547,13 +590,20 @@ mips_reflo_reloc (bfd *abfd ATTRIBUTE_UNUSED,
    the offset from the gp register.  */
 
 static bfd_reloc_status_type
-mips_gprel_reloc (bfd *abfd ATTRIBUTE_UNUSED,
-		  arelent *reloc_entry,
-		  asymbol *symbol,
-		  void * data,
-		  asection *input_section,
-		  bfd *output_bfd,
-		  char **error_message ATTRIBUTE_UNUSED)
+mips_gprel_reloc (abfd,
+		  reloc_entry,
+		  symbol,
+		  data,
+		  input_section,
+		  output_bfd,
+		  error_message)
+     bfd *abfd;
+     arelent *reloc_entry;
+     asymbol *symbol;
+     PTR data;
+     asection *input_section;
+     bfd *output_bfd;
+     char **error_message;
 {
   bfd_boolean relocatable;
   bfd_vma gp;
@@ -680,8 +730,9 @@ mips_gprel_reloc (bfd *abfd ATTRIBUTE_UNUSED,
 /* Get the howto structure for a generic reloc type.  */
 
 static reloc_howto_type *
-mips_bfd_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			    bfd_reloc_code_real_type code)
+mips_bfd_reloc_type_lookup (abfd, code)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     bfd_reloc_code_real_type code;
 {
   int mips_type;
 
@@ -718,22 +769,6 @@ mips_bfd_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
 
   return &mips_howto_table[mips_type];
 }
-
-static reloc_howto_type *
-mips_bfd_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			    const char *r_name)
-{
-  unsigned int i;
-
-  for (i = 0;
-       i < sizeof (mips_howto_table) / sizeof (mips_howto_table[0]);
-       i++)
-    if (mips_howto_table[i].name != NULL
-	&& strcasecmp (mips_howto_table[i].name, r_name) == 0)
-      return &mips_howto_table[i];
-
-  return NULL;
-}
 
 /* A helper routine for mips_relocate_section which handles the REFHI
    relocations.  The REFHI relocation must be followed by a REFLO
@@ -741,12 +776,14 @@ mips_bfd_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
    instructions.  */
 
 static void
-mips_relocate_hi (struct internal_reloc *refhi,
-		  struct internal_reloc *reflo,
-		  bfd *input_bfd,
-		  asection *input_section,
-		  bfd_byte *contents,
-		  bfd_vma relocation)
+mips_relocate_hi (refhi, reflo, input_bfd, input_section, contents,
+		  relocation)
+     struct internal_reloc *refhi;
+     struct internal_reloc *reflo;
+     bfd *input_bfd;
+     asection *input_section;
+     bfd_byte *contents;
+     bfd_vma relocation;
 {
   unsigned long insn;
   unsigned long val;
@@ -786,12 +823,14 @@ mips_relocate_hi (struct internal_reloc *refhi,
 /* Relocate a section while linking a MIPS ECOFF file.  */
 
 static bfd_boolean
-mips_relocate_section (bfd *output_bfd,
-		       struct bfd_link_info *info,
-		       bfd *input_bfd,
-		       asection *input_section,
-		       bfd_byte *contents,
-		       void * external_relocs)
+mips_relocate_section (output_bfd, info, input_bfd, input_section,
+		       contents, external_relocs)
+     bfd *output_bfd;
+     struct bfd_link_info *info;
+     bfd *input_bfd;
+     asection *input_section;
+     bfd_byte *contents;
+     PTR external_relocs;
 {
   asection **symndx_to_section;
   struct ecoff_link_hash_entry **sym_hashes;
@@ -871,7 +910,7 @@ mips_relocate_section (bfd *output_bfd,
       bfd_reloc_status_type r;
 
       if (! got_lo)
-	mips_ecoff_swap_reloc_in (input_bfd, ext_rel, &int_rel);
+	mips_ecoff_swap_reloc_in (input_bfd, (PTR) ext_rel, &int_rel);
       else
 	{
 	  int_rel = lo_int_rel;
@@ -894,7 +933,7 @@ mips_relocate_section (bfd *output_bfd,
 	       lo_ext_rel < ext_rel_end;
 	       lo_ext_rel++)
 	    {
-	      mips_ecoff_swap_reloc_in (input_bfd, lo_ext_rel,
+	      mips_ecoff_swap_reloc_in (input_bfd, (PTR) lo_ext_rel,
 					&lo_int_rel);
 	      if (lo_int_rel.r_type != int_rel.r_type)
 		break;
@@ -1133,7 +1172,7 @@ mips_relocate_section (bfd *output_bfd,
 			      - input_section->vma);
 
 	  /* Save the changed reloc information.  */
-	  mips_ecoff_swap_reloc_out (input_bfd, &int_rel, ext_rel);
+	  mips_ecoff_swap_reloc_out (input_bfd, &int_rel, (PTR) ext_rel);
 	}
       else
 	{
@@ -1222,12 +1261,12 @@ mips_relocate_section (bfd *output_bfd,
 		const char *name;
 
 		if (int_rel.r_extern)
-		  name = NULL;
+		  name = h->root.root.string;
 		else
 		  name = bfd_section_name (input_bfd, s);
 		if (! ((*info->callbacks->reloc_overflow)
-		       (info, (h ? &h->root : NULL), name, howto->name,
-			(bfd_vma) 0, input_bfd, input_section,
+		       (info, name, howto->name, (bfd_vma) 0,
+			input_bfd, input_section,
 			int_rel.r_vaddr - input_section->vma)))
 		  return FALSE;
 	      }
@@ -1246,24 +1285,23 @@ static const struct ecoff_backend_data mips_ecoff_backend_data =
 {
   /* COFF backend structure.  */
   {
-    (void (*) (bfd *,void *,int,int,int,int,void *)) bfd_void, /* aux_in */
-    (void (*) (bfd *,void *,void *)) bfd_void, /* sym_in */
-    (void (*) (bfd *,void *,void *)) bfd_void, /* lineno_in */
-    (unsigned (*) (bfd *,void *,int,int,int,int,void *)) bfd_void,/*aux_out*/
-    (unsigned (*) (bfd *,void *,void *)) bfd_void, /* sym_out */
-    (unsigned (*) (bfd *,void *,void *)) bfd_void, /* lineno_out */
-    (unsigned (*) (bfd *,void *,void *)) bfd_void, /* reloc_out */
+    (void (*) PARAMS ((bfd *,PTR,int,int,int,int,PTR))) bfd_void, /* aux_in */
+    (void (*) PARAMS ((bfd *,PTR,PTR))) bfd_void, /* sym_in */
+    (void (*) PARAMS ((bfd *,PTR,PTR))) bfd_void, /* lineno_in */
+    (unsigned (*) PARAMS ((bfd *,PTR,int,int,int,int,PTR)))bfd_void,/*aux_out*/
+    (unsigned (*) PARAMS ((bfd *,PTR,PTR))) bfd_void, /* sym_out */
+    (unsigned (*) PARAMS ((bfd *,PTR,PTR))) bfd_void, /* lineno_out */
+    (unsigned (*) PARAMS ((bfd *,PTR,PTR))) bfd_void, /* reloc_out */
     mips_ecoff_swap_filehdr_out, mips_ecoff_swap_aouthdr_out,
     mips_ecoff_swap_scnhdr_out,
-    FILHSZ, AOUTSZ, SCNHSZ, 0, 0, 0, 0, FILNMLEN, TRUE,
-    ECOFF_NO_LONG_SECTION_NAMES, 4, FALSE, 2,
+    FILHSZ, AOUTSZ, SCNHSZ, 0, 0, 0, 0, FILNMLEN, TRUE, FALSE, 4, FALSE, 2,
     mips_ecoff_swap_filehdr_in, mips_ecoff_swap_aouthdr_in,
     mips_ecoff_swap_scnhdr_in, NULL,
     mips_ecoff_bad_format_hook, _bfd_ecoff_set_arch_mach_hook,
     _bfd_ecoff_mkobject_hook, _bfd_ecoff_styp_to_sec_flags,
     _bfd_ecoff_set_alignment_hook, _bfd_ecoff_slurp_symbol_table,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    NULL, NULL, NULL
+    NULL, NULL
   },
   /* Supported architecture.  */
   bfd_arch_mips,
@@ -1337,7 +1375,6 @@ static const struct ecoff_backend_data mips_ecoff_backend_data =
 
 /* Looking up a reloc type is MIPS specific.  */
 #define _bfd_ecoff_bfd_reloc_type_lookup mips_bfd_reloc_type_lookup
-#define _bfd_ecoff_bfd_reloc_name_lookup mips_bfd_reloc_name_lookup
 
 /* Getting relocated section contents is generic.  */
 #define _bfd_ecoff_bfd_get_relocated_section_contents \
@@ -1353,17 +1390,13 @@ static const struct ecoff_backend_data mips_ecoff_backend_data =
 /* GC of sections is not done.  */
 #define _bfd_ecoff_bfd_gc_sections bfd_generic_gc_sections
 
-/* Input section flags is not implemented.  */
-#define _bfd_ecoff_bfd_lookup_section_flags bfd_generic_lookup_section_flags
-
 /* Merging of sections is not done.  */
 #define _bfd_ecoff_bfd_merge_sections bfd_generic_merge_sections
 
 #define _bfd_ecoff_bfd_is_group_section bfd_generic_is_group_section
 #define _bfd_ecoff_bfd_discard_group bfd_generic_discard_group
 #define _bfd_ecoff_section_already_linked \
-  _bfd_coff_section_already_linked
-#define _bfd_ecoff_bfd_define_common_symbol bfd_generic_define_common_symbol
+  _bfd_generic_section_already_linked
 
 extern const bfd_target ecoff_big_vec;
 
@@ -1382,7 +1415,6 @@ const bfd_target ecoff_little_vec =
   0,				/* leading underscore */
   ' ',				/* ar_pad_char */
   15,				/* ar_max_namelen */
-  0,				/* match priority.  */
   bfd_getl64, bfd_getl_signed_64, bfd_putl64,
      bfd_getl32, bfd_getl_signed_32, bfd_putl32,
      bfd_getl16, bfd_getl_signed_16, bfd_putl16, /* data */
@@ -1391,7 +1423,7 @@ const bfd_target ecoff_little_vec =
      bfd_getl16, bfd_getl_signed_16, bfd_putl16, /* hdrs */
 
   {_bfd_dummy_target, coff_object_p, /* bfd_check_format */
-     bfd_generic_archive_p, _bfd_dummy_target},
+     _bfd_ecoff_archive_p, _bfd_dummy_target},
   {bfd_false, _bfd_ecoff_mkobject,  /* bfd_set_format */
      _bfd_generic_mkarchive, bfd_false},
   {bfd_false, _bfd_ecoff_write_object_contents, /* bfd_write_contents */
@@ -1409,7 +1441,7 @@ const bfd_target ecoff_little_vec =
 
   & ecoff_big_vec,
 
-  & mips_ecoff_backend_data
+  (PTR) &mips_ecoff_backend_data
 };
 
 const bfd_target ecoff_big_vec =
@@ -1427,7 +1459,6 @@ const bfd_target ecoff_big_vec =
   0,				/* leading underscore */
   ' ',				/* ar_pad_char */
   15,				/* ar_max_namelen */
-  0,				/* match priority.  */
   bfd_getb64, bfd_getb_signed_64, bfd_putb64,
      bfd_getb32, bfd_getb_signed_32, bfd_putb32,
      bfd_getb16, bfd_getb_signed_16, bfd_putb16,
@@ -1435,7 +1466,7 @@ const bfd_target ecoff_big_vec =
      bfd_getb32, bfd_getb_signed_32, bfd_putb32,
      bfd_getb16, bfd_getb_signed_16, bfd_putb16,
  {_bfd_dummy_target, coff_object_p, /* bfd_check_format */
-    bfd_generic_archive_p, _bfd_dummy_target},
+    _bfd_ecoff_archive_p, _bfd_dummy_target},
  {bfd_false, _bfd_ecoff_mkobject, /* bfd_set_format */
     _bfd_generic_mkarchive, bfd_false},
  {bfd_false, _bfd_ecoff_write_object_contents, /* bfd_write_contents */
@@ -1453,7 +1484,7 @@ const bfd_target ecoff_big_vec =
 
   & ecoff_little_vec,
 
-  & mips_ecoff_backend_data
+  (PTR) &mips_ecoff_backend_data
 };
 
 const bfd_target ecoff_biglittle_vec =
@@ -1471,7 +1502,6 @@ const bfd_target ecoff_biglittle_vec =
   0,				/* leading underscore */
   ' ',				/* ar_pad_char */
   15,				/* ar_max_namelen */
-  0,				/* match priority.  */
   bfd_getl64, bfd_getl_signed_64, bfd_putl64,
      bfd_getl32, bfd_getl_signed_32, bfd_putl32,
      bfd_getl16, bfd_getl_signed_16, bfd_putl16, /* data */
@@ -1480,7 +1510,7 @@ const bfd_target ecoff_biglittle_vec =
      bfd_getb16, bfd_getb_signed_16, bfd_putb16, /* hdrs */
 
   {_bfd_dummy_target, coff_object_p, /* bfd_check_format */
-     bfd_generic_archive_p, _bfd_dummy_target},
+     _bfd_ecoff_archive_p, _bfd_dummy_target},
   {bfd_false, _bfd_ecoff_mkobject,  /* bfd_set_format */
      _bfd_generic_mkarchive, bfd_false},
   {bfd_false, _bfd_ecoff_write_object_contents, /* bfd_write_contents */
@@ -1498,5 +1528,5 @@ const bfd_target ecoff_biglittle_vec =
 
   NULL,
 
-  & mips_ecoff_backend_data
+  (PTR) &mips_ecoff_backend_data
 };

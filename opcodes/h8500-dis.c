@@ -1,30 +1,26 @@
 /* Disassemble h8500 instructions.
-   Copyright 1993, 1998, 2000, 2001, 2002, 2004, 2005, 2007, 2012
-   Free Software Foundation, Inc.
+   Copyright 1993, 1998, 2000, 2001, 2002, 2004 Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
-
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include <stdio.h>
 
 #define DISASSEMBLER_TABLE
 #define DEFINE_TABLE
 
+#include "sysdep.h"
 #include "h8500-opc.h"
 #include "dis-asm.h"
 #include "opintl.h"
@@ -33,6 +29,8 @@
 #define MAXLEN 8
 
 #include <setjmp.h>
+
+static int fetch_data PARAMS ((struct disassemble_info *, bfd_byte *));
 
 struct private
 {
@@ -51,7 +49,9 @@ struct private
    ? 1 : fetch_data ((info), (addr)))
 
 static int
-fetch_data (struct disassemble_info *info, bfd_byte *addr)
+fetch_data (info, addr)
+     struct disassemble_info *info;
+     bfd_byte *addr;
 {
   int status;
   struct private *priv = (struct private *) info->private_data;
@@ -74,11 +74,14 @@ fetch_data (struct disassemble_info *info, bfd_byte *addr)
 static char *crname[] = { "sr", "ccr", "*", "br", "ep", "dp", "*", "tp" };
 
 int
-print_insn_h8500 (bfd_vma addr, disassemble_info *info)
+print_insn_h8500 (addr, info)
+     bfd_vma addr;
+     disassemble_info *info;
 {
   const h8500_opcode_info *opcode;
   void *stream = info->stream;
   fprintf_ftype func = info->fprintf_func;
+
   struct private priv;
   bfd_byte *buffer = priv.the_buffer;
 
@@ -89,6 +92,21 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
     /* Error return.  */
     return -1;
 
+  if (0)
+    {
+      static int one;
+
+      if (!one)
+	{
+	  one = 1;
+	  for (opcode = h8500_table; opcode->name; opcode++)
+	    {
+	      if ((opcode->bytes[0].contents & 0x8) == 0)
+		printf ("%s\n", opcode->name);
+	    }
+	}
+    }
+
   /* Run down the table to find the one which matches.  */
   for (opcode = h8500_table; opcode->name; opcode++)
     {
@@ -97,7 +115,7 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
       int rd = 0;
       int rs = 0;
       int disp = 0;
-      int abs_val = 0;
+      int abs = 0;
       int imm = 0;
       int pcrel = 0;
       int qim = 0;
@@ -109,8 +127,9 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
 	  FETCH_DATA (info, buffer + byte + 1);
 	  if ((buffer[byte] & opcode->bytes[byte].mask)
 	      != (opcode->bytes[byte].contents))
-	    goto next;
-
+	    {
+	      goto next;
+	    }
 	  else
 	    {
 	      /* Extract any info parts.  */
@@ -154,17 +173,17 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
 		  break;
 		case ABS24:
 		  FETCH_DATA (info, buffer + byte + 3);
-		  abs_val =
+		  abs =
 		    (buffer[byte] << 16)
 		    | (buffer[byte + 1] << 8)
 		    | (buffer[byte + 2]);
 		  break;
 		case ABS16:
 		  FETCH_DATA (info, buffer + byte + 2);
-		  abs_val = (buffer[byte] << 8) | (buffer[byte + 1]);
+		  abs = (buffer[byte] << 8) | (buffer[byte + 1]);
 		  break;
 		case ABS8:
-		  abs_val = (buffer[byte]);
+		  abs = (buffer[byte]);
 		  break;
 		case IMM16:
 		  FETCH_DATA (info, buffer + byte + 2);
@@ -231,7 +250,7 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
 	      func (stream, "@(0x%x:8 (%d), r%d)", disp & 0xff, disp, rd);
 	      break;
 	    case FPIND_D8:
-	      func (stream, "@(0x%x:8 (%d), fp)", disp & 0xff, disp);
+	      func (stream, "@(0x%x:8 (%d), fp)", disp & 0xff, disp, rn);
 	      break;
 	    case CRB:
 	    case CRW:
@@ -265,28 +284,27 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
 	      func (stream, "@-sp");
 	      break;
 	    case ABS24:
-	      func (stream, "@0x%0x:24", abs_val);
+	      func (stream, "@0x%0x:24", abs);
 	      break;
 	    case ABS16:
-	      func (stream, "@0x%0x:16", abs_val & 0xffff);
+	      func (stream, "@0x%0x:16", abs & 0xffff);
 	      break;
 	    case ABS8:
-	      func (stream, "@0x%0x:8", abs_val & 0xff);
+	      func (stream, "@0x%0x:8", abs & 0xff);
 	      break;
 	    case IMM16:
 	      func (stream, "#0x%0x:16", imm & 0xffff);
 	      break;
 	    case RLIST:
 	      {
-		int j;
+		int i;
 		int nc = 0;
-
 		func (stream, "(");
-		for (j = 0; j < 8; j++)
+		for (i = 0; i < 8; i++)
 		  {
-		    if (imm & (1 << j))
+		    if (imm & (1 << i))
 		      {
-			func (stream, "r%d", j);
+			func (stream, "r%d", i);
 			if (nc)
 			  func (stream, ",");
 			nc = 1;
@@ -300,11 +318,11 @@ print_insn_h8500 (bfd_vma addr, disassemble_info *info)
 	      break;
 	    case PCREL16:
 	      func (stream, "0x%0x:16",
-		    (int)(pcrel + addr + opcode->length) & 0xffff);
+		    (pcrel + addr + opcode->length) & 0xffff);
 	      break;
 	    case PCREL8:
 	      func (stream, "#0x%0x:8",
-		    (int)((char) pcrel + addr + opcode->length) & 0xffff);
+		    ((char) pcrel + addr + opcode->length) & 0xffff);
 	      break;
 	    case QIM:
 	      func (stream, "#%d:q", qim);

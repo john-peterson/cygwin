@@ -1,13 +1,13 @@
 /* BFD support for the ARM processor
-   Copyright 1994, 1997, 1999, 2000, 2002, 2003, 2004, 2005, 2006, 2007,
-   2009, 2010 Free Software Foundation, Inc.
+   Copyright 1994, 1997, 1999, 2000, 2002, 2003, 2004
+   Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rwe@pegasus.esprit.ec.org)
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,20 +17,28 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "libiberty.h"
+
+static const bfd_arch_info_type * compatible
+  PARAMS ((const bfd_arch_info_type *, const bfd_arch_info_type *));
+static bfd_boolean scan
+  PARAMS ((const struct bfd_arch_info *, const char *));
+static bfd_boolean arm_check_note
+  PARAMS ((bfd *, char *, bfd_size_type, const char *, char **));
 
 /* This routine is provided two arch_infos and works out which ARM
    machine which would be compatible with both and returns a pointer
    to its info structure.  */
 
 static const bfd_arch_info_type *
-compatible (const bfd_arch_info_type *a, const bfd_arch_info_type *b)
+compatible (a,b)
+     const bfd_arch_info_type * a;
+     const bfd_arch_info_type * b;
 {
   /* If a & b are for different architecture we can do nothing.  */
   if (a->arch != b->arch)
@@ -93,12 +101,13 @@ processors[] =
   { bfd_mach_arm_4,  "strongarm1100" },
   { bfd_mach_arm_XScale, "xscale" },
   { bfd_mach_arm_ep9312, "ep9312" },
-  { bfd_mach_arm_iWMMXt, "iwmmxt" },
-  { bfd_mach_arm_iWMMXt2, "iwmmxt2" }
+  { bfd_mach_arm_iWMMXt, "iwmmxt" }
 };
 
 static bfd_boolean
-scan (const struct bfd_arch_info *info, const char *string)
+scan (info, string)
+     const struct bfd_arch_info * info;
+     const char * string;
 {
   int  i;
 
@@ -124,8 +133,7 @@ scan (const struct bfd_arch_info *info, const char *string)
 }
 
 #define N(number, print, default, next)  \
-{  32, 32, 8, bfd_arch_arm, number, "arm", print, 4, default, compatible, \
-   scan, bfd_arch_default_fill, next }
+{  32, 32, 8, bfd_arch_arm, number, "arm", print, 4, default, compatible, scan, next }
 
 static const bfd_arch_info_type arch_info_struct[] =
 {
@@ -140,8 +148,7 @@ static const bfd_arch_info_type arch_info_struct[] =
   N (bfd_mach_arm_5TE,    "armv5te", FALSE, & arch_info_struct[9]),
   N (bfd_mach_arm_XScale, "xscale",  FALSE, & arch_info_struct[10]),
   N (bfd_mach_arm_ep9312, "ep9312",  FALSE, & arch_info_struct[11]),
-  N (bfd_mach_arm_iWMMXt, "iwmmxt",  FALSE, & arch_info_struct[12]),
-  N (bfd_mach_arm_iWMMXt2, "iwmmxt2", FALSE, NULL)
+  N (bfd_mach_arm_iWMMXt,"iwmmxt",  FALSE, NULL)
 };
 
 const bfd_arch_info_type bfd_arm_arch =
@@ -155,7 +162,9 @@ const bfd_arch_info_type bfd_arm_arch =
    Returns TRUE if they were merged successfully or FALSE otherwise.  */
 
 bfd_boolean
-bfd_arm_merge_machines (bfd *ibfd, bfd *obfd)
+bfd_arm_merge_machines (ibfd, obfd)
+     bfd * ibfd;
+     bfd * obfd;
 {
   unsigned int in  = bfd_get_mach (ibfd);
   unsigned int out = bfd_get_mach (obfd);
@@ -183,23 +192,19 @@ bfd_arm_merge_machines (bfd *ibfd, bfd *obfd)
      Intel XScale binary, since these architecture have co-processors which
      will not both be present on the same physical hardware.  */
   else if (in == bfd_mach_arm_ep9312
-	   && (out == bfd_mach_arm_XScale
-	       || out == bfd_mach_arm_iWMMXt
-	       || out == bfd_mach_arm_iWMMXt2))
+	   && (out == bfd_mach_arm_XScale || out == bfd_mach_arm_iWMMXt))
     {
       _bfd_error_handler (_("\
-error: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
+ERROR: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
 			  ibfd, obfd);
       bfd_set_error (bfd_error_wrong_format);
       return FALSE;
     }
   else if (out == bfd_mach_arm_ep9312
-	   && (in == bfd_mach_arm_XScale
-	       || in == bfd_mach_arm_iWMMXt
-	       || in == bfd_mach_arm_iWMMXt2))
+	   && (in == bfd_mach_arm_XScale || in == bfd_mach_arm_iWMMXt))
     {
       _bfd_error_handler (_("\
-error: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
+ERROR: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
 			  obfd, ibfd);
       bfd_set_error (bfd_error_wrong_format);
       return FALSE;
@@ -221,11 +226,12 @@ typedef struct
 } arm_Note;
 
 static bfd_boolean
-arm_check_note (bfd *abfd,
-		bfd_byte *buffer,
-		bfd_size_type buffer_size,
-		const char *expected_name,
-		char **description_return)
+arm_check_note (abfd, buffer, buffer_size, expected_name, description_return)
+     bfd *           abfd;
+     char *          buffer;
+     bfd_size_type   buffer_size;
+     const char *    expected_name;
+     char **         description_return;
 {
   unsigned long namesz;
   unsigned long descsz;
@@ -240,7 +246,7 @@ arm_check_note (bfd *abfd,
   namesz = bfd_get_32 (abfd, buffer);
   descsz = bfd_get_32 (abfd, buffer + offsetof (arm_Note, descsz));
   type   = bfd_get_32 (abfd, buffer + offsetof (arm_Note, type));
-  descr  = (char *) buffer + offsetof (arm_Note, name);
+  descr  = buffer + offsetof (arm_Note, name);
 
   /* Check for buffer overflow.  */
   if (namesz + descsz + offsetof (arm_Note, name) > buffer_size)
@@ -252,10 +258,10 @@ arm_check_note (bfd *abfd,
 	return FALSE;
     }
   else
-    {
+    { 
       if (namesz != ((strlen (expected_name) + 1 + 3) & ~3))
 	return FALSE;
-
+      
       if (strcmp (descr, expected_name) != 0)
 	return FALSE;
 
@@ -263,7 +269,6 @@ arm_check_note (bfd *abfd,
     }
 
   /* FIXME: We should probably check the type as well.  */
-  (void) type;
 
   if (description_return != NULL)
     * description_return = descr;
@@ -274,7 +279,9 @@ arm_check_note (bfd *abfd,
 #define NOTE_ARCH_STRING 	"arch: "
 
 bfd_boolean
-bfd_arm_update_notes (bfd *abfd, const char *note_section)
+bfd_arm_update_notes (abfd, note_section)
+     bfd * abfd;
+     const char * note_section;
 {
   asection *     arm_arch_section;
   bfd_size_type  buffer_size;
@@ -318,14 +325,11 @@ bfd_arm_update_notes (bfd *abfd, const char *note_section)
     case bfd_mach_arm_XScale:  expected = "XScale"; break;
     case bfd_mach_arm_ep9312:  expected = "ep9312"; break;
     case bfd_mach_arm_iWMMXt:  expected = "iWMMXt"; break;
-    case bfd_mach_arm_iWMMXt2: expected = "iWMMXt2"; break;
     }
 
   if (strcmp (arch_string, expected) != 0)
     {
-      strcpy ((char *) buffer + (offsetof (arm_Note, name)
-				 + ((strlen (NOTE_ARCH_STRING) + 3) & ~3)),
-	      expected);
+      strcpy (buffer + offsetof (arm_Note, name) + ((strlen (NOTE_ARCH_STRING) + 3) & ~3), expected);
 
       if (! bfd_set_section_contents (abfd, arm_arch_section, buffer,
 				      (file_ptr) 0, buffer_size))
@@ -365,13 +369,14 @@ architectures[] =
   { "armv5te", bfd_mach_arm_5TE },
   { "XScale",  bfd_mach_arm_XScale },
   { "ep9312",  bfd_mach_arm_ep9312 },
-  { "iWMMXt",  bfd_mach_arm_iWMMXt },
-  { "iWMMXt2", bfd_mach_arm_iWMMXt2 }
+  { "iWMMXt",  bfd_mach_arm_iWMMXt }
 };
 
 /* Extract the machine number stored in a note section.  */
 unsigned int
-bfd_arm_get_mach_from_notes (bfd *abfd, const char *note_section)
+bfd_arm_get_mach_from_notes (abfd, note_section)
+     bfd * abfd;
+     const char * note_section;
 {
   asection *     arm_arch_section;
   bfd_size_type  buffer_size;
@@ -411,24 +416,3 @@ bfd_arm_get_mach_from_notes (bfd *abfd, const char *note_section)
     free (buffer);
   return bfd_mach_arm_unknown;
 }
-
-bfd_boolean
-bfd_is_arm_special_symbol_name (const char * name, int type)
-{
-  /* The ARM compiler outputs several obsolete forms.  Recognize them
-     in addition to the standard $a, $t and $d.  We are somewhat loose
-     in what we accept here, since the full set is not documented.  */
-  if (!name || name[0] != '$')
-    return FALSE;
-  if (name[1] == 'a' || name[1] == 't' || name[1] == 'd')
-    type &= BFD_ARM_SPECIAL_SYM_TYPE_MAP;
-  else if (name[1] == 'm' || name[1] == 'f' || name[1] == 'p')
-    type &= BFD_ARM_SPECIAL_SYM_TYPE_TAG;
-  else if (name[1] >= 'a' && name[1] <= 'z')
-    type &= BFD_ARM_SPECIAL_SYM_TYPE_OTHER;
-  else
-    return FALSE;
-
-  return (type != 0 && (name[2] == 0 || name[2] == '.'));
-}
-

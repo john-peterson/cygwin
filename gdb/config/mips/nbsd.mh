@@ -1,2 +1,4 @@
-# Host: NetBSD/mips
-NATDEPFILES= fork-child.o inf-ptrace.o mipsnbsd-nat.o
+# Host: MIPS running NetBSD
+NAT_CLIBS=
+NATDEPFILES= infptrace.o inftarg.o fork-child.o mipsnbsd-nat.o
+NAT_FILE= config/nm-nbsd.h

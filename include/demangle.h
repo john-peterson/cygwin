@@ -1,30 +1,21 @@
 /* Defs for interface to demanglers.
    Copyright 1992, 1993, 1994, 1995, 1996, 1997, 1998, 2000, 2001, 2002,
-   2003, 2004, 2005, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+   2003, 2004 Free Software Foundation, Inc.
    
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU Library General Public License
-   as published by the Free Software Foundation; either version 2, or
-   (at your option) any later version.
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2, or (at your option)
+   any later version.
 
-   In addition to the permissions in the GNU Library General Public
-   License, the Free Software Foundation gives you unlimited
-   permission to link the compiled version of this file into
-   combinations with other programs, and to distribute those
-   combinations without any restriction coming from the use of this
-   file.  (The Library Public License restrictions do apply in other
-   respects; for example, they cover modification of the file, and
-   distribution when not linked into a combined executable.)
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
-   This program is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   Library General Public License for more details.
-
-   You should have received a copy of the GNU Library General Public
-   License along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #if !defined (DEMANGLE_H)
@@ -44,14 +35,6 @@ extern "C" {
 #define DMGL_JAVA	 (1 << 2)	/* Demangle as Java rather than C++. */
 #define DMGL_VERBOSE	 (1 << 3)	/* Include implementation details.  */
 #define DMGL_TYPES	 (1 << 4)	/* Also try to demangle type encodings.  */
-#define DMGL_RET_POSTFIX (1 << 5)       /* Print function return types (when
-					   present) after function signature.
-					   It applies only to the toplevel
-					   function type.  */
-#define DMGL_RET_DROP	 (1 << 6)       /* Suppress printing function return
-					   types, even if present.  It applies
-					   only to the toplevel function type.
-					   */
 
 #define DMGL_AUTO	 (1 << 8)
 #define DMGL_GNU	 (1 << 9)
@@ -127,53 +110,37 @@ extern const struct demangler_engine
 } libiberty_demanglers[];
 
 extern char *
-cplus_demangle (const char *mangled, int options);
+cplus_demangle PARAMS ((const char *mangled, int options));
 
 extern int
-cplus_demangle_opname (const char *opname, char *result, int options);
+cplus_demangle_opname PARAMS ((const char *opname, char *result, int options));
 
 extern const char *
-cplus_mangle_opname (const char *opname, int options);
+cplus_mangle_opname PARAMS ((const char *opname, int options));
 
 /* Note: This sets global state.  FIXME if you care about multi-threading. */
 
 extern void
-set_cplus_marker_for_demangling (int ch);
+set_cplus_marker_for_demangling PARAMS ((int ch));
 
 extern enum demangling_styles 
-cplus_demangle_set_style (enum demangling_styles style);
+cplus_demangle_set_style PARAMS ((enum demangling_styles style));
 
 extern enum demangling_styles 
-cplus_demangle_name_to_style (const char *name);
+cplus_demangle_name_to_style PARAMS ((const char *name));
 
-/* Callback typedef for allocation-less demangler interfaces. */
-typedef void (*demangle_callbackref) (const char *, size_t, void *);
-
-/* V3 ABI demangling entry points, defined in cp-demangle.c.  Callback
-   variants return non-zero on success, zero on error.  char* variants
-   return a string allocated by malloc on success, NULL on error.  */
-extern int
-cplus_demangle_v3_callback (const char *mangled, int options,
-                            demangle_callbackref callback, void *opaque);
+/* V3 ABI demangling entry points, defined in cp-demangle.c.  */
+extern char*
+cplus_demangle_v3 PARAMS ((const char* mangled, int options));
 
 extern char*
-cplus_demangle_v3 (const char *mangled, int options);
+java_demangle_v3 PARAMS ((const char* mangled));
 
-extern int
-java_demangle_v3_callback (const char *mangled,
-                           demangle_callbackref callback, void *opaque);
-
-extern char*
-java_demangle_v3 (const char *mangled);
-
-char *
-ada_demangle (const char *mangled, int options);
 
 enum gnu_v3_ctor_kinds {
   gnu_v3_complete_object_ctor = 1,
   gnu_v3_base_object_ctor,
-  gnu_v3_complete_object_allocating_ctor,
-  gnu_v3_object_ctor_group
+  gnu_v3_complete_object_allocating_ctor
 };
 
 /* Return non-zero iff NAME is the mangled form of a constructor name
@@ -181,14 +148,13 @@ enum gnu_v3_ctor_kinds {
    gnu_v3_ctor_kinds' value indicating what kind of constructor
    it is.  */
 extern enum gnu_v3_ctor_kinds
-	is_gnu_v3_mangled_ctor (const char *name);
+	is_gnu_v3_mangled_ctor PARAMS ((const char *name));
 
 
 enum gnu_v3_dtor_kinds {
   gnu_v3_deleting_dtor = 1,
   gnu_v3_complete_object_dtor,
-  gnu_v3_base_object_dtor,
-  gnu_v3_object_dtor_group
+  gnu_v3_base_object_dtor
 };
 
 /* Return non-zero iff NAME is the mangled form of a destructor name
@@ -196,7 +162,7 @@ enum gnu_v3_dtor_kinds {
    gnu_v3_dtor_kinds' value, indicating what kind of destructor
    it is.  */
 extern enum gnu_v3_dtor_kinds
-	is_gnu_v3_mangled_dtor (const char *name);
+	is_gnu_v3_mangled_dtor PARAMS ((const char *name));
 
 /* The V3 demangler works in two passes.  The first pass builds a tree
    representation of the mangled name, and the second pass turns the
@@ -232,8 +198,6 @@ enum demangle_component_type
   /* A template parameter.  This holds a number, which is the template
      parameter index.  */
   DEMANGLE_COMPONENT_TEMPLATE_PARAM,
-  /* A function parameter.  This holds a number, which is the index.  */
-  DEMANGLE_COMPONENT_FUNCTION_PARAM,
   /* A constructor.  This holds a name and the kind of
      constructor.  */
   DEMANGLE_COMPONENT_CTOR,
@@ -272,15 +236,9 @@ enum demangle_component_type
   /* A guard variable.  This has one subtree, the name for which this
      is a guard variable.  */
   DEMANGLE_COMPONENT_GUARD,
-  /* The init and wrapper functions for C++11 thread_local variables.  */
-  DEMANGLE_COMPONENT_TLS_INIT,
-  DEMANGLE_COMPONENT_TLS_WRAPPER,
   /* A reference temporary.  This has one subtree, the name for which
      this is a temporary.  */
   DEMANGLE_COMPONENT_REFTEMP,
-  /* A hidden alias.  This has one subtree, the encoding for which it
-     is providing alternative linkage.  */
-  DEMANGLE_COMPONENT_HIDDEN_ALIAS,
   /* A standard substitution.  This holds the name of the
      substitution.  */
   DEMANGLE_COMPONENT_SUB_STD,
@@ -312,9 +270,6 @@ enum demangle_component_type
   /* A reference.  The one subtree is the type which is being
      referenced.  */
   DEMANGLE_COMPONENT_REFERENCE,
-  /* C++0x: An rvalue reference.  The one subtree is the type which is
-     being referenced.  */
-  DEMANGLE_COMPONENT_RVALUE_REFERENCE,
   /* A complex type.  The one subtree is the base type.  */
   DEMANGLE_COMPONENT_COMPLEX,
   /* An imaginary type.  The one subtree is the base type.  */
@@ -335,11 +290,6 @@ enum demangle_component_type
      and the right subtree is the member type.  CV-qualifiers appear
      on the latter.  */
   DEMANGLE_COMPONENT_PTRMEM_TYPE,
-  /* A fixed-point type.  */
-  DEMANGLE_COMPONENT_FIXED_TYPE,
-  /* A vector type.  The left subtree is the number of elements,
-     the right subtree is the element type.  */
-  DEMANGLE_COMPONENT_VECTOR_TYPE,
   /* An argument list.  The left subtree is the current argument, and
      the right subtree is either NULL or another ARGLIST node.  */
   DEMANGLE_COMPONENT_ARGLIST,
@@ -347,9 +297,6 @@ enum demangle_component_type
      template argument, and the right subtree is either NULL or
      another TEMPLATE_ARGLIST node.  */
   DEMANGLE_COMPONENT_TEMPLATE_ARGLIST,
-  /* An initializer list.  The left subtree is either an explicit type or
-     NULL, and the right subtree is a DEMANGLE_COMPONENT_ARGLIST.  */
-  DEMANGLE_COMPONENT_INITIALIZER_LIST,
   /* An operator.  This holds information about a standard
      operator.  */
   DEMANGLE_COMPONENT_OPERATOR,
@@ -359,8 +306,6 @@ enum demangle_component_type
   /* A typecast, represented as a unary operator.  The one subtree is
      the type to which the argument should be cast.  */
   DEMANGLE_COMPONENT_CAST,
-  /* A nullary expression.  The left subtree is the operator.  */
-  DEMANGLE_COMPONENT_NULLARY,
   /* A unary expression.  The left subtree is the operator, and the
      right subtree is the single argument.  */
   DEMANGLE_COMPONENT_UNARY,
@@ -388,42 +333,7 @@ enum demangle_component_type
      using 'n' instead of '-', we want a way to indicate a negative
      number which involves neither modifying the mangled string nor
      allocating a new copy of the literal in memory.  */
-  DEMANGLE_COMPONENT_LITERAL_NEG,
-  /* A libgcj compiled resource.  The left subtree is the name of the
-     resource.  */
-  DEMANGLE_COMPONENT_JAVA_RESOURCE,
-  /* A name formed by the concatenation of two parts.  The left
-     subtree is the first part and the right subtree the second.  */
-  DEMANGLE_COMPONENT_COMPOUND_NAME,
-  /* A name formed by a single character.  */
-  DEMANGLE_COMPONENT_CHARACTER,
-  /* A number.  */
-  DEMANGLE_COMPONENT_NUMBER,
-  /* A decltype type.  */
-  DEMANGLE_COMPONENT_DECLTYPE,
-  /* Global constructors keyed to name.  */
-  DEMANGLE_COMPONENT_GLOBAL_CONSTRUCTORS,
-  /* Global destructors keyed to name.  */
-  DEMANGLE_COMPONENT_GLOBAL_DESTRUCTORS,
-  /* A lambda closure type.  */
-  DEMANGLE_COMPONENT_LAMBDA,
-  /* A default argument scope.  */
-  DEMANGLE_COMPONENT_DEFAULT_ARG,
-  /* An unnamed type.  */
-  DEMANGLE_COMPONENT_UNNAMED_TYPE,
-  /* A transactional clone.  This has one subtree, the encoding for
-     which it is providing alternative linkage.  */
-  DEMANGLE_COMPONENT_TRANSACTION_CLONE,
-  /* A non-transactional clone entry point.  In the i386/x86_64 abi,
-     the unmangled symbol of a tm_callable becomes a thunk and the
-     non-transactional function version is mangled thus.  */
-  DEMANGLE_COMPONENT_NONTRANSACTION_CLONE,
-  /* A pack expansion.  */
-  DEMANGLE_COMPONENT_PACK_EXPANSION,
-  /* A name with an ABI tag.  */
-  DEMANGLE_COMPONENT_TAGGED_NAME,
-  /* A cloned function.  */
-  DEMANGLE_COMPONENT_CLONE
+  DEMANGLE_COMPONENT_LITERAL_NEG
 };
 
 /* Types which are only used internally.  */
@@ -468,17 +378,6 @@ struct demangle_component
       struct demangle_component *name;
     } s_extended_operator;
 
-    /* For DEMANGLE_COMPONENT_FIXED_TYPE.  */
-    struct
-    {
-      /* The length, indicated by a C integer type name.  */
-      struct demangle_component *length;
-      /* _Accum or _Fract?  */
-      short accum;
-      /* Saturating or not?  */
-      short sat;
-    } s_fixed;
-
     /* For DEMANGLE_COMPONENT_CTOR.  */
     struct
     {
@@ -513,18 +412,12 @@ struct demangle_component
       int len;
     } s_string;
 
-    /* For DEMANGLE_COMPONENT_*_PARAM.  */
+    /* For DEMANGLE_COMPONENT_TEMPLATE_PARAM.  */
     struct
     {
-      /* Parameter index.  */
+      /* Template parameter index.  */
       long number;
     } s_number;
-
-    /* For DEMANGLE_COMPONENT_CHARACTER.  */
-    struct
-    {
-      int character;
-    } s_character;
 
     /* For other types.  */
     struct
@@ -534,14 +427,6 @@ struct demangle_component
       /* Right subtree.  */
       struct demangle_component *right;
     } s_binary;
-
-    struct
-    {
-      /* subtree, same place as d_left.  */
-      struct demangle_component *sub;
-      /* integer.  */
-      int num;
-    } s_unary_num;
 
   } u;
 };
@@ -555,25 +440,25 @@ struct demangle_component
    unrecognized or inappropriate component type.  */
 
 extern int
-cplus_demangle_fill_component (struct demangle_component *fill,
-                               enum demangle_component_type,
-                               struct demangle_component *left,
-                               struct demangle_component *right);
+cplus_demangle_fill_component PARAMS ((struct demangle_component *fill,
+				       enum demangle_component_type,
+				       struct demangle_component *left,
+				       struct demangle_component *right));
 
 /* Fill in a DEMANGLE_COMPONENT_NAME.  Returns non-zero on success,
    zero for bad arguments.  */
 
 extern int
-cplus_demangle_fill_name (struct demangle_component *fill,
-                          const char *, int);
+cplus_demangle_fill_name PARAMS ((struct demangle_component *fill,
+				  const char *, int));
 
 /* Fill in a DEMANGLE_COMPONENT_BUILTIN_TYPE, using the name of the
    builtin type (e.g., "int", etc.).  Returns non-zero on success,
    zero if the type is not recognized.  */
 
 extern int
-cplus_demangle_fill_builtin_type (struct demangle_component *fill,
-                                  const char *type_name);
+cplus_demangle_fill_builtin_type PARAMS ((struct demangle_component *fill,
+					  const char *type_name));
 
 /* Fill in a DEMANGLE_COMPONENT_OPERATOR, using the name of the
    operator and the number of arguments which it takes (the latter is
@@ -582,33 +467,33 @@ cplus_demangle_fill_builtin_type (struct demangle_component *fill,
    not recognized.  */
 
 extern int
-cplus_demangle_fill_operator (struct demangle_component *fill,
-                              const char *opname, int args);
+cplus_demangle_fill_operator PARAMS ((struct demangle_component *fill,
+				      const char *opname, int args));
 
 /* Fill in a DEMANGLE_COMPONENT_EXTENDED_OPERATOR, providing the
    number of arguments and the name.  Returns non-zero on success,
    zero for bad arguments.  */
 
 extern int
-cplus_demangle_fill_extended_operator (struct demangle_component *fill,
-                                       int numargs,
-                                       struct demangle_component *nm);
+cplus_demangle_fill_extended_operator PARAMS ((struct demangle_component *fill,
+					       int numargs,
+					       struct demangle_component *nm));
 
 /* Fill in a DEMANGLE_COMPONENT_CTOR.  Returns non-zero on success,
    zero for bad arguments.  */
 
 extern int
-cplus_demangle_fill_ctor (struct demangle_component *fill,
-                          enum gnu_v3_ctor_kinds kind,
-                          struct demangle_component *name);
+cplus_demangle_fill_ctor PARAMS ((struct demangle_component *fill,
+				  enum gnu_v3_ctor_kinds kind,
+				  struct demangle_component *name));
 
 /* Fill in a DEMANGLE_COMPONENT_DTOR.  Returns non-zero on success,
    zero for bad arguments.  */
 
 extern int
-cplus_demangle_fill_dtor (struct demangle_component *fill,
-                          enum gnu_v3_dtor_kinds kind,
-                          struct demangle_component *name);
+cplus_demangle_fill_dtor PARAMS ((struct demangle_component *fill,
+				  enum gnu_v3_dtor_kinds kind,
+				  struct demangle_component *name));
 
 /* This function translates a mangled name into a struct
    demangle_component tree.  The first argument is the mangled name.
@@ -619,7 +504,9 @@ cplus_demangle_fill_dtor (struct demangle_component *fill,
    needed.  */
 
 extern struct demangle_component *
-cplus_demangle_v3_components (const char *mangled, int options, void **mem);
+cplus_demangle_v3_components PARAMS ((const char *mangled,
+				      int options,
+				      void **mem));
 
 /* This function takes a struct demangle_component tree and returns
    the corresponding demangled string.  The first argument is DMGL_*
@@ -634,29 +521,10 @@ cplus_demangle_v3_components (const char *mangled, int options, void **mem);
    memory allocation error.  */
 
 extern char *
-cplus_demangle_print (int options,
-                      const struct demangle_component *tree,
-                      int estimated_length,
-                      size_t *p_allocated_size);
-
-/* This function takes a struct demangle_component tree and passes back
-   a demangled string in one or more calls to a callback function.
-   The first argument is DMGL_* options.  The second is the tree to
-   demangle.  The third is a pointer to a callback function; on each call
-   this receives an element of the demangled string, its length, and an
-   opaque value.  The fourth is the opaque value passed to the callback.
-   The callback is called once or more to return the full demangled
-   string.  The demangled element string is always nul-terminated, though
-   its length is also provided for convenience.  In contrast to
-   cplus_demangle_print(), this function does not allocate heap memory
-   to grow output strings (except perhaps where alloca() is implemented
-   by malloc()), and so is normally safe for use where the heap has been
-   corrupted.  On success, this function returns 1; on failure, 0.  */
-
-extern int
-cplus_demangle_print_callback (int options,
-                               const struct demangle_component *tree,
-                               demangle_callbackref callback, void *opaque);
+cplus_demangle_print PARAMS ((int options,
+			      const struct demangle_component *tree,
+			      int estimated_length,
+			      size_t *p_allocated_size));
 
 #ifdef __cplusplus
 }

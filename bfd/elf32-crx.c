@@ -1,13 +1,12 @@
 /* BFD back-end for National Semiconductor's CRX ELF
-   Copyright 2004, 2005, 2006, 2007, 2009, 2010, 2012
-   Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
    Written by Tomer Levi, NSC, Israel.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,11 +16,10 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "bfdlink.h"
 #include "libbfd.h"
 #include "elf-bfd.h"
@@ -32,7 +30,7 @@ static reloc_howto_type *elf_crx_reloc_type_lookup
 static void elf_crx_info_to_howto
   (bfd *, arelent *, Elf_Internal_Rela *);
 static bfd_boolean elf32_crx_relax_delete_bytes
-  (struct bfd_link_info *, bfd *, asection *, bfd_vma, int);
+  (bfd *, asection *, bfd_vma, int);
 static bfd_reloc_status_type crx_elf_final_link_relocate
   (reloc_howto_type *, bfd *, bfd *, asection *,
    bfd_byte *, bfd_vma, bfd_vma, bfd_vma,
@@ -40,6 +38,12 @@ static bfd_reloc_status_type crx_elf_final_link_relocate
 static bfd_boolean elf32_crx_relocate_section
   (bfd *, struct bfd_link_info *, bfd *, asection *, bfd_byte *,
    Elf_Internal_Rela *, Elf_Internal_Sym *, asection **);
+static asection * elf32_crx_gc_mark_hook
+  (asection *, struct bfd_link_info *, Elf_Internal_Rela *,
+   struct elf_link_hash_entry *, Elf_Internal_Sym *);
+static bfd_boolean elf32_crx_gc_sweep_hook
+  (bfd *, struct bfd_link_info *, asection *,
+   const Elf_Internal_Rela *);
 static bfd_boolean elf32_crx_relax_section
   (bfd *, asection *, struct bfd_link_info *, bfd_boolean *);
 static bfd_byte * elf32_crx_get_relocated_section_contents
@@ -105,7 +109,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL4",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xf,			/* src_mask */
 	 0xf,			/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -119,7 +123,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL8",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xff,			/* src_mask */
 	 0xff,			/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -133,7 +137,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL8_CMP",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xff,			/* src_mask */
 	 0xff,			/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -147,7 +151,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL16",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffff,		/* src_mask */
 	 0xffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -161,7 +165,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL24",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffffff,		/* src_mask */
 	 0xffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -175,7 +179,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REL32",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -189,7 +193,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REGREL12",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xfff,			/* src_mask */
 	 0xfff,			/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -203,7 +207,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REGREL22",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0x3fffff,		/* src_mask */
 	 0x3fffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -217,7 +221,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REGREL28",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xfffffff,		/* src_mask */
 	 0xfffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -231,7 +235,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_REGREL32",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -245,7 +249,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_ABS16",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffff,		/* src_mask */
 	 0xffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -259,7 +263,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_ABS32",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -273,7 +277,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_NUM8",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,	  		/* src_mask */
+	 0xff,	  		/* src_mask */
 	 0xff,			/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -287,7 +291,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_NUM16",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,	  		/* src_mask */
+	 0xffff,  		/* src_mask */
 	 0xffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -301,7 +305,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_NUM32",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,	  		/* src_mask */
+	 0xffffffff,  		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -315,7 +319,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_IMM16",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0, 	 		/* src_mask */
+	 0xffff,  		/* src_mask */
 	 0xffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
 
@@ -329,10 +333,10 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_IMM32",		/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,  			/* src_mask */
+	 0xffffffff,  		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 FALSE),		/* pcrel_offset */
-
+ 
   /* An 8 bit switch table entry.  This is generated for an expression
      such as ``.byte L1 - L2''.  The offset holds the difference
      between the reloc address and L2.  */
@@ -346,7 +350,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_SWITCH8",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xff,			/* src_mask */
 	 0xff,			/* dst_mask */
 	 TRUE),			/* pcrel_offset */
 
@@ -363,7 +367,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_SWITCH16",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffff,		/* src_mask */
 	 0xffff,		/* dst_mask */
 	 TRUE),			/* pcrel_offset */
 
@@ -380,7 +384,7 @@ static reloc_howto_type crx_elf_howto_table[] =
 	 bfd_elf_generic_reloc,	/* special_function */
 	 "R_CRX_SWITCH32",	/* name */
 	 FALSE,			/* partial_inplace */
-	 0x0,			/* src_mask */
+	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 TRUE)			/* pcrel_offset */
 };
@@ -399,22 +403,6 @@ elf_crx_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
 
   printf ("This relocation Type is not supported -0x%x\n", code);
   return 0;
-}
-
-static reloc_howto_type *
-elf_crx_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			   const char *r_name)
-{
-  unsigned int i;
-
-  for (i = 0;
-       i < sizeof (crx_elf_howto_table) / sizeof (crx_elf_howto_table[0]);
-       i++)
-    if (crx_elf_howto_table[i].name != NULL
-	&& strcasecmp (crx_elf_howto_table[i].name, r_name) == 0)
-      return &crx_elf_howto_table[i];
-
-  return NULL;
 }
 
 /* Retrieve a howto ptr using an internal relocation entry.  */
@@ -475,10 +463,10 @@ crx_elf_final_link_relocate (reloc_howto_type *howto, bfd *input_bfd,
      case R_CRX_SWITCH8:
      case R_CRX_SWITCH16:
      case R_CRX_SWITCH32:
-       /* We only care about the addend, where the difference between
+       /* We only care about the addend, where the difference between 
 	  expressions is kept.  */
        Rvalue = 0;
-
+       
      default:
        break;
     }
@@ -585,25 +573,29 @@ crx_elf_final_link_relocate (reloc_howto_type *howto, bfd *input_bfd,
 /* Delete some bytes from a section while relaxing.  */
 
 static bfd_boolean
-elf32_crx_relax_delete_bytes (struct bfd_link_info *link_info, bfd *abfd,
-			      asection *sec, bfd_vma addr, int count)
+elf32_crx_relax_delete_bytes (bfd *abfd, asection *sec,
+			      bfd_vma addr, int count)
 {
   Elf_Internal_Shdr *symtab_hdr;
   unsigned int sec_shndx;
   bfd_byte *contents;
   Elf_Internal_Rela *irel, *irelend;
+  Elf_Internal_Rela *irelalign;
   bfd_vma toaddr;
   Elf_Internal_Sym *isym;
   Elf_Internal_Sym *isymend;
   struct elf_link_hash_entry **sym_hashes;
   struct elf_link_hash_entry **end_hashes;
-  struct elf_link_hash_entry **start_hashes;
   unsigned int symcount;
 
   sec_shndx = _bfd_elf_section_from_bfd_section (abfd, sec);
 
   contents = elf_section_data (sec)->this_hdr.contents;
 
+  /* The deletion must stop at the next ALIGN reloc for an aligment
+     power larger than the number of bytes we are deleting.  */
+
+  irelalign = NULL;
   toaddr = sec->size;
 
   irel = elf_section_data (sec)->relocs;
@@ -632,7 +624,7 @@ elf32_crx_relax_delete_bytes (struct bfd_link_info *link_info, bfd *abfd,
 	  && isym->st_value > addr
 	  && isym->st_value < toaddr)
 	{
-	  /* Adjust the addend of SWITCH relocations in this section,
+	  /* Adjust the addend of SWITCH relocations in this section, 
 	     which reference this local symbol.  */
 	  for (irel = elf_section_data (sec)->relocs; irel < irelend; irel++)
 	    {
@@ -670,37 +662,12 @@ elf32_crx_relax_delete_bytes (struct bfd_link_info *link_info, bfd *abfd,
   /* Now adjust the global symbols defined in this section.  */
   symcount = (symtab_hdr->sh_size / sizeof (Elf32_External_Sym)
 	      - symtab_hdr->sh_info);
-  sym_hashes = start_hashes = elf_sym_hashes (abfd);
+  sym_hashes = elf_sym_hashes (abfd);
   end_hashes = sym_hashes + symcount;
 
   for (; sym_hashes < end_hashes; sym_hashes++)
     {
       struct elf_link_hash_entry *sym_hash = *sym_hashes;
-
-      /* The '--wrap SYMBOL' option is causing a pain when the object file,
-	 containing the definition of __wrap_SYMBOL, includes a direct
-	 call to SYMBOL as well. Since both __wrap_SYMBOL and SYMBOL reference
-	 the same symbol (which is __wrap_SYMBOL), but still exist as two
-	 different symbols in 'sym_hashes', we don't want to adjust
-	 the global symbol __wrap_SYMBOL twice.
-	 This check is only relevant when symbols are being wrapped.  */
-      if (link_info->wrap_hash != NULL)
-	{
-	  struct elf_link_hash_entry **cur_sym_hashes;
-
-	  /* Loop only over the symbols whom been already checked.  */
-	  for (cur_sym_hashes = start_hashes; cur_sym_hashes < sym_hashes;
-	       cur_sym_hashes++)
-	    {
-	      /* If the current symbol is identical to 'sym_hash', that means
-		 the symbol was already adjusted (or at least checked).  */
-	      if (*cur_sym_hashes == sym_hash)
-		break;
-	    }
-	  /* Don't adjust the symbol again.  */
-	  if (cur_sym_hashes < sym_hashes)
-	    continue;
-	}
 
       if ((sym_hash->root.type == bfd_link_hash_defined
 	   || sym_hash->root.type == bfd_link_hash_defweak)
@@ -754,7 +721,7 @@ elf32_crx_get_relocated_section_contents (bfd *output_bfd,
       bfd_size_type amt;
 
       internal_relocs = (_bfd_elf_link_read_relocs
-			 (input_bfd, input_section, NULL,
+			 (input_bfd, input_section, (PTR) NULL,
 			  (Elf_Internal_Rela *) NULL, FALSE));
       if (internal_relocs == NULL)
 	goto error_return;
@@ -834,6 +801,9 @@ elf32_crx_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
   struct elf_link_hash_entry **sym_hashes;
   Elf_Internal_Rela *rel, *relend;
 
+  if (info->relocatable)
+    return TRUE;
+
   symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
   sym_hashes = elf_sym_hashes (input_bfd);
 
@@ -873,13 +843,6 @@ elf32_crx_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 				   unresolved_reloc, warned);
 	}
 
-      if (sec != NULL && discarded_section (sec))
-	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					 rel, 1, relend, howto, 0, contents);
-
-      if (info->relocatable)
-	continue;
-
       r = crx_elf_final_link_relocate (howto, input_bfd, output_bfd,
 					input_section,
 					contents, rel->r_offset,
@@ -905,9 +868,8 @@ elf32_crx_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	     case bfd_reloc_overflow:
 	       if (!((*info->callbacks->reloc_overflow)
-		     (info, (h ? &h->root : NULL), name, howto->name,
-		      (bfd_vma) 0, input_bfd, input_section,
-		      rel->r_offset)))
+		     (info, name, howto->name, (bfd_vma) 0,
+		      input_bfd, input_section, rel->r_offset)))
 		 return FALSE;
 	       break;
 
@@ -984,7 +946,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 
   /* Get a copy of the native relocations.  */
   internal_relocs = (_bfd_elf_link_read_relocs
-		     (abfd, sec, NULL, (Elf_Internal_Rela *) NULL,
+		     (abfd, sec, (PTR) NULL, (Elf_Internal_Rela *) NULL,
 		      link_info->keep_memory));
   if (internal_relocs == NULL)
     goto error_return;
@@ -1115,7 +1077,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 					   R_CRX_REL16);
 
 	      /* Delete two bytes of data.  */
-	      if (!elf32_crx_relax_delete_bytes (link_info, abfd, sec,
+	      if (!elf32_crx_relax_delete_bytes (abfd, sec,
 						   irel->r_offset + 2, 2))
 		goto error_return;
 
@@ -1160,7 +1122,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 					   R_CRX_REL8);
 
 	      /* Delete two bytes of data.  */
-	      if (!elf32_crx_relax_delete_bytes (link_info, abfd, sec,
+	      if (!elf32_crx_relax_delete_bytes (abfd, sec,
 						   irel->r_offset + 2, 2))
 		goto error_return;
 
@@ -1194,9 +1156,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 	      /* Verify it's a 'cmp&branch' opcode.  */
 	      if ((code & 0xfff0) != 0x3180 && (code & 0xfff0) != 0x3190
 	       && (code & 0xfff0) != 0x31a0 && (code & 0xfff0) != 0x31c0
-	       && (code & 0xfff0) != 0x31d0 && (code & 0xfff0) != 0x31e0
-	       /* Or a Co-processor branch ('bcop').  */
-	       && (code & 0xfff0) != 0x3010 && (code & 0xfff0) != 0x3110)
+	       && (code & 0xfff0) != 0x31d0 && (code & 0xfff0) != 0x31e0)
 		continue;
 
 	      /* Note that we've changed the relocs, section contents, etc.  */
@@ -1212,7 +1172,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 					   R_CRX_REL8_CMP);
 
 	      /* Delete two bytes of data.  */
-	      if (!elf32_crx_relax_delete_bytes (link_info, abfd, sec,
+	      if (!elf32_crx_relax_delete_bytes (abfd, sec,
 						   irel->r_offset + 4, 2))
 		goto error_return;
 
@@ -1253,7 +1213,7 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 					   R_CRX_IMM16);
 
 	      /* Delete two bytes of data.  */
-	      if (!elf32_crx_relax_delete_bytes (link_info, abfd, sec,
+	      if (!elf32_crx_relax_delete_bytes (abfd, sec,
 						   irel->r_offset + 2, 2))
 		goto error_return;
 
@@ -1308,6 +1268,42 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
   return FALSE;
 }
 
+static asection *
+elf32_crx_gc_mark_hook (asection *sec,
+			struct bfd_link_info *info ATTRIBUTE_UNUSED,
+			Elf_Internal_Rela *rel ATTRIBUTE_UNUSED,
+			struct elf_link_hash_entry *h,
+			Elf_Internal_Sym *sym)
+{
+  if (h == NULL)
+    return bfd_section_from_elf_index (sec->owner, sym->st_shndx);
+
+  switch (h->root.type)
+    {
+    case bfd_link_hash_defined:
+    case bfd_link_hash_defweak:
+      return h->root.u.def.section;
+
+    case bfd_link_hash_common:
+      return h->root.u.c.p->section;
+
+    default:
+      return NULL;
+    }
+}
+
+/* Update the got entry reference counts for the section being removed.  */
+
+static bfd_boolean
+elf32_crx_gc_sweep_hook (bfd *abfd ATTRIBUTE_UNUSED,
+			 struct bfd_link_info *info ATTRIBUTE_UNUSED,
+			 asection *sec ATTRIBUTE_UNUSED,
+			 const Elf_Internal_Rela *relocs ATTRIBUTE_UNUSED)
+{
+  /* We don't support garbage collection of GOT and PLT relocs yet.  */
+  return TRUE;
+}
+
 /* Definitions for setting CRX target vector.  */
 #define TARGET_LITTLE_SYM		bfd_elf32_crx_vec
 #define TARGET_LITTLE_NAME		"elf32-crx"
@@ -1317,14 +1313,14 @@ elf32_crx_relax_section (bfd *abfd, asection *sec,
 #define elf_symbol_leading_char		'_'
 
 #define bfd_elf32_bfd_reloc_type_lookup	elf_crx_reloc_type_lookup
-#define bfd_elf32_bfd_reloc_name_lookup \
-					elf_crx_reloc_name_lookup
 #define elf_info_to_howto		elf_crx_info_to_howto
 #define elf_info_to_howto_rel		0
 #define elf_backend_relocate_section	elf32_crx_relocate_section
 #define bfd_elf32_bfd_relax_section	elf32_crx_relax_section
 #define bfd_elf32_bfd_get_relocated_section_contents \
 				elf32_crx_get_relocated_section_contents
+#define elf_backend_gc_mark_hook        elf32_crx_gc_mark_hook
+#define elf_backend_gc_sweep_hook       elf32_crx_gc_sweep_hook
 #define elf_backend_can_gc_sections     1
 #define elf_backend_rela_normal		1
 

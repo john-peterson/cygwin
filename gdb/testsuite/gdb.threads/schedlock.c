@@ -1,10 +1,10 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002, 2003, 2004 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -13,7 +13,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include <stdio.h>
 #include <unistd.h>
@@ -22,7 +24,7 @@
 
 void *thread_function(void *arg); /* Pointer to function executed by each thread */
 
-#define NUM 1
+#define NUM 5
 
 unsigned int args[NUM+1];
 
@@ -32,18 +34,18 @@ int main() {
     void *thread_result;
     long i;
 
-    for (i = 1; i <= NUM; i++)
+    for (i = 0; i < NUM; i++)
       {
 	args[i] = 1;
-	res = pthread_create(&threads[i - 1],
+	res = pthread_create(&threads[i],
 		             NULL,
 			     thread_function,
 			     (void *) i);
       }
 
     /* schedlock.exp: last thread start.  */
-    args[0] = 1;
-    thread_function ((void *) 0);
+    args[i] = 1;
+    thread_function ((void *) i);
 
     exit(EXIT_SUCCESS);
 }

@@ -1,7 +1,6 @@
 /* Generic ECOFF (Extended-COFF) routines.
    Copyright 1990, 1991, 1993, 1994, 1995, 1996, 1998, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   2002, 2003, 2004 Free Software Foundation, Inc.
    Original version by Per Bothner.
    Full support added by Ian Lance Taylor, ian@cygnus.com.
 
@@ -9,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -19,14 +18,14 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "bfdlink.h"
 #include "libbfd.h"
 #include "aout/ar.h"
+#include "aout/ranlib.h"
 #include "aout/stab_gnu.h"
 
 /* FIXME: We need the definitions of N_SET[ADTB], but aout64.h defines
@@ -44,47 +43,72 @@
 #include "coff/ecoff.h"
 #include "libcoff.h"
 #include "libecoff.h"
-#include "libiberty.h"
+
+/* Prototypes for static functions.  */
 
-#define streq(a, b)	(strcmp ((a), (b)) == 0)
-#define strneq(a, b, n)	(strncmp ((a), (b), (n)) == 0)
-
+static int ecoff_get_magic
+  PARAMS ((bfd *));
+static long ecoff_sec_to_styp_flags
+  PARAMS ((const char *, flagword));
+static bfd_boolean ecoff_slurp_symbolic_header
+  PARAMS ((bfd *));
+static bfd_boolean ecoff_set_symbol_info
+  PARAMS ((bfd *, SYMR *, asymbol *, int, int));
+static void ecoff_emit_aggregate
+  PARAMS ((bfd *, FDR *, char *, RNDXR *, long, const char *));
+static char *ecoff_type_to_string
+  PARAMS ((bfd *, FDR *, unsigned int));
+static bfd_boolean ecoff_slurp_reloc_table
+  PARAMS ((bfd *, asection *, asymbol **));
+static int ecoff_sort_hdrs
+  PARAMS ((const PTR, const PTR));
+static bfd_boolean ecoff_compute_section_file_positions
+  PARAMS ((bfd *));
+static bfd_size_type ecoff_compute_reloc_file_positions
+  PARAMS ((bfd *));
+static bfd_boolean ecoff_get_extr
+  PARAMS ((asymbol *, EXTR *));
+static void ecoff_set_index
+  PARAMS ((asymbol *, bfd_size_type));
+static unsigned int ecoff_armap_hash
+  PARAMS ((const char *, unsigned int *, unsigned int, unsigned int));
 
 /* This stuff is somewhat copied from coffcode.h.  */
 static asection bfd_debug_section =
 {
-  /* name,      id,  index, next, prev, flags, user_set_vma,       */
-     "*DEBUG*", 0,   0,     NULL, NULL, 0,     0,
-  /* linker_mark, linker_has_input, gc_mark, compress_status,      */
-     0,           0,                1,       0,
-  /* segment_mark, sec_info_type, use_rela_p,                      */
-     0,            0,             0,
-  /* sec_flg0, sec_flg1, sec_flg2, sec_flg3, sec_flg4, sec_flg5,   */
-     0,        0,        0,        0,        0,        0,
-  /* vma, lma, size, rawsize, compressed_size, relax, relax_count, */
-     0,   0,   0,    0,       0,               0,     0,
+  /* name,      id,  index, next, flags, user_set_vma,             */
+     "*DEBUG*", 0,   0,     NULL, 0,     0,
+  /* linker_mark, linker_has_input, gc_mark, segment_mark,         */
+     0,           0,                0,       0,
+  /* sec_info_type, use_rela_p, has_tls_reloc, has_gp_reloc,       */
+     0,		    0,		0,	       0,
+  /* need_finalize_relax, reloc_done,                              */
+     0,			  0,
+  /* vma, lma, size, rawsize,                                      */
+     0,   0,   0,    0,
   /* output_offset, output_section, alignment_power,               */
      0,             NULL,           0,
   /* relocation, orelocation, reloc_count, filepos, rel_filepos,   */
      NULL,       NULL,        0,           0,       0,
   /* line_filepos, userdata, contents, lineno, lineno_count,       */
      0,            NULL,     NULL,     NULL,   0,
-  /* entsize, kept_section, moving_line_filepos,                   */
+  /* entsize, kept_section, moving_line_filepos,	           */
      0,       NULL,         0,
   /* target_index, used_by_bfd, constructor_chain, owner,          */
      0,            NULL,        NULL,              NULL,
   /* symbol,                                                       */
-     NULL,
+     (struct bfd_symbol *) NULL,
   /* symbol_ptr_ptr,                                               */
-     NULL,
-  /* map_head, map_tail                                            */
-     { NULL }, { NULL }
+     (struct bfd_symbol **) NULL,
+  /* link_order_head, link_order_tail                              */
+     NULL,            NULL
 };
 
 /* Create an ECOFF object.  */
 
 bfd_boolean
-_bfd_ecoff_mkobject (bfd *abfd)
+_bfd_ecoff_mkobject (abfd)
+     bfd *abfd;
 {
   bfd_size_type amt = sizeof (ecoff_data_type);
 
@@ -98,8 +122,11 @@ _bfd_ecoff_mkobject (bfd *abfd)
 /* This is a hook called by coff_real_object_p to create any backend
    specific information.  */
 
-void *
-_bfd_ecoff_mkobject_hook (bfd *abfd, void * filehdr, void * aouthdr)
+PTR
+_bfd_ecoff_mkobject_hook (abfd, filehdr, aouthdr)
+     bfd *abfd;
+     PTR filehdr;
+     PTR aouthdr;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
   struct internal_aouthdr *internal_a = (struct internal_aouthdr *) aouthdr;
@@ -112,7 +139,7 @@ _bfd_ecoff_mkobject_hook (bfd *abfd, void * filehdr, void * aouthdr)
   ecoff->gp_size = 8;
   ecoff->sym_filepos = internal_f->f_symptr;
 
-  if (internal_a != NULL)
+  if (internal_a != (struct internal_aouthdr *) NULL)
     {
       int i;
 
@@ -135,53 +162,43 @@ _bfd_ecoff_mkobject_hook (bfd *abfd, void * filehdr, void * aouthdr)
      fprmask) and let the swapping routines ensure that only relevant
      information is written out.  */
 
-  return (void *) ecoff;
+  return (PTR) ecoff;
 }
 
 /* Initialize a new section.  */
 
 bfd_boolean
-_bfd_ecoff_new_section_hook (bfd *abfd, asection *section)
+_bfd_ecoff_new_section_hook (abfd, section)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     asection *section;
 {
-  unsigned int i;
-  static struct
-  {
-    const char * name;
-    flagword flags;
-  }
-  section_flags [] =
-  {
-    { _TEXT,   SEC_ALLOC | SEC_CODE | SEC_LOAD },
-    { _INIT,   SEC_ALLOC | SEC_CODE | SEC_LOAD },
-    { _FINI,   SEC_ALLOC | SEC_CODE | SEC_LOAD },
-    { _DATA,   SEC_ALLOC | SEC_DATA | SEC_LOAD },
-    { _SDATA,  SEC_ALLOC | SEC_DATA | SEC_LOAD },
-    { _RDATA,  SEC_ALLOC | SEC_DATA | SEC_LOAD | SEC_READONLY},
-    { _LIT8,   SEC_ALLOC | SEC_DATA | SEC_LOAD | SEC_READONLY},
-    { _LIT4,   SEC_ALLOC | SEC_DATA | SEC_LOAD | SEC_READONLY},
-    { _RCONST, SEC_ALLOC | SEC_DATA | SEC_LOAD | SEC_READONLY},
-    { _PDATA,  SEC_ALLOC | SEC_DATA | SEC_LOAD | SEC_READONLY},
-    { _BSS,    SEC_ALLOC},
-    { _SBSS,   SEC_ALLOC},
-    /* An Irix 4 shared libary.  */
-    { _LIB,    SEC_COFF_SHARED_LIBRARY}
-  };
-
   section->alignment_power = 4;
 
-  for (i = 0; i < ARRAY_SIZE (section_flags); i++)
-    if (streq (section->name, section_flags[i].name))
-      {
-	section->flags |= section_flags[i].flags;
-	break;
-      }
-
+  if (strcmp (section->name, _TEXT) == 0
+      || strcmp (section->name, _INIT) == 0
+      || strcmp (section->name, _FINI) == 0)
+    section->flags |= SEC_CODE | SEC_LOAD | SEC_ALLOC;
+  else if (strcmp (section->name, _DATA) == 0
+	   || strcmp (section->name, _SDATA) == 0)
+    section->flags |= SEC_DATA | SEC_LOAD | SEC_ALLOC;
+  else if (strcmp (section->name, _RDATA) == 0
+	   || strcmp (section->name, _LIT8) == 0
+	   || strcmp (section->name, _LIT4) == 0
+	   || strcmp (section->name, _RCONST) == 0
+	   || strcmp (section->name, _PDATA) == 0)
+    section->flags |= SEC_DATA | SEC_LOAD | SEC_ALLOC | SEC_READONLY;
+  else if (strcmp (section->name, _BSS) == 0
+	   || strcmp (section->name, _SBSS) == 0)
+    section->flags |= SEC_ALLOC;
+  else if (strcmp (section->name, _LIB) == 0)
+    /* An Irix 4 shared libary.  */
+    section->flags |= SEC_COFF_SHARED_LIBRARY;
 
   /* Probably any other section name is SEC_NEVER_LOAD, but I'm
      uncertain about .init on some systems and I don't know how shared
      libraries work.  */
 
-  return _bfd_generic_new_section_hook (abfd, section);
+  return TRUE;
 }
 
 /* Determine the machine architecture and type.  This is called from
@@ -190,7 +207,9 @@ _bfd_ecoff_new_section_hook (bfd *abfd, asection *section)
    for each target, but there aren't all that many ECOFF targets.  */
 
 bfd_boolean
-_bfd_ecoff_set_arch_mach_hook (bfd *abfd, void * filehdr)
+_bfd_ecoff_set_arch_mach_hook (abfd, filehdr)
+     bfd *abfd;
+     PTR filehdr;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
   enum bfd_architecture arch;
@@ -233,19 +252,12 @@ _bfd_ecoff_set_arch_mach_hook (bfd *abfd, void * filehdr)
   return bfd_default_set_arch_mach (abfd, arch, mach);
 }
 
-bfd_boolean
-_bfd_ecoff_no_long_sections (bfd *abfd, int enable)
-{
-  (void) abfd;
-  (void) enable;
-  return FALSE;
-}
-
 /* Get the magic number to use based on the architecture and machine.
    This is the inverse of _bfd_ecoff_set_arch_mach_hook, above.  */
 
 static int
-ecoff_get_magic (bfd *abfd)
+ecoff_get_magic (abfd)
+     bfd *abfd;
 {
   int big, little;
 
@@ -286,67 +298,75 @@ ecoff_get_magic (bfd *abfd)
 /* Get the section s_flags to use for a section.  */
 
 static long
-ecoff_sec_to_styp_flags (const char *name, flagword flags)
+ecoff_sec_to_styp_flags (name, flags)
+     const char *name;
+     flagword flags;
 {
-  unsigned int i;
-  static struct
-  {
-    const char * name;
-    long flags;
-  }
-  styp_flags [] =
-  {
-    { _TEXT,    STYP_TEXT       },
-    { _DATA,    STYP_DATA       },
-    { _SDATA,   STYP_SDATA      },
-    { _RDATA,   STYP_RDATA      },
-    { _LITA,    STYP_LITA       },
-    { _LIT8,    STYP_LIT8       },
-    { _LIT4,    STYP_LIT4       },
-    { _BSS,     STYP_BSS        },
-    { _SBSS,    STYP_SBSS       },
-    { _INIT,    STYP_ECOFF_INIT },
-    { _FINI,    STYP_ECOFF_FINI },
-    { _PDATA,   STYP_PDATA      },
-    { _XDATA,   STYP_XDATA      },
-    { _LIB,     STYP_ECOFF_LIB  },
-    { _GOT,     STYP_GOT        },
-    { _HASH,    STYP_HASH       },
-    { _DYNAMIC, STYP_DYNAMIC    },
-    { _LIBLIST, STYP_LIBLIST    },
-    { _RELDYN,  STYP_RELDYN     },
-    { _CONFLIC, STYP_CONFLIC    },
-    { _DYNSTR,  STYP_DYNSTR     },
-    { _DYNSYM,  STYP_DYNSYM     },
-    { _RCONST,  STYP_RCONST     }
-  };
-  long styp = 0;
+  long styp;
 
-  for (i = 0; i < ARRAY_SIZE (styp_flags); i++)
-    if (streq (name, styp_flags[i].name))
-      {
-	styp = styp_flags[i].flags;
-	break;
-      }
+  styp = 0;
 
-  if (styp == 0)
+  if (strcmp (name, _TEXT) == 0)
+    styp = STYP_TEXT;
+  else if (strcmp (name, _DATA) == 0)
+    styp = STYP_DATA;
+  else if (strcmp (name, _SDATA) == 0)
+    styp = STYP_SDATA;
+  else if (strcmp (name, _RDATA) == 0)
+    styp = STYP_RDATA;
+  else if (strcmp (name, _LITA) == 0)
+    styp = STYP_LITA;
+  else if (strcmp (name, _LIT8) == 0)
+    styp = STYP_LIT8;
+  else if (strcmp (name, _LIT4) == 0)
+    styp = STYP_LIT4;
+  else if (strcmp (name, _BSS) == 0)
+    styp = STYP_BSS;
+  else if (strcmp (name, _SBSS) == 0)
+    styp = STYP_SBSS;
+  else if (strcmp (name, _INIT) == 0)
+    styp = STYP_ECOFF_INIT;
+  else if (strcmp (name, _FINI) == 0)
+    styp = STYP_ECOFF_FINI;
+  else if (strcmp (name, _PDATA) == 0)
+    styp = STYP_PDATA;
+  else if (strcmp (name, _XDATA) == 0)
+    styp = STYP_XDATA;
+  else if (strcmp (name, _LIB) == 0)
+    styp = STYP_ECOFF_LIB;
+  else if (strcmp (name, _GOT) == 0)
+    styp = STYP_GOT;
+  else if (strcmp (name, _HASH) == 0)
+    styp = STYP_HASH;
+  else if (strcmp (name, _DYNAMIC) == 0)
+    styp = STYP_DYNAMIC;
+  else if (strcmp (name, _LIBLIST) == 0)
+    styp = STYP_LIBLIST;
+  else if (strcmp (name, _RELDYN) == 0)
+    styp = STYP_RELDYN;
+  else if (strcmp (name, _CONFLIC) == 0)
+    styp = STYP_CONFLIC;
+  else if (strcmp (name, _DYNSTR) == 0)
+    styp = STYP_DYNSTR;
+  else if (strcmp (name, _DYNSYM) == 0)
+    styp = STYP_DYNSYM;
+  else if (strcmp (name, _COMMENT) == 0)
     {
-      if (streq (name, _COMMENT))
-	{
-	  styp = STYP_COMMENT;
-	  flags &=~ SEC_NEVER_LOAD;
-	}
-      else if (flags & SEC_CODE)
-	styp = STYP_TEXT;
-      else if (flags & SEC_DATA)
-	styp = STYP_DATA;
-      else if (flags & SEC_READONLY)
-	styp = STYP_RDATA;
-      else if (flags & SEC_LOAD)
-	styp = STYP_REG;
-      else
-	styp = STYP_BSS;
+      styp = STYP_COMMENT;
+      flags &=~ SEC_NEVER_LOAD;
     }
+  else if (strcmp (name, _RCONST) == 0)
+    styp = STYP_RCONST;
+  else if (flags & SEC_CODE)
+    styp = STYP_TEXT;
+  else if (flags & SEC_DATA)
+    styp = STYP_DATA;
+  else if (flags & SEC_READONLY)
+    styp = STYP_RDATA;
+  else if (flags & SEC_LOAD)
+    styp = STYP_REG;
+  else
+    styp = STYP_BSS;
 
   if (flags & SEC_NEVER_LOAD)
     styp |= STYP_NOLOAD;
@@ -357,11 +377,12 @@ ecoff_sec_to_styp_flags (const char *name, flagword flags)
 /* Get the BFD flags to use for a section.  */
 
 bfd_boolean
-_bfd_ecoff_styp_to_sec_flags (bfd *abfd ATTRIBUTE_UNUSED,
-			      void * hdr,
-			      const char *name ATTRIBUTE_UNUSED,
-			      asection *section ATTRIBUTE_UNUSED,
-			      flagword * flags_ptr)
+_bfd_ecoff_styp_to_sec_flags (abfd, hdr, name, section, flags_ptr)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     PTR hdr;
+     const char *name ATTRIBUTE_UNUSED;
+     asection *section ATTRIBUTE_UNUSED;
+     flagword * flags_ptr;
 {
   struct internal_scnhdr *internal_s = (struct internal_scnhdr *) hdr;
   long styp_flags = internal_s->s_flags;
@@ -426,11 +447,12 @@ _bfd_ecoff_styp_to_sec_flags (bfd *abfd ATTRIBUTE_UNUSED,
 /* Read in the symbolic header for an ECOFF object file.  */
 
 static bfd_boolean
-ecoff_slurp_symbolic_header (bfd *abfd)
+ecoff_slurp_symbolic_header (abfd)
+     bfd *abfd;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
   bfd_size_type external_hdr_size;
-  void * raw = NULL;
+  PTR raw = NULL;
   HDRR *internal_symhdr;
 
   /* See if we've already read it in.  */
@@ -457,7 +479,7 @@ ecoff_slurp_symbolic_header (bfd *abfd)
     }
 
   /* Read the symbolic information header.  */
-  raw = bfd_malloc (external_hdr_size);
+  raw = (PTR) bfd_malloc (external_hdr_size);
   if (raw == NULL)
     goto error_return;
 
@@ -491,15 +513,16 @@ ecoff_slurp_symbolic_header (bfd *abfd)
    point in the backend structure.  */
 
 bfd_boolean
-_bfd_ecoff_slurp_symbolic_info (bfd *abfd,
-				asection *ignore ATTRIBUTE_UNUSED,
-				struct ecoff_debug_info *debug)
+_bfd_ecoff_slurp_symbolic_info (abfd, ignore, debug)
+     bfd *abfd;
+     asection *ignore ATTRIBUTE_UNUSED;
+     struct ecoff_debug_info *debug;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
   HDRR *internal_symhdr;
   bfd_size_type raw_base;
   bfd_size_type raw_size;
-  void * raw;
+  PTR raw;
   bfd_size_type external_fdr_size;
   char *fraw_src;
   char *fraw_end;
@@ -513,7 +536,7 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
 
   /* Check whether we've already gotten it, and whether there's any to
      get.  */
-  if (ecoff_data (abfd)->raw_syments != NULL)
+  if (ecoff_data (abfd)->raw_syments != (PTR) NULL)
     return TRUE;
   if (ecoff_data (abfd)->sym_filepos == 0)
     {
@@ -547,7 +570,7 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
   UPDATE_RAW_END (cbPdOffset, ipdMax, backend->debug_swap.external_pdr_size);
   UPDATE_RAW_END (cbSymOffset, isymMax, backend->debug_swap.external_sym_size);
   /* eraxxon@alumni.rice.edu: ioptMax refers to the size of the
-     optimization symtab, not the number of entries.  */
+     optimization symtab, not the number of entries */
   UPDATE_RAW_END (cbOptOffset, ioptMax, sizeof (char));
   UPDATE_RAW_END (cbAuxOffset, iauxMax, sizeof (union aux_ext));
   UPDATE_RAW_END (cbSsOffset, issMax, sizeof (char));
@@ -564,7 +587,7 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
       ecoff_data (abfd)->sym_filepos = 0;
       return TRUE;
     }
-  raw = bfd_alloc (abfd, raw_size);
+  raw = (PTR) bfd_alloc (abfd, raw_size);
   if (raw == NULL)
     return FALSE;
 
@@ -580,25 +603,25 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
   ecoff_data (abfd)->raw_syments = raw;
 
   /* Get pointers for the numeric offsets in the HDRR structure.  */
-#define FIX(off1, off2, type)				\
-  if (internal_symhdr->off1 == 0)			\
-    debug->off2 = NULL;					\
-  else							\
-    debug->off2 = (type) ((char *) raw			\
-			  + (internal_symhdr->off1	\
+#define FIX(off1, off2, type) \
+  if (internal_symhdr->off1 == 0) \
+    debug->off2 = (type) NULL; \
+  else \
+    debug->off2 = (type) ((char *) raw \
+			  + (internal_symhdr->off1 \
 			     - raw_base))
 
   FIX (cbLineOffset, line, unsigned char *);
-  FIX (cbDnOffset, external_dnr, void *);
-  FIX (cbPdOffset, external_pdr, void *);
-  FIX (cbSymOffset, external_sym, void *);
-  FIX (cbOptOffset, external_opt, void *);
+  FIX (cbDnOffset, external_dnr, PTR);
+  FIX (cbPdOffset, external_pdr, PTR);
+  FIX (cbSymOffset, external_sym, PTR);
+  FIX (cbOptOffset, external_opt, PTR);
   FIX (cbAuxOffset, external_aux, union aux_ext *);
   FIX (cbSsOffset, ss, char *);
   FIX (cbSsExtOffset, ssext, char *);
-  FIX (cbFdOffset, external_fdr, void *);
-  FIX (cbRfdOffset, external_rfd, void *);
-  FIX (cbExtOffset, external_ext, void *);
+  FIX (cbFdOffset, external_fdr, PTR);
+  FIX (cbRfdOffset, external_rfd, PTR);
+  FIX (cbExtOffset, external_ext, PTR);
 #undef FIX
 
   /* I don't want to always swap all the data, because it will just
@@ -611,7 +634,7 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
      the symbols, so we swap them here.  */
   amt = internal_symhdr->ifdMax;
   amt *= sizeof (struct fdr);
-  debug->fdr = (FDR *) bfd_alloc (abfd, amt);
+  debug->fdr = (struct fdr *) bfd_alloc (abfd, amt);
   if (debug->fdr == NULL)
     return FALSE;
   external_fdr_size = backend->debug_swap.external_fdr_size;
@@ -619,7 +642,7 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
   fraw_src = (char *) debug->external_fdr;
   fraw_end = fraw_src + internal_symhdr->ifdMax * external_fdr_size;
   for (; fraw_src < fraw_end; fraw_src += external_fdr_size, fdr_ptr++)
-    (*backend->debug_swap.swap_fdr_in) (abfd, (void *) fraw_src, fdr_ptr);
+    (*backend->debug_swap.swap_fdr_in) (abfd, (PTR) fraw_src, fdr_ptr);
 
   return TRUE;
 }
@@ -639,30 +662,32 @@ static asymbol *ecoff_scom_symbol_ptr;
 /* Create an empty symbol.  */
 
 asymbol *
-_bfd_ecoff_make_empty_symbol (bfd *abfd)
+_bfd_ecoff_make_empty_symbol (abfd)
+     bfd *abfd;
 {
-  ecoff_symbol_type *new_symbol;
+  ecoff_symbol_type *new;
   bfd_size_type amt = sizeof (ecoff_symbol_type);
 
-  new_symbol = (ecoff_symbol_type *) bfd_zalloc (abfd, amt);
-  if (new_symbol == NULL)
-    return NULL;
-  new_symbol->symbol.section = NULL;
-  new_symbol->fdr = NULL;
-  new_symbol->local = FALSE;
-  new_symbol->native = NULL;
-  new_symbol->symbol.the_bfd = abfd;
-  return &new_symbol->symbol;
+  new = (ecoff_symbol_type *) bfd_zalloc (abfd, amt);
+  if (new == (ecoff_symbol_type *) NULL)
+    return (asymbol *) NULL;
+  new->symbol.section = (asection *) NULL;
+  new->fdr = (FDR *) NULL;
+  new->local = FALSE;
+  new->native = NULL;
+  new->symbol.the_bfd = abfd;
+  return &new->symbol;
 }
 
 /* Set the BFD flags and section for an ECOFF symbol.  */
 
 static bfd_boolean
-ecoff_set_symbol_info (bfd *abfd,
-		       SYMR *ecoff_sym,
-		       asymbol *asym,
-		       int ext,
-		       int weak)
+ecoff_set_symbol_info (abfd, ecoff_sym, asym, ext, weak)
+     bfd *abfd;
+     SYMR *ecoff_sym;
+     asymbol *asym;
+     int ext;
+     int weak;
 {
   asym->the_bfd = abfd;
   asym->value = ecoff_sym->value;
@@ -722,15 +747,15 @@ ecoff_set_symbol_info (bfd *abfd,
       asym->flags = BSF_LOCAL;
       break;
     case scText:
-      asym->section = bfd_make_section_old_way (abfd, _TEXT);
+      asym->section = bfd_make_section_old_way (abfd, ".text");
       asym->value -= asym->section->vma;
       break;
     case scData:
-      asym->section = bfd_make_section_old_way (abfd, _DATA);
+      asym->section = bfd_make_section_old_way (abfd, ".data");
       asym->value -= asym->section->vma;
       break;
     case scBss:
-      asym->section = bfd_make_section_old_way (abfd, _BSS);
+      asym->section = bfd_make_section_old_way (abfd, ".bss");
       asym->value -= asym->section->vma;
       break;
     case scRegister:
@@ -836,8 +861,77 @@ ecoff_set_symbol_info (bfd *abfd,
 	case N_SETT:
 	case N_SETD:
 	case N_SETB:
-	  /* Mark the symbol as a constructor.  */
-	  asym->flags |= BSF_CONSTRUCTOR;
+	  {
+	    /* This code is no longer needed.  It used to be used to
+	       make the linker handle set symbols, but they are now
+	       handled in the add_symbols routine instead.  */
+#if 0
+	    const char *name;
+	    asection *section;
+	    arelent_chain *reloc_chain;
+	    unsigned int bitsize;
+	    bfd_size_type amt;
+
+	    /* Get a section with the same name as the symbol (usually
+	       __CTOR_LIST__ or __DTOR_LIST__).  FIXME: gcc uses the
+	       name ___CTOR_LIST (three underscores).  We need
+	       __CTOR_LIST (two underscores), since ECOFF doesn't use
+	       a leading underscore.  This should be handled by gcc,
+	       but instead we do it here.  Actually, this should all
+	       be done differently anyhow.  */
+	    name = bfd_asymbol_name (asym);
+	    if (name[0] == '_' && name[1] == '_' && name[2] == '_')
+	      {
+		++name;
+		asym->name = name;
+	      }
+	    section = bfd_get_section_by_name (abfd, name);
+	    if (section == (asection *) NULL)
+	      {
+		char *copy;
+
+		amt = strlen (name) + 1;
+		copy = (char *) bfd_alloc (abfd, amt);
+		if (!copy)
+		  return FALSE;
+		strcpy (copy, name);
+		section = bfd_make_section (abfd, copy);
+	      }
+
+	    /* Build a reloc pointing to this constructor.  */
+	    amt = sizeof (arelent_chain);
+	    reloc_chain = (arelent_chain *) bfd_alloc (abfd, amt);
+	    if (!reloc_chain)
+	      return FALSE;
+	    reloc_chain->relent.sym_ptr_ptr =
+	      bfd_get_section (asym)->symbol_ptr_ptr;
+	    reloc_chain->relent.address = section->size;
+	    reloc_chain->relent.addend = asym->value;
+	    reloc_chain->relent.howto =
+	      ecoff_backend (abfd)->constructor_reloc;
+
+	    /* Set up the constructor section to hold the reloc.  */
+	    section->flags = SEC_CONSTRUCTOR;
+	    ++section->reloc_count;
+
+	    /* Constructor sections must be rounded to a boundary
+	       based on the bitsize.  These are not real sections--
+	       they are handled specially by the linker--so the ECOFF
+	       16 byte alignment restriction does not apply.  */
+	    bitsize = ecoff_backend (abfd)->constructor_bitsize;
+	    section->alignment_power = 1;
+	    while ((1 << section->alignment_power) < bitsize / 8)
+	      ++section->alignment_power;
+
+	    reloc_chain->next = section->constructor_chain;
+	    section->constructor_chain = reloc_chain;
+	    section->size += bitsize / 8;
+
+#endif /* 0 */
+
+	    /* Mark the symbol as a constructor.  */
+	    asym->flags |= BSF_CONSTRUCTOR;
+	  }
 	  break;
 	}
     }
@@ -847,16 +941,17 @@ ecoff_set_symbol_info (bfd *abfd,
 /* Read an ECOFF symbol table.  */
 
 bfd_boolean
-_bfd_ecoff_slurp_symbol_table (bfd *abfd)
+_bfd_ecoff_slurp_symbol_table (abfd)
+     bfd *abfd;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
   const bfd_size_type external_ext_size
     = backend->debug_swap.external_ext_size;
   const bfd_size_type external_sym_size
     = backend->debug_swap.external_sym_size;
-  void (* const swap_ext_in) (bfd *, void *, EXTR *)
+  void (* const swap_ext_in) PARAMS ((bfd *, PTR, EXTR *))
     = backend->debug_swap.swap_ext_in;
-  void (* const swap_sym_in) (bfd *, void *, SYMR *)
+  void (* const swap_sym_in) PARAMS ((bfd *, PTR, SYMR *))
     = backend->debug_swap.swap_sym_in;
   bfd_size_type internal_size;
   ecoff_symbol_type *internal;
@@ -871,7 +966,7 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
     return TRUE;
 
   /* Get the symbolic information.  */
-  if (! _bfd_ecoff_slurp_symbolic_info (abfd, NULL,
+  if (! _bfd_ecoff_slurp_symbolic_info (abfd, (asection *) NULL,
 					&ecoff_data (abfd)->debug_info))
     return FALSE;
   if (bfd_get_symcount (abfd) == 0)
@@ -892,7 +987,7 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
     {
       EXTR internal_esym;
 
-      (*swap_ext_in) (abfd, (void *) eraw_src, &internal_esym);
+      (*swap_ext_in) (abfd, (PTR) eraw_src, &internal_esym);
       internal_ptr->symbol.name = (ecoff_data (abfd)->debug_info.ssext
 				   + internal_esym.asym.iss);
       if (!ecoff_set_symbol_info (abfd, &internal_esym.asym,
@@ -906,7 +1001,7 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
       else
 	internal_ptr->fdr = NULL;
       internal_ptr->local = FALSE;
-      internal_ptr->native = (void *) eraw_src;
+      internal_ptr->native = (PTR) eraw_src;
     }
 
   /* The local symbols must be accessed via the fdr's, because the
@@ -927,7 +1022,7 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
 	{
 	  SYMR internal_sym;
 
-	  (*swap_sym_in) (abfd, (void *) lraw_src, &internal_sym);
+	  (*swap_sym_in) (abfd, (PTR) lraw_src, &internal_sym);
 	  internal_ptr->symbol.name = (ecoff_data (abfd)->debug_info.ss
 				       + fdr_ptr->issBase
 				       + internal_sym.iss);
@@ -936,7 +1031,7 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
 	    return FALSE;
 	  internal_ptr->fdr = fdr_ptr;
 	  internal_ptr->local = TRUE;
-	  internal_ptr->native = (void *) lraw_src;
+	  internal_ptr->native = (PTR) lraw_src;
 	}
     }
 
@@ -948,9 +1043,10 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
 /* Return the amount of space needed for the canonical symbols.  */
 
 long
-_bfd_ecoff_get_symtab_upper_bound (bfd *abfd)
+_bfd_ecoff_get_symtab_upper_bound (abfd)
+     bfd *abfd;
 {
-  if (! _bfd_ecoff_slurp_symbolic_info (abfd, NULL,
+  if (! _bfd_ecoff_slurp_symbolic_info (abfd, (asection *) NULL,
 					&ecoff_data (abfd)->debug_info))
     return -1;
 
@@ -963,7 +1059,9 @@ _bfd_ecoff_get_symtab_upper_bound (bfd *abfd)
 /* Get the canonical symbols.  */
 
 long
-_bfd_ecoff_canonicalize_symtab (bfd *abfd, asymbol **alocation)
+_bfd_ecoff_canonicalize_symtab (abfd, alocation)
+     bfd *abfd;
+     asymbol **alocation;
 {
   unsigned int counter = 0;
   ecoff_symbol_type *symbase;
@@ -980,7 +1078,7 @@ _bfd_ecoff_canonicalize_symtab (bfd *abfd, asymbol **alocation)
       *(location++) = symbase++;
       counter++;
     }
-  *location++ = NULL;
+  *location++ = (ecoff_symbol_type *) NULL;
   return bfd_get_symcount (abfd);
 }
 
@@ -991,12 +1089,13 @@ _bfd_ecoff_canonicalize_symtab (bfd *abfd, asymbol **alocation)
 /* Write aggregate information to a string.  */
 
 static void
-ecoff_emit_aggregate (bfd *abfd,
-		      FDR *fdr,
-		      char *string,
-		      RNDXR *rndx,
-		      long isym,
-		      const char *which)
+ecoff_emit_aggregate (abfd, fdr, string, rndx, isym, which)
+     bfd *abfd;
+     FDR *fdr;
+     char *string;
+     RNDXR *rndx;
+     long isym;
+     const char *which;
 {
   const struct ecoff_debug_swap * const debug_swap =
     &ecoff_backend (abfd)->debug_swap;
@@ -1046,20 +1145,22 @@ ecoff_emit_aggregate (bfd *abfd,
   sprintf (string,
 	   "%s %s { ifd = %u, index = %lu }",
 	   which, name, ifd,
-	   ((unsigned long) indx
+	   ((long) indx
 	    + debug_info->symbolic_header.iextMax));
 }
 
 /* Convert the type information to string format.  */
 
 static char *
-ecoff_type_to_string (bfd *abfd, FDR *fdr, unsigned int indx)
+ecoff_type_to_string (abfd, fdr, indx)
+     bfd *abfd;
+     FDR *fdr;
+     unsigned int indx;
 {
   union aux_ext *aux_ptr;
   int bigendian;
   AUXU u;
-  struct qual
-  {
+  struct qual {
     unsigned int  type;
     int  low_bound;
     int  high_bound;
@@ -1348,9 +1449,10 @@ ecoff_type_to_string (bfd *abfd, FDR *fdr, unsigned int indx)
 /* Return information about ECOFF symbol SYMBOL in RET.  */
 
 void
-_bfd_ecoff_get_symbol_info (bfd *abfd ATTRIBUTE_UNUSED,
-			    asymbol *symbol,
-			    symbol_info *ret)
+_bfd_ecoff_get_symbol_info (abfd, symbol, ret)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     asymbol *symbol;
+     symbol_info *ret;
 {
   bfd_symbol_info (symbol, ret);
 }
@@ -1358,8 +1460,9 @@ _bfd_ecoff_get_symbol_info (bfd *abfd ATTRIBUTE_UNUSED,
 /* Return whether this is a local label.  */
 
 bfd_boolean
-_bfd_ecoff_bfd_is_local_label_name (bfd *abfd ATTRIBUTE_UNUSED,
-				    const char *name)
+_bfd_ecoff_bfd_is_local_label_name (abfd, name)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     const char *name;
 {
   return name[0] == '$';
 }
@@ -1367,10 +1470,11 @@ _bfd_ecoff_bfd_is_local_label_name (bfd *abfd ATTRIBUTE_UNUSED,
 /* Print information about an ECOFF symbol.  */
 
 void
-_bfd_ecoff_print_symbol (bfd *abfd,
-			 void * filep,
-			 asymbol *symbol,
-			 bfd_print_symbol_type how)
+_bfd_ecoff_print_symbol (abfd, filep, symbol, how)
+     bfd *abfd;
+     PTR filep;
+     asymbol *symbol;
+     bfd_print_symbol_type how;
 {
   const struct ecoff_debug_swap * const debug_swap
     = &ecoff_backend (abfd)->debug_swap;
@@ -1555,9 +1659,10 @@ _bfd_ecoff_print_symbol (bfd *abfd,
 /* Read in the relocs for a section.  */
 
 static bfd_boolean
-ecoff_slurp_reloc_table (bfd *abfd,
-			 asection *section,
-			 asymbol **symbols)
+ecoff_slurp_reloc_table (abfd, section, symbols)
+     bfd *abfd;
+     asection *section;
+     asymbol **symbols;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
   arelent *internal_relocs;
@@ -1567,7 +1672,7 @@ ecoff_slurp_reloc_table (bfd *abfd,
   arelent *rptr;
   unsigned int i;
 
-  if (section->relocation != NULL
+  if (section->relocation != (arelent *) NULL
       || section->reloc_count == 0
       || (section->flags & SEC_CONSTRUCTOR) != 0)
     return TRUE;
@@ -1582,7 +1687,8 @@ ecoff_slurp_reloc_table (bfd *abfd,
   external_reloc_size = backend->external_reloc_size;
   amt = external_reloc_size * section->reloc_count;
   external_relocs = (char *) bfd_alloc (abfd, amt);
-  if (internal_relocs == NULL || external_relocs == NULL)
+  if (internal_relocs == (arelent *) NULL
+      || external_relocs == (char *) NULL)
     return FALSE;
   if (bfd_seek (abfd, section->rel_filepos, SEEK_SET) != 0)
     return FALSE;
@@ -1621,25 +1727,25 @@ ecoff_slurp_reloc_table (bfd *abfd,
 	  /* r_symndx is a section key.  */
 	  switch (intern.r_symndx)
 	    {
-	    case RELOC_SECTION_TEXT:  sec_name = _TEXT;  break;
-	    case RELOC_SECTION_RDATA: sec_name = _RDATA; break;
-	    case RELOC_SECTION_DATA:  sec_name = _DATA;  break;
-	    case RELOC_SECTION_SDATA: sec_name = _SDATA; break;
-	    case RELOC_SECTION_SBSS:  sec_name = _SBSS;  break;
-	    case RELOC_SECTION_BSS:   sec_name = _BSS;   break;
-	    case RELOC_SECTION_INIT:  sec_name = _INIT;  break;
-	    case RELOC_SECTION_LIT8:  sec_name = _LIT8;  break;
-	    case RELOC_SECTION_LIT4:  sec_name = _LIT4;  break;
-	    case RELOC_SECTION_XDATA: sec_name = _XDATA; break;
-	    case RELOC_SECTION_PDATA: sec_name = _PDATA; break;
-	    case RELOC_SECTION_FINI:  sec_name = _FINI;  break;
-	    case RELOC_SECTION_LITA:  sec_name = _LITA;  break;
-	    case RELOC_SECTION_RCONST: sec_name = _RCONST; break;
+	    case RELOC_SECTION_TEXT:  sec_name = ".text";  break;
+	    case RELOC_SECTION_RDATA: sec_name = ".rdata"; break;
+	    case RELOC_SECTION_DATA:  sec_name = ".data";  break;
+	    case RELOC_SECTION_SDATA: sec_name = ".sdata"; break;
+	    case RELOC_SECTION_SBSS:  sec_name = ".sbss";  break;
+	    case RELOC_SECTION_BSS:   sec_name = ".bss";   break;
+	    case RELOC_SECTION_INIT:  sec_name = ".init";  break;
+	    case RELOC_SECTION_LIT8:  sec_name = ".lit8";  break;
+	    case RELOC_SECTION_LIT4:  sec_name = ".lit4";  break;
+	    case RELOC_SECTION_XDATA: sec_name = ".xdata"; break;
+	    case RELOC_SECTION_PDATA: sec_name = ".pdata"; break;
+	    case RELOC_SECTION_FINI:  sec_name = ".fini"; break;
+	    case RELOC_SECTION_LITA:  sec_name = ".lita";  break;
+	    case RELOC_SECTION_RCONST: sec_name = ".rconst"; break;
 	    default: abort ();
 	    }
 
 	  sec = bfd_get_section_by_name (abfd, sec_name);
-	  if (sec == NULL)
+	  if (sec == (asection *) NULL)
 	    abort ();
 	  rptr->sym_ptr_ptr = sec->symbol_ptr_ptr;
 
@@ -1663,10 +1769,11 @@ ecoff_slurp_reloc_table (bfd *abfd,
 /* Get a canonical list of relocs.  */
 
 long
-_bfd_ecoff_canonicalize_reloc (bfd *abfd,
-			       asection *section,
-			       arelent **relptr,
-			       asymbol **symbols)
+_bfd_ecoff_canonicalize_reloc (abfd, section, relptr, symbols)
+     bfd *abfd;
+     asection *section;
+     arelent **relptr;
+     asymbol **symbols;
 {
   unsigned int count;
 
@@ -1695,7 +1802,7 @@ _bfd_ecoff_canonicalize_reloc (bfd *abfd,
 	*relptr++ = tblptr++;
     }
 
-  *relptr = NULL;
+  *relptr = (arelent *) NULL;
 
   return section->reloc_count;
 }
@@ -1705,13 +1812,15 @@ _bfd_ecoff_canonicalize_reloc (bfd *abfd,
    wanted location.  */
 
 bfd_boolean
-_bfd_ecoff_find_nearest_line (bfd *abfd,
-			      asection *section,
-			      asymbol **ignore_symbols ATTRIBUTE_UNUSED,
-			      bfd_vma offset,
-			      const char **filename_ptr,
-			      const char **functionname_ptr,
-			      unsigned int *retline_ptr)
+_bfd_ecoff_find_nearest_line (abfd, section, ignore_symbols, offset,
+			      filename_ptr, functionname_ptr, retline_ptr)
+     bfd *abfd;
+     asection *section;
+     asymbol **ignore_symbols ATTRIBUTE_UNUSED;
+     bfd_vma offset;
+     const char **filename_ptr;
+     const char **functionname_ptr;
+     unsigned int *retline_ptr;
 {
   const struct ecoff_debug_swap * const debug_swap
     = &ecoff_backend (abfd)->debug_swap;
@@ -1719,16 +1828,15 @@ _bfd_ecoff_find_nearest_line (bfd *abfd,
   struct ecoff_find_line *line_info;
 
   /* Make sure we have the FDR's.  */
-  if (! _bfd_ecoff_slurp_symbolic_info (abfd, NULL, debug_info)
+  if (! _bfd_ecoff_slurp_symbolic_info (abfd, (asection *) NULL, debug_info)
       || bfd_get_symcount (abfd) == 0)
     return FALSE;
 
   if (ecoff_data (abfd)->find_line_info == NULL)
     {
       bfd_size_type amt = sizeof (struct ecoff_find_line);
-
-      ecoff_data (abfd)->find_line_info =
-          (struct ecoff_find_line *) bfd_zalloc (abfd, amt);
+      ecoff_data (abfd)->find_line_info
+	= (struct ecoff_find_line *) bfd_zalloc (abfd, amt);
       if (ecoff_data (abfd)->find_line_info == NULL)
 	return FALSE;
     }
@@ -1753,11 +1861,13 @@ _bfd_ecoff_find_nearest_line (bfd *abfd,
    information.  */
 
 bfd_boolean
-_bfd_ecoff_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
+_bfd_ecoff_bfd_copy_private_bfd_data (ibfd, obfd)
+     bfd *ibfd;
+     bfd *obfd;
 {
   struct ecoff_debug_info *iinfo = &ecoff_data (ibfd)->debug_info;
   struct ecoff_debug_info *oinfo = &ecoff_data (obfd)->debug_info;
-  int i;
+  register int i;
   asymbol **sym_ptr_ptr;
   size_t c;
   bfd_boolean local;
@@ -1781,7 +1891,7 @@ _bfd_ecoff_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
   /* If there are no symbols, don't copy any debugging information.  */
   c = bfd_get_symcount (obfd);
   sym_ptr_ptr = bfd_get_outsymbols (obfd);
-  if (c == 0 || sym_ptr_ptr == NULL)
+  if (c == 0 || sym_ptr_ptr == (asymbol **) NULL)
     return TRUE;
 
   /* See if there are any local symbols.  */
@@ -1861,9 +1971,10 @@ _bfd_ecoff_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
    callers ignore the return value.  */
 
 bfd_boolean
-_bfd_ecoff_set_arch_mach (bfd *abfd,
-			  enum bfd_architecture arch,
-			  unsigned long machine)
+_bfd_ecoff_set_arch_mach (abfd, arch, machine)
+     bfd *abfd;
+     enum bfd_architecture arch;
+     unsigned long machine;
 {
   bfd_default_set_arch_mach (abfd, arch, machine);
   return arch == ecoff_backend (abfd)->arch;
@@ -1872,8 +1983,9 @@ _bfd_ecoff_set_arch_mach (bfd *abfd,
 /* Get the size of the section headers.  */
 
 int
-_bfd_ecoff_sizeof_headers (bfd *abfd,
-			   struct bfd_link_info *info ATTRIBUTE_UNUSED)
+_bfd_ecoff_sizeof_headers (abfd, reloc)
+     bfd *abfd;
+     bfd_boolean reloc ATTRIBUTE_UNUSED;
 {
   asection *current;
   int c;
@@ -1881,7 +1993,7 @@ _bfd_ecoff_sizeof_headers (bfd *abfd,
 
   c = 0;
   for (current = abfd->sections;
-       current != NULL;
+       current != (asection *)NULL;
        current = current->next)
     ++c;
 
@@ -1894,11 +2006,12 @@ _bfd_ecoff_sizeof_headers (bfd *abfd,
 /* Get the contents of a section.  */
 
 bfd_boolean
-_bfd_ecoff_get_section_contents (bfd *abfd,
-				 asection *section,
-				 void * location,
-				 file_ptr offset,
-				 bfd_size_type count)
+_bfd_ecoff_get_section_contents (abfd, section, location, offset, count)
+     bfd *abfd;
+     asection *section;
+     PTR location;
+     file_ptr offset;
+     bfd_size_type count;
 {
   return _bfd_generic_get_section_contents (abfd, section, location,
 					    offset, count);
@@ -1908,7 +2021,9 @@ _bfd_ecoff_get_section_contents (bfd *abfd,
    called via qsort.  */
 
 static int
-ecoff_sort_hdrs (const void * arg1, const void * arg2)
+ecoff_sort_hdrs (arg1, arg2)
+     const PTR arg1;
+     const PTR arg2;
 {
   const asection *hdr1 = *(const asection **) arg1;
   const asection *hdr2 = *(const asection **) arg2;
@@ -1935,7 +2050,8 @@ ecoff_sort_hdrs (const void * arg1, const void * arg2)
    reloc_filepos.  */
 
 static bfd_boolean
-ecoff_compute_section_file_positions (bfd *abfd)
+ecoff_compute_section_file_positions (abfd)
+     bfd *abfd;
 {
   file_ptr sofar, file_sofar;
   asection **sorted_hdrs;
@@ -1947,7 +2063,7 @@ ecoff_compute_section_file_positions (bfd *abfd)
   const bfd_vma round = ecoff_backend (abfd)->round;
   bfd_size_type amt;
 
-  sofar = _bfd_ecoff_sizeof_headers (abfd, NULL);
+  sofar = _bfd_ecoff_sizeof_headers (abfd, FALSE);
   file_sofar = sofar;
 
   /* Sort the sections by VMA.  */
@@ -1973,11 +2089,11 @@ ecoff_compute_section_file_positions (bfd *abfd)
       for (i = 0; i < abfd->section_count; i++)
 	{
 	  current = sorted_hdrs[i];
-	  if (streq (current->name, _RDATA))
+	  if (strcmp (current->name, _RDATA) == 0)
 	    break;
 	  if ((current->flags & SEC_CODE) == 0
-	      && ! streq (current->name, _PDATA)
-	      && ! streq (current->name, _RCONST))
+	      && strcmp (current->name, _PDATA) != 0
+	      && strcmp (current->name, _RCONST) != 0)
 	    {
 	      rdata_in_text = FALSE;
 	      break;
@@ -1998,7 +2114,7 @@ ecoff_compute_section_file_positions (bfd *abfd)
 	 supposed to indicate the number of .pdata entries that are
 	 really in the section.  Each entry is 8 bytes.  We store this
 	 away in line_filepos before increasing the section size.  */
-      if (streq (current->name, _PDATA))
+      if (strcmp (current->name, _PDATA) == 0)
 	current->line_filepos = current->size / 8;
 
       alignment_power = current->alignment_power;
@@ -2014,15 +2130,15 @@ ecoff_compute_section_file_positions (bfd *abfd)
 	  && ! first_data
 	  && (current->flags & SEC_CODE) == 0
 	  && (! rdata_in_text
-	      || ! streq (current->name, _RDATA))
-	  && ! streq (current->name, _PDATA)
-	  && ! streq (current->name, _RCONST))
+	      || strcmp (current->name, _RDATA) != 0)
+	  && strcmp (current->name, _PDATA) != 0
+	  && strcmp (current->name, _RCONST) != 0)
 	{
 	  sofar = (sofar + round - 1) &~ (round - 1);
 	  file_sofar = (file_sofar + round - 1) &~ (round - 1);
 	  first_data = FALSE;
 	}
-      else if (streq (current->name, _LIB))
+      else if (strcmp (current->name, _LIB) == 0)
 	{
 	  /* On Irix 4, the location of contents of the .lib section
 	     from a shared library section is also rounded up to a
@@ -2085,7 +2201,8 @@ ecoff_compute_section_file_positions (bfd *abfd)
    information.  */
 
 static bfd_size_type
-ecoff_compute_reloc_file_positions (bfd *abfd)
+ecoff_compute_reloc_file_positions (abfd)
+     bfd *abfd;
 {
   const bfd_size_type external_reloc_size =
     ecoff_backend (abfd)->external_reloc_size;
@@ -2105,7 +2222,7 @@ ecoff_compute_reloc_file_positions (bfd *abfd)
 
   reloc_size = 0;
   for (current = abfd->sections;
-       current != NULL;
+       current != (asection *)NULL;
        current = current->next)
     {
       if (current->reloc_count == 0)
@@ -2139,23 +2256,26 @@ ecoff_compute_reloc_file_positions (bfd *abfd)
 /* Set the contents of a section.  */
 
 bfd_boolean
-_bfd_ecoff_set_section_contents (bfd *abfd,
-				 asection *section,
-				 const void * location,
-				 file_ptr offset,
-				 bfd_size_type count)
+_bfd_ecoff_set_section_contents (abfd, section, location, offset, count)
+     bfd *abfd;
+     asection *section;
+     const PTR location;
+     file_ptr offset;
+     bfd_size_type count;
 {
   file_ptr pos;
 
   /* This must be done first, because bfd_set_section_contents is
      going to set output_has_begun to TRUE.  */
-  if (! abfd->output_has_begun
-      && ! ecoff_compute_section_file_positions (abfd))
-    return FALSE;
+  if (! abfd->output_has_begun)
+    {
+      if (! ecoff_compute_section_file_positions (abfd))
+	return FALSE;
+    }
 
   /* Handle the .lib section specially so that Irix 4 shared libraries
      work out.  See coff_set_section_contents in coffcode.h.  */
-  if (streq (section->name, _LIB))
+  if (strcmp (section->name, _LIB) == 0)
     {
       bfd_byte *rec, *recend;
 
@@ -2185,7 +2305,8 @@ _bfd_ecoff_set_section_contents (bfd *abfd,
    nlmconv.  */
 
 bfd_vma
-bfd_ecoff_get_gp_value (bfd *abfd)
+bfd_ecoff_get_gp_value (abfd)
+     bfd *abfd;
 {
   if (bfd_get_flavour (abfd) != bfd_target_ecoff_flavour
       || bfd_get_format (abfd) != bfd_object)
@@ -2201,7 +2322,9 @@ bfd_ecoff_get_gp_value (bfd *abfd)
    assembler.  */
 
 bfd_boolean
-bfd_ecoff_set_gp_value (bfd *abfd, bfd_vma gp_value)
+bfd_ecoff_set_gp_value (abfd, gp_value)
+     bfd *abfd;
+     bfd_vma gp_value;
 {
   if (bfd_get_flavour (abfd) != bfd_target_ecoff_flavour
       || bfd_get_format (abfd) != bfd_object)
@@ -2219,10 +2342,11 @@ bfd_ecoff_set_gp_value (bfd *abfd, bfd_vma gp_value)
    the assembler.  */
 
 bfd_boolean
-bfd_ecoff_set_regmasks (bfd *abfd,
-			unsigned long gprmask,
-			unsigned long fprmask,
-			unsigned long *cprmask)
+bfd_ecoff_set_regmasks (abfd, gprmask, fprmask, cprmask)
+     bfd *abfd;
+     unsigned long gprmask;
+     unsigned long fprmask;
+     unsigned long *cprmask;
 {
   ecoff_data_type *tdata;
 
@@ -2236,7 +2360,7 @@ bfd_ecoff_set_regmasks (bfd *abfd,
   tdata = ecoff_data (abfd);
   tdata->gprmask = gprmask;
   tdata->fprmask = fprmask;
-  if (cprmask != NULL)
+  if (cprmask != (unsigned long *) NULL)
     {
       int i;
 
@@ -2251,7 +2375,9 @@ bfd_ecoff_set_regmasks (bfd *abfd,
    is passed to bfd_ecoff_debug_externals.  */
 
 static bfd_boolean
-ecoff_get_extr (asymbol *sym, EXTR *esym)
+ecoff_get_extr (sym, esym)
+     asymbol *sym;
+     EXTR *esym;
 {
   ecoff_symbol_type *ecoff_sym_ptr;
   bfd *input_bfd;
@@ -2303,7 +2429,7 @@ ecoff_get_extr (asymbol *sym, EXTR *esym)
 
       input_debug = &ecoff_data (input_bfd)->debug_info;
       BFD_ASSERT (esym->ifd < input_debug->symbolic_header.ifdMax);
-      if (input_debug->ifdmap != NULL)
+      if (input_debug->ifdmap != (RFDT *) NULL)
 	esym->ifd = input_debug->ifdmap[esym->ifd];
     }
 
@@ -2314,7 +2440,9 @@ ecoff_get_extr (asymbol *sym, EXTR *esym)
    bfd_ecoff_debug_externals.  */
 
 static void
-ecoff_set_index (asymbol *sym, bfd_size_type indx)
+ecoff_set_index (sym, indx)
+     asymbol *sym;
+     bfd_size_type indx;
 {
   ecoff_set_sym_index (sym, indx);
 }
@@ -2322,7 +2450,8 @@ ecoff_set_index (asymbol *sym, bfd_size_type indx)
 /* Write out an ECOFF file.  */
 
 bfd_boolean
-_bfd_ecoff_write_object_contents (bfd *abfd)
+_bfd_ecoff_write_object_contents (abfd)
+     bfd *abfd;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
   const bfd_vma round = backend->round;
@@ -2332,9 +2461,11 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
   const bfd_size_type external_hdr_size
     = backend->debug_swap.external_hdr_size;
   const bfd_size_type external_reloc_size = backend->external_reloc_size;
-  void (* const adjust_reloc_out) (bfd *, const arelent *, struct internal_reloc *)
+  void (* const adjust_reloc_out)
+  PARAMS ((bfd *, const arelent *, struct internal_reloc *))
     = backend->adjust_reloc_out;
-  void (* const swap_reloc_out) (bfd *, const struct internal_reloc *, void *)
+  void (* const swap_reloc_out)
+  PARAMS ((bfd *, const struct internal_reloc *, PTR))
     = backend->swap_reloc_out;
   struct ecoff_debug_info * const debug = &ecoff_data (abfd)->debug_info;
   HDRR * const symhdr = &debug->symbolic_header;
@@ -2348,8 +2479,8 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
   bfd_vma data_start;
   bfd_boolean set_data_start;
   bfd_size_type bss_size;
-  void * buff = NULL;
-  void * reloc_buff = NULL;
+  PTR buff = NULL;
+  PTR reloc_buff = NULL;
   struct internal_filehdr internal_f;
   struct internal_aouthdr internal_a;
   int i;
@@ -2360,7 +2491,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 
   count = 1;
   for (current = abfd->sections;
-       current != NULL;
+       current != (asection *)NULL;
        current = current->next)
     {
       current->target_index = count;
@@ -2368,7 +2499,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
     }
 
   if ((abfd->flags & D_PAGED) != 0)
-    text_size = _bfd_ecoff_sizeof_headers (abfd, NULL);
+    text_size = _bfd_ecoff_sizeof_headers (abfd, FALSE);
   else
     text_size = 0;
   text_start = 0;
@@ -2384,13 +2515,12 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
      file header, or a.out header.  */
   {
     bfd_size_type siz;
-
     siz = scnhsz;
     if (siz < filhsz)
       siz = filhsz;
     if (siz < aoutsz)
       siz = aoutsz;
-    buff = bfd_malloc (siz);
+    buff = (PTR) bfd_malloc (siz);
     if (buff == NULL)
       goto error_return;
   }
@@ -2398,9 +2528,8 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
   internal_f.f_nscns = 0;
   if (bfd_seek (abfd, (file_ptr) (filhsz + aoutsz), SEEK_SET) != 0)
     goto error_return;
-
   for (current = abfd->sections;
-       current != NULL;
+       current != (asection *) NULL;
        current = current->next)
     {
       struct internal_scnhdr section;
@@ -2412,7 +2541,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 
       /* This seems to be correct for Irix 4 shared libraries.  */
       vma = bfd_get_section_vma (abfd, current);
-      if (streq (current->name, _LIB))
+      if (strcmp (current->name, _LIB) == 0)
 	section.s_vaddr = 0;
       else
 	section.s_vaddr = vma;
@@ -2434,7 +2563,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 	 want the linker to compute the best size to use, or
 	 something.  I don't know what happens if the information is
 	 not present.  */
-      if (! streq (current->name, _PDATA))
+      if (strcmp (current->name, _PDATA) != 0)
 	section.s_lnnoptr = 0;
       else
 	{
@@ -2450,7 +2579,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
       section.s_flags = ecoff_sec_to_styp_flags (current->name,
 						 current->flags);
 
-      if (bfd_coff_swap_scnhdr_out (abfd, (void *) &section, buff) == 0
+      if (bfd_coff_swap_scnhdr_out (abfd, (PTR) &section, buff) == 0
 	  || bfd_bwrite (buff, scnhsz, abfd) != scnhsz)
 	goto error_return;
 
@@ -2599,11 +2728,11 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
   if (bfd_seek (abfd, (file_ptr) 0, SEEK_SET) != 0)
     goto error_return;
 
-  bfd_coff_swap_filehdr_out (abfd, (void *) &internal_f, buff);
+  bfd_coff_swap_filehdr_out (abfd, (PTR) &internal_f, buff);
   if (bfd_bwrite (buff, filhsz, abfd) != filhsz)
     goto error_return;
 
-  bfd_coff_swap_aouthdr_out (abfd, (void *) &internal_a, buff);
+  bfd_coff_swap_aouthdr_out (abfd, (PTR) &internal_a, buff);
   if (bfd_bwrite (buff, aoutsz, abfd) != aoutsz)
     goto error_return;
 
@@ -2624,7 +2753,7 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 
       /* Write out the relocs.  */
       for (current = abfd->sections;
-	   current != NULL;
+	   current != (asection *) NULL;
 	   current = current->next)
 	{
 	  arelent **reloc_ptr_ptr;
@@ -2643,7 +2772,6 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 	  reloc_ptr_ptr = current->orelocation;
 	  reloc_end = reloc_ptr_ptr + current->reloc_count;
 	  out_ptr = (char *) reloc_buff;
-
 	  for (;
 	       reloc_ptr_ptr < reloc_end;
 	       reloc_ptr_ptr++, out_ptr += external_reloc_size)
@@ -2652,15 +2780,10 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 	      asymbol *sym;
 	      struct internal_reloc in;
 
-	      memset ((void *) &in, 0, sizeof in);
+	      memset ((PTR) &in, 0, sizeof in);
 
 	      reloc = *reloc_ptr_ptr;
 	      sym = *reloc->sym_ptr_ptr;
-
-	      /* If the howto field has not been initialised then skip this reloc.
-		 This assumes that an error message has been issued elsewhere.  */
-	      if (reloc->howto == NULL)
-		continue;
 
 	      in.r_vaddr = (reloc->address
 			    + bfd_get_section_vma (abfd, current));
@@ -2674,48 +2797,46 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 	      else
 		{
 		  const char *name;
-		  unsigned int j;
-		  static struct
-		  {
-		    const char * name;
-		    long r_symndx;
-		  }
-		  section_symndx [] =
-		  {
-		    { _TEXT,   RELOC_SECTION_TEXT   },
-		    { _RDATA,  RELOC_SECTION_RDATA  },
-		    { _DATA,   RELOC_SECTION_DATA   },
-		    { _SDATA,  RELOC_SECTION_SDATA  },
-		    { _SBSS,   RELOC_SECTION_SBSS   },
-		    { _BSS,    RELOC_SECTION_BSS    },
-		    { _INIT,   RELOC_SECTION_INIT   },
-		    { _LIT8,   RELOC_SECTION_LIT8   },
-		    { _LIT4,   RELOC_SECTION_LIT4   },
-		    { _XDATA,  RELOC_SECTION_XDATA  },
-		    { _PDATA,  RELOC_SECTION_PDATA  },
-		    { _FINI,   RELOC_SECTION_FINI   },
-		    { _LITA,   RELOC_SECTION_LITA   },
-		    { "*ABS*", RELOC_SECTION_ABS    },
-		    { _RCONST, RELOC_SECTION_RCONST }
-		  };
 
 		  name = bfd_get_section_name (abfd, bfd_get_section (sym));
-
-		  for (j = 0; j < ARRAY_SIZE (section_symndx); j++)
-		    if (streq (name, section_symndx[j].name))
-		      {
-			in.r_symndx = section_symndx[j].r_symndx;
-			break;
-		      }
-
-		  if (j == ARRAY_SIZE (section_symndx))
+		  if (strcmp (name, ".text") == 0)
+		    in.r_symndx = RELOC_SECTION_TEXT;
+		  else if (strcmp (name, ".rdata") == 0)
+		    in.r_symndx = RELOC_SECTION_RDATA;
+		  else if (strcmp (name, ".data") == 0)
+		    in.r_symndx = RELOC_SECTION_DATA;
+		  else if (strcmp (name, ".sdata") == 0)
+		    in.r_symndx = RELOC_SECTION_SDATA;
+		  else if (strcmp (name, ".sbss") == 0)
+		    in.r_symndx = RELOC_SECTION_SBSS;
+		  else if (strcmp (name, ".bss") == 0)
+		    in.r_symndx = RELOC_SECTION_BSS;
+		  else if (strcmp (name, ".init") == 0)
+		    in.r_symndx = RELOC_SECTION_INIT;
+		  else if (strcmp (name, ".lit8") == 0)
+		    in.r_symndx = RELOC_SECTION_LIT8;
+		  else if (strcmp (name, ".lit4") == 0)
+		    in.r_symndx = RELOC_SECTION_LIT4;
+		  else if (strcmp (name, ".xdata") == 0)
+		    in.r_symndx = RELOC_SECTION_XDATA;
+		  else if (strcmp (name, ".pdata") == 0)
+		    in.r_symndx = RELOC_SECTION_PDATA;
+		  else if (strcmp (name, ".fini") == 0)
+		    in.r_symndx = RELOC_SECTION_FINI;
+		  else if (strcmp (name, ".lita") == 0)
+		    in.r_symndx = RELOC_SECTION_LITA;
+		  else if (strcmp (name, "*ABS*") == 0)
+		    in.r_symndx = RELOC_SECTION_ABS;
+		  else if (strcmp (name, ".rconst") == 0)
+		    in.r_symndx = RELOC_SECTION_RCONST;
+		  else
 		    abort ();
 		  in.r_extern = 0;
 		}
 
 	      (*adjust_reloc_out) (abfd, reloc, &in);
 
-	      (*swap_reloc_out) (abfd, &in, (void *) out_ptr);
+	      (*swap_reloc_out) (abfd, &in, (PTR) out_ptr);
 	    }
 
 	  if (bfd_seek (abfd, current->rel_filepos, SEEK_SET) != 0)
@@ -2802,19 +2923,19 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
 
    The Alpha seems to use ________64E[BL]E[BL]_.  */
 
-#define ARMAP_BIG_ENDIAN 		'B'
-#define ARMAP_LITTLE_ENDIAN 		'L'
-#define ARMAP_MARKER 			'E'
-#define ARMAP_START_LENGTH 		10
-#define ARMAP_HEADER_MARKER_INDEX	10
-#define ARMAP_HEADER_ENDIAN_INDEX 	11
-#define ARMAP_OBJECT_MARKER_INDEX 	12
-#define ARMAP_OBJECT_ENDIAN_INDEX 	13
-#define ARMAP_END_INDEX 		14
-#define ARMAP_END 			"_ "
+#define ARMAP_BIG_ENDIAN 'B'
+#define ARMAP_LITTLE_ENDIAN 'L'
+#define ARMAP_MARKER 'E'
+#define ARMAP_START_LENGTH 10
+#define ARMAP_HEADER_MARKER_INDEX 10
+#define ARMAP_HEADER_ENDIAN_INDEX 11
+#define ARMAP_OBJECT_MARKER_INDEX 12
+#define ARMAP_OBJECT_ENDIAN_INDEX 13
+#define ARMAP_END_INDEX 14
+#define ARMAP_END "_ "
 
 /* This is a magic number used in the hashing algorithm.  */
-#define ARMAP_HASH_MAGIC 		0x9dd68ab5
+#define ARMAP_HASH_MAGIC 0x9dd68ab5
 
 /* This returns the hash value to use for a string.  It also sets
    *REHASH to the rehash adjustment if the first slot is taken.  SIZE
@@ -2822,10 +2943,11 @@ _bfd_ecoff_write_object_contents (bfd *abfd)
    base 2 of SIZE.  */
 
 static unsigned int
-ecoff_armap_hash (const char *s,
-		  unsigned int *rehash,
-		  unsigned int size,
-		  unsigned int hlog)
+ecoff_armap_hash (s, rehash, size, hlog)
+     const char *s;
+     unsigned int *rehash;
+     unsigned int size;
+     unsigned int hlog;
 {
   unsigned int hash;
 
@@ -2842,7 +2964,8 @@ ecoff_armap_hash (const char *s,
 /* Read in the armap.  */
 
 bfd_boolean
-_bfd_ecoff_slurp_armap (bfd *abfd)
+_bfd_ecoff_slurp_armap (abfd)
+     bfd *abfd;
 {
   char nextname[17];
   unsigned int i;
@@ -2852,12 +2975,12 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
   struct artdata *ardata;
   unsigned int count;
   char *raw_ptr;
-  carsym *symdef_ptr;
+  struct symdef *symdef_ptr;
   char *stringbase;
   bfd_size_type amt;
 
   /* Get the name of the first element.  */
-  i = bfd_bread ((void *) nextname, (bfd_size_type) 16, abfd);
+  i = bfd_bread ((PTR) nextname, (bfd_size_type) 16, abfd);
   if (i == 0)
       return TRUE;
   if (i != 16)
@@ -2871,18 +2994,20 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
      bfd_slurp_armap, but that seems inappropriate since no other
      target uses this format.  Instead, we check directly for a COFF
      armap.  */
-  if (CONST_STRNEQ (nextname, "/               "))
+  if (strncmp (nextname, "/               ", 16) == 0)
     return bfd_slurp_armap (abfd);
 
   /* See if the first element is an armap.  */
-  if (! strneq (nextname, ecoff_backend (abfd)->armap_start, ARMAP_START_LENGTH)
+  if (strncmp (nextname, ecoff_backend (abfd)->armap_start,
+	       ARMAP_START_LENGTH) != 0
       || nextname[ARMAP_HEADER_MARKER_INDEX] != ARMAP_MARKER
       || (nextname[ARMAP_HEADER_ENDIAN_INDEX] != ARMAP_BIG_ENDIAN
 	  && nextname[ARMAP_HEADER_ENDIAN_INDEX] != ARMAP_LITTLE_ENDIAN)
       || nextname[ARMAP_OBJECT_MARKER_INDEX] != ARMAP_MARKER
       || (nextname[ARMAP_OBJECT_ENDIAN_INDEX] != ARMAP_BIG_ENDIAN
 	  && nextname[ARMAP_OBJECT_ENDIAN_INDEX] != ARMAP_LITTLE_ENDIAN)
-      || ! strneq (nextname + ARMAP_END_INDEX, ARMAP_END, sizeof ARMAP_END - 1))
+      || strncmp (nextname + ARMAP_END_INDEX,
+		  ARMAP_END, sizeof ARMAP_END - 1) != 0)
     {
       bfd_has_map (abfd) = FALSE;
       return TRUE;
@@ -2901,29 +3026,29 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
   /* Read in the armap.  */
   ardata = bfd_ardata (abfd);
   mapdata = (struct areltdata *) _bfd_read_ar_hdr (abfd);
-  if (mapdata == NULL)
+  if (mapdata == (struct areltdata *) NULL)
     return FALSE;
   parsed_size = mapdata->parsed_size;
-  free (mapdata);
+  bfd_release (abfd, (PTR) mapdata);
 
   raw_armap = (char *) bfd_alloc (abfd, parsed_size);
-  if (raw_armap == NULL)
+  if (raw_armap == (char *) NULL)
     return FALSE;
 
-  if (bfd_bread ((void *) raw_armap, parsed_size, abfd) != parsed_size)
+  if (bfd_bread ((PTR) raw_armap, parsed_size, abfd) != parsed_size)
     {
       if (bfd_get_error () != bfd_error_system_call)
 	bfd_set_error (bfd_error_malformed_archive);
-      bfd_release (abfd, (void *) raw_armap);
+      bfd_release (abfd, (PTR) raw_armap);
       return FALSE;
     }
 
-  ardata->tdata = (void *) raw_armap;
+  ardata->tdata = (PTR) raw_armap;
 
   count = H_GET_32 (abfd, raw_armap);
 
   ardata->symdef_count = 0;
-  ardata->cache = NULL;
+  ardata->cache = (struct ar_cache *) NULL;
 
   /* This code used to overlay the symdefs over the raw archive data,
      but that doesn't work on a 64 bit host.  */
@@ -2972,12 +3097,12 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
       ++ardata->symdef_count;
 
   amt = ardata->symdef_count;
-  amt *= sizeof (carsym);
-  symdef_ptr = (carsym *) bfd_alloc (abfd, amt);
+  amt *= sizeof (struct symdef);
+  symdef_ptr = (struct symdef *) bfd_alloc (abfd, amt);
   if (!symdef_ptr)
     return FALSE;
 
-  ardata->symdefs = symdef_ptr;
+  ardata->symdefs = (carsym *) symdef_ptr;
 
   raw_ptr = raw_armap + 4;
   for (i = 0; i < count; i++, raw_ptr += 8)
@@ -2988,7 +3113,7 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
       if (file_offset == 0)
 	continue;
       name_offset = H_GET_32 (abfd, raw_ptr);
-      symdef_ptr->name = stringbase + name_offset;
+      symdef_ptr->s.name = stringbase + name_offset;
       symdef_ptr->file_offset = file_offset;
       ++symdef_ptr;
     }
@@ -3005,11 +3130,12 @@ _bfd_ecoff_slurp_armap (bfd *abfd)
 /* Write out an armap.  */
 
 bfd_boolean
-_bfd_ecoff_write_armap (bfd *abfd,
-			unsigned int elength,
-			struct orl *map,
-			unsigned int orl_count,
-			int stridx)
+_bfd_ecoff_write_armap (abfd, elength, map, orl_count, stridx)
+     bfd *abfd;
+     unsigned int elength;
+     struct orl *map;
+     unsigned int orl_count;
+     int stridx;
 {
   unsigned int hashsize, hashlog;
   bfd_size_type symdefsize;
@@ -3040,7 +3166,7 @@ _bfd_ecoff_write_armap (bfd *abfd,
 
   firstreal = SARMAG + sizeof (struct ar_hdr) + mapsize + elength;
 
-  memset ((void *) &hdr, 0, sizeof hdr);
+  memset ((PTR) &hdr, 0, sizeof hdr);
 
   /* Work out the ECOFF armap name.  */
   strcpy (hdr.ar_name, ecoff_backend (abfd)->armap_start);
@@ -3060,19 +3186,22 @@ _bfd_ecoff_write_armap (bfd *abfd,
      linker just checks the archive name; the GNU linker may check the
      date.  */
   stat (abfd->filename, &statbuf);
-  _bfd_ar_spacepad (hdr.ar_date, sizeof (hdr.ar_date), "%ld",
-		    (long) (statbuf.st_mtime + 60));
+  sprintf (hdr.ar_date, "%ld", (long) (statbuf.st_mtime + 60));
 
   /* The DECstation uses zeroes for the uid, gid and mode of the
      armap.  */
   hdr.ar_uid[0] = '0';
   hdr.ar_gid[0] = '0';
+#if 0
+  hdr.ar_mode[0] = '0';
+#else
   /* Building gcc ends up extracting the armap as a file - twice.  */
   hdr.ar_mode[0] = '6';
   hdr.ar_mode[1] = '4';
   hdr.ar_mode[2] = '4';
+#endif
 
-  _bfd_ar_spacepad (hdr.ar_size, sizeof (hdr.ar_size), "%-10ld", mapsize);
+  sprintf (hdr.ar_size, "%-10d", (int) mapsize);
 
   hdr.ar_fmag[0] = '`';
   hdr.ar_fmag[1] = '\012';
@@ -3082,12 +3211,12 @@ _bfd_ecoff_write_armap (bfd *abfd,
    if (((char *) (&hdr))[i] == '\0')
      (((char *) (&hdr))[i]) = ' ';
 
-  if (bfd_bwrite ((void *) &hdr, (bfd_size_type) sizeof (struct ar_hdr), abfd)
+  if (bfd_bwrite ((PTR) &hdr, (bfd_size_type) sizeof (struct ar_hdr), abfd)
       != sizeof (struct ar_hdr))
     return FALSE;
 
   H_PUT_32 (abfd, hashsize, temp);
-  if (bfd_bwrite ((void *) temp, (bfd_size_type) 4, abfd) != 4)
+  if (bfd_bwrite ((PTR) temp, (bfd_size_type) 4, abfd) != 4)
     return FALSE;
 
   hashtable = (bfd_byte *) bfd_zalloc (abfd, symdefsize);
@@ -3098,7 +3227,7 @@ _bfd_ecoff_write_armap (bfd *abfd,
   last_elt = current;
   for (i = 0; i < orl_count; i++)
     {
-      unsigned int hash, rehash = 0;
+      unsigned int hash, rehash;
 
       /* Advance firstreal to the file position of this archive
 	 element.  */
@@ -3108,7 +3237,7 @@ _bfd_ecoff_write_armap (bfd *abfd,
 	    {
 	      firstreal += arelt_size (current) + sizeof (struct ar_hdr);
 	      firstreal += firstreal % 2;
-	      current = current->archive_next;
+	      current = current->next;
 	    }
 	  while (current != map[i].u.abfd);
 	}
@@ -3136,21 +3265,21 @@ _bfd_ecoff_write_armap (bfd *abfd,
       H_PUT_32 (abfd, firstreal, (hashtable + hash * 8 + 4));
     }
 
-  if (bfd_bwrite ((void *) hashtable, symdefsize, abfd) != symdefsize)
+  if (bfd_bwrite ((PTR) hashtable, symdefsize, abfd) != symdefsize)
     return FALSE;
 
   bfd_release (abfd, hashtable);
 
   /* Now write the strings.  */
   H_PUT_32 (abfd, stringsize, temp);
-  if (bfd_bwrite ((void *) temp, (bfd_size_type) 4, abfd) != 4)
+  if (bfd_bwrite ((PTR) temp, (bfd_size_type) 4, abfd) != 4)
     return FALSE;
   for (i = 0; i < orl_count; i++)
     {
       bfd_size_type len;
 
       len = strlen (*map[i].name) + 1;
-      if (bfd_bwrite ((void *) (*map[i].name), len, abfd) != len)
+      if (bfd_bwrite ((PTR) (*map[i].name), len, abfd) != len)
 	return FALSE;
     }
 
@@ -3164,24 +3293,124 @@ _bfd_ecoff_write_armap (bfd *abfd,
 
   return TRUE;
 }
+
+/* See whether this BFD is an archive.  If it is, read in the armap
+   and the extended name table.  */
+
+const bfd_target *
+_bfd_ecoff_archive_p (abfd)
+     bfd *abfd;
+{
+  struct artdata *tdata_hold;
+  char armag[SARMAG + 1];
+  bfd_size_type amt;
+
+  if (bfd_bread ((PTR) armag, (bfd_size_type) SARMAG, abfd) != SARMAG)
+    {
+      if (bfd_get_error () != bfd_error_system_call)
+	bfd_set_error (bfd_error_wrong_format);
+      return (const bfd_target *) NULL;
+    }
+
+  if (strncmp (armag, ARMAG, SARMAG) != 0)
+    {
+      bfd_set_error (bfd_error_wrong_format);
+      return NULL;
+    }
+
+  tdata_hold = bfd_ardata (abfd);
+
+  amt = sizeof (struct artdata);
+  bfd_ardata (abfd) = (struct artdata *) bfd_zalloc (abfd, amt);
+  if (bfd_ardata (abfd) == (struct artdata *) NULL)
+    {
+      bfd_ardata (abfd) = tdata_hold;
+      return (const bfd_target *) NULL;
+    }
+
+  bfd_ardata (abfd)->first_file_filepos = SARMAG;
+  bfd_ardata (abfd)->cache = NULL;
+  bfd_ardata (abfd)->archive_head = NULL;
+  bfd_ardata (abfd)->symdefs = NULL;
+  bfd_ardata (abfd)->extended_names = NULL;
+  bfd_ardata (abfd)->tdata = NULL;
+
+  if (! _bfd_ecoff_slurp_armap (abfd)
+      || ! _bfd_ecoff_slurp_extended_name_table (abfd))
+    {
+      bfd_release (abfd, bfd_ardata (abfd));
+      bfd_ardata (abfd) = tdata_hold;
+      return (const bfd_target *) NULL;
+    }
+
+  if (bfd_has_map (abfd))
+    {
+      bfd *first;
+
+      /* This archive has a map, so we may presume that the contents
+	 are object files.  Make sure that if the first file in the
+	 archive can be recognized as an object file, it is for this
+	 target.  If not, assume that this is the wrong format.  If
+	 the first file is not an object file, somebody is doing
+	 something weird, and we permit it so that ar -t will work.  */
+
+      first = bfd_openr_next_archived_file (abfd, (bfd *) NULL);
+      if (first != NULL)
+	{
+	  first->target_defaulted = FALSE;
+	  if (bfd_check_format (first, bfd_object)
+	      && first->xvec != abfd->xvec)
+	    {
+#if 0
+	      /* We ought to close `first' here, but we can't, because
+		 we have no way to remove it from the archive cache.
+		 It's close to impossible to figure out when we can
+		 release bfd_ardata.  FIXME.  */
+	      (void) bfd_close (first);
+	      bfd_release (abfd, bfd_ardata (abfd));
+#endif
+	      bfd_set_error (bfd_error_wrong_object_format);
+	      bfd_ardata (abfd) = tdata_hold;
+	      return NULL;
+	    }
+	  /* And we ought to close `first' here too.  */
+	}
+    }
+
+  return abfd->xvec;
+}
 
 /* ECOFF linker code.  */
+
+static struct bfd_hash_entry *ecoff_link_hash_newfunc
+  PARAMS ((struct bfd_hash_entry *entry,
+	   struct bfd_hash_table *table,
+	   const char *string));
+static bfd_boolean ecoff_link_add_archive_symbols
+  PARAMS ((bfd *, struct bfd_link_info *));
+static bfd_boolean ecoff_link_check_archive_element
+  PARAMS ((bfd *, struct bfd_link_info *, bfd_boolean *pneeded));
+static bfd_boolean ecoff_link_add_object_symbols
+  PARAMS ((bfd *, struct bfd_link_info *));
+static bfd_boolean ecoff_link_add_externals
+  PARAMS ((bfd *, struct bfd_link_info *, PTR, char *));
 
 /* Routine to create an entry in an ECOFF link hash table.  */
 
 static struct bfd_hash_entry *
-ecoff_link_hash_newfunc (struct bfd_hash_entry *entry,
-			 struct bfd_hash_table *table,
-			 const char *string)
+ecoff_link_hash_newfunc (entry, table, string)
+     struct bfd_hash_entry *entry;
+     struct bfd_hash_table *table;
+     const char *string;
 {
   struct ecoff_link_hash_entry *ret = (struct ecoff_link_hash_entry *) entry;
 
   /* Allocate the structure if it has not already been allocated by a
      subclass.  */
-  if (ret == NULL)
+  if (ret == (struct ecoff_link_hash_entry *) NULL)
     ret = ((struct ecoff_link_hash_entry *)
 	   bfd_hash_allocate (table, sizeof (struct ecoff_link_hash_entry)));
-  if (ret == NULL)
+  if (ret == (struct ecoff_link_hash_entry *) NULL)
     return NULL;
 
   /* Call the allocation method of the superclass.  */
@@ -3197,7 +3426,7 @@ ecoff_link_hash_newfunc (struct bfd_hash_entry *entry,
       ret->written = 0;
       ret->small = 0;
     }
-  memset ((void *) &ret->esym, 0, sizeof ret->esym);
+  memset ((PTR) &ret->esym, 0, sizeof ret->esym);
 
   return (struct bfd_hash_entry *) ret;
 }
@@ -3205,7 +3434,8 @@ ecoff_link_hash_newfunc (struct bfd_hash_entry *entry,
 /* Create an ECOFF link hash table.  */
 
 struct bfd_link_hash_table *
-_bfd_ecoff_bfd_link_hash_table_create (bfd *abfd)
+_bfd_ecoff_bfd_link_hash_table_create (abfd)
+     bfd *abfd;
 {
   struct ecoff_link_hash_table *ret;
   bfd_size_type amt = sizeof (struct ecoff_link_hash_table);
@@ -3213,12 +3443,11 @@ _bfd_ecoff_bfd_link_hash_table_create (bfd *abfd)
   ret = (struct ecoff_link_hash_table *) bfd_malloc (amt);
   if (ret == NULL)
     return NULL;
-  if (!_bfd_link_hash_table_init (&ret->root, abfd,
-				  ecoff_link_hash_newfunc,
-				  sizeof (struct ecoff_link_hash_entry)))
+  if (! _bfd_link_hash_table_init (&ret->root, abfd,
+				   ecoff_link_hash_newfunc))
     {
       free (ret);
-      return NULL;
+      return (struct bfd_link_hash_table *) NULL;
     }
   return &ret->root;
 }
@@ -3229,10 +3458,380 @@ _bfd_ecoff_bfd_link_hash_table_create (bfd *abfd)
   ((struct ecoff_link_hash_entry *) \
    bfd_link_hash_lookup (&(table)->root, (string), (create), (copy), (follow)))
 
+/* Traverse an ECOFF link hash table.  */
+
+#define ecoff_link_hash_traverse(table, func, info)			\
+  (bfd_link_hash_traverse						\
+   (&(table)->root,							\
+    (bfd_boolean (*) PARAMS ((struct bfd_link_hash_entry *, PTR))) (func), \
+    (info)))
+
 /* Get the ECOFF link hash table from the info structure.  This is
    just a cast.  */
 
 #define ecoff_hash_table(p) ((struct ecoff_link_hash_table *) ((p)->hash))
+
+/* Given an ECOFF BFD, add symbols to the global hash table as
+   appropriate.  */
+
+bfd_boolean
+_bfd_ecoff_bfd_link_add_symbols (abfd, info)
+     bfd *abfd;
+     struct bfd_link_info *info;
+{
+  switch (bfd_get_format (abfd))
+    {
+    case bfd_object:
+      return ecoff_link_add_object_symbols (abfd, info);
+    case bfd_archive:
+      return ecoff_link_add_archive_symbols (abfd, info);
+    default:
+      bfd_set_error (bfd_error_wrong_format);
+      return FALSE;
+    }
+}
+
+/* Add the symbols from an archive file to the global hash table.
+   This looks through the undefined symbols, looks each one up in the
+   archive hash table, and adds any associated object file.  We do not
+   use _bfd_generic_link_add_archive_symbols because ECOFF archives
+   already have a hash table, so there is no reason to construct
+   another one.  */
+
+static bfd_boolean
+ecoff_link_add_archive_symbols (abfd, info)
+     bfd *abfd;
+     struct bfd_link_info *info;
+{
+  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
+  const bfd_byte *raw_armap;
+  struct bfd_link_hash_entry **pundef;
+  unsigned int armap_count;
+  unsigned int armap_log;
+  unsigned int i;
+  const bfd_byte *hashtable;
+  const char *stringbase;
+
+  if (! bfd_has_map (abfd))
+    {
+      /* An empty archive is a special case.  */
+      if (bfd_openr_next_archived_file (abfd, (bfd *) NULL) == NULL)
+	return TRUE;
+      bfd_set_error (bfd_error_no_armap);
+      return FALSE;
+    }
+
+  /* If we don't have any raw data for this archive, as can happen on
+     Irix 4.0.5F, we call the generic routine.
+     FIXME: We should be more clever about this, since someday tdata
+     may get to something for a generic archive.  */
+  raw_armap = (const bfd_byte *) bfd_ardata (abfd)->tdata;
+  if (raw_armap == (bfd_byte *) NULL)
+    return (_bfd_generic_link_add_archive_symbols
+	    (abfd, info, ecoff_link_check_archive_element));
+
+  armap_count = H_GET_32 (abfd, raw_armap);
+
+  armap_log = 0;
+  for (i = 1; i < armap_count; i <<= 1)
+    armap_log++;
+  BFD_ASSERT (i == armap_count);
+
+  hashtable = raw_armap + 4;
+  stringbase = (const char *) raw_armap + armap_count * 8 + 8;
+
+  /* Look through the list of undefined symbols.  */
+  pundef = &info->hash->undefs;
+  while (*pundef != (struct bfd_link_hash_entry *) NULL)
+    {
+      struct bfd_link_hash_entry *h;
+      unsigned int hash, rehash;
+      unsigned int file_offset;
+      const char *name;
+      bfd *element;
+
+      h = *pundef;
+
+      /* When a symbol is defined, it is not necessarily removed from
+	 the list.  */
+      if (h->type != bfd_link_hash_undefined
+	  && h->type != bfd_link_hash_common)
+	{
+	  /* Remove this entry from the list, for general cleanliness
+	     and because we are going to look through the list again
+	     if we search any more libraries.  We can't remove the
+	     entry if it is the tail, because that would lose any
+	     entries we add to the list later on.  */
+	  if (*pundef != info->hash->undefs_tail)
+	    *pundef = (*pundef)->und_next;
+	  else
+	    pundef = &(*pundef)->und_next;
+	  continue;
+	}
+
+      /* Native ECOFF linkers do not pull in archive elements merely
+	 to satisfy common definitions, so neither do we.  We leave
+	 them on the list, though, in case we are linking against some
+	 other object format.  */
+      if (h->type != bfd_link_hash_undefined)
+	{
+	  pundef = &(*pundef)->und_next;
+	  continue;
+	}
+
+      /* Look for this symbol in the archive hash table.  */
+      hash = ecoff_armap_hash (h->root.string, &rehash, armap_count,
+			       armap_log);
+
+      file_offset = H_GET_32 (abfd, hashtable + (hash * 8) + 4);
+      if (file_offset == 0)
+	{
+	  /* Nothing in this slot.  */
+	  pundef = &(*pundef)->und_next;
+	  continue;
+	}
+
+      name = stringbase + H_GET_32 (abfd, hashtable + (hash * 8));
+      if (name[0] != h->root.string[0]
+	  || strcmp (name, h->root.string) != 0)
+	{
+	  unsigned int srch;
+	  bfd_boolean found;
+
+	  /* That was the wrong symbol.  Try rehashing.  */
+	  found = FALSE;
+	  for (srch = (hash + rehash) & (armap_count - 1);
+	       srch != hash;
+	       srch = (srch + rehash) & (armap_count - 1))
+	    {
+	      file_offset = H_GET_32 (abfd, hashtable + (srch * 8) + 4);
+	      if (file_offset == 0)
+		break;
+	      name = stringbase + H_GET_32 (abfd, hashtable + (srch * 8));
+	      if (name[0] == h->root.string[0]
+		  && strcmp (name, h->root.string) == 0)
+		{
+		  found = TRUE;
+		  break;
+		}
+	    }
+
+	  if (! found)
+	    {
+	      pundef = &(*pundef)->und_next;
+	      continue;
+	    }
+
+	  hash = srch;
+	}
+
+      element = (*backend->get_elt_at_filepos) (abfd, (file_ptr) file_offset);
+      if (element == (bfd *) NULL)
+	return FALSE;
+
+      if (! bfd_check_format (element, bfd_object))
+	return FALSE;
+
+      /* Unlike the generic linker, we know that this element provides
+	 a definition for an undefined symbol and we know that we want
+	 to include it.  We don't need to check anything.  */
+      if (! (*info->callbacks->add_archive_element) (info, element, name))
+	return FALSE;
+      if (! ecoff_link_add_object_symbols (element, info))
+	return FALSE;
+
+      pundef = &(*pundef)->und_next;
+    }
+
+  return TRUE;
+}
+
+/* This is called if we used _bfd_generic_link_add_archive_symbols
+   because we were not dealing with an ECOFF archive.  */
+
+static bfd_boolean
+ecoff_link_check_archive_element (abfd, info, pneeded)
+     bfd *abfd;
+     struct bfd_link_info *info;
+     bfd_boolean *pneeded;
+{
+  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
+  void (* const swap_ext_in) PARAMS ((bfd *, PTR, EXTR *))
+    = backend->debug_swap.swap_ext_in;
+  HDRR *symhdr;
+  bfd_size_type external_ext_size;
+  PTR external_ext = NULL;
+  bfd_size_type esize;
+  char *ssext = NULL;
+  char *ext_ptr;
+  char *ext_end;
+
+  *pneeded = FALSE;
+
+  if (! ecoff_slurp_symbolic_header (abfd))
+    goto error_return;
+
+  /* If there are no symbols, we don't want it.  */
+  if (bfd_get_symcount (abfd) == 0)
+    goto successful_return;
+
+  symhdr = &ecoff_data (abfd)->debug_info.symbolic_header;
+
+  /* Read in the external symbols and external strings.  */
+  external_ext_size = backend->debug_swap.external_ext_size;
+  esize = symhdr->iextMax * external_ext_size;
+  external_ext = (PTR) bfd_malloc (esize);
+  if (external_ext == NULL && esize != 0)
+    goto error_return;
+
+  if (bfd_seek (abfd, (file_ptr) symhdr->cbExtOffset, SEEK_SET) != 0
+      || bfd_bread (external_ext, esize, abfd) != esize)
+    goto error_return;
+
+  ssext = (char *) bfd_malloc ((bfd_size_type) symhdr->issExtMax);
+  if (ssext == NULL && symhdr->issExtMax != 0)
+    goto error_return;
+
+  if (bfd_seek (abfd, (file_ptr) symhdr->cbSsExtOffset, SEEK_SET) != 0
+      || (bfd_bread (ssext, (bfd_size_type) symhdr->issExtMax, abfd)
+	  != (bfd_size_type) symhdr->issExtMax))
+    goto error_return;
+
+  /* Look through the external symbols to see if they define some
+     symbol that is currently undefined.  */
+  ext_ptr = (char *) external_ext;
+  ext_end = ext_ptr + esize;
+  for (; ext_ptr < ext_end; ext_ptr += external_ext_size)
+    {
+      EXTR esym;
+      bfd_boolean def;
+      const char *name;
+      struct bfd_link_hash_entry *h;
+
+      (*swap_ext_in) (abfd, (PTR) ext_ptr, &esym);
+
+      /* See if this symbol defines something.  */
+      if (esym.asym.st != stGlobal
+	  && esym.asym.st != stLabel
+	  && esym.asym.st != stProc)
+	continue;
+
+      switch (esym.asym.sc)
+	{
+	case scText:
+	case scData:
+	case scBss:
+	case scAbs:
+	case scSData:
+	case scSBss:
+	case scRData:
+	case scCommon:
+	case scSCommon:
+	case scInit:
+	case scFini:
+	case scRConst:
+	  def = TRUE;
+	  break;
+	default:
+	  def = FALSE;
+	  break;
+	}
+
+      if (! def)
+	continue;
+
+      name = ssext + esym.asym.iss;
+      h = bfd_link_hash_lookup (info->hash, name, FALSE, FALSE, TRUE);
+
+      /* Unlike the generic linker, we do not pull in elements because
+	 of common symbols.  */
+      if (h == (struct bfd_link_hash_entry *) NULL
+	  || h->type != bfd_link_hash_undefined)
+	continue;
+
+      /* Include this element.  */
+      if (! (*info->callbacks->add_archive_element) (info, abfd, name))
+	goto error_return;
+      if (! ecoff_link_add_externals (abfd, info, external_ext, ssext))
+	goto error_return;
+
+      *pneeded = TRUE;
+      goto successful_return;
+    }
+
+ successful_return:
+  if (external_ext != NULL)
+    free (external_ext);
+  if (ssext != NULL)
+    free (ssext);
+  return TRUE;
+ error_return:
+  if (external_ext != NULL)
+    free (external_ext);
+  if (ssext != NULL)
+    free (ssext);
+  return FALSE;
+}
+
+/* Add symbols from an ECOFF object file to the global linker hash
+   table.  */
+
+static bfd_boolean
+ecoff_link_add_object_symbols (abfd, info)
+     bfd *abfd;
+     struct bfd_link_info *info;
+{
+  HDRR *symhdr;
+  bfd_size_type external_ext_size;
+  PTR external_ext = NULL;
+  bfd_size_type esize;
+  char *ssext = NULL;
+  bfd_boolean result;
+
+  if (! ecoff_slurp_symbolic_header (abfd))
+    return FALSE;
+
+  /* If there are no symbols, we don't want it.  */
+  if (bfd_get_symcount (abfd) == 0)
+    return TRUE;
+
+  symhdr = &ecoff_data (abfd)->debug_info.symbolic_header;
+
+  /* Read in the external symbols and external strings.  */
+  external_ext_size = ecoff_backend (abfd)->debug_swap.external_ext_size;
+  esize = symhdr->iextMax * external_ext_size;
+  external_ext = (PTR) bfd_malloc (esize);
+  if (external_ext == NULL && esize != 0)
+    goto error_return;
+
+  if (bfd_seek (abfd, (file_ptr) symhdr->cbExtOffset, SEEK_SET) != 0
+      || bfd_bread (external_ext, esize, abfd) != esize)
+    goto error_return;
+
+  ssext = (char *) bfd_malloc ((bfd_size_type) symhdr->issExtMax);
+  if (ssext == NULL && symhdr->issExtMax != 0)
+    goto error_return;
+
+  if (bfd_seek (abfd, (file_ptr) symhdr->cbSsExtOffset, SEEK_SET) != 0
+      || (bfd_bread (ssext, (bfd_size_type) symhdr->issExtMax, abfd)
+	  != (bfd_size_type) symhdr->issExtMax))
+    goto error_return;
+
+  result = ecoff_link_add_externals (abfd, info, external_ext, ssext);
+
+  if (ssext != NULL)
+    free (ssext);
+  if (external_ext != NULL)
+    free (external_ext);
+  return result;
+
+ error_return:
+  if (ssext != NULL)
+    free (ssext);
+  if (external_ext != NULL)
+    free (external_ext);
+  return FALSE;
+}
 
 /* Add the external symbols of an object file to the global linker
    hash table.  The external symbols and strings we are passed are
@@ -3241,13 +3840,14 @@ _bfd_ecoff_bfd_link_hash_table_create (bfd *abfd)
    We do not want to read the external symbol information again.  */
 
 static bfd_boolean
-ecoff_link_add_externals (bfd *abfd,
-			  struct bfd_link_info *info,
-			  void * external_ext,
-			  char *ssext)
+ecoff_link_add_externals (abfd, info, external_ext, ssext)
+     bfd *abfd;
+     struct bfd_link_info *info;
+     PTR external_ext;
+     char *ssext;
 {
   const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
-  void (* const swap_ext_in) (bfd *, void *, EXTR *)
+  void (* const swap_ext_in) PARAMS ((bfd *, PTR, EXTR *))
     = backend->debug_swap.swap_ext_in;
   bfd_size_type external_ext_size = backend->debug_swap.external_ext_size;
   unsigned long ext_count;
@@ -3278,7 +3878,7 @@ ecoff_link_add_externals (bfd *abfd,
 
       *sym_hash = NULL;
 
-      (*swap_ext_in) (abfd, (void *) ext_ptr, &esym);
+      (*swap_ext_in) (abfd, (PTR) ext_ptr, &esym);
 
       /* Skip debugging symbols.  */
       skip = FALSE;
@@ -3320,15 +3920,15 @@ ecoff_link_add_externals (bfd *abfd,
 	  section = NULL;
 	  break;
 	case scText:
-	  section = bfd_make_section_old_way (abfd, _TEXT);
+	  section = bfd_make_section_old_way (abfd, ".text");
 	  value -= section->vma;
 	  break;
 	case scData:
-	  section = bfd_make_section_old_way (abfd, _DATA);
+	  section = bfd_make_section_old_way (abfd, ".data");
 	  value -= section->vma;
 	  break;
 	case scBss:
-	  section = bfd_make_section_old_way (abfd, _BSS);
+	  section = bfd_make_section_old_way (abfd, ".bss");
 	  value -= section->vma;
 	  break;
 	case scAbs:
@@ -3338,15 +3938,15 @@ ecoff_link_add_externals (bfd *abfd,
 	  section = bfd_und_section_ptr;
 	  break;
 	case scSData:
-	  section = bfd_make_section_old_way (abfd, _SDATA);
+	  section = bfd_make_section_old_way (abfd, ".sdata");
 	  value -= section->vma;
 	  break;
 	case scSBss:
-	  section = bfd_make_section_old_way (abfd, _SBSS);
+	  section = bfd_make_section_old_way (abfd, ".sbss");
 	  value -= section->vma;
 	  break;
 	case scRData:
-	  section = bfd_make_section_old_way (abfd, _RDATA);
+	  section = bfd_make_section_old_way (abfd, ".rdata");
 	  value -= section->vma;
 	  break;
 	case scCommon:
@@ -3376,20 +3976,20 @@ ecoff_link_add_externals (bfd *abfd,
 	  section = bfd_und_section_ptr;
 	  break;
 	case scInit:
-	  section = bfd_make_section_old_way (abfd, _INIT);
+	  section = bfd_make_section_old_way (abfd, ".init");
 	  value -= section->vma;
 	  break;
 	case scFini:
-	  section = bfd_make_section_old_way (abfd, _FINI);
+	  section = bfd_make_section_old_way (abfd, ".fini");
 	  value -= section->vma;
 	  break;
 	case scRConst:
-	  section = bfd_make_section_old_way (abfd, _RCONST);
+	  section = bfd_make_section_old_way (abfd, ".rconst");
 	  value -= section->vma;
 	  break;
 	}
 
-      if (section == NULL)
+      if (section == (asection *) NULL)
 	continue;
 
       name = ssext + esym.asym.iss;
@@ -3397,16 +3997,16 @@ ecoff_link_add_externals (bfd *abfd,
       if (! (_bfd_generic_link_add_one_symbol
 	     (info, abfd, name,
 	      (flagword) (esym.weakext ? BSF_WEAK : BSF_GLOBAL),
-	      section, value, NULL, TRUE, TRUE, sym_hash)))
+	      section, value, (const char *) NULL, TRUE, TRUE, sym_hash)))
 	return FALSE;
 
       h = (struct ecoff_link_hash_entry *) *sym_hash;
 
       /* If we are building an ECOFF hash table, save the external
 	 symbol information.  */
-      if (bfd_get_flavour (info->output_bfd) == bfd_get_flavour (abfd))
+      if (info->hash->creator->flavour == bfd_get_flavour (abfd))
 	{
-	  if (h->abfd == NULL
+	  if (h->abfd == (bfd *) NULL
 	      || (! bfd_is_und_section (section)
 		  && (! bfd_is_com_section (section)
 		      || (h->root.type != bfd_link_hash_defined
@@ -3427,7 +4027,7 @@ ecoff_link_add_externals (bfd *abfd,
 	     on Ultrix 4.2 to handle the symbol cred in -lckrb.  */
 	  if (h->small
 	      && h->root.type == bfd_link_hash_common
-	      && streq (h->root.u.c.p->section->name, SCOMMON))
+	      && strcmp (h->root.u.c.p->section->name, SCOMMON) != 0)
 	    {
 	      h->root.u.c.p->section = bfd_make_section_old_way (abfd,
 								 SCOMMON);
@@ -3440,406 +4040,20 @@ ecoff_link_add_externals (bfd *abfd,
 
   return TRUE;
 }
-
-/* Add symbols from an ECOFF object file to the global linker hash
-   table.  */
-
-static bfd_boolean
-ecoff_link_add_object_symbols (bfd *abfd, struct bfd_link_info *info)
-{
-  HDRR *symhdr;
-  bfd_size_type external_ext_size;
-  void * external_ext = NULL;
-  bfd_size_type esize;
-  char *ssext = NULL;
-  bfd_boolean result;
-
-  if (! ecoff_slurp_symbolic_header (abfd))
-    return FALSE;
-
-  /* If there are no symbols, we don't want it.  */
-  if (bfd_get_symcount (abfd) == 0)
-    return TRUE;
-
-  symhdr = &ecoff_data (abfd)->debug_info.symbolic_header;
-
-  /* Read in the external symbols and external strings.  */
-  external_ext_size = ecoff_backend (abfd)->debug_swap.external_ext_size;
-  esize = symhdr->iextMax * external_ext_size;
-  external_ext = bfd_malloc (esize);
-  if (external_ext == NULL && esize != 0)
-    goto error_return;
-
-  if (bfd_seek (abfd, (file_ptr) symhdr->cbExtOffset, SEEK_SET) != 0
-      || bfd_bread (external_ext, esize, abfd) != esize)
-    goto error_return;
-
-  ssext = (char *) bfd_malloc ((bfd_size_type) symhdr->issExtMax);
-  if (ssext == NULL && symhdr->issExtMax != 0)
-    goto error_return;
-
-  if (bfd_seek (abfd, (file_ptr) symhdr->cbSsExtOffset, SEEK_SET) != 0
-      || (bfd_bread (ssext, (bfd_size_type) symhdr->issExtMax, abfd)
-	  != (bfd_size_type) symhdr->issExtMax))
-    goto error_return;
-
-  result = ecoff_link_add_externals (abfd, info, external_ext, ssext);
-
-  if (ssext != NULL)
-    free (ssext);
-  if (external_ext != NULL)
-    free (external_ext);
-  return result;
-
- error_return:
-  if (ssext != NULL)
-    free (ssext);
-  if (external_ext != NULL)
-    free (external_ext);
-  return FALSE;
-}
-
-/* Factored out from ecoff_link_check_archive_element.  */
-
-static bfd_boolean
-read_ext_syms_and_strs (HDRR **symhdr, bfd_size_type *external_ext_size,
-	bfd_size_type *esize, void **external_ext, char **ssext, bfd *abfd,
-	const struct ecoff_backend_data * const backend)
-{
-  if (! ecoff_slurp_symbolic_header (abfd))
-    return FALSE;
-
-  /* If there are no symbols, we don't want it.  */
-  if (bfd_get_symcount (abfd) == 0)
-    return TRUE;
-
-  *symhdr = &ecoff_data (abfd)->debug_info.symbolic_header;
-
-  *external_ext_size = backend->debug_swap.external_ext_size;
-  *esize = (*symhdr)->iextMax * *external_ext_size;
-  *external_ext = bfd_malloc (*esize);
-  if (*external_ext == NULL && *esize != 0)
-    return FALSE;
-
-  if (bfd_seek (abfd, (file_ptr) (*symhdr)->cbExtOffset, SEEK_SET) != 0
-      || bfd_bread (*external_ext, *esize, abfd) != *esize)
-    return FALSE;
-
-  *ssext = (char *) bfd_malloc ((bfd_size_type) (*symhdr)->issExtMax);
-  if (*ssext == NULL && (*symhdr)->issExtMax != 0)
-    return FALSE;
-
-  if (bfd_seek (abfd, (file_ptr) (*symhdr)->cbSsExtOffset, SEEK_SET) != 0
-      || (bfd_bread (*ssext, (bfd_size_type) (*symhdr)->issExtMax, abfd)
-	  != (bfd_size_type) (*symhdr)->issExtMax))
-    return FALSE;
-  return TRUE;
-}
-
-static bfd_boolean
-reread_ext_syms_and_strs (HDRR **symhdr, bfd_size_type *external_ext_size,
-	bfd_size_type *esize, void **external_ext, char **ssext, bfd *abfd,
-	const struct ecoff_backend_data * const backend)
-{
-  if (*external_ext != NULL)
-    free (*external_ext);
-  *external_ext = NULL;
-  if (*ssext != NULL)
-    free (*ssext);
-  *ssext = NULL;
-  return read_ext_syms_and_strs (symhdr, external_ext_size, esize,
-				external_ext, ssext, abfd, backend);
-}
-
-/* This is called if we used _bfd_generic_link_add_archive_symbols
-   because we were not dealing with an ECOFF archive.  */
-
-static bfd_boolean
-ecoff_link_check_archive_element (bfd *abfd,
-				  struct bfd_link_info *info,
-				  bfd_boolean *pneeded)
-{
-  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
-  void (* const swap_ext_in) (bfd *, void *, EXTR *)
-    = backend->debug_swap.swap_ext_in;
-  HDRR *symhdr;
-  bfd_size_type external_ext_size;
-  void * external_ext = NULL;
-  bfd_size_type esize;
-  char *ssext = NULL;
-  char *ext_ptr;
-  char *ext_end;
-
-  *pneeded = FALSE;
-
-  /* Read in the external symbols and external strings.  */
-  if (!read_ext_syms_and_strs (&symhdr, &external_ext_size, &esize,
-	&external_ext, &ssext, abfd, backend))
-    goto error_return;
-
-  /* If there are no symbols, we don't want it.  */
-  if (bfd_get_symcount (abfd) == 0)
-    goto successful_return;
-
-  /* Look through the external symbols to see if they define some
-     symbol that is currently undefined.  */
-  ext_ptr = (char *) external_ext;
-  ext_end = ext_ptr + esize;
-  for (; ext_ptr < ext_end; ext_ptr += external_ext_size)
-    {
-      EXTR esym;
-      bfd_boolean def;
-      const char *name;
-      bfd *oldbfd;
-      struct bfd_link_hash_entry *h;
-
-      (*swap_ext_in) (abfd, (void *) ext_ptr, &esym);
-
-      /* See if this symbol defines something.  */
-      if (esym.asym.st != stGlobal
-	  && esym.asym.st != stLabel
-	  && esym.asym.st != stProc)
-	continue;
-
-      switch (esym.asym.sc)
-	{
-	case scText:
-	case scData:
-	case scBss:
-	case scAbs:
-	case scSData:
-	case scSBss:
-	case scRData:
-	case scCommon:
-	case scSCommon:
-	case scInit:
-	case scFini:
-	case scRConst:
-	  def = TRUE;
-	  break;
-	default:
-	  def = FALSE;
-	  break;
-	}
-
-      if (! def)
-	continue;
-
-      name = ssext + esym.asym.iss;
-      h = bfd_link_hash_lookup (info->hash, name, FALSE, FALSE, TRUE);
-
-      /* Unlike the generic linker, we do not pull in elements because
-	 of common symbols.  */
-      if (h == NULL
-	  || h->type != bfd_link_hash_undefined)
-	continue;
-
-      /* Include this element.  */
-      oldbfd = abfd;
-      if (!(*info->callbacks
-	    ->add_archive_element) (info, abfd, name, &abfd))
-	goto error_return;
-      /* Potentially, the add_archive_element hook may have set a
-	 substitute BFD for us.  */
-      if (abfd != oldbfd
-	  && !reread_ext_syms_and_strs (&symhdr, &external_ext_size, &esize,
-					&external_ext, &ssext, abfd, backend))
-	goto error_return;
-      if (! ecoff_link_add_externals (abfd, info, external_ext, ssext))
-	goto error_return;
-
-      *pneeded = TRUE;
-      goto successful_return;
-    }
-
- successful_return:
-  if (external_ext != NULL)
-    free (external_ext);
-  if (ssext != NULL)
-    free (ssext);
-  return TRUE;
- error_return:
-  if (external_ext != NULL)
-    free (external_ext);
-  if (ssext != NULL)
-    free (ssext);
-  return FALSE;
-}
-
-/* Add the symbols from an archive file to the global hash table.
-   This looks through the undefined symbols, looks each one up in the
-   archive hash table, and adds any associated object file.  We do not
-   use _bfd_generic_link_add_archive_symbols because ECOFF archives
-   already have a hash table, so there is no reason to construct
-   another one.  */
-
-static bfd_boolean
-ecoff_link_add_archive_symbols (bfd *abfd, struct bfd_link_info *info)
-{
-  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
-  const bfd_byte *raw_armap;
-  struct bfd_link_hash_entry **pundef;
-  unsigned int armap_count;
-  unsigned int armap_log;
-  unsigned int i;
-  const bfd_byte *hashtable;
-  const char *stringbase;
-
-  if (! bfd_has_map (abfd))
-    {
-      /* An empty archive is a special case.  */
-      if (bfd_openr_next_archived_file (abfd, NULL) == NULL)
-	return TRUE;
-      bfd_set_error (bfd_error_no_armap);
-      return FALSE;
-    }
-
-  /* If we don't have any raw data for this archive, as can happen on
-     Irix 4.0.5F, we call the generic routine.
-     FIXME: We should be more clever about this, since someday tdata
-     may get to something for a generic archive.  */
-  raw_armap = (const bfd_byte *) bfd_ardata (abfd)->tdata;
-  if (raw_armap == NULL)
-    return (_bfd_generic_link_add_archive_symbols
-	    (abfd, info, ecoff_link_check_archive_element));
-
-  armap_count = H_GET_32 (abfd, raw_armap);
-
-  armap_log = 0;
-  for (i = 1; i < armap_count; i <<= 1)
-    armap_log++;
-  BFD_ASSERT (i == armap_count);
-
-  hashtable = raw_armap + 4;
-  stringbase = (const char *) raw_armap + armap_count * 8 + 8;
-
-  /* Look through the list of undefined symbols.  */
-  pundef = &info->hash->undefs;
-  while (*pundef != NULL)
-    {
-      struct bfd_link_hash_entry *h;
-      unsigned int hash, rehash = 0;
-      unsigned int file_offset;
-      const char *name;
-      bfd *element;
-
-      h = *pundef;
-
-      /* When a symbol is defined, it is not necessarily removed from
-	 the list.  */
-      if (h->type != bfd_link_hash_undefined
-	  && h->type != bfd_link_hash_common)
-	{
-	  /* Remove this entry from the list, for general cleanliness
-	     and because we are going to look through the list again
-	     if we search any more libraries.  We can't remove the
-	     entry if it is the tail, because that would lose any
-	     entries we add to the list later on.  */
-	  if (*pundef != info->hash->undefs_tail)
-	    *pundef = (*pundef)->u.undef.next;
-	  else
-	    pundef = &(*pundef)->u.undef.next;
-	  continue;
-	}
-
-      /* Native ECOFF linkers do not pull in archive elements merely
-	 to satisfy common definitions, so neither do we.  We leave
-	 them on the list, though, in case we are linking against some
-	 other object format.  */
-      if (h->type != bfd_link_hash_undefined)
-	{
-	  pundef = &(*pundef)->u.undef.next;
-	  continue;
-	}
-
-      /* Look for this symbol in the archive hash table.  */
-      hash = ecoff_armap_hash (h->root.string, &rehash, armap_count,
-			       armap_log);
-
-      file_offset = H_GET_32 (abfd, hashtable + (hash * 8) + 4);
-      if (file_offset == 0)
-	{
-	  /* Nothing in this slot.  */
-	  pundef = &(*pundef)->u.undef.next;
-	  continue;
-	}
-
-      name = stringbase + H_GET_32 (abfd, hashtable + (hash * 8));
-      if (name[0] != h->root.string[0]
-	  || ! streq (name, h->root.string))
-	{
-	  unsigned int srch;
-	  bfd_boolean found;
-
-	  /* That was the wrong symbol.  Try rehashing.  */
-	  found = FALSE;
-	  for (srch = (hash + rehash) & (armap_count - 1);
-	       srch != hash;
-	       srch = (srch + rehash) & (armap_count - 1))
-	    {
-	      file_offset = H_GET_32 (abfd, hashtable + (srch * 8) + 4);
-	      if (file_offset == 0)
-		break;
-	      name = stringbase + H_GET_32 (abfd, hashtable + (srch * 8));
-	      if (name[0] == h->root.string[0]
-		  && streq (name, h->root.string))
-		{
-		  found = TRUE;
-		  break;
-		}
-	    }
-
-	  if (! found)
-	    {
-	      pundef = &(*pundef)->u.undef.next;
-	      continue;
-	    }
-
-	  hash = srch;
-	}
-
-      element = (*backend->get_elt_at_filepos) (abfd, (file_ptr) file_offset);
-      if (element == NULL)
-	return FALSE;
-
-      if (! bfd_check_format (element, bfd_object))
-	return FALSE;
-
-      /* Unlike the generic linker, we know that this element provides
-	 a definition for an undefined symbol and we know that we want
-	 to include it.  We don't need to check anything.  */
-      if (!(*info->callbacks
-	    ->add_archive_element) (info, element, name, &element))
-	return FALSE;
-      if (! ecoff_link_add_object_symbols (element, info))
-	return FALSE;
-
-      pundef = &(*pundef)->u.undef.next;
-    }
-
-  return TRUE;
-}
-
-/* Given an ECOFF BFD, add symbols to the global hash table as
-   appropriate.  */
-
-bfd_boolean
-_bfd_ecoff_bfd_link_add_symbols (bfd *abfd, struct bfd_link_info *info)
-{
-  switch (bfd_get_format (abfd))
-    {
-    case bfd_object:
-      return ecoff_link_add_object_symbols (abfd, info);
-    case bfd_archive:
-      return ecoff_link_add_archive_symbols (abfd, info);
-    default:
-      bfd_set_error (bfd_error_wrong_format);
-      return FALSE;
-    }
-}
-
 
 /* ECOFF final link routines.  */
+
+static bfd_boolean ecoff_final_link_debug_accumulate
+  PARAMS ((bfd *output_bfd, bfd *input_bfd, struct bfd_link_info *,
+	   PTR handle));
+static bfd_boolean ecoff_link_write_external
+  PARAMS ((struct ecoff_link_hash_entry *, PTR));
+static bfd_boolean ecoff_indirect_link_order
+  PARAMS ((bfd *, struct bfd_link_info *, asection *,
+	   struct bfd_link_order *));
+static bfd_boolean ecoff_reloc_link_order
+  PARAMS ((bfd *, struct bfd_link_info *, asection *,
+	   struct bfd_link_order *));
 
 /* Structure used to pass information to ecoff_link_write_external.  */
 
@@ -3849,15 +4063,220 @@ struct extsym_info
   struct bfd_link_info *info;
 };
 
+/* ECOFF final link routine.  This looks through all the input BFDs
+   and gathers together all the debugging information, and then
+   processes all the link order information.  This may cause it to
+   close and reopen some input BFDs; I'll see how bad this is.  */
+
+bfd_boolean
+_bfd_ecoff_bfd_final_link (abfd, info)
+     bfd *abfd;
+     struct bfd_link_info *info;
+{
+  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
+  struct ecoff_debug_info * const debug = &ecoff_data (abfd)->debug_info;
+  HDRR *symhdr;
+  PTR handle;
+  register bfd *input_bfd;
+  asection *o;
+  struct bfd_link_order *p;
+  struct extsym_info einfo;
+
+  /* We accumulate the debugging information counts in the symbolic
+     header.  */
+  symhdr = &debug->symbolic_header;
+  symhdr->vstamp = 0;
+  symhdr->ilineMax = 0;
+  symhdr->cbLine = 0;
+  symhdr->idnMax = 0;
+  symhdr->ipdMax = 0;
+  symhdr->isymMax = 0;
+  symhdr->ioptMax = 0;
+  symhdr->iauxMax = 0;
+  symhdr->issMax = 0;
+  symhdr->issExtMax = 0;
+  symhdr->ifdMax = 0;
+  symhdr->crfd = 0;
+  symhdr->iextMax = 0;
+
+  /* We accumulate the debugging information itself in the debug_info
+     structure.  */
+  debug->line = NULL;
+  debug->external_dnr = NULL;
+  debug->external_pdr = NULL;
+  debug->external_sym = NULL;
+  debug->external_opt = NULL;
+  debug->external_aux = NULL;
+  debug->ss = NULL;
+  debug->ssext = debug->ssext_end = NULL;
+  debug->external_fdr = NULL;
+  debug->external_rfd = NULL;
+  debug->external_ext = debug->external_ext_end = NULL;
+
+  handle = bfd_ecoff_debug_init (abfd, debug, &backend->debug_swap, info);
+  if (handle == (PTR) NULL)
+    return FALSE;
+
+  /* Accumulate the debugging symbols from each input BFD.  */
+  for (input_bfd = info->input_bfds;
+       input_bfd != (bfd *) NULL;
+       input_bfd = input_bfd->link_next)
+    {
+      bfd_boolean ret;
+
+      if (bfd_get_flavour (input_bfd) == bfd_target_ecoff_flavour)
+	{
+	  /* Arbitrarily set the symbolic header vstamp to the vstamp
+	     of the first object file in the link.  */
+	  if (symhdr->vstamp == 0)
+	    symhdr->vstamp
+	      = ecoff_data (input_bfd)->debug_info.symbolic_header.vstamp;
+	  ret = ecoff_final_link_debug_accumulate (abfd, input_bfd, info,
+						   handle);
+	}
+      else
+	ret = bfd_ecoff_debug_accumulate_other (handle, abfd,
+						debug, &backend->debug_swap,
+						input_bfd, info);
+      if (! ret)
+	return FALSE;
+
+      /* Combine the register masks.  */
+      ecoff_data (abfd)->gprmask |= ecoff_data (input_bfd)->gprmask;
+      ecoff_data (abfd)->fprmask |= ecoff_data (input_bfd)->fprmask;
+      ecoff_data (abfd)->cprmask[0] |= ecoff_data (input_bfd)->cprmask[0];
+      ecoff_data (abfd)->cprmask[1] |= ecoff_data (input_bfd)->cprmask[1];
+      ecoff_data (abfd)->cprmask[2] |= ecoff_data (input_bfd)->cprmask[2];
+      ecoff_data (abfd)->cprmask[3] |= ecoff_data (input_bfd)->cprmask[3];
+    }
+
+  /* Write out the external symbols.  */
+  einfo.abfd = abfd;
+  einfo.info = info;
+  ecoff_link_hash_traverse (ecoff_hash_table (info),
+			    ecoff_link_write_external,
+			    (PTR) &einfo);
+
+  if (info->relocatable)
+    {
+      /* We need to make a pass over the link_orders to count up the
+	 number of relocations we will need to output, so that we know
+	 how much space they will take up.  */
+      for (o = abfd->sections; o != (asection *) NULL; o = o->next)
+	{
+	  o->reloc_count = 0;
+	  for (p = o->link_order_head;
+	       p != (struct bfd_link_order *) NULL;
+	       p = p->next)
+	    if (p->type == bfd_indirect_link_order)
+	      o->reloc_count += p->u.indirect.section->reloc_count;
+	    else if (p->type == bfd_section_reloc_link_order
+		     || p->type == bfd_symbol_reloc_link_order)
+	      ++o->reloc_count;
+	}
+    }
+
+  /* Compute the reloc and symbol file positions.  */
+  ecoff_compute_reloc_file_positions (abfd);
+
+  /* Write out the debugging information.  */
+  if (! bfd_ecoff_write_accumulated_debug (handle, abfd, debug,
+					   &backend->debug_swap, info,
+					   ecoff_data (abfd)->sym_filepos))
+    return FALSE;
+
+  bfd_ecoff_debug_free (handle, abfd, debug, &backend->debug_swap, info);
+
+  if (info->relocatable)
+    {
+      /* Now reset the reloc_count field of the sections in the output
+	 BFD to 0, so that we can use them to keep track of how many
+	 relocs we have output thus far.  */
+      for (o = abfd->sections; o != (asection *) NULL; o = o->next)
+	o->reloc_count = 0;
+    }
+
+  /* Get a value for the GP register.  */
+  if (ecoff_data (abfd)->gp == 0)
+    {
+      struct bfd_link_hash_entry *h;
+
+      h = bfd_link_hash_lookup (info->hash, "_gp", FALSE, FALSE, TRUE);
+      if (h != (struct bfd_link_hash_entry *) NULL
+	  && h->type == bfd_link_hash_defined)
+	ecoff_data (abfd)->gp = (h->u.def.value
+				 + h->u.def.section->output_section->vma
+				 + h->u.def.section->output_offset);
+      else if (info->relocatable)
+	{
+	  bfd_vma lo;
+
+	  /* Make up a value.  */
+	  lo = (bfd_vma) -1;
+	  for (o = abfd->sections; o != (asection *) NULL; o = o->next)
+	    {
+	      if (o->vma < lo
+		  && (strcmp (o->name, _SBSS) == 0
+		      || strcmp (o->name, _SDATA) == 0
+		      || strcmp (o->name, _LIT4) == 0
+		      || strcmp (o->name, _LIT8) == 0
+		      || strcmp (o->name, _LITA) == 0))
+		lo = o->vma;
+	    }
+	  ecoff_data (abfd)->gp = lo + 0x8000;
+	}
+      else
+	{
+	  /* If the relocate_section function needs to do a reloc
+	     involving the GP value, it should make a reloc_dangerous
+	     callback to warn that GP is not defined.  */
+	}
+    }
+
+  for (o = abfd->sections; o != (asection *) NULL; o = o->next)
+    {
+      for (p = o->link_order_head;
+	   p != (struct bfd_link_order *) NULL;
+	   p = p->next)
+	{
+	  if (p->type == bfd_indirect_link_order
+	      && (bfd_get_flavour (p->u.indirect.section->owner)
+		  == bfd_target_ecoff_flavour))
+	    {
+	      if (! ecoff_indirect_link_order (abfd, info, o, p))
+		return FALSE;
+	    }
+	  else if (p->type == bfd_section_reloc_link_order
+		   || p->type == bfd_symbol_reloc_link_order)
+	    {
+	      if (! ecoff_reloc_link_order (abfd, info, o, p))
+		return FALSE;
+	    }
+	  else
+	    {
+	      if (! _bfd_default_link_order (abfd, info, o, p))
+		return FALSE;
+	    }
+	}
+    }
+
+  bfd_get_symcount (abfd) = symhdr->iextMax + symhdr->isymMax;
+
+  ecoff_data (abfd)->linker = TRUE;
+
+  return TRUE;
+}
+
 /* Accumulate the debugging information for an input BFD into the
    output BFD.  This must read in the symbolic information of the
    input BFD.  */
 
 static bfd_boolean
-ecoff_final_link_debug_accumulate (bfd *output_bfd,
-				   bfd *input_bfd,
-				   struct bfd_link_info *info,
-				   void * handle)
+ecoff_final_link_debug_accumulate (output_bfd, input_bfd, info, handle)
+     bfd *output_bfd;
+     bfd *input_bfd;
+     struct bfd_link_info *info;
+     PTR handle;
 {
   struct ecoff_debug_info * const debug = &ecoff_data (input_bfd)->debug_info;
   const struct ecoff_debug_swap * const swap =
@@ -3871,7 +4290,7 @@ ecoff_final_link_debug_accumulate (bfd *output_bfd,
   else									 \
     {									 \
       bfd_size_type amt = (bfd_size_type) size * symhdr->count;		 \
-      debug->ptr = (type) bfd_malloc (amt);                              \
+      debug->ptr = (type) bfd_malloc (amt);				 \
       if (debug->ptr == NULL)						 \
 	{								 \
           ret = FALSE;							 \
@@ -3891,15 +4310,15 @@ ecoff_final_link_debug_accumulate (bfd *output_bfd,
     {
       READ (line, cbLineOffset, cbLine, sizeof (unsigned char),
 	    unsigned char *);
-      READ (external_dnr, cbDnOffset, idnMax, swap->external_dnr_size, void *);
-      READ (external_pdr, cbPdOffset, ipdMax, swap->external_pdr_size, void *);
-      READ (external_sym, cbSymOffset, isymMax, swap->external_sym_size, void *);
-      READ (external_opt, cbOptOffset, ioptMax, swap->external_opt_size, void *);
+      READ (external_dnr, cbDnOffset, idnMax, swap->external_dnr_size, PTR);
+      READ (external_pdr, cbPdOffset, ipdMax, swap->external_pdr_size, PTR);
+      READ (external_sym, cbSymOffset, isymMax, swap->external_sym_size, PTR);
+      READ (external_opt, cbOptOffset, ioptMax, swap->external_opt_size, PTR);
       READ (external_aux, cbAuxOffset, iauxMax, sizeof (union aux_ext),
 	    union aux_ext *);
       READ (ss, cbSsOffset, issMax, sizeof (char), char *);
-      READ (external_fdr, cbFdOffset, ifdMax, swap->external_fdr_size, void *);
-      READ (external_rfd, cbRfdOffset, crfd, swap->external_rfd_size, void *);
+      READ (external_fdr, cbFdOffset, ifdMax, swap->external_fdr_size, PTR);
+      READ (external_rfd, cbRfdOffset, crfd, swap->external_rfd_size, PTR);
     }
 #undef READ
 
@@ -3948,310 +4367,14 @@ ecoff_final_link_debug_accumulate (bfd *output_bfd,
   return ret;
 }
 
-/* Relocate and write an ECOFF section into an ECOFF output file.  */
-
-static bfd_boolean
-ecoff_indirect_link_order (bfd *output_bfd,
-			   struct bfd_link_info *info,
-			   asection *output_section,
-			   struct bfd_link_order *link_order)
-{
-  asection *input_section;
-  bfd *input_bfd;
-  bfd_byte *contents = NULL;
-  bfd_size_type external_reloc_size;
-  bfd_size_type external_relocs_size;
-  void * external_relocs = NULL;
-
-  BFD_ASSERT ((output_section->flags & SEC_HAS_CONTENTS) != 0);
-
-  input_section = link_order->u.indirect.section;
-  input_bfd = input_section->owner;
-  if (input_section->size == 0)
-    return TRUE;
-
-  BFD_ASSERT (input_section->output_section == output_section);
-  BFD_ASSERT (input_section->output_offset == link_order->offset);
-  BFD_ASSERT (input_section->size == link_order->size);
-
-  /* Get the section contents.  */
-  if (!bfd_malloc_and_get_section (input_bfd, input_section, &contents))
-    goto error_return;
-
-  /* Get the relocs.  If we are relaxing MIPS code, they will already
-     have been read in.  Otherwise, we read them in now.  */
-  external_reloc_size = ecoff_backend (input_bfd)->external_reloc_size;
-  external_relocs_size = external_reloc_size * input_section->reloc_count;
-
-  external_relocs = bfd_malloc (external_relocs_size);
-  if (external_relocs == NULL && external_relocs_size != 0)
-    goto error_return;
-
-  if (bfd_seek (input_bfd, input_section->rel_filepos, SEEK_SET) != 0
-      || (bfd_bread (external_relocs, external_relocs_size, input_bfd)
-	  != external_relocs_size))
-    goto error_return;
-
-  /* Relocate the section contents.  */
-  if (! ((*ecoff_backend (input_bfd)->relocate_section)
-	 (output_bfd, info, input_bfd, input_section, contents,
-	  external_relocs)))
-    goto error_return;
-
-  /* Write out the relocated section.  */
-  if (! bfd_set_section_contents (output_bfd,
-				  output_section,
-				  contents,
-				  input_section->output_offset,
-				  input_section->size))
-    goto error_return;
-
-  /* If we are producing relocatable output, the relocs were
-     modified, and we write them out now.  We use the reloc_count
-     field of output_section to keep track of the number of relocs we
-     have output so far.  */
-  if (info->relocatable)
-    {
-      file_ptr pos = (output_section->rel_filepos
-		      + output_section->reloc_count * external_reloc_size);
-      if (bfd_seek (output_bfd, pos, SEEK_SET) != 0
-	  || (bfd_bwrite (external_relocs, external_relocs_size, output_bfd)
-	      != external_relocs_size))
-	goto error_return;
-      output_section->reloc_count += input_section->reloc_count;
-    }
-
-  if (contents != NULL)
-    free (contents);
-  if (external_relocs != NULL)
-    free (external_relocs);
-  return TRUE;
-
- error_return:
-  if (contents != NULL)
-    free (contents);
-  if (external_relocs != NULL)
-    free (external_relocs);
-  return FALSE;
-}
-
-/* Generate a reloc when linking an ECOFF file.  This is a reloc
-   requested by the linker, and does come from any input file.  This
-   is used to build constructor and destructor tables when linking
-   with -Ur.  */
-
-static bfd_boolean
-ecoff_reloc_link_order (bfd *output_bfd,
-			struct bfd_link_info *info,
-			asection *output_section,
-			struct bfd_link_order *link_order)
-{
-  enum bfd_link_order_type type;
-  asection *section;
-  bfd_vma addend;
-  arelent rel;
-  struct internal_reloc in;
-  bfd_size_type external_reloc_size;
-  bfd_byte *rbuf;
-  bfd_boolean ok;
-  file_ptr pos;
-
-  type = link_order->type;
-  section = NULL;
-  addend = link_order->u.reloc.p->addend;
-
-  /* We set up an arelent to pass to the backend adjust_reloc_out
-     routine.  */
-  rel.address = link_order->offset;
-
-  rel.howto = bfd_reloc_type_lookup (output_bfd, link_order->u.reloc.p->reloc);
-  if (rel.howto == 0)
-    {
-      bfd_set_error (bfd_error_bad_value);
-      return FALSE;
-    }
-
-  if (type == bfd_section_reloc_link_order)
-    {
-      section = link_order->u.reloc.p->u.section;
-      rel.sym_ptr_ptr = section->symbol_ptr_ptr;
-    }
-  else
-    {
-      struct bfd_link_hash_entry *h;
-
-      /* Treat a reloc against a defined symbol as though it were
-         actually against the section.  */
-      h = bfd_wrapped_link_hash_lookup (output_bfd, info,
-					link_order->u.reloc.p->u.name,
-					FALSE, FALSE, FALSE);
-      if (h != NULL
-	  && (h->type == bfd_link_hash_defined
-	      || h->type == bfd_link_hash_defweak))
-	{
-	  type = bfd_section_reloc_link_order;
-	  section = h->u.def.section->output_section;
-	  /* It seems that we ought to add the symbol value to the
-             addend here, but in practice it has already been added
-             because it was passed to constructor_callback.  */
-	  addend += section->vma + h->u.def.section->output_offset;
-	}
-      else
-	{
-	  /* We can't set up a reloc against a symbol correctly,
-	     because we have no asymbol structure.  Currently no
-	     adjust_reloc_out routine cares.  */
-	  rel.sym_ptr_ptr = NULL;
-	}
-    }
-
-  /* All ECOFF relocs are in-place.  Put the addend into the object
-     file.  */
-
-  BFD_ASSERT (rel.howto->partial_inplace);
-  if (addend != 0)
-    {
-      bfd_size_type size;
-      bfd_reloc_status_type rstat;
-      bfd_byte *buf;
-
-      size = bfd_get_reloc_size (rel.howto);
-      buf = (bfd_byte *) bfd_zmalloc (size);
-      if (buf == NULL)
-	return FALSE;
-      rstat = _bfd_relocate_contents (rel.howto, output_bfd,
-				      (bfd_vma) addend, buf);
-      switch (rstat)
-	{
-	case bfd_reloc_ok:
-	  break;
-	default:
-	case bfd_reloc_outofrange:
-	  abort ();
-	case bfd_reloc_overflow:
-	  if (! ((*info->callbacks->reloc_overflow)
-		 (info, NULL,
-		  (link_order->type == bfd_section_reloc_link_order
-		   ? bfd_section_name (output_bfd, section)
-		   : link_order->u.reloc.p->u.name),
-		  rel.howto->name, addend, NULL,
-		  NULL, (bfd_vma) 0)))
-	    {
-	      free (buf);
-	      return FALSE;
-	    }
-	  break;
-	}
-      ok = bfd_set_section_contents (output_bfd, output_section, (void *) buf,
-				     (file_ptr) link_order->offset, size);
-      free (buf);
-      if (! ok)
-	return FALSE;
-    }
-
-  rel.addend = 0;
-
-  /* Move the information into an internal_reloc structure.  */
-  in.r_vaddr = (rel.address
-		+ bfd_get_section_vma (output_bfd, output_section));
-  in.r_type = rel.howto->type;
-
-  if (type == bfd_symbol_reloc_link_order)
-    {
-      struct ecoff_link_hash_entry *h;
-
-      h = ((struct ecoff_link_hash_entry *)
-	   bfd_wrapped_link_hash_lookup (output_bfd, info,
-					 link_order->u.reloc.p->u.name,
-					 FALSE, FALSE, TRUE));
-      if (h != NULL
-	  && h->indx != -1)
-	in.r_symndx = h->indx;
-      else
-	{
-	  if (! ((*info->callbacks->unattached_reloc)
-		 (info, link_order->u.reloc.p->u.name, NULL,
-		  NULL, (bfd_vma) 0)))
-	    return FALSE;
-	  in.r_symndx = 0;
-	}
-      in.r_extern = 1;
-    }
-  else
-    {
-      const char *name;
-      unsigned int i;
-      static struct
-      {
-	const char * name;
-	long r_symndx;
-      }
-      section_symndx [] =
-      {
-	{ _TEXT,   RELOC_SECTION_TEXT   },
-	{ _RDATA,  RELOC_SECTION_RDATA  },
-	{ _DATA,   RELOC_SECTION_DATA   },
-	{ _SDATA,  RELOC_SECTION_SDATA  },
-	{ _SBSS,   RELOC_SECTION_SBSS   },
-	{ _BSS,    RELOC_SECTION_BSS    },
-	{ _INIT,   RELOC_SECTION_INIT   },
-	{ _LIT8,   RELOC_SECTION_LIT8   },
-	{ _LIT4,   RELOC_SECTION_LIT4   },
-	{ _XDATA,  RELOC_SECTION_XDATA  },
-	{ _PDATA,  RELOC_SECTION_PDATA  },
-	{ _FINI,   RELOC_SECTION_FINI   },
-	{ _LITA,   RELOC_SECTION_LITA   },
-	{ "*ABS*", RELOC_SECTION_ABS    },
-	{ _RCONST, RELOC_SECTION_RCONST }
-      };
-
-      name = bfd_get_section_name (output_bfd, section);
-
-      for (i = 0; i < ARRAY_SIZE (section_symndx); i++)
-	if (streq (name, section_symndx[i].name))
-	  {
-	    in.r_symndx = section_symndx[i].r_symndx;
-	    break;
-	  }
-
-      if (i == ARRAY_SIZE (section_symndx))
-	abort ();
-
-      in.r_extern = 0;
-    }
-
-  /* Let the BFD backend adjust the reloc.  */
-  (*ecoff_backend (output_bfd)->adjust_reloc_out) (output_bfd, &rel, &in);
-
-  /* Get some memory and swap out the reloc.  */
-  external_reloc_size = ecoff_backend (output_bfd)->external_reloc_size;
-  rbuf = (bfd_byte *) bfd_malloc (external_reloc_size);
-  if (rbuf == NULL)
-    return FALSE;
-
-  (*ecoff_backend (output_bfd)->swap_reloc_out) (output_bfd, &in, (void *) rbuf);
-
-  pos = (output_section->rel_filepos
-	 + output_section->reloc_count * external_reloc_size);
-  ok = (bfd_seek (output_bfd, pos, SEEK_SET) == 0
-	&& (bfd_bwrite ((void *) rbuf, external_reloc_size, output_bfd)
-	    == external_reloc_size));
-
-  if (ok)
-    ++output_section->reloc_count;
-
-  free (rbuf);
-
-  return ok;
-}
-
 /* Put out information for an external symbol.  These come only from
    the hash table.  */
 
 static bfd_boolean
-ecoff_link_write_external (struct bfd_hash_entry *bh, void * data)
+ecoff_link_write_external (h, data)
+     struct ecoff_link_hash_entry *h;
+     PTR data;
 {
-  struct ecoff_link_hash_entry *h = (struct ecoff_link_hash_entry *) bh;
   struct extsym_info *einfo = (struct extsym_info *) data;
   bfd *output_bfd = einfo->abfd;
   bfd_boolean strip;
@@ -4279,7 +4402,7 @@ ecoff_link_write_external (struct bfd_hash_entry *bh, void * data)
   if (strip || h->written)
     return TRUE;
 
-  if (h->abfd == NULL)
+  if (h->abfd == (bfd *) NULL)
     {
       h->esym.jmptbl = 0;
       h->esym.cobol_main = 0;
@@ -4296,38 +4419,33 @@ ecoff_link_write_external (struct bfd_hash_entry *bh, void * data)
 	{
 	  asection *output_section;
 	  const char *name;
-	  unsigned int i;
-	  static struct
-	  {
-	    const char * name;
-	    int sc;
-	  }
-	  section_storage_classes [] =
-	  {
-	    { _TEXT,   scText   },
-	    { _DATA,   scData   },
-	    { _SDATA,  scSData  },
-	    { _RDATA,  scRData  },
-	    { _BSS,    scBss    },
-	    { _SBSS,   scSBss   },
-	    { _INIT,   scInit   },
-	    { _FINI,   scFini   },
-	    { _PDATA,  scPData  },
-	    { _XDATA,  scXData  },
-	    { _RCONST, scRConst }
-	  };
 
 	  output_section = h->root.u.def.section->output_section;
 	  name = bfd_section_name (output_section->owner, output_section);
 
-	  for (i = 0; i < ARRAY_SIZE (section_storage_classes); i++)
-	    if (streq (name, section_storage_classes[i].name))
-	      {
-		h->esym.asym.sc = section_storage_classes[i].sc;
-		break;
-	      }
-
-	  if (i == ARRAY_SIZE (section_storage_classes))
+	  if (strcmp (name, _TEXT) == 0)
+	    h->esym.asym.sc = scText;
+	  else if (strcmp (name, _DATA) == 0)
+	    h->esym.asym.sc = scData;
+	  else if (strcmp (name, _SDATA) == 0)
+	    h->esym.asym.sc = scSData;
+	  else if (strcmp (name, _RDATA) == 0)
+	    h->esym.asym.sc = scRData;
+	  else if (strcmp (name, _BSS) == 0)
+	    h->esym.asym.sc = scBss;
+	  else if (strcmp (name, _SBSS) == 0)
+	    h->esym.asym.sc = scSBss;
+	  else if (strcmp (name, _INIT) == 0)
+	    h->esym.asym.sc = scInit;
+	  else if (strcmp (name, _FINI) == 0)
+	    h->esym.asym.sc = scFini;
+	  else if (strcmp (name, _PDATA) == 0)
+	    h->esym.asym.sc = scPData;
+	  else if (strcmp (name, _XDATA) == 0)
+	    h->esym.asym.sc = scXData;
+	  else if (strcmp (name, _RCONST) == 0)
+	    h->esym.asym.sc = scRConst;
+	  else
 	    h->esym.asym.sc = scAbs;
 	}
 
@@ -4394,202 +4512,299 @@ ecoff_link_write_external (struct bfd_hash_entry *bh, void * data)
 	   &h->esym));
 }
 
-/* ECOFF final link routine.  This looks through all the input BFDs
-   and gathers together all the debugging information, and then
-   processes all the link order information.  This may cause it to
-   close and reopen some input BFDs; I'll see how bad this is.  */
+/* Relocate and write an ECOFF section into an ECOFF output file.  */
 
-bfd_boolean
-_bfd_ecoff_bfd_final_link (bfd *abfd, struct bfd_link_info *info)
+static bfd_boolean
+ecoff_indirect_link_order (output_bfd, info, output_section, link_order)
+     bfd *output_bfd;
+     struct bfd_link_info *info;
+     asection *output_section;
+     struct bfd_link_order *link_order;
 {
-  const struct ecoff_backend_data * const backend = ecoff_backend (abfd);
-  struct ecoff_debug_info * const debug = &ecoff_data (abfd)->debug_info;
-  HDRR *symhdr;
-  void * handle;
+  asection *input_section;
   bfd *input_bfd;
-  asection *o;
-  struct bfd_link_order *p;
-  struct extsym_info einfo;
+  bfd_byte *contents = NULL;
+  bfd_size_type external_reloc_size;
+  bfd_size_type external_relocs_size;
+  PTR external_relocs = NULL;
 
-  /* We accumulate the debugging information counts in the symbolic
-     header.  */
-  symhdr = &debug->symbolic_header;
-  symhdr->vstamp = 0;
-  symhdr->ilineMax = 0;
-  symhdr->cbLine = 0;
-  symhdr->idnMax = 0;
-  symhdr->ipdMax = 0;
-  symhdr->isymMax = 0;
-  symhdr->ioptMax = 0;
-  symhdr->iauxMax = 0;
-  symhdr->issMax = 0;
-  symhdr->issExtMax = 0;
-  symhdr->ifdMax = 0;
-  symhdr->crfd = 0;
-  symhdr->iextMax = 0;
+  BFD_ASSERT ((output_section->flags & SEC_HAS_CONTENTS) != 0);
 
-  /* We accumulate the debugging information itself in the debug_info
-     structure.  */
-  debug->line = NULL;
-  debug->external_dnr = NULL;
-  debug->external_pdr = NULL;
-  debug->external_sym = NULL;
-  debug->external_opt = NULL;
-  debug->external_aux = NULL;
-  debug->ss = NULL;
-  debug->ssext = debug->ssext_end = NULL;
-  debug->external_fdr = NULL;
-  debug->external_rfd = NULL;
-  debug->external_ext = debug->external_ext_end = NULL;
+  if (link_order->size == 0)
+    return TRUE;
 
-  handle = bfd_ecoff_debug_init (abfd, debug, &backend->debug_swap, info);
-  if (handle == NULL)
-    return FALSE;
+  input_section = link_order->u.indirect.section;
+  input_bfd = input_section->owner;
 
-  /* Accumulate the debugging symbols from each input BFD.  */
-  for (input_bfd = info->input_bfds;
-       input_bfd != NULL;
-       input_bfd = input_bfd->link_next)
-    {
-      bfd_boolean ret;
+  BFD_ASSERT (input_section->output_section == output_section);
+  BFD_ASSERT (input_section->output_offset == link_order->offset);
+  BFD_ASSERT (input_section->size == link_order->size);
 
-      if (bfd_get_flavour (input_bfd) == bfd_target_ecoff_flavour)
-	{
-	  /* Arbitrarily set the symbolic header vstamp to the vstamp
-	     of the first object file in the link.  */
-	  if (symhdr->vstamp == 0)
-	    symhdr->vstamp
-	      = ecoff_data (input_bfd)->debug_info.symbolic_header.vstamp;
-	  ret = ecoff_final_link_debug_accumulate (abfd, input_bfd, info,
-						   handle);
-	}
-      else
-	ret = bfd_ecoff_debug_accumulate_other (handle, abfd,
-						debug, &backend->debug_swap,
-						input_bfd, info);
-      if (! ret)
-	return FALSE;
+  /* Get the section contents.  */
+  if (!bfd_malloc_and_get_section (input_bfd, input_section, &contents))
+    goto error_return;
 
-      /* Combine the register masks.  */
-      ecoff_data (abfd)->gprmask |= ecoff_data (input_bfd)->gprmask;
-      ecoff_data (abfd)->fprmask |= ecoff_data (input_bfd)->fprmask;
-      ecoff_data (abfd)->cprmask[0] |= ecoff_data (input_bfd)->cprmask[0];
-      ecoff_data (abfd)->cprmask[1] |= ecoff_data (input_bfd)->cprmask[1];
-      ecoff_data (abfd)->cprmask[2] |= ecoff_data (input_bfd)->cprmask[2];
-      ecoff_data (abfd)->cprmask[3] |= ecoff_data (input_bfd)->cprmask[3];
-    }
+  /* Get the relocs.  If we are relaxing MIPS code, they will already
+     have been read in.  Otherwise, we read them in now.  */
+  external_reloc_size = ecoff_backend (input_bfd)->external_reloc_size;
+  external_relocs_size = external_reloc_size * input_section->reloc_count;
 
-  /* Write out the external symbols.  */
-  einfo.abfd = abfd;
-  einfo.info = info;
-  bfd_hash_traverse (&info->hash->table, ecoff_link_write_external, &einfo);
+  external_relocs = (PTR) bfd_malloc (external_relocs_size);
+  if (external_relocs == NULL && external_relocs_size != 0)
+    goto error_return;
 
+  if (bfd_seek (input_bfd, input_section->rel_filepos, SEEK_SET) != 0
+      || (bfd_bread (external_relocs, external_relocs_size, input_bfd)
+	  != external_relocs_size))
+    goto error_return;
+
+  /* Relocate the section contents.  */
+  if (! ((*ecoff_backend (input_bfd)->relocate_section)
+	 (output_bfd, info, input_bfd, input_section, contents,
+	  external_relocs)))
+    goto error_return;
+
+  /* Write out the relocated section.  */
+  if (! bfd_set_section_contents (output_bfd,
+				  output_section,
+				  contents,
+				  input_section->output_offset,
+				  input_section->size))
+    goto error_return;
+
+  /* If we are producing relocatable output, the relocs were
+     modified, and we write them out now.  We use the reloc_count
+     field of output_section to keep track of the number of relocs we
+     have output so far.  */
   if (info->relocatable)
     {
-      /* We need to make a pass over the link_orders to count up the
-	 number of relocations we will need to output, so that we know
-	 how much space they will take up.  */
-      for (o = abfd->sections; o != NULL; o = o->next)
-	{
-	  o->reloc_count = 0;
-	  for (p = o->map_head.link_order;
-	       p != NULL;
-	       p = p->next)
-	    if (p->type == bfd_indirect_link_order)
-	      o->reloc_count += p->u.indirect.section->reloc_count;
-	    else if (p->type == bfd_section_reloc_link_order
-		     || p->type == bfd_symbol_reloc_link_order)
-	      ++o->reloc_count;
-	}
+      file_ptr pos = (output_section->rel_filepos
+		      + output_section->reloc_count * external_reloc_size);
+      if (bfd_seek (output_bfd, pos, SEEK_SET) != 0
+	  || (bfd_bwrite (external_relocs, external_relocs_size, output_bfd)
+	      != external_relocs_size))
+	goto error_return;
+      output_section->reloc_count += input_section->reloc_count;
     }
 
-  /* Compute the reloc and symbol file positions.  */
-  ecoff_compute_reloc_file_positions (abfd);
+  if (contents != NULL)
+    free (contents);
+  if (external_relocs != NULL)
+    free (external_relocs);
+  return TRUE;
 
-  /* Write out the debugging information.  */
-  if (! bfd_ecoff_write_accumulated_debug (handle, abfd, debug,
-					   &backend->debug_swap, info,
-					   ecoff_data (abfd)->sym_filepos))
-    return FALSE;
+ error_return:
+  if (contents != NULL)
+    free (contents);
+  if (external_relocs != NULL)
+    free (external_relocs);
+  return FALSE;
+}
 
-  bfd_ecoff_debug_free (handle, abfd, debug, &backend->debug_swap, info);
+/* Generate a reloc when linking an ECOFF file.  This is a reloc
+   requested by the linker, and does come from any input file.  This
+   is used to build constructor and destructor tables when linking
+   with -Ur.  */
 
-  if (info->relocatable)
+static bfd_boolean
+ecoff_reloc_link_order (output_bfd, info, output_section, link_order)
+     bfd *output_bfd;
+     struct bfd_link_info *info;
+     asection *output_section;
+     struct bfd_link_order *link_order;
+{
+  enum bfd_link_order_type type;
+  asection *section;
+  bfd_vma addend;
+  arelent rel;
+  struct internal_reloc in;
+  bfd_size_type external_reloc_size;
+  bfd_byte *rbuf;
+  bfd_boolean ok;
+  file_ptr pos;
+
+  type = link_order->type;
+  section = NULL;
+  addend = link_order->u.reloc.p->addend;
+
+  /* We set up an arelent to pass to the backend adjust_reloc_out
+     routine.  */
+  rel.address = link_order->offset;
+
+  rel.howto = bfd_reloc_type_lookup (output_bfd, link_order->u.reloc.p->reloc);
+  if (rel.howto == 0)
     {
-      /* Now reset the reloc_count field of the sections in the output
-	 BFD to 0, so that we can use them to keep track of how many
-	 relocs we have output thus far.  */
-      for (o = abfd->sections; o != NULL; o = o->next)
-	o->reloc_count = 0;
+      bfd_set_error (bfd_error_bad_value);
+      return FALSE;
     }
 
-  /* Get a value for the GP register.  */
-  if (ecoff_data (abfd)->gp == 0)
+  if (type == bfd_section_reloc_link_order)
+    {
+      section = link_order->u.reloc.p->u.section;
+      rel.sym_ptr_ptr = section->symbol_ptr_ptr;
+    }
+  else
     {
       struct bfd_link_hash_entry *h;
 
-      h = bfd_link_hash_lookup (info->hash, "_gp", FALSE, FALSE, TRUE);
+      /* Treat a reloc against a defined symbol as though it were
+         actually against the section.  */
+      h = bfd_wrapped_link_hash_lookup (output_bfd, info,
+					link_order->u.reloc.p->u.name,
+					FALSE, FALSE, FALSE);
       if (h != NULL
-	  && h->type == bfd_link_hash_defined)
-	ecoff_data (abfd)->gp = (h->u.def.value
-				 + h->u.def.section->output_section->vma
-				 + h->u.def.section->output_offset);
-      else if (info->relocatable)
+	  && (h->type == bfd_link_hash_defined
+	      || h->type == bfd_link_hash_defweak))
 	{
-	  bfd_vma lo;
-
-	  /* Make up a value.  */
-	  lo = (bfd_vma) -1;
-	  for (o = abfd->sections; o != NULL; o = o->next)
-	    {
-	      if (o->vma < lo
-		  && (streq (o->name, _SBSS)
-		      || streq (o->name, _SDATA)
-		      || streq (o->name, _LIT4)
-		      || streq (o->name, _LIT8)
-		      || streq (o->name, _LITA)))
-		lo = o->vma;
-	    }
-	  ecoff_data (abfd)->gp = lo + 0x8000;
+	  type = bfd_section_reloc_link_order;
+	  section = h->u.def.section->output_section;
+	  /* It seems that we ought to add the symbol value to the
+             addend here, but in practice it has already been added
+             because it was passed to constructor_callback.  */
+	  addend += section->vma + h->u.def.section->output_offset;
 	}
       else
 	{
-	  /* If the relocate_section function needs to do a reloc
-	     involving the GP value, it should make a reloc_dangerous
-	     callback to warn that GP is not defined.  */
+	  /* We can't set up a reloc against a symbol correctly,
+	     because we have no asymbol structure.  Currently no
+	     adjust_reloc_out routine cares.  */
+	  rel.sym_ptr_ptr = (asymbol **) NULL;
 	}
     }
 
-  for (o = abfd->sections; o != NULL; o = o->next)
+  /* All ECOFF relocs are in-place.  Put the addend into the object
+     file.  */
+
+  BFD_ASSERT (rel.howto->partial_inplace);
+  if (addend != 0)
     {
-      for (p = o->map_head.link_order;
-	   p != NULL;
-	   p = p->next)
+      bfd_size_type size;
+      bfd_reloc_status_type rstat;
+      bfd_byte *buf;
+
+      size = bfd_get_reloc_size (rel.howto);
+      buf = (bfd_byte *) bfd_zmalloc (size);
+      if (buf == (bfd_byte *) NULL)
+	return FALSE;
+      rstat = _bfd_relocate_contents (rel.howto, output_bfd,
+				      (bfd_vma) addend, buf);
+      switch (rstat)
 	{
-	  if (p->type == bfd_indirect_link_order
-	      && (bfd_get_flavour (p->u.indirect.section->owner)
-		  == bfd_target_ecoff_flavour))
+	case bfd_reloc_ok:
+	  break;
+	default:
+	case bfd_reloc_outofrange:
+	  abort ();
+	case bfd_reloc_overflow:
+	  if (! ((*info->callbacks->reloc_overflow)
+		 (info,
+		  (link_order->type == bfd_section_reloc_link_order
+		   ? bfd_section_name (output_bfd, section)
+		   : link_order->u.reloc.p->u.name),
+		  rel.howto->name, addend, (bfd *) NULL,
+		  (asection *) NULL, (bfd_vma) 0)))
 	    {
-	      if (! ecoff_indirect_link_order (abfd, info, o, p))
-		return FALSE;
+	      free (buf);
+	      return FALSE;
 	    }
-	  else if (p->type == bfd_section_reloc_link_order
-		   || p->type == bfd_symbol_reloc_link_order)
-	    {
-	      if (! ecoff_reloc_link_order (abfd, info, o, p))
-		return FALSE;
-	    }
-	  else
-	    {
-	      if (! _bfd_default_link_order (abfd, info, o, p))
-		return FALSE;
-	    }
+	  break;
 	}
+      ok = bfd_set_section_contents (output_bfd, output_section, (PTR) buf,
+				     (file_ptr) link_order->offset, size);
+      free (buf);
+      if (! ok)
+	return FALSE;
     }
 
-  bfd_get_symcount (abfd) = symhdr->iextMax + symhdr->isymMax;
+  rel.addend = 0;
 
-  ecoff_data (abfd)->linker = TRUE;
+  /* Move the information into an internal_reloc structure.  */
+  in.r_vaddr = (rel.address
+		+ bfd_get_section_vma (output_bfd, output_section));
+  in.r_type = rel.howto->type;
 
-  return TRUE;
+  if (type == bfd_symbol_reloc_link_order)
+    {
+      struct ecoff_link_hash_entry *h;
+
+      h = ((struct ecoff_link_hash_entry *)
+	   bfd_wrapped_link_hash_lookup (output_bfd, info,
+					 link_order->u.reloc.p->u.name,
+					 FALSE, FALSE, TRUE));
+      if (h != (struct ecoff_link_hash_entry *) NULL
+	  && h->indx != -1)
+	in.r_symndx = h->indx;
+      else
+	{
+	  if (! ((*info->callbacks->unattached_reloc)
+		 (info, link_order->u.reloc.p->u.name, (bfd *) NULL,
+		  (asection *) NULL, (bfd_vma) 0)))
+	    return FALSE;
+	  in.r_symndx = 0;
+	}
+      in.r_extern = 1;
+    }
+  else
+    {
+      const char *name;
+
+      name = bfd_get_section_name (output_bfd, section);
+      if (strcmp (name, ".text") == 0)
+	in.r_symndx = RELOC_SECTION_TEXT;
+      else if (strcmp (name, ".rdata") == 0)
+	in.r_symndx = RELOC_SECTION_RDATA;
+      else if (strcmp (name, ".data") == 0)
+	in.r_symndx = RELOC_SECTION_DATA;
+      else if (strcmp (name, ".sdata") == 0)
+	in.r_symndx = RELOC_SECTION_SDATA;
+      else if (strcmp (name, ".sbss") == 0)
+	in.r_symndx = RELOC_SECTION_SBSS;
+      else if (strcmp (name, ".bss") == 0)
+	in.r_symndx = RELOC_SECTION_BSS;
+      else if (strcmp (name, ".init") == 0)
+	in.r_symndx = RELOC_SECTION_INIT;
+      else if (strcmp (name, ".lit8") == 0)
+	in.r_symndx = RELOC_SECTION_LIT8;
+      else if (strcmp (name, ".lit4") == 0)
+	in.r_symndx = RELOC_SECTION_LIT4;
+      else if (strcmp (name, ".xdata") == 0)
+	in.r_symndx = RELOC_SECTION_XDATA;
+      else if (strcmp (name, ".pdata") == 0)
+	in.r_symndx = RELOC_SECTION_PDATA;
+      else if (strcmp (name, ".fini") == 0)
+	in.r_symndx = RELOC_SECTION_FINI;
+      else if (strcmp (name, ".lita") == 0)
+	in.r_symndx = RELOC_SECTION_LITA;
+      else if (strcmp (name, "*ABS*") == 0)
+	in.r_symndx = RELOC_SECTION_ABS;
+      else if (strcmp (name, ".rconst") == 0)
+	in.r_symndx = RELOC_SECTION_RCONST;
+      else
+	abort ();
+      in.r_extern = 0;
+    }
+
+  /* Let the BFD backend adjust the reloc.  */
+  (*ecoff_backend (output_bfd)->adjust_reloc_out) (output_bfd, &rel, &in);
+
+  /* Get some memory and swap out the reloc.  */
+  external_reloc_size = ecoff_backend (output_bfd)->external_reloc_size;
+  rbuf = (bfd_byte *) bfd_malloc (external_reloc_size);
+  if (rbuf == (bfd_byte *) NULL)
+    return FALSE;
+
+  (*ecoff_backend (output_bfd)->swap_reloc_out) (output_bfd, &in, (PTR) rbuf);
+
+  pos = (output_section->rel_filepos
+	 + output_section->reloc_count * external_reloc_size);
+  ok = (bfd_seek (output_bfd, pos, SEEK_SET) == 0
+	&& (bfd_bwrite ((PTR) rbuf, external_reloc_size, output_bfd)
+	    == external_reloc_size));
+
+  if (ok)
+    ++output_section->reloc_count;
+
+  free (rbuf);
+
+  return ok;
 }

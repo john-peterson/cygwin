@@ -1,6 +1,5 @@
 /* Support for the generic parts of PE/PEI, for BFD.
-   Copyright 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   Copyright 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004
    Free Software Foundation, Inc.
    Written by Cygnus Solutions.
 
@@ -8,7 +7,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,9 +17,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* Most of this hacked by  Steve Chamberlain,
 			sac@cygnus.com
@@ -58,7 +55,8 @@
 
 #include "libpei.h"
 
-static bfd_boolean (*pe_saved_coff_bfd_print_private_bfd_data) (bfd *, void *) =
+static bfd_boolean (*pe_saved_coff_bfd_print_private_bfd_data)
+    PARAMS ((bfd *, PTR)) =
 #ifndef coff_bfd_print_private_bfd_data
      NULL;
 #else
@@ -66,10 +64,11 @@ static bfd_boolean (*pe_saved_coff_bfd_print_private_bfd_data) (bfd *, void *) =
 #undef coff_bfd_print_private_bfd_data
 #endif
 
-static bfd_boolean                      pe_print_private_bfd_data (bfd *, void *);
+static bfd_boolean pe_print_private_bfd_data PARAMS ((bfd *, PTR));
 #define coff_bfd_print_private_bfd_data pe_print_private_bfd_data
 
-static bfd_boolean (*pe_saved_coff_bfd_copy_private_bfd_data) (bfd *, bfd *) =
+static bfd_boolean (*pe_saved_coff_bfd_copy_private_bfd_data)
+    PARAMS ((bfd *, bfd *)) =
 #ifndef coff_bfd_copy_private_bfd_data
      NULL;
 #else
@@ -77,11 +76,20 @@ static bfd_boolean (*pe_saved_coff_bfd_copy_private_bfd_data) (bfd *, bfd *) =
 #undef coff_bfd_copy_private_bfd_data
 #endif
 
-static bfd_boolean                     pe_bfd_copy_private_bfd_data (bfd *, bfd *);
+static bfd_boolean pe_bfd_copy_private_bfd_data PARAMS ((bfd *, bfd *));
 #define coff_bfd_copy_private_bfd_data pe_bfd_copy_private_bfd_data
 
 #define coff_mkobject      pe_mkobject
 #define coff_mkobject_hook pe_mkobject_hook
+
+#ifndef NO_COFF_RELOCS
+static void coff_swap_reloc_in PARAMS ((bfd *, PTR, PTR));
+static unsigned int coff_swap_reloc_out PARAMS ((bfd *, PTR, PTR));
+#endif
+static void coff_swap_filehdr_in PARAMS ((bfd *, PTR, PTR));
+static void coff_swap_scnhdr_in PARAMS ((bfd *, PTR, PTR));
+static bfd_boolean pe_mkobject PARAMS ((bfd *));
+static PTR pe_mkobject_hook PARAMS ((bfd *, PTR, PTR));
 
 #ifdef COFF_IMAGE_WITH_PE
 /* This structure contains static variables used by the ILF code.  */
@@ -122,54 +130,76 @@ typedef struct
   struct internal_reloc * int_reltab;
 }
 pe_ILF_vars;
+
+static asection_ptr       pe_ILF_make_a_section   PARAMS ((pe_ILF_vars *, const char *, unsigned int, flagword));
+static void               pe_ILF_make_a_reloc     PARAMS ((pe_ILF_vars *, bfd_vma, bfd_reloc_code_real_type, asection_ptr));
+static void               pe_ILF_make_a_symbol    PARAMS ((pe_ILF_vars *, const char *, const char *, asection_ptr, flagword));
+static void               pe_ILF_save_relocs      PARAMS ((pe_ILF_vars *, asection_ptr));
+static void		  pe_ILF_make_a_symbol_reloc  PARAMS ((pe_ILF_vars *, bfd_vma, bfd_reloc_code_real_type, struct bfd_symbol **, unsigned int));
+static bfd_boolean        pe_ILF_build_a_bfd      PARAMS ((bfd *, unsigned int, bfd_byte *, bfd_byte *, unsigned int, unsigned int));
+static const bfd_target * pe_ILF_object_p         PARAMS ((bfd *));
+static const bfd_target * pe_bfd_object_p 	  PARAMS ((bfd *));
 #endif /* COFF_IMAGE_WITH_PE */
-
+
+/**********************************************************************/
+
 #ifndef NO_COFF_RELOCS
 static void
-coff_swap_reloc_in (bfd * abfd, void * src, void * dst)
+coff_swap_reloc_in (abfd, src, dst)
+     bfd *abfd;
+     PTR src;
+     PTR dst;
 {
   RELOC *reloc_src = (RELOC *) src;
   struct internal_reloc *reloc_dst = (struct internal_reloc *) dst;
 
-  reloc_dst->r_vaddr  = H_GET_32 (abfd, reloc_src->r_vaddr);
+  reloc_dst->r_vaddr = H_GET_32 (abfd, reloc_src->r_vaddr);
   reloc_dst->r_symndx = H_GET_S32 (abfd, reloc_src->r_symndx);
-  reloc_dst->r_type   = H_GET_16 (abfd, reloc_src->r_type);
+
+  reloc_dst->r_type = H_GET_16 (abfd, reloc_src->r_type);
+
 #ifdef SWAP_IN_RELOC_OFFSET
   reloc_dst->r_offset = SWAP_IN_RELOC_OFFSET (abfd, reloc_src->r_offset);
 #endif
 }
 
 static unsigned int
-coff_swap_reloc_out (bfd * abfd, void * src, void * dst)
+coff_swap_reloc_out (abfd, src, dst)
+     bfd       *abfd;
+     PTR	src;
+     PTR	dst;
 {
-  struct internal_reloc *reloc_src = (struct internal_reloc *) src;
-  struct external_reloc *reloc_dst = (struct external_reloc *) dst;
-
+  struct internal_reloc *reloc_src = (struct internal_reloc *)src;
+  struct external_reloc *reloc_dst = (struct external_reloc *)dst;
   H_PUT_32 (abfd, reloc_src->r_vaddr, reloc_dst->r_vaddr);
   H_PUT_32 (abfd, reloc_src->r_symndx, reloc_dst->r_symndx);
+
   H_PUT_16 (abfd, reloc_src->r_type, reloc_dst->r_type);
 
 #ifdef SWAP_OUT_RELOC_OFFSET
   SWAP_OUT_RELOC_OFFSET (abfd, reloc_src->r_offset, reloc_dst->r_offset);
 #endif
 #ifdef SWAP_OUT_RELOC_EXTRA
-  SWAP_OUT_RELOC_EXTRA (abfd, reloc_src, reloc_dst);
+  SWAP_OUT_RELOC_EXTRA(abfd, reloc_src, reloc_dst);
 #endif
   return RELSZ;
 }
 #endif /* not NO_COFF_RELOCS */
 
 static void
-coff_swap_filehdr_in (bfd * abfd, void * src, void * dst)
+coff_swap_filehdr_in (abfd, src, dst)
+     bfd            *abfd;
+     PTR	     src;
+     PTR	     dst;
 {
   FILHDR *filehdr_src = (FILHDR *) src;
   struct internal_filehdr *filehdr_dst = (struct internal_filehdr *) dst;
+  filehdr_dst->f_magic = H_GET_16 (abfd, filehdr_src->f_magic);
+  filehdr_dst->f_nscns = H_GET_16 (abfd, filehdr_src-> f_nscns);
+  filehdr_dst->f_timdat = H_GET_32 (abfd, filehdr_src-> f_timdat);
 
-  filehdr_dst->f_magic  = H_GET_16 (abfd, filehdr_src->f_magic);
-  filehdr_dst->f_nscns  = H_GET_16 (abfd, filehdr_src->f_nscns);
-  filehdr_dst->f_timdat = H_GET_32 (abfd, filehdr_src->f_timdat);
-  filehdr_dst->f_nsyms  = H_GET_32 (abfd, filehdr_src->f_nsyms);
-  filehdr_dst->f_flags  = H_GET_16 (abfd, filehdr_src->f_flags);
+  filehdr_dst->f_nsyms = H_GET_32 (abfd, filehdr_src-> f_nsyms);
+  filehdr_dst->f_flags = H_GET_16 (abfd, filehdr_src-> f_flags);
   filehdr_dst->f_symptr = H_GET_32 (abfd, filehdr_src->f_symptr);
 
   /* Other people's tools sometimes generate headers with an nsyms but
@@ -185,29 +215,27 @@ coff_swap_filehdr_in (bfd * abfd, void * src, void * dst)
 
 #ifdef COFF_IMAGE_WITH_PE
 # define coff_swap_filehdr_out _bfd_XXi_only_swap_filehdr_out
-#elif defined COFF_WITH_pex64
-# define coff_swap_filehdr_out _bfd_pex64_only_swap_filehdr_out
-#elif defined COFF_WITH_pep
-# define coff_swap_filehdr_out _bfd_pep_only_swap_filehdr_out
 #else
 # define coff_swap_filehdr_out _bfd_pe_only_swap_filehdr_out
 #endif
 
 static void
-coff_swap_scnhdr_in (bfd * abfd, void * ext, void * in)
+coff_swap_scnhdr_in (abfd, ext, in)
+     bfd            *abfd;
+     PTR	     ext;
+     PTR	     in;
 {
   SCNHDR *scnhdr_ext = (SCNHDR *) ext;
   struct internal_scnhdr *scnhdr_int = (struct internal_scnhdr *) in;
 
-  memcpy (scnhdr_int->s_name, scnhdr_ext->s_name, sizeof (scnhdr_int->s_name));
-
-  scnhdr_int->s_vaddr   = GET_SCNHDR_VADDR (abfd, scnhdr_ext->s_vaddr);
-  scnhdr_int->s_paddr   = GET_SCNHDR_PADDR (abfd, scnhdr_ext->s_paddr);
-  scnhdr_int->s_size    = GET_SCNHDR_SIZE (abfd, scnhdr_ext->s_size);
-  scnhdr_int->s_scnptr  = GET_SCNHDR_SCNPTR (abfd, scnhdr_ext->s_scnptr);
-  scnhdr_int->s_relptr  = GET_SCNHDR_RELPTR (abfd, scnhdr_ext->s_relptr);
+  memcpy(scnhdr_int->s_name, scnhdr_ext->s_name, sizeof (scnhdr_int->s_name));
+  scnhdr_int->s_vaddr = GET_SCNHDR_VADDR (abfd, scnhdr_ext->s_vaddr);
+  scnhdr_int->s_paddr = GET_SCNHDR_PADDR (abfd, scnhdr_ext->s_paddr);
+  scnhdr_int->s_size = GET_SCNHDR_SIZE (abfd, scnhdr_ext->s_size);
+  scnhdr_int->s_scnptr = GET_SCNHDR_SCNPTR (abfd, scnhdr_ext->s_scnptr);
+  scnhdr_int->s_relptr = GET_SCNHDR_RELPTR (abfd, scnhdr_ext->s_relptr);
   scnhdr_int->s_lnnoptr = GET_SCNHDR_LNNOPTR (abfd, scnhdr_ext->s_lnnoptr);
-  scnhdr_int->s_flags   = H_GET_32 (abfd, scnhdr_ext->s_flags);
+  scnhdr_int->s_flags = H_GET_32 (abfd, scnhdr_ext->s_flags);
 
   /* MS handles overflow of line numbers by carrying into the reloc
      field (it appears).  Since it's supposed to be zero for PE
@@ -224,10 +252,7 @@ coff_swap_scnhdr_in (bfd * abfd, void * ext, void * in)
   if (scnhdr_int->s_vaddr != 0)
     {
       scnhdr_int->s_vaddr += pe_data (abfd)->pe_opthdr.ImageBase;
-      /* Do not cut upper 32-bits for 64-bit vma.  */
-#ifndef COFF_WITH_pex64
       scnhdr_int->s_vaddr &= 0xffffffff;
-#endif
     }
 
 #ifndef COFF_NO_HACK_SCNHDR_SIZE
@@ -237,18 +262,22 @@ coff_swap_scnhdr_in (bfd * abfd, void * ext, void * in)
      use the virtual size (stored in s_paddr) instead.  */
   if (scnhdr_int->s_paddr > 0
       && (((scnhdr_int->s_flags & IMAGE_SCN_CNT_UNINITIALIZED_DATA) != 0
-	   && (! bfd_pei_p (abfd) || scnhdr_int->s_size == 0))
-          || (bfd_pei_p (abfd) && (scnhdr_int->s_size > scnhdr_int->s_paddr))))
-  /* This code used to set scnhdr_int->s_paddr to 0.  However,
-     coff_set_alignment_hook stores s_paddr in virt_size, which
-     only works if it correctly holds the virtual size of the
-     section.  */
-    scnhdr_int->s_size = scnhdr_int->s_paddr;
+	   && (! bfd_pe_executable_p (abfd) || scnhdr_int->s_size == 0))
+          || (bfd_pe_executable_p (abfd) && scnhdr_int->s_size > scnhdr_int->s_paddr)))
+    {
+      scnhdr_int->s_size = scnhdr_int->s_paddr;
+
+      /* This code used to set scnhdr_int->s_paddr to 0.  However,
+         coff_set_alignment_hook stores s_paddr in virt_size, which
+         only works if it correctly holds the virtual size of the
+         section.  */
+    }
 #endif
 }
 
 static bfd_boolean
-pe_mkobject (bfd * abfd)
+pe_mkobject (abfd)
+     bfd * abfd;
 {
   pe_data_type *pe;
   bfd_size_type amt = sizeof (pe_data_type);
@@ -265,15 +294,22 @@ pe_mkobject (bfd * abfd)
   /* in_reloc_p is architecture dependent.  */
   pe->in_reloc_p = in_reloc_p;
 
+#ifdef PEI_FORCE_MINIMUM_ALIGNMENT
+  pe->force_minimum_alignment = 1;
+#endif
+#ifdef PEI_TARGET_SUBSYSTEM
+  pe->target_subsystem = PEI_TARGET_SUBSYSTEM;
+#endif
+
   return TRUE;
 }
 
 /* Create the COFF backend specific information.  */
-
-static void *
-pe_mkobject_hook (bfd * abfd,
-		  void * filehdr,
-		  void * aouthdr ATTRIBUTE_UNUSED)
+static PTR
+pe_mkobject_hook (abfd, filehdr, aouthdr)
+     bfd * abfd;
+     PTR filehdr;
+     PTR aouthdr ATTRIBUTE_UNUSED;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
   pe_data_type *pe;
@@ -310,7 +346,7 @@ pe_mkobject_hook (bfd * abfd,
 
 #ifdef COFF_IMAGE_WITH_PE
   if (aouthdr)
-    pe->pe_opthdr = ((struct internal_aouthdr *) aouthdr)->pe;
+    pe->pe_opthdr = ((struct internal_aouthdr *)aouthdr)->pe;
 #endif
 
 #ifdef ARM
@@ -318,39 +354,36 @@ pe_mkobject_hook (bfd * abfd,
     coff_data (abfd) ->flags = 0;
 #endif
 
-  return (void *) pe;
+  return (PTR) pe;
 }
 
 static bfd_boolean
-pe_print_private_bfd_data (bfd *abfd, void * vfile)
+pe_print_private_bfd_data (abfd, vfile)
+     bfd *abfd;
+     PTR vfile;
 {
   FILE *file = (FILE *) vfile;
 
   if (!_bfd_XX_print_private_bfd_data_common (abfd, vfile))
     return FALSE;
 
-  if (pe_saved_coff_bfd_print_private_bfd_data == NULL)
-    return TRUE;
+  if (pe_saved_coff_bfd_print_private_bfd_data != NULL)
+    {
+      fputc ('\n', file);
 
-  fputc ('\n', file);
+      return pe_saved_coff_bfd_print_private_bfd_data (abfd, vfile);
+    }
 
-  return pe_saved_coff_bfd_print_private_bfd_data (abfd, vfile);
+  return TRUE;
 }
 
 /* Copy any private info we understand from the input bfd
    to the output bfd.  */
 
 static bfd_boolean
-pe_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
+pe_bfd_copy_private_bfd_data (ibfd, obfd)
+     bfd *ibfd, *obfd;
 {
-  /* PR binutils/716: Copy the large address aware flag.
-     XXX: Should we be copying other flags or other fields in the pe_data()
-     structure ?  */
-  if (pe_data (obfd) != NULL
-      && pe_data (ibfd) != NULL
-      && pe_data (ibfd)->real_flags & IMAGE_FILE_LARGE_ADDRESS_AWARE)
-    pe_data (obfd)->real_flags |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
-
   if (!_bfd_XX_bfd_copy_private_bfd_data_common (ibfd, obfd))
     return FALSE;
 
@@ -396,33 +429,26 @@ pe_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
 #define NUM_ILF_SECTIONS        6
 #define NUM_ILF_SYMS 		(2 + NUM_ILF_SECTIONS)
 
-#define SIZEOF_ILF_SYMS		 (NUM_ILF_SYMS * sizeof (* vars.sym_cache))
-#define SIZEOF_ILF_SYM_TABLE	 (NUM_ILF_SYMS * sizeof (* vars.sym_table))
-#define SIZEOF_ILF_NATIVE_SYMS	 (NUM_ILF_SYMS * sizeof (* vars.native_syms))
+#define SIZEOF_ILF_SYMS		(NUM_ILF_SYMS * sizeof (* vars.sym_cache))
+#define SIZEOF_ILF_SYM_TABLE	(NUM_ILF_SYMS * sizeof (* vars.sym_table))
+#define SIZEOF_ILF_NATIVE_SYMS	(NUM_ILF_SYMS * sizeof (* vars.native_syms))
 #define SIZEOF_ILF_SYM_PTR_TABLE (NUM_ILF_SYMS * sizeof (* vars.sym_ptr_table))
-#define SIZEOF_ILF_EXT_SYMS	 (NUM_ILF_SYMS * sizeof (* vars.esym_table))
-#define SIZEOF_ILF_RELOCS	 (NUM_ILF_RELOCS * sizeof (* vars.reltab))
-#define SIZEOF_ILF_INT_RELOCS	 (NUM_ILF_RELOCS * sizeof (* vars.int_reltab))
-#define SIZEOF_ILF_STRINGS	 (strlen (symbol_name) * 2 + 8 \
+#define SIZEOF_ILF_EXT_SYMS	(NUM_ILF_SYMS * sizeof (* vars.esym_table))
+#define SIZEOF_ILF_RELOCS	(NUM_ILF_RELOCS * sizeof (* vars.reltab))
+#define SIZEOF_ILF_INT_RELOCS	(NUM_ILF_RELOCS * sizeof (* vars.int_reltab))
+#define SIZEOF_ILF_STRINGS	(strlen (symbol_name) * 2 + 8 \
 					+ 21 + strlen (source_dll) \
 					+ NUM_ILF_SECTIONS * 9 \
 					+ STRING_SIZE_SIZE)
 #define SIZEOF_IDATA2		(5 * 4)
-
-/* For PEx64 idata4 & 5 have thumb size of 8 bytes.  */
-#ifdef COFF_WITH_pex64
-#define SIZEOF_IDATA4		(2 * 4)
-#define SIZEOF_IDATA5		(2 * 4)
-#else
 #define SIZEOF_IDATA4		(1 * 4)
 #define SIZEOF_IDATA5		(1 * 4)
-#endif
-
 #define SIZEOF_IDATA6		(2 + strlen (symbol_name) + 1 + 1)
 #define SIZEOF_IDATA7		(strlen (source_dll) + 1 + 1)
 #define SIZEOF_ILF_SECTIONS     (NUM_ILF_SECTIONS * sizeof (struct coff_section_tdata))
 
 #define ILF_DATA_SIZE				\
+      sizeof (* vars.bim)			\
     + SIZEOF_ILF_SYMS				\
     + SIZEOF_ILF_SYM_TABLE			\
     + SIZEOF_ILF_NATIVE_SYMS			\
@@ -440,13 +466,12 @@ pe_bfd_copy_private_bfd_data (bfd *ibfd, bfd *obfd)
     + MAX_TEXT_SECTION_SIZE
 
 /* Create an empty relocation against the given symbol.  */
-
 static void
-pe_ILF_make_a_symbol_reloc (pe_ILF_vars *               vars,
-			    bfd_vma                     address,
-			    bfd_reloc_code_real_type    reloc,
-			    struct bfd_symbol **  	sym,
-			    unsigned int                sym_index)
+pe_ILF_make_a_symbol_reloc (pe_ILF_vars *                 vars,
+			    bfd_vma                       address,
+			    bfd_reloc_code_real_type      reloc,
+			    struct bfd_symbol **  sym,
+			    unsigned int                  sym_index)
 {
   arelent * entry;
   struct internal_reloc * internal;
@@ -462,6 +487,11 @@ pe_ILF_make_a_symbol_reloc (pe_ILF_vars *               vars,
   internal->r_vaddr  = address;
   internal->r_symndx = sym_index;
   internal->r_type   = entry->howto->type;
+#if 0  /* These fields do not need to be initialised.  */
+  internal->r_size   = 0;
+  internal->r_extern = 0;
+  internal->r_offset = 0;
+#endif
 
   vars->relcount ++;
 
@@ -469,7 +499,6 @@ pe_ILF_make_a_symbol_reloc (pe_ILF_vars *               vars,
 }
 
 /* Create an empty relocation against the given section.  */
-
 static void
 pe_ILF_make_a_reloc (pe_ILF_vars *             vars,
 		     bfd_vma                   address,
@@ -481,7 +510,6 @@ pe_ILF_make_a_reloc (pe_ILF_vars *             vars,
 }
 
 /* Move the queued relocs into the given section.  */
-
 static void
 pe_ILF_save_relocs (pe_ILF_vars * vars,
 		    asection_ptr  sec)
@@ -506,7 +534,6 @@ pe_ILF_save_relocs (pe_ILF_vars * vars,
 }
 
 /* Create a global symbol and add it to the relevant tables.  */
-
 static void
 pe_ILF_make_a_symbol (pe_ILF_vars *  vars,
 		      const char *   prefix,
@@ -546,7 +573,7 @@ pe_ILF_make_a_symbol (pe_ILF_vars *  vars,
   sprintf (vars->string_ptr, "%s%s", prefix, symbol_name);
 
   if (section == NULL)
-    section = bfd_und_section_ptr;
+    section = (asection_ptr) & bfd_und_section;
 
   /* Initialise the external symbol.  */
   H_PUT_32 (vars->abfd, vars->string_ptr - vars->string_table,
@@ -556,17 +583,38 @@ pe_ILF_make_a_symbol (pe_ILF_vars *  vars,
 
   /* The following initialisations are unnecessary - the memory is
      zero initialised.  They are just kept here as reminders.  */
+#if 0
+  esym->e.e.e_zeroes = 0;
+  esym->e_value = 0;
+  esym->e_type = T_NULL;
+  esym->e_numaux = 0;
+#endif
 
   /* Initialise the internal symbol structure.  */
   ent->u.syment.n_sclass          = sclass;
   ent->u.syment.n_scnum           = section->target_index;
-  ent->u.syment._n._n_n._n_offset = (bfd_hostptr_t) sym;
+  ent->u.syment._n._n_n._n_offset = (long) sym;
+
+#if 0 /* See comment above.  */
+  ent->u.syment.n_value  = 0;
+  ent->u.syment.n_flags  = 0;
+  ent->u.syment.n_type   = T_NULL;
+  ent->u.syment.n_numaux = 0;
+  ent->fix_value         = 0;
+#endif
 
   sym->symbol.the_bfd = vars->abfd;
   sym->symbol.name    = vars->string_ptr;
   sym->symbol.flags   = BSF_EXPORT | BSF_GLOBAL | extra_flags;
   sym->symbol.section = section;
   sym->native         = ent;
+
+#if 0 /* See comment above.  */
+  sym->symbol.value   = 0;
+  sym->symbol.udata.i = 0;
+  sym->done_lineno    = FALSE;
+  sym->lineno         = NULL;
+#endif
 
   * vars->table_ptr = vars->sym_index;
   * vars->sym_ptr_ptr = sym;
@@ -584,7 +632,6 @@ pe_ILF_make_a_symbol (pe_ILF_vars *  vars,
 }
 
 /* Create a section.  */
-
 static asection_ptr
 pe_ILF_make_a_section (pe_ILF_vars * vars,
 		       const char *  name,
@@ -666,20 +713,9 @@ static jump_table jtab[] =
   },
 #endif
 
-#ifdef AMD64MAGIC
-  { AMD64MAGIC,
-    { 0xff, 0x25, 0x00, 0x00, 0x00, 0x00, 0x90, 0x90 },
-    8, 2
-  },
-#endif
-
 #ifdef  MC68MAGIC
-  { MC68MAGIC,
-    { /* XXX fill me in */ },
-    0, 0
-  },
+  { MC68MAGIC, { /* XXX fill me in */ }, 0, 0 },
 #endif
-
 #ifdef  MIPS_ARCH_MAGIC_WINCE
   { MIPS_ARCH_MAGIC_WINCE,
     { 0x00, 0x00, 0x08, 0x3c, 0x00, 0x00, 0x08, 0x8d,
@@ -719,12 +755,11 @@ static jump_table jtab[] =
 #endif
 
 /* Build a full BFD from the information supplied in a ILF object.  */
-
 static bfd_boolean
 pe_ILF_build_a_bfd (bfd *           abfd,
 		    unsigned int    magic,
-		    char *          symbol_name,
-		    char *          source_dll,
+		    bfd_byte *      symbol_name,
+		    bfd_byte *      source_dll,
 		    unsigned int    ordinal,
 		    unsigned int    types)
 {
@@ -780,16 +815,15 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
      We are going to construct the contents of the BFD in memory,
      so allocate all the space that we will need right now.  */
-  vars.bim
-    = (struct bfd_in_memory *) bfd_malloc ((bfd_size_type) sizeof (*vars.bim));
-  if (vars.bim == NULL)
+  ptr = bfd_zalloc (abfd, (bfd_size_type) ILF_DATA_SIZE);
+  if (ptr == NULL)
     return FALSE;
 
-  ptr = (bfd_byte *) bfd_zmalloc ((bfd_size_type) ILF_DATA_SIZE);
+  /* Create a bfd_in_memory structure.  */
+  vars.bim = (struct bfd_in_memory *) ptr;
   vars.bim->buffer = ptr;
   vars.bim->size   = ILF_DATA_SIZE;
-  if (ptr == NULL)
-    goto error_return;
+  ptr += sizeof (* vars.bim);
 
   /* Initialise the pointers to regions of the memory and the
      other contents of the pe_ILF_vars structure as well.  */
@@ -821,10 +855,10 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   vars.int_reltab  = (struct internal_reloc *) ptr;
   ptr += SIZEOF_ILF_INT_RELOCS;
 
-  vars.string_table = (char *) ptr;
-  vars.string_ptr   = (char *) ptr + STRING_SIZE_SIZE;
+  vars.string_table = ptr;
+  vars.string_ptr   = ptr + STRING_SIZE_SIZE;
   ptr += SIZEOF_ILF_STRINGS;
-  vars.end_string_ptr = (char *) ptr;
+  vars.end_string_ptr = ptr;
 
   /* The remaining space in bim->buffer is used
      by the pe_ILF_make_a_section() function.  */
@@ -843,7 +877,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   id4 = pe_ILF_make_a_section (& vars, ".idata$4", SIZEOF_IDATA4, 0);
   id5 = pe_ILF_make_a_section (& vars, ".idata$5", SIZEOF_IDATA5, 0);
   if (id4 == NULL || id5 == NULL)
-    goto error_return;
+    return FALSE;
 
   /* Fill in the contents of these sections.  */
   if (import_name_type == IMPORT_ORDINAL)
@@ -852,62 +886,69 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 	/* XXX - treat as IMPORT_NAME ??? */
 	abort ();
 
-#ifdef COFF_WITH_pex64
-      ((unsigned int *) id4->contents)[0] = ordinal;
-      ((unsigned int *) id4->contents)[1] = 0x80000000;
-      ((unsigned int *) id5->contents)[0] = ordinal;
-      ((unsigned int *) id5->contents)[1] = 0x80000000;
-#else
       * (unsigned int *) id4->contents = ordinal | 0x80000000;
       * (unsigned int *) id5->contents = ordinal | 0x80000000;
-#endif
     }
   else
     {
       char * symbol;
-      unsigned int len;
 
       /* Create .idata$6 - the Hint Name Table.  */
       id6 = pe_ILF_make_a_section (& vars, ".idata$6", SIZEOF_IDATA6, 0);
       if (id6 == NULL)
-	goto error_return;
+	return FALSE;
 
       /* If necessary, trim the import symbol name.  */
       symbol = symbol_name;
 
-      /* As used by MS compiler, '_', '@', and '?' are alternative
-	 forms of USER_LABEL_PREFIX, with '?' for c++ mangled names,
-	 '@' used for fastcall (in C),  '_' everywhere else.  Only one
-	 of these is used for a symbol.  We strip this leading char for
-	 IMPORT_NAME_NOPREFIX and IMPORT_NAME_UNDECORATE as per the
-	 PE COFF 6.0 spec (section 8.3, Import Name Type).  */
-
       if (import_name_type != IMPORT_NAME)
 	{
-	  char c = symbol[0];
+	  bfd_boolean skipped_leading_underscore = FALSE;
+	  bfd_boolean skipped_leading_at = FALSE;
+	  bfd_boolean skipped_leading_question_mark = FALSE;
+	  bfd_boolean check_again;
+	  
+	  /* Skip any prefix in symbol_name.  */
+	  -- symbol;
+	  do
+	    {
+	      check_again = FALSE;
+	      ++ symbol;
 
-	  /* Check that we don't remove for targets with empty
-	     USER_LABEL_PREFIX the leading underscore.  */
-	  if ((c == '_' && abfd->xvec->symbol_leading_char != 0)
-	      || c == '@' || c == '?')
-	    symbol++;
+	      switch (*symbol)
+		{
+		case '@':
+		  if (! skipped_leading_at)
+		    check_again = skipped_leading_at = TRUE;
+		  break;
+		case '?':
+		  if (! skipped_leading_question_mark)
+		    check_again = skipped_leading_question_mark = TRUE;
+		  break;
+		case '_':
+		  if (! skipped_leading_underscore)
+		    check_again = skipped_leading_underscore = TRUE;
+		  break;
+		default:
+		  break;
+		}
+	    }
+	  while (check_again);
 	}
-
-      len = strlen (symbol);
+      
       if (import_name_type == IMPORT_NAME_UNDECORATE)
 	{
-	  /* Truncate at the first '@'.  */
-	  char *at = strchr (symbol, '@');
+	  /* Truncate at the first '@'  */
+	  while (* symbol != 0 && * symbol != '@')
+	    symbol ++;
 
-	  if (at != NULL)
-	    len = at - symbol;
+	  * symbol = 0;
 	}
 
       id6->contents[0] = ordinal & 0xff;
       id6->contents[1] = ordinal >> 8;
 
-      memcpy ((char *) id6->contents + 2, symbol, len);
-      id6->contents[len + 2] = '\0';
+      strcpy (id6->contents + 2, symbol);
     }
 
   if (import_name_type != IMPORT_ORDINAL)
@@ -941,7 +982,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
       /* Create the .text section.  */
       text = pe_ILF_make_a_section (& vars, ".text", jtab[i].size, SEC_CODE);
       if (text == NULL)
-	goto error_return;
+	return FALSE;
 
       /* Copy in the jump code.  */
       memcpy (text->contents, jtab[i].data, jtab[i].size);
@@ -990,10 +1031,10 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
   if (   ! bfd_set_start_address (abfd, (bfd_vma) 0)
       || ! bfd_coff_set_arch_mach_hook (abfd, & internal_f))
-    goto error_return;
+    return FALSE;
 
-  if (bfd_coff_mkobject_hook (abfd, (void *) & internal_f, NULL) == NULL)
-    goto error_return;
+  if (bfd_coff_mkobject_hook (abfd, (PTR) & internal_f, NULL) == NULL)
+    return FALSE;
 
   coff_data (abfd)->pe = 1;
 #ifdef THUMBPEMAGIC
@@ -1005,11 +1046,9 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   /* Switch from file contents to memory contents.  */
   bfd_cache_close (abfd);
 
-  abfd->iostream = (void *) vars.bim;
+  abfd->iostream = (PTR) vars.bim;
   abfd->flags |= BFD_IN_MEMORY /* | HAS_LOCALS */;
-  abfd->iovec = &_bfd_memory_iovec;
   abfd->where = 0;
-  abfd->origin = 0;
   obj_sym_filepos (abfd) = 0;
 
   /* Now create a symbol describing the imported value.  */
@@ -1021,7 +1060,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
       /* Create an import symbol for the DLL, without the
        .dll suffix.  */
-      ptr = (bfd_byte *) strrchr (source_dll, '.');
+      ptr = strrchr (source_dll, '.');
       if (ptr)
 	* ptr = 0;
       pe_ILF_make_a_symbol (& vars, "__IMPORT_DESCRIPTOR_", source_dll, NULL, 0);
@@ -1045,7 +1084,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   obj_raw_syments (abfd) = vars.native_syms;
   obj_raw_syment_count (abfd) = vars.sym_index;
 
-  obj_coff_external_syms (abfd) = (void *) vars.esym_table;
+  obj_coff_external_syms (abfd) = (PTR) vars.esym_table;
   obj_coff_keep_syms (abfd) = TRUE;
 
   obj_convert (abfd) = vars.sym_table;
@@ -1057,24 +1096,17 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   abfd->flags |= HAS_SYMS;
 
   return TRUE;
-
- error_return:
-  if (vars.bim->buffer != NULL)
-    free (vars.bim->buffer);
-  free (vars.bim);
-  return FALSE;
 }
 
 /* We have detected a Image Library Format archive element.
    Decode the element and return the appropriate target.  */
-
 static const bfd_target *
 pe_ILF_object_p (bfd * abfd)
 {
   bfd_byte        buffer[16];
   bfd_byte *      ptr;
-  char *          symbol_name;
-  char *          source_dll;
+  bfd_byte *      symbol_name;
+  bfd_byte *      source_dll;
   unsigned int    machine;
   bfd_size_type   size;
   unsigned int    ordinal;
@@ -1109,12 +1141,6 @@ pe_ILF_object_p (bfd * abfd)
     case IMAGE_FILE_MACHINE_I386:
 #ifdef I386MAGIC
       magic = I386MAGIC;
-#endif
-      break;
-
-    case IMAGE_FILE_MACHINE_AMD64:
-#ifdef AMD64MAGIC
-      magic = AMD64MAGIC;
 #endif
       break;
 
@@ -1207,7 +1233,7 @@ pe_ILF_object_p (bfd * abfd)
   /* ptr += 2; */
 
   /* Now read in the two strings that follow.  */
-  ptr = (bfd_byte *) bfd_alloc (abfd, size);
+  ptr = bfd_alloc (abfd, size);
   if (ptr == NULL)
     return NULL;
 
@@ -1217,12 +1243,11 @@ pe_ILF_object_p (bfd * abfd)
       return NULL;
     }
 
-  symbol_name = (char *) ptr;
-  source_dll  = symbol_name + strlen (symbol_name) + 1;
+  symbol_name = ptr;
+  source_dll  = ptr + strlen (ptr) + 1;
 
   /* Verify that the strings are null terminated.  */
-  if (ptr[size - 1] != 0
-      || (bfd_size_type) ((bfd_byte *) source_dll - ptr) >= size)
+  if (ptr[size - 1] != 0 || ((unsigned long) (source_dll - ptr) >= size))
     {
       _bfd_error_handler
 	(_("%B: string not null terminated in ILF object file."), abfd);

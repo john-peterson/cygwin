@@ -1,27 +1,26 @@
 /* Disassembler code for CRX.
-   Copyright 2004, 2005, 2006, 2007, 2012 Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
    Contributed by Tomer Levi, NSC, Israel.
    Written by Tomer Levi.
 
-   This file is part of the GNU opcodes library.
+   This file is part of the GNU binutils and GDB, the GNU debugger.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   This program is free software; you can redistribute it and/or modify it under
+   the terms of the GNU General Public License as published by the Free
+   Software Foundation; either version 2, or (at your option)
    any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful, but WITHOUT
+   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+   FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+   more details.
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "dis-asm.h"
+#include "sysdep.h"
 #include "opcode/crx.h"
 
 /* String to print when opcode was not matched.  */
@@ -31,7 +30,7 @@
 
 /* Extract 'n_bits' from 'a' starting from offset 'offs'.  */
 #define EXTRACT(a, offs, n_bits)	    \
-  (n_bits == 32 ? (((a) >> (offs)) & 0xffffffffL)   \
+  (n_bits == 32 ? (((a) >> (offs)) & ~0L)   \
   : (((a) >> (offs)) & ((1 << (n_bits)) -1)))
 
 /* Set Bit Mask - a mask to set all bits starting from offset 'offs'.  */
@@ -60,25 +59,9 @@ cinv_entry;
 /* CRX 'cinv' options.  */
 const cinv_entry crx_cinvs[] =
 {
-  {"[i]", 2}, {"[i,u]", 3}, {"[d]", 4}, {"[d,u]", 5}, 
-  {"[d,i]", 6}, {"[d,i,u]", 7}, {"[b]", 8}, 
-  {"[b,i]", 10}, {"[b,i,u]", 11}, {"[b,d]", 12}, 
-  {"[b,d,u]", 13}, {"[b,d,i]", 14}, {"[b,d,i,u]", 15}
+  {"[i]", 2}, {"[i,u]", 3}, {"[d]", 4},
+  {"[d,u]", 5}, {"[d,i]", 6}, {"[d,i,u]", 7}
 };
-
-/* Enum to distinguish different registers argument types.  */
-typedef enum REG_ARG_TYPE
-  {
-    /* General purpose register (r<N>).  */
-    REG_ARG = 0,
-    /* User register (u<N>).  */
-    USER_REG_ARG,
-    /* CO-Processor register (c<N>).  */
-    COP_ARG,
-    /* CO-Processor special register (cs<N>).  */
-    COPS_ARG 
-  }
-REG_ARG_TYPE;
 
 /* Number of valid 'cinv' instruction options.  */
 int NUMCINVS = ((sizeof crx_cinvs)/(sizeof crx_cinvs[0]));
@@ -106,15 +89,15 @@ static char *getcopregname    (copreg, reg_type);
 static char * getprocregname  (int);
 static char *gettrapstring    (unsigned);
 static char *getcinvstring    (unsigned);
-static void getregliststring  (int, char *, enum REG_ARG_TYPE);
+static void getregliststring  (int, char *, int);
 static wordU get_word_at_PC   (bfd_vma, struct disassemble_info *);
 static void get_words_at_PC   (bfd_vma, struct disassemble_info *);
 static unsigned long build_mask (void);
 static int powerof2	      (int);
 static int match_opcode	      (void);
 static void make_instruction  (void);
-static void print_arguments   (ins *, bfd_vma, struct disassemble_info *);
-static void print_arg	      (argument *, bfd_vma, struct disassemble_info *);
+static void print_arguments   (ins *, struct disassemble_info *);
+static void print_arg	      (argument *, struct disassemble_info *);
 
 /* Retrieve the number of operands for the current assembled instruction.  */
 
@@ -155,12 +138,12 @@ getargtype (operand_type op)
    This routine is used when disassembling the 'excp' instruction.  */
 
 static char *
-gettrapstring (unsigned int trap_index)
+gettrapstring (unsigned int index)
 {
   const trap_entry *trap;
 
   for (trap = crx_traps; trap < crx_traps + NUMTRAPS; trap++)
-    if (trap->entry == trap_index)
+    if (trap->entry == index)
       return trap->name;
 
   return ILLEGAL;
@@ -186,12 +169,12 @@ getcinvstring (unsigned int num)
 char *
 getregname (reg r)
 {
-  const reg_entry * regentry = &crx_regtab[r];
+  const reg_entry *reg = &crx_regtab[r];
 
-  if (regentry->type != CRX_R_REGTYPE)
+  if (reg->type != CRX_R_REGTYPE)
     return ILLEGAL;
   else
-    return regentry->name;
+    return reg->name;
 }
 
 /* Given a coprocessor register enum value, retrieve its name.  */
@@ -199,28 +182,28 @@ getregname (reg r)
 char *
 getcopregname (copreg r, reg_type type)
 {
-  const reg_entry * regentry;
+  const reg_entry *reg;
 
   if (type == CRX_C_REGTYPE)
-    regentry = &crx_copregtab[r];
+    reg = &crx_copregtab[r];
   else if (type == CRX_CS_REGTYPE)
-    regentry = &crx_copregtab[r+(cs0-c0)];
+    reg = &crx_copregtab[r+(cs0-c0)];
   else
     return ILLEGAL;
 
-  return regentry->name;
+  return reg->name;
 }
 
 
 /* Getting a processor register name.  */
 
 static char *
-getprocregname (int reg_index)
+getprocregname (int index)
 {
   const reg_entry *r;
 
   for (r = crx_regtab; r < crx_regtab + NUMREGS; r++)
-    if (r->image == reg_index)
+    if (r->image == index)
       return r->name;
 
   return "ILLEGAL REGISTER";
@@ -242,7 +225,7 @@ powerof2 (int x)
 /* Transform a register bit mask to a register list.  */
 
 void
-getregliststring (int mask, char *string, enum REG_ARG_TYPE core_cop)
+getregliststring (int trap, char *string, int core_cop)
 {
   char temp_string[5];
   int i;
@@ -250,44 +233,19 @@ getregliststring (int mask, char *string, enum REG_ARG_TYPE core_cop)
   string[0] = '{';
   string[1] = '\0';
 
-
-  /* A zero mask means HI/LO registers.  */
-  if (mask == 0)
+  for (i = 0; i < 16; i++)
     {
-      if (core_cop == USER_REG_ARG)
-	strcat (string, "ulo,uhi");
-      else
-	strcat (string, "lo,hi");
-    }
-  else
-    {
-      for (i = 0; i < 16; i++)
-	{
-	  if (mask & 0x1)
-	    {
-	      switch (core_cop)
-	      {
-	      case REG_ARG:
-		sprintf (temp_string, "r%d", i);
-		break;
-	      case USER_REG_ARG:
-		sprintf (temp_string, "u%d", i);
-		break;
-	      case COP_ARG:
-		sprintf (temp_string, "c%d", i);
-		break;
-	      case COPS_ARG:
-		sprintf (temp_string, "cs%d", i);
-		break;
-	      default:
-		break;
-	      }
-	      strcat (string, temp_string);
-	      if (mask & 0xfffe)
-		strcat (string, ",");
-	    }
-	  mask >>= 1;
-	}
+      if (trap & 0x1)
+        {
+          if (core_cop)
+	    sprintf (temp_string, "r%d", i);
+          else
+	    sprintf (temp_string, "c%d", i);
+          strcat (string, temp_string);
+          if (trap & 0xfffe)
+	    strcat (string, ",");
+        }
+      trap = trap >> 1;
     }
 
   strcat (string, "}");
@@ -355,7 +313,7 @@ match_opcode (void)
   unsigned long mask;
 
   /* The instruction 'constant' opcode doewsn't exceed 32 bits.  */
-  unsigned long doubleWord = (words[1] + (words[0] << 16)) & 0xffffffff;
+  unsigned long doubleWord = words[1] + (words[0] << 16);
 
   /* Start searching from end of instruction table.  */
   instruction = &crx_instruction[NUMOPCODES - 2];
@@ -432,7 +390,7 @@ make_argument (argument * a, int start_bits)
       a->constant = p.val;
       break;
 
-    case arg_idxr:
+    case arg_icr:
       a->scale = 0;
       total_size = a->size + 10;  /* sizeof(rbase + ridx + scl2) = 10.  */
       p = makelongparameter (allWords, inst_bit_size - total_size,
@@ -497,12 +455,10 @@ make_argument (argument * a, int start_bits)
 /*  Print a single argument.  */
 
 static void
-print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
+print_arg (argument *a, struct disassemble_info *info)
 {
   LONGLONG longdisp, mask;
-  int sign_flag = 0;
-  int relative = 0;
-  bfd_vma number;
+  char sign_flag;
   int op_index = 0;
   char string[200];
   PTR stream = info->stream;
@@ -534,35 +490,30 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
 
       else if (INST_HAS_REG_LIST)
         {
-	  REG_ARG_TYPE reg_arg_type = IS_INSN_TYPE (COP_REG_INS) ? 
-				 COP_ARG : IS_INSN_TYPE (COPS_REG_INS) ? 
-				 COPS_ARG : (instruction->flags & USER_REG) ?
-				 USER_REG_ARG : REG_ARG;
-
-          if ((reg_arg_type == COP_ARG) || (reg_arg_type == COPS_ARG))
-	    {
-		/*  Check for proper argument number.  */
-		if (processing_argument_number == 2)
-		  {
-		    getregliststring (a->constant, string, reg_arg_type);
-		    func (stream, "%s", string);
-		  }
-		else
-		  func (stream, "$0x%lx", a->constant & 0xffffffff);
-	    }
-	  else
+          if (!IS_INSN_TYPE (COP_REG_INS))
             {
-              getregliststring (a->constant, string, reg_arg_type);
+              getregliststring (a->constant, string, 1);
               func (stream, "%s", string);
+            }
+          else
+            {
+              /*  Check for proper argument number.  */
+              if (processing_argument_number == 2)
+                {
+                  getregliststring (a->constant, string, 0);
+                  func (stream, "%s", string);
+                }
+              else
+		func (stream, "$0x%x", a->constant);
             }
         }
       else
-	func (stream, "$0x%lx", a->constant & 0xffffffff);
+	func (stream, "$0x%x", a->constant);
       break;
 
-    case arg_idxr:
-      func (stream, "0x%lx(%s,%s,%d)", a->constant & 0xffffffff,
-	    getregname (a->r), getregname (a->i_r), powerof2 (a->scale));
+    case arg_icr:
+      func (stream, "0x%x(%s,%s,%d)", a->constant, getregname (a->r),
+	    getregname (a->i_r), powerof2 (a->scale));
       break;
 
     case arg_rbase:
@@ -570,7 +521,7 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
       break;
 
     case arg_cr:
-      func (stream, "0x%lx(%s)", a->constant & 0xffffffff, getregname (a->r));
+      func (stream, "0x%x(%s)", a->constant, getregname (a->r));
 
       if (IS_INSN_TYPE (LD_STOR_INS_INC))
 	func (stream, "+");
@@ -584,9 +535,10 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
 	  || IS_INSN_TYPE (CMPBR_INS) || IS_INSN_TYPE (DCR_BRANCH_INS)
 	  || IS_INSN_TYPE (COP_BRANCH_INS))
         {
-	  relative = 1;
+          func (stream, "%c", '*');
           longdisp = a->constant;
           longdisp <<= 1;
+          sign_flag = '+';
 
           switch (a->size)
             {
@@ -597,7 +549,7 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
 	      mask = ((LONGLONG)1 << a->size) - 1;
               if (longdisp & ((LONGLONG)1 << a->size))
                 {
-                  sign_flag = 1;
+                  sign_flag = '-';
                   longdisp = ~(longdisp) + 1;
                 }
               a->constant = (unsigned long int) (longdisp & mask);
@@ -608,11 +560,12 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
               break;
             }
 
+	  func (stream, "%c", sign_flag);
         }
       /* For branch Neq instruction it is 2*offset + 2.  */
-      else if (IS_INSN_TYPE (BRANCH_NEQ_INS))
+      if (IS_INSN_TYPE (BRANCH_NEQ_INS))
 	a->constant = 2 * a->constant + 2;
-      else if (IS_INSN_TYPE (LD_STOR_INS_INC)
+      if (IS_INSN_TYPE (LD_STOR_INS_INC)
 	  || IS_INSN_TYPE (LD_STOR_INS)
 	  || IS_INSN_TYPE (STOR_IMM_INS)
 	  || IS_INSN_TYPE (CSTBIT_INS))
@@ -621,10 +574,7 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
           if (instruction->operands[op_index].op_type == abs16)
 	    a->constant |= 0xFFFF0000;
         }
-      func (stream, "%s", "0x");
-      number = (relative ? memaddr : 0)
-	       + (sign_flag ? -a->constant : a->constant);
-      (*info->print_address_func) (number, info);
+      func (stream, "0x%x", a->constant);
       break;
     default:
       break;
@@ -634,17 +584,17 @@ print_arg (argument *a, bfd_vma memaddr, struct disassemble_info *info)
 /* Print all the arguments of CURRINSN instruction.  */
 
 static void
-print_arguments (ins *currentInsn, bfd_vma memaddr, struct disassemble_info *info)
+print_arguments (ins *currInsn, struct disassemble_info *info)
 {
   int i;
 
-  for (i = 0; i < currentInsn->nargs; i++)
+  for (i = 0; i < currInsn->nargs; i++)
     {
       processing_argument_number = i;
 
-      print_arg (&currentInsn->arg[i], memaddr, info);
+      print_arg (&currInsn->arg[i], info);
 
-      if (i != currentInsn->nargs - 1)
+      if (i != currInsn->nargs - 1)
 	info->fprintf_func (info->stream, ", ");
     }
 }
@@ -655,16 +605,14 @@ static void
 make_instruction (void)
 {
   int i;
-  unsigned int shift;
+  unsigned int temp_value, shift;
+  argument a;
 
   for (i = 0; i < currInsn.nargs; i++)
     {
-      argument a;
-
-      memset (&a, 0, sizeof (a));
       a.type = getargtype (instruction->operands[i].op_type);
       if (instruction->operands[i].op_type == cst4
-	  || instruction->operands[i].op_type == rbase_dispu4)
+	  || instruction->operands[i].op_type == rbase_cst4)
 	cst4flag = 1;
       a.size = getbits (instruction->operands[i].op_type);
       shift = instruction->operands[i].shift;
@@ -675,8 +623,15 @@ make_instruction (void)
 
   /* Calculate instruction size (in bytes).  */
   currInsn.size = instruction->size + (size_changed ? 1 : 0);
-  /* Now in bits.  */
   currInsn.size *= 2;
+
+  /* Swapping first and second arguments.  */
+  if (IS_INSN_TYPE (COP_BRANCH_INS))
+    {
+      temp_value = currInsn.arg[0].constant;
+      currInsn.arg[0].constant = currInsn.arg[1].constant;
+      currInsn.arg[1].constant = temp_value;
+    }
 }
 
 /* Retrieve a single word from a given memory address.  */
@@ -735,7 +690,7 @@ print_insn_crx (memaddr, info)
       if ((currInsn.nargs = get_number_of_operands ()) != 0)
 	info->fprintf_func (info->stream, "\t");
       make_instruction ();
-      print_arguments (&currInsn, memaddr, info);
+      print_arguments (&currInsn, info);
       return currInsn.size;
     }
 

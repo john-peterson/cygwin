@@ -1,21 +1,23 @@
 /* interp.c -- Simulator for Motorola 68HC11/68HC12
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004
+   Free Software Foundation, Inc.
    Written by Stephane Carrez (stcarrez@nerim.fr)
 
 This file is part of GDB, the GNU debugger.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sim-main.h"
 #include "sim-assert.h"
@@ -708,6 +710,33 @@ void
 sim_size (int s)
 {
   ;
+}
+
+void
+sim_do_command (SIM_DESC sd, char *cmd)
+{
+  char *mm_cmd = "memory-map";
+  char *int_cmd = "interrupt";
+  sim_cpu *cpu;
+
+  cpu = STATE_CPU (sd, 0);
+  /* Commands available from GDB:   */
+  if (sim_args_command (sd, cmd) != SIM_RC_OK)
+    {
+      if (strncmp (cmd, "info", sizeof ("info") - 1) == 0)
+	sim_get_info (sd, &cmd[4]);
+      else if (strncmp (cmd, mm_cmd, strlen (mm_cmd) == 0))
+	sim_io_eprintf (sd,
+			"`memory-map' command replaced by `sim memory'\n");
+      else if (strncmp (cmd, int_cmd, strlen (int_cmd)) == 0)
+	sim_io_eprintf (sd, "`interrupt' command replaced by `sim watch'\n");
+      else
+	sim_io_eprintf (sd, "Unknown command `%s'\n", cmd);
+    }
+
+  /* If the architecture changed, re-configure.  */
+  if (STATE_ARCHITECTURE (sd) != cpu->cpu_configured_arch)
+    sim_hw_configure (sd);
 }
 
 /* Halt the simulator after just one instruction */

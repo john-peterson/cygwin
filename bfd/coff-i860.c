@@ -1,37 +1,32 @@
 /* BFD back-end for Intel i860 COFF files.
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1999, 2000, 2001, 2002,
-   2003, 2004, 2005, 2007, 2008, 2010, 2011  Free Software Foundation, Inc.
+   2003, 2004 Free Software Foundation, Inc.
    Created mostly by substituting "860" for "386" in coff-i386.c
    Harry Dolan <dolan@ssd.intel.com>, October 1995
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 
 #include "coff/i860.h"
 
 #include "coff/internal.h"
-
-#ifndef bfd_pe_print_pdata
-#define bfd_pe_print_pdata	NULL
-#endif
 
 #include "libcoff.h"
 
@@ -131,7 +126,7 @@ coff_i860_reloc (bfd *abfd,
   return bfd_reloc_continue;
 }
 
-/* This is just a temporary measure until we teach bfd to generate
+/* This is just a temporary measure until we teach bfd to generate 
    these relocations.  */
 
 static bfd_reloc_status_type
@@ -144,7 +139,7 @@ coff_i860_reloc_nyi (bfd *abfd ATTRIBUTE_UNUSED,
 		     char **error_message ATTRIBUTE_UNUSED)
 {
   reloc_howto_type *howto = reloc_entry->howto;
-  (*_bfd_error_handler) (_("relocation `%s' not yet implemented"), howto->name);
+  fprintf (stderr, _("Relocation `%s' not yet implemented\n"), howto->name);
   return bfd_reloc_notsupported;
 }
 
@@ -468,7 +463,31 @@ static reloc_howto_type howto_table[] =
    FIXME: This macro refers to symbols and asect; these are from the
    calling function, not the macro arguments.  */
 
+/* FIXME: This was copied from the i386 version originally but
+   appears to be wrong for i860.  For now we'll do nothing.  */
+#if 0
+#define CALC_ADDEND(abfd, ptr, reloc, cache_ptr)		\
+  {								\
+    coff_symbol_type *coffsym = (coff_symbol_type *) NULL;	\
+    if (ptr && bfd_asymbol_bfd (ptr) != abfd)			\
+      coffsym = (obj_symbols (abfd)				\
+	         + (cache_ptr->sym_ptr_ptr - symbols));		\
+    else if (ptr)						\
+      coffsym = coff_symbol_from (abfd, ptr);			\
+    if (coffsym != (coff_symbol_type *) NULL			\
+	&& coffsym->native->u.syment.n_scnum == 0)		\
+      cache_ptr->addend = - coffsym->native->u.syment.n_value;	\
+    else if (ptr && bfd_asymbol_bfd (ptr) == abfd		\
+	     && ptr->section != (asection *) NULL)		\
+      cache_ptr->addend = - (ptr->section->vma + ptr->value);	\
+    else							\
+      cache_ptr->addend = 0;					\
+    if (ptr && howto_table[reloc.r_type].pc_relative)		\
+      cache_ptr->addend += asect->vma;				\
+  }
+#else
 #define CALC_ADDEND(abfd, ptr, reloc, cache_ptr)
+#endif
 
 /* We use the special COFF backend linker.  */
 #define coff_relocate_section _bfd_coff_generic_relocate_section
@@ -560,20 +579,6 @@ coff_i860_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
     }
 }
 
-static reloc_howto_type *
-coff_i860_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			     const char *r_name)
-{
-  unsigned int i;
-
-  for (i = 0; i < sizeof (howto_table) / sizeof (howto_table[0]); i++)
-    if (howto_table[i].name != NULL
-	&& strcasecmp (howto_table[i].name, r_name) == 0)
-      return &howto_table[i];
-
-  return NULL;
-}
-
 /* This is called from coff_slurp_reloc_table for each relocation
    entry.  This special handling is due to the `PAIR' relocation
    which has a different meaning for the `r_symndx' field.  */
@@ -629,7 +634,6 @@ i860_reloc_processing (arelent *cache_ptr, struct internal_reloc *dst,
 
       /* Calculate any reloc addend by looking at the symbol.  */
       CALC_ADDEND (abfd, ptr, (*dst), cache_ptr);
-      (void) ptr;
 
       cache_ptr->address -= asect->vma;
 
@@ -640,7 +644,6 @@ i860_reloc_processing (arelent *cache_ptr, struct internal_reloc *dst,
 
 #define coff_rtype_to_howto		coff_i860_rtype_to_howto
 #define coff_bfd_reloc_type_lookup	coff_i860_reloc_type_lookup
-#define coff_bfd_reloc_name_lookup coff_i860_reloc_name_lookup
 
 #define RELOC_PROCESSING(relent, reloc, symbols, abfd, section) \
   i860_reloc_processing (relent, reloc, symbols, abfd, section)
@@ -677,7 +680,6 @@ const bfd_target
   '_',				/* leading underscore */
   '/',				/* ar_pad_char */
   15,				/* ar_max_namelen */
-  0,				/* match priority.  */
 
   bfd_getl64, bfd_getl_signed_64, bfd_putl64,
      bfd_getl32, bfd_getl_signed_32, bfd_putl32,

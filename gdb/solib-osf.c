@@ -1,12 +1,13 @@
 /* Handle OSF/1, Digital UNIX, and Tru64 shared libraries
    for GDB, the GNU Debugger.
-   Copyright (C) 1993-2013 Free Software Foundation, Inc.
+   Copyright 1993, 1994, 1995, 1996, 1998, 1999, 2000, 2001
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* When handling shared libraries, GDB has to find out the pathnames
    of all shared libraries that are currently loaded (to read in their
@@ -27,7 +30,7 @@
 
    1) Peek around in the runtime loader structures.
    These are not documented, and they are not defined in the system
-   header files.  The definitions below were obtained by experimentation,
+   header files. The definitions below were obtained by experimentation,
    but they seem stable enough.
 
    2) Use the libxproc.a library, which contains the equivalent ldr_*
@@ -52,9 +55,7 @@
 #include "objfiles.h"
 #include "target.h"
 #include "inferior.h"
-#include "gdbthread.h"
 #include "solist.h"
-#include "solib.h"
 
 #ifdef USE_LDR_ROUTINES
 # include <loader.h>
@@ -72,8 +73,8 @@ typedef struct
     CORE_ADDR previous;
     CORE_ADDR unknown1;
     CORE_ADDR module_name;
-    CORE_ADDR modinfo_addr;	/* Used by next_link_map_member() to detect
-				   the end of the shared module list.  */
+    CORE_ADDR modinfo_addr;	/* used by next_link_map_member() to detect
+				   the end of the shared module list */
     long module_id;
     CORE_ADDR unknown2;
     CORE_ADDR unknown3;
@@ -191,7 +192,6 @@ static int
 lm_sec_cmp (const void *p1, const void *p2)
 {
   const struct lm_sec *lms1 = p1, *lms2 = p2;
-
   return strcmp (lms1->name, lms2->name);
 }
 
@@ -220,8 +220,7 @@ fetch_sec_names (struct lm_info *lmi)
       target_read_string (lms->nameaddr, &name, PATH_MAX, &errcode);
       if (errcode != 0)
 	{
-	  warning (_("unable to read shared sec name at 0x%lx"),
-		   lms->nameaddr);
+	  warning ("unable to read shared sec name at 0x%lx", lms->nameaddr);
 	  name = xstrdup ("");
 	}
       lms->name = name;
@@ -235,7 +234,7 @@ fetch_sec_names (struct lm_info *lmi)
 
 static void
 osf_relocate_section_addresses (struct so_list *so,
-				struct target_section *sec)
+				struct section_table *sec)
 {
   struct lm_info *lmi;
   struct lm_sec lms_key, *lms;
@@ -286,7 +285,7 @@ osf_clear_solib (void)
    instructions.
 
    For a statically bound executable, the inferior's first instruction is the
-   one at "_start", or a similar text label.  No further processing is needed
+   one at "_start", or a similar text label. No further processing is needed
    in that case.
 
    For a dynamically bound executable, this first instruction is somewhere
@@ -307,18 +306,8 @@ osf_clear_solib (void)
    Also, what if child has exit()ed?  Must exit loop somehow.  */
 
 static void
-osf_solib_create_inferior_hook (int from_tty)
+osf_solib_create_inferior_hook (void)
 {
-  struct inferior *inf;
-  struct thread_info *tp;
-
-  inf = current_inferior ();
-
-  /* If we are attaching to the inferior, the shared libraries
-     have already been mapped, so nothing more to do.  */
-  if (inf->attach_flag)
-    return;
-
   /* Nothing to do for statically bound executables.  */
 
   if (symfile_objfile == NULL
@@ -329,34 +318,29 @@ osf_solib_create_inferior_hook (int from_tty)
   /* Now run the target.  It will eventually get a SIGTRAP, at
      which point all of the libraries will have been mapped in and we
      can go groveling around in the rld structures to find
-     out what we need to know about them.
-     
-     If debugging from a core file, we cannot resume the execution
-     of the inferior.  But this is actually not an issue, because
-     shared libraries have already been mapped anyways, which means
-     we have nothing more to do.  */
-  if (!target_can_run (&current_target))
-    return;
+     out what we need to know about them. */
 
-  tp = inferior_thread ();
   clear_proceed_status ();
-  inf->control.stop_soon = STOP_QUIETLY;
-  tp->suspend.stop_signal = GDB_SIGNAL_0;
+  stop_soon = STOP_QUIETLY;
+  stop_signal = TARGET_SIGNAL_0;
   do
     {
-      target_resume (minus_one_ptid, 0, tp->suspend.stop_signal);
+      target_resume (minus_one_ptid, 0, stop_signal);
       wait_for_inferior ();
     }
-  while (tp->suspend.stop_signal != GDB_SIGNAL_TRAP);
+  while (stop_signal != TARGET_SIGNAL_TRAP);
 
   /*  solib_add will call reinit_frame_cache.
      But we are stopped in the runtime loader and we do not have symbols
-     for the runtime loader.  So heuristic_proc_start will be called
+     for the runtime loader. So heuristic_proc_start will be called
      and will put out an annoying warning.
      Delaying the resetting of stop_soon until after symbol loading
      suppresses the warning.  */
   solib_add ((char *) 0, 0, (struct target_ops *) 0, auto_solib_add);
-  inf->control.stop_soon = NO_STOP_QUIETLY;
+  stop_soon = NO_STOP_QUIETLY;
+
+  /* Enable breakpoints disabled (unnecessarily) by clear_solib().  */
+  re_enable_breakpoints_in_shlibs ();
 }
 
 /* target_so_ops callback.  Do additional symbol handling, lookup, etc. after
@@ -425,8 +409,8 @@ init_so (struct so_list *so, char *name, int isloader, int nsecs)
   memcpy (so->so_name, so->so_original_name, namelen + 1);
 
   /* Allocate section space.  */
-  so->lm_info = xmalloc (sizeof (struct lm_info)
-                         + (nsecs - 1) * sizeof (struct lm_sec));
+  so->lm_info = xmalloc ((unsigned) &(((struct lm_info *)0)->secs) +
+			 nsecs * sizeof *so->lm_info);
   so->lm_info->isloader = isloader;
   so->lm_info->nsecs = nsecs;
   for (i = 0; i < nsecs; i++)
@@ -537,7 +521,7 @@ close_map (struct read_map_ctxt *ctxt)
 static struct so_list *
 osf_current_sos (void)
 {
-  struct so_list *head = NULL, *tail = NULL, *newtail, so;
+  struct so_list *head = NULL, *tail, *newtail, so;
   struct read_map_ctxt ctxt;
   int skipped_main;
 
@@ -585,7 +569,7 @@ osf_open_symbol_file_object (void *from_ttyp)
   int found;
 
   if (symfile_objfile)
-    if (!query (_("Attempt to reload symbols from process? ")))
+    if (!query ("Attempt to reload symbols from process? "))
       return 0;
 
   /* The first module after /sbin/loader is the main program.  */
@@ -610,12 +594,12 @@ osf_open_symbol_file_object (void *from_ttyp)
 static int
 osf_in_dynsym_resolve_code (CORE_ADDR pc)
 {
-  /* This function currently always return False.  This is a temporary
+  /* This function currently always return False. This is a temporary
      solution which only consequence is to introduce a minor incovenience
      for the user: When stepping inside a subprogram located in a shared
      library, gdb might stop inside the dynamic loader code instead of
-     inside the subprogram itself.  See the explanations in infrun.c about
-     the in_solib_dynsym_resolve_code() function for more details.  */
+     inside the subprogram itself. See the explanations in infrun.c about
+     the IN_SOLIB_DYNSYM_RESOLVE_CODE macro for more details. */
   return 0;
 }
 
@@ -632,8 +616,7 @@ _initialize_osf_solib (void)
   osf_so_ops.current_sos = osf_current_sos;
   osf_so_ops.open_symbol_file_object = osf_open_symbol_file_object;
   osf_so_ops.in_dynsym_resolve_code = osf_in_dynsym_resolve_code;
-  osf_so_ops.bfd_open = solib_bfd_open;
 
-  /* FIXME: Don't do this here.  *_gdbarch_init() should set so_ops.  */
+  /* FIXME: Don't do this here.  *_gdbarch_init() should set so_ops. */
   current_target_so_ops = &osf_so_ops;
 }

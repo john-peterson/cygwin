@@ -1,10 +1,5 @@
 #!/bin/sh -e
 
-# Make certain that the script is not running in an internationalized
-# environment.
-LANG=C ; export LANG
-LC_ALL=C ; export LC_ALL
-
 if test $# -ne 3
 then
     echo "Usage: $0 <h|inc> <observer.texi> <observer.out>" 1>&2
@@ -13,38 +8,35 @@ fi
 
 lang=$1 ; shift
 texi=$1 ; shift
-o=$1
-case $lang in
-  h) tmp=htmp ;;
-  inc) tmp=itmp ;;
-esac
-otmp="`echo $1 | sed -e 's,\.[^.]*$,,'`.$tmp"; shift
-echo "Creating ${otmp}" 1>&2
-rm -f ${otmp}
+o=$1 ; shift
+echo "Creating ${o}-tmp" 1>&2
+rm -f ${o}-tmp
 
 # Can use any of the following: cat cmp cp diff echo egrep expr false
 # grep install-info ln ls mkdir mv pwd rm rmdir sed sleep sort tar
 # test touch true
 
-cat <<EOF >>${otmp}
+cat <<EOF >>${o}-tmp
 /* GDB Notifications to Observers.
 
-   Copyright (C) 2004-2013 Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
-  
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-  
+
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.
 
    --
 
@@ -54,27 +46,17 @@ EOF
 
 
 case $lang in
-    h) cat <<EOF >>${otmp}
+    h) cat <<EOF >>${o}-tmp
 #ifndef OBSERVER_H
 #define OBSERVER_H
 
 struct observer;
 struct bpstats;
 struct so_list;
-struct objfile;
-struct thread_info;
-struct inferior;
 EOF
         ;;
 esac
 
-# We are about to set IFS=:, so DOS-style file names with a drive
-# letter and a colon will be in trouble.
-
-if test -n "$DJGPP"
-then
-     texi=`echo $texi | sed -e 's,^\([a-zA-Z]\):/,/dev/\1/,'`
-fi
 
 # generate a list of events that can be observed
 
@@ -105,7 +87,7 @@ sed -n '
 ' $texi | while read event formal actual
 do
   case $lang in
-      h) cat <<EOF >>${otmp}
+      h) cat <<EOF >>${o}-tmp
 
 /* ${event} notifications.  */
 
@@ -118,35 +100,20 @@ EOF
 	;;
 
       inc)
-      	cat <<EOF >>${otmp}
+      	cat <<EOF >>${o}-tmp
 
 /* ${event} notifications.  */
 
 static struct observer_list *${event}_subject = NULL;
 
-EOF
-	if test "$formal" != "void"; then
-	    cat<<EOF >>${otmp}
 struct ${event}_args { `echo "${formal}" | sed -e 's/,/;/g'`; };
 
-EOF
-	fi
-	cat <<EOF >>${otmp}
 static void
 observer_${event}_notification_stub (const void *data, const void *args_data)
 {
   observer_${event}_ftype *notify = (observer_${event}_ftype *) data;
-EOF
-
-	notify_args=`echo ${actual} | sed -e 's/\([a-z0-9_][a-z0-9_]*\)/args->\1/g'`
-
-	if test ! -z "${notify_args}"; then
-	    cat<<EOF >>${otmp}
   const struct ${event}_args *args = args_data;
-EOF
-	fi
-	cat <<EOF >>${otmp}
-  notify (${notify_args});
+  notify (`echo ${actual} | sed -e 's/\([a-z0-9_][a-z0-9_]*\)/args->\1/g'`);
 }
 
 struct observer *
@@ -166,17 +133,8 @@ observer_detach_${event} (struct observer *observer)
 void
 observer_notify_${event} (${formal})
 {
-EOF
-	if test "$formal" != "void"; then
-	    cat<<EOF >>${otmp}
   struct ${event}_args args;
   `echo ${actual} | sed -e 's/\([a-z0-9_][a-z0-9_]*\)/args.\1 = \1/g'`;
-
-EOF
-	else
-	    echo "char *args = NULL;" >> ${otmp}
-	fi
-	cat<<EOF >>${otmp}
   if (observer_debug)
     fprintf_unfiltered (gdb_stdlog, "observer_notify_${event}() called\n");
   generic_observer_notify (${event}_subject, &args);
@@ -188,12 +146,12 @@ done
 
 
 case $lang in
-    h) cat <<EOF >>${otmp}
+    h) cat <<EOF >>${o}-tmp
 
 #endif /* OBSERVER_H */
 EOF
 esac
 
 
-echo Moving ${otmp} to ${o}
-mv ${otmp} ${o}
+echo Moving ${o}-tmp to ${o}
+mv ${o}-tmp ${o}

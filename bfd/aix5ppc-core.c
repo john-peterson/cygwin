@@ -1,14 +1,14 @@
 /* IBM RS/6000 "XCOFF" back-end for BFD.
-   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
+   Copyright 2001, 2002, 2004
    Free Software Foundation, Inc.
    Written by Tom Rix
-   Contributed by Red Hat Inc.
+   Contributed by Redhat.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,20 +18,24 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+   MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
-
-const bfd_target *xcoff64_core_p (bfd *);
-bfd_boolean xcoff64_core_file_matches_executable_p (bfd *, bfd *);
-char *xcoff64_core_file_failing_command (bfd *);
-int xcoff64_core_file_failing_signal (bfd *);
 
 #ifdef AIX_5_CORE
 
+#include "sysdep.h"
 #include "libbfd.h"
+
+const bfd_target *xcoff64_core_p
+  PARAMS ((bfd *));
+bfd_boolean xcoff64_core_file_matches_executable_p
+  PARAMS ((bfd *, bfd *));
+char *xcoff64_core_file_failing_command
+  PARAMS ((bfd *));
+int xcoff64_core_file_failing_signal
+  PARAMS ((bfd *));
 
 /* Aix 5.1 system include file.  */
 
@@ -40,20 +44,15 @@ int xcoff64_core_file_failing_signal (bfd *);
 #include <sys/ldr.h>
 #include <core.h>
 
-/* The default architecture and machine for matching core files.  */
-#define DEFAULT_ARCHITECTURE	bfd_arch_powerpc
-#define DEFAULT_MACHINE		bfd_mach_ppc_620
-
 #define	core_hdr(abfd)		((struct core_dumpxx *) abfd->tdata.any)
 
 #define CHECK_FILE_OFFSET(s, v) \
   ((bfd_signed_vma)(v) < 0 || (bfd_signed_vma)(v) > (bfd_signed_vma)(s).st_size)
 
 const bfd_target *
-xcoff64_core_p (bfd *abfd)
+xcoff64_core_p (abfd)
+     bfd *abfd;
 {
-  enum bfd_architecture arch;
-  unsigned long mach;
   struct core_dumpxx core, *new_core_hdr;
   struct stat statbuf;
   asection *sec;
@@ -61,8 +60,7 @@ xcoff64_core_p (bfd *abfd)
   bfd_vma ld_offset;
   bfd_size_type i;
   struct vm_infox vminfo;
-  const bfd_target *return_value = NULL;
-  flagword flags;
+  bfd_target *return_value = NULL;
 
   /* Get the header.  */
   if (bfd_seek (abfd, 0, SEEK_SET) != 0)
@@ -113,32 +111,30 @@ xcoff64_core_p (bfd *abfd)
       return return_value;
     }
 
-  new_core_hdr = bfd_zalloc (abfd, sizeof (struct core_dumpxx));
+  new_core_hdr = (struct core_dumpxx *)
+    bfd_zalloc (abfd, sizeof (struct core_dumpxx));
   if (NULL == new_core_hdr)
     return return_value;
 
   memcpy (new_core_hdr, &core, sizeof (struct core_dumpxx));
-  /* The core_hdr() macro is no longer used here because it would
-     expand to code relying on gcc's cast-as-lvalue extension,
-     which was removed in gcc 4.0.  */
-  abfd->tdata.any = new_core_hdr;
+  core_hdr(abfd) = (char *)new_core_hdr;
 
   /* .stack section.  */
-  flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
-  sec = bfd_make_section_anyway_with_flags (abfd, ".stack", flags);
+  sec = bfd_make_section_anyway (abfd, ".stack");
   if (NULL == sec)
     return return_value;
 
+  sec->flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
   sec->size = core.c_size;
   sec->vma = core.c_stackorg;
   sec->filepos = core.c_stack;
 
   /* .reg section for all registers.  */
-  flags = SEC_HAS_CONTENTS | SEC_IN_MEMORY;
-  sec = bfd_make_section_anyway_with_flags (abfd, ".reg", flags);
+  sec = bfd_make_section_anyway (abfd, ".reg");
   if (NULL == sec)
     return return_value;
 
+  sec->flags = SEC_HAS_CONTENTS | SEC_IN_MEMORY;
   sec->size = sizeof (struct __context64);
   sec->vma = 0;
   sec->filepos = 0;
@@ -148,11 +144,11 @@ xcoff64_core_p (bfd *abfd)
      To actually find out how long this section is in this particular
      core dump would require going down the whole list of struct
      ld_info's.   See if we can just fake it.  */
-  flags = SEC_HAS_CONTENTS;
-  sec = bfd_make_section_anyway_with_flags (abfd, ".ldinfo", flags);
+  sec = bfd_make_section_anyway (abfd, ".ldinfo");
   if (NULL == sec)
     return return_value;
 
+  sec->flags = SEC_HAS_CONTENTS;
   sec->size = core.c_lsize;
   sec->vma = 0;
   sec->filepos = core.c_loader;
@@ -162,11 +158,11 @@ xcoff64_core_p (bfd *abfd)
      regions.  */
 
   /* .data section from executable.  */
-  flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
-  sec = bfd_make_section_anyway_with_flags (abfd, ".data", flags);
+  sec = bfd_make_section_anyway (abfd, ".data");
   if (NULL == sec)
     return return_value;
 
+  sec->flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
   sec->size = core.c_datasize;
   sec->vma = core.c_dataorg;
   sec->filepos = core.c_data;
@@ -185,11 +181,11 @@ xcoff64_core_p (bfd *abfd)
 
       if (ldinfo.ldinfo_core)
 	{
-	  flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
-	  sec = bfd_make_section_anyway_with_flags (abfd, ".data", flags);
+	  sec = bfd_make_section_anyway (abfd, ".data");
 	  if (NULL == sec)
 	    return return_value;
 
+	  sec->flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
 	  sec->size = ldinfo.ldinfo_datasize;
 	  sec->vma = ldinfo.ldinfo_dataorg;
 	  sec->filepos = ldinfo.ldinfo_core;
@@ -213,23 +209,18 @@ xcoff64_core_p (bfd *abfd)
 
       if (vminfo.vminfo_offset)
 	{
-	  flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
-	  sec = bfd_make_section_anyway_with_flags (abfd, ".vmdata", flags);
+	  sec = bfd_make_section_anyway (abfd, ".vmdata");
 	  if (NULL == sec)
 	    return return_value;
 
+	  sec->flags = SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS;
 	  sec->size = vminfo.vminfo_size;
 	  sec->vma = vminfo.vminfo_addr;
 	  sec->filepos = vminfo.vminfo_offset;
 	}
     }
 
-  /* Set the architecture and machine.  */
-  arch = DEFAULT_ARCHITECTURE;
-  mach = DEFAULT_MACHINE;
-  bfd_default_set_arch_mach (abfd, arch, mach);
-
-  return_value = (bfd_target *) abfd->xvec;	/* This is garbage for now.  */
+  return_value = abfd->xvec;	/* This is garbage for now.  */
 
  xcoff64_core_p_error:
   if (bfd_get_error () != bfd_error_system_call)
@@ -241,7 +232,9 @@ xcoff64_core_p (bfd *abfd)
 /* Return `TRUE' if given core is from the given executable.  */
 
 bfd_boolean
-xcoff64_core_file_matches_executable_p (bfd *core_bfd, bfd *exec_bfd)
+xcoff64_core_file_matches_executable_p (core_bfd, exec_bfd)
+     bfd *core_bfd;
+     bfd *exec_bfd;
 {
   struct core_dumpxx core;
   char *path, *s;
@@ -305,7 +298,8 @@ xcoff64_core_file_matches_executable_p (bfd *core_bfd, bfd *exec_bfd)
 }
 
 char *
-xcoff64_core_file_failing_command (bfd *abfd)
+xcoff64_core_file_failing_command (abfd)
+     bfd *abfd;
 {
   struct core_dumpxx *c = core_hdr (abfd);
   char *return_value = 0;
@@ -317,7 +311,8 @@ xcoff64_core_file_failing_command (bfd *abfd)
 }
 
 int
-xcoff64_core_file_failing_signal (bfd *abfd)
+xcoff64_core_file_failing_signal (abfd)
+     bfd *abfd;
 {
   struct core_dumpxx *c = core_hdr (abfd);
   int return_value = 0;
@@ -330,27 +325,41 @@ xcoff64_core_file_failing_signal (bfd *abfd)
 
 #else /* AIX_5_CORE */
 
+const bfd_target *xcoff64_core_p
+  PARAMS ((bfd *));
+bfd_boolean xcoff64_core_file_matches_executable_p
+  PARAMS ((bfd *, bfd *));
+char *xcoff64_core_file_failing_command
+  PARAMS ((bfd *));
+int xcoff64_core_file_failing_signal
+  PARAMS ((bfd *));
+
 const bfd_target *
-xcoff64_core_p (bfd *abfd ATTRIBUTE_UNUSED)
+xcoff64_core_p (abfd)
+     bfd *abfd ATTRIBUTE_UNUSED;
 {
   bfd_set_error (bfd_error_wrong_format);
   return 0;
 }
 
 bfd_boolean
-xcoff64_core_file_matches_executable_p (bfd *core_bfd, bfd *exec_bfd)
+xcoff64_core_file_matches_executable_p (core_bfd, exec_bfd)
+     bfd *core_bfd ATTRIBUTE_UNUSED;
+     bfd *exec_bfd ATTRIBUTE_UNUSED;
 {
-  return generic_core_file_matches_executable_p (core_bfd, exec_bfd);
+  return FALSE;
 }
 
 char *
-xcoff64_core_file_failing_command (bfd *abfd ATTRIBUTE_UNUSED)
+xcoff64_core_file_failing_command (abfd)
+     bfd *abfd ATTRIBUTE_UNUSED;
 {
   return 0;
 }
 
 int
-xcoff64_core_file_failing_signal (bfd *abfd ATTRIBUTE_UNUSED)
+xcoff64_core_file_failing_signal (abfd)
+     bfd *abfd ATTRIBUTE_UNUSED;
 {
   return 0;
 }

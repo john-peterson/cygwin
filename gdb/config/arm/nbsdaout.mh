@@ -1,3 +1,4 @@
-# Host: NetBSD/arm
-NATDEPFILES= fork-child.o inf-ptrace.o armnbsd-nat.o \
+# Host ARM running NetBSD
+NATDEPFILES= fork-child.o infptrace.o inftarg.o corelow.o armnbsd-nat.o \
 	solib-sunos.o
+NAT_FILE=nm-nbsdaout.h
