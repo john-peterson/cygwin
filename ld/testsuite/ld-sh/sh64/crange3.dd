@@ -1,5 +1,5 @@
 
-.*:     file format elf32-sh64
+tmpdir/linked:     file format elf32-sh64
 
 Disassembly of section .init:
 
