@@ -13,14 +13,13 @@ CTOR=".ctors ${CONSTRUCTING-0} :
        is in.  */
 
     KEEP (*crtbegin.o(.ctors))
-    KEEP (*crtbegin?.o(.ctors))
 
     /* We don't want to include the .ctor section from
-       the crtend.o file until after the sorted ctors.
+       from the crtend.o file until after the sorted ctors.
        The .ctor section from the crtend file contains the
        end of ctors marker and it must be last */
 
-    KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o) .ctors))
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
     KEEP (*(SORT(.ctors.*)))
     KEEP (*(.ctors))
     ${CONSTRUCTING+ __CTOR_END__ = .; }
@@ -30,8 +29,7 @@ DTOR="  .dtors	${CONSTRUCTING-0} :
   {
     ${CONSTRUCTING+ __DTOR_LIST__ = .; }
     KEEP (*crtbegin.o(.dtors))
-    KEEP (*crtbegin?.o(.dtors))
-    KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o) .dtors))
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
     KEEP (*(SORT(.dtors.*)))
     KEEP (*(.dtors))
     ${CONSTRUCTING+ __DTOR_END__ = .; }
@@ -110,8 +108,8 @@ SECTIONS
   {
     *(.text)
     *(.gnu.linkonce.t*)
-    *(SORT_NONE(.init))
-    *(SORT_NONE(.fini))
+    *(.init)
+    *(.fini)
     ${RELOCATING+ _etext = . ; }
   } ${RELOCATING+ > ${TEXT_MEMORY}}
 
@@ -216,13 +214,6 @@ SECTIONS
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
 
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
-  
   PROVIDE (__stack = ${STACK_START_ADDR});
 }
 EOF

@@ -28,7 +28,15 @@ CTOR=".ctors ${CONSTRUCTING-0} :
   {
     ${CONSTRUCTING+ PROVIDE (__CTOR_LIST__ = .); }
     ${CONSTRUCTING+${CTOR_START}}
-    KEEP (*(.ctors))
+    *(.ctors)
+    /* We don't want to include the .ctor section from
+       from the crtend.o file until after the sorted ctors.
+       The .ctor section from the crtend file contains the
+       end of ctors marker and it must be last
+
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
+    KEEP (*(SORT(.ctors.*)))
+    KEEP (*(.ctors)) */
 
     ${CONSTRUCTING+${CTOR_END}}
     ${CONSTRUCTING+ PROVIDE(__CTOR_END__ = .); }
@@ -37,7 +45,12 @@ CTOR=".ctors ${CONSTRUCTING-0} :
 DTOR="  .dtors	${CONSTRUCTING-0} :
   {
     ${CONSTRUCTING+ PROVIDE(__DTOR_LIST__ = .); }
-    KEEP (*(.dtors))
+    *(.dtors)
+    /*
+    KEEP (*crtbegin.o(.dtors))
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
+    KEEP (*(SORT(.dtors.*)))
+    KEEP (*(.dtors)) */
     ${CONSTRUCTING+ PROVIDE(__DTOR_END__ = .); }
   } ${RELOCATING+ > ${TEXT_MEMORY}}"
 
@@ -62,7 +75,7 @@ VECTORS="
   PROVIDE (_vectors_addr = DEFINED (vectors_addr) ? vectors_addr : 0xffc0);
   .vectors DEFINED (vectors_addr) ? vectors_addr : 0xffc0 :
   {
-    KEEP (*(.vectors))
+    *(.vectors)
   }"
 
 #
@@ -98,20 +111,20 @@ esac
 
 STARTUP_CODE="
     /* Startup code.  */
-    KEEP (*(.install0))	/* Section should setup the stack pointer.  */
-    KEEP (*(.install1))	/* Place holder for applications.  */
-    KEEP (*(.install2))	/* Optional installation of data sections in RAM.  */
-    KEEP (*(.install3))	/* Place holder for applications.  */
-    KEEP (*(.install4))	/* Section that calls the main.  */
+    *(.install0)	/* Section should setup the stack pointer.  */
+    *(.install1)	/* Place holder for applications.  */
+    *(.install2)	/* Optional installation of data sections in RAM.  */
+    *(.install3)	/* Place holder for applications.  */
+    *(.install4)	/* Section that calls the main.  */
 "
 
 FINISH_CODE="
     /* Finish code.  */
-    KEEP (*(.fini0))	/* Beginning of finish code (_exit symbol).  */
-    KEEP (*(.fini1))	/* Place holder for applications.  */
-    KEEP (*(.fini2))	/* C++ destructors.  */
-    KEEP (*(.fini3))	/* Place holder for applications.  */
-    KEEP (*(.fini4))	/* Runtime exit.  */
+    *(.fini0)		/* Beginning of finish code (_exit symbol).  */
+    *(.fini1)		/* Place holder for applications.  */
+    *(.fini2)		/* C++ destructors.  */
+    *(.fini3)		/* Place holder for applications.  */
+    *(.fini4)		/* Runtime exit.  */
 "
 
 PRE_COMPUTE_DATA_SIZE="
@@ -164,7 +177,7 @@ ${RELOCATING-/* Linker script for 68HC11 object file (ld -r).  */}
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+${EXECUTABLE_SYMBOLS}}
@@ -313,8 +326,6 @@ SECTIONS
     /* .gnu.warning sections are handled specially by elf32.em.  */
     *(.gnu.warning)
     ${RELOCATING+*(.gnu.linkonce.t.*)}
-    ${RELOCATING+*(.tramp)}
-    ${RELOCATING+*(.tramp.*)}
 
     ${RELOCATING+${FINISH_CODE}}
 
@@ -326,11 +337,6 @@ SECTIONS
   .eh_frame ${RELOCATING-0} :
   {
     KEEP (*(.eh_frame))
-  } ${RELOCATING+ > ${TEXT_MEMORY}}
-
-  .gcc_except_table ${RELOCATING-0} :
-  {
-    *(.gcc_except_table)
   } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .rodata  ${RELOCATING-0} :
@@ -456,12 +462,5 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 }
 EOF
