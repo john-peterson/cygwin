@@ -1,23 +1,25 @@
 /* YACC parser for Fortran expressions, for GDB.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1989, 1990, 1991, 1993, 1994, 1995, 1996, 2000, 2001
+   Free Software Foundation, Inc.
 
    Contributed by Motorola.  Adapted from the C parser by Farooq Butt
    (fmbutt@engage.sps.mot.com).
 
-   This file is part of GDB.
+This file is part of GDB.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* This was blantantly ripped off the C expression parser, please 
    be aware of that as you look at its basic structure -FMB */ 
@@ -51,18 +53,14 @@
 #include "bfd.h" /* Required by objfiles.h.  */
 #include "symfile.h" /* Required by objfiles.h.  */
 #include "objfiles.h" /* For have_full_symbols and have_partial_symbols */
-#include "block.h"
 #include <ctype.h>
-
-#define parse_type builtin_type (parse_gdbarch)
-#define parse_f_type builtin_f_type (parse_gdbarch)
 
 /* Remap normal yacc parser interface names (yyparse, yylex, yyerror, etc),
    as well as gratuitiously global symbol names, so we can have multiple
    yacc generated parsers in gdb.  Note that these are only the variables
    produced by yacc.  If other parser generators (bison, byacc, etc) produce
    additional global names that conflict at link time, then those parser
-   generators need to be fixed instead of adding those names to this list.  */
+   generators need to be fixed instead of adding those names to this list. */
 
 #define	yymaxdepth f_maxdepth
 #define	yyparse	f_parse
@@ -93,8 +91,6 @@
 #define	yylloc	f_lloc
 #define yyreds	f_reds		/* With YYDEBUG defined */
 #define yytoks	f_toks		/* With YYDEBUG defined */
-#define yyname	f_name		/* With YYDEBUG defined */
-#define yyrule	f_rule		/* With YYDEBUG defined */
 #define yylhs	f_yylhs
 #define yylen	f_yylen
 #define yydefred f_yydefred
@@ -104,18 +100,10 @@
 #define yygindex f_yygindex
 #define yytable	 f_yytable
 #define yycheck	 f_yycheck
-#define yyss	f_yyss
-#define yysslim	f_yysslim
-#define yyssp	f_yyssp
-#define yystacksize f_yystacksize
-#define yyvs	f_yyvs
-#define yyvsp	f_yyvsp
 
 #ifndef YYDEBUG
-#define	YYDEBUG	1		/* Default to yydebug support */
+#define	YYDEBUG	1		/* Default to no yydebug support */
 #endif
-
-#define YYFPRINTF parser_fprintf
 
 int yyparse (void);
 
@@ -186,6 +174,7 @@ static int parse_number (char *, int, int, YYSTYPE *);
 %token <tsym> TYPENAME
 %type <sval> name
 %type <ssym> name_not_typename
+%type <tsym> typename
 
 /* A NAME_OR_INT is a symbol which is not known in the symbol table,
    but which would parse as a valid number in the current input radix.
@@ -200,7 +189,6 @@ static int parse_number (char *, int, int, YYSTYPE *);
 /* Special type cases, put in to allow the parser to distinguish different
    legal basetypes.  */
 %token INT_KEYWORD INT_S2_KEYWORD LOGICAL_S1_KEYWORD LOGICAL_S2_KEYWORD 
-%token LOGICAL_S8_KEYWORD
 %token LOGICAL_KEYWORD REAL_KEYWORD REAL_S8_KEYWORD REAL_S16_KEYWORD 
 %token COMPLEX_S8_KEYWORD COMPLEX_S16_KEYWORD COMPLEX_S32_KEYWORD 
 %token BOOL_AND BOOL_OR BOOL_NOT   
@@ -225,9 +213,7 @@ static int parse_number (char *, int, int, YYSTYPE *);
 %left LSH RSH
 %left '@'
 %left '+' '-'
-%left '*' '/'
-%right STARSTAR
-%right '%'
+%left '*' '/' '%'
 %right UNARY 
 %right '('
 
@@ -251,11 +237,9 @@ exp     :       '(' exp ')'
 /* Expressions, not including the comma operator.  */
 exp	:	'*' exp    %prec UNARY
 			{ write_exp_elt_opcode (UNOP_IND); }
-	;
 
 exp	:	'&' exp    %prec UNARY
 			{ write_exp_elt_opcode (UNOP_ADDR); }
-	;
 
 exp	:	'-' exp    %prec UNARY
 			{ write_exp_elt_opcode (UNOP_NEG); }
@@ -293,48 +277,24 @@ arglist	:	exp
 			{ arglist_len = 1; }
 	;
 
-arglist :	subrange
-			{ arglist_len = 1; }
-	;
+arglist :      substring
+                        { arglist_len = 2;}
    
 arglist	:	arglist ',' exp   %prec ABOVE_COMMA
 			{ arglist_len++; }
 	;
 
-/* There are four sorts of subrange types in F90.  */
-
-subrange:	exp ':' exp	%prec ABOVE_COMMA
-			{ write_exp_elt_opcode (OP_F90_RANGE); 
-			  write_exp_elt_longcst (NONE_BOUND_DEFAULT);
-			  write_exp_elt_opcode (OP_F90_RANGE); }
+substring:	exp ':' exp   %prec ABOVE_COMMA
+			{ } 
 	;
 
-subrange:	exp ':'	%prec ABOVE_COMMA
-			{ write_exp_elt_opcode (OP_F90_RANGE);
-			  write_exp_elt_longcst (HIGH_BOUND_DEFAULT);
-			  write_exp_elt_opcode (OP_F90_RANGE); }
-	;
-
-subrange:	':' exp	%prec ABOVE_COMMA
-			{ write_exp_elt_opcode (OP_F90_RANGE);
-			  write_exp_elt_longcst (LOW_BOUND_DEFAULT);
-			  write_exp_elt_opcode (OP_F90_RANGE); }
-	;
-
-subrange:	':'	%prec ABOVE_COMMA
-			{ write_exp_elt_opcode (OP_F90_RANGE);
-			  write_exp_elt_longcst (BOTH_BOUND_DEFAULT);
-			  write_exp_elt_opcode (OP_F90_RANGE); }
-	;
 
 complexnum:     exp ',' exp 
                 	{ }                          
         ;
 
 exp	:	'(' complexnum ')'
-                	{ write_exp_elt_opcode(OP_COMPLEX);
-			  write_exp_elt_type (parse_f_type->builtin_complex_s16);
-                	  write_exp_elt_opcode(OP_COMPLEX); }
+                	{ write_exp_elt_opcode(OP_COMPLEX); }
 	;
 
 exp	:	'(' type ')' exp  %prec UNARY
@@ -343,20 +303,10 @@ exp	:	'(' type ')' exp  %prec UNARY
 			  write_exp_elt_opcode (UNOP_CAST); }
 	;
 
-exp     :       exp '%' name
-                        { write_exp_elt_opcode (STRUCTOP_STRUCT);
-                          write_exp_string ($3);
-                          write_exp_elt_opcode (STRUCTOP_STRUCT); }
-        ;
-
 /* Binary operators in order of decreasing precedence.  */
 
 exp	:	exp '@' exp
 			{ write_exp_elt_opcode (BINOP_REPEAT); }
-	;
-
-exp	:	exp STARSTAR exp
-			{ write_exp_elt_opcode (BINOP_EXP); }
 	;
 
 exp	:	exp '*' exp
@@ -365,6 +315,10 @@ exp	:	exp '*' exp
 
 exp	:	exp '/' exp
 			{ write_exp_elt_opcode (BINOP_DIV); }
+	;
+
+exp	:	exp '%' exp
+			{ write_exp_elt_opcode (BINOP_REM); }
 	;
 
 exp	:	exp '+' exp
@@ -456,7 +410,7 @@ exp	:	NAME_OR_INT
 
 exp	:	FLOAT
 			{ write_exp_elt_opcode (OP_DOUBLE);
-			  write_exp_elt_type (parse_f_type->builtin_real_s8);
+			  write_exp_elt_type (builtin_type_f_real_s8);
 			  write_exp_elt_dblcst ($1);
 			  write_exp_elt_opcode (OP_DOUBLE); }
 	;
@@ -469,7 +423,7 @@ exp	:	VARIABLE
 
 exp	:	SIZEOF '(' type ')'	%prec UNARY
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_f_type->builtin_integer);
+			  write_exp_elt_type (builtin_type_f_integer);
 			  CHECK_TYPEDEF ($3);
 			  write_exp_elt_longcst ((LONGEST) TYPE_LENGTH ($3));
 			  write_exp_elt_opcode (OP_LONG); }
@@ -497,9 +451,9 @@ variable:	name_not_typename
 			    {
 			      if (symbol_read_needs_frame (sym))
 				{
-				  if (innermost_block == 0
-				      || contained_in (block_found, 
-						       innermost_block))
+				  if (innermost_block == 0 ||
+				      contained_in (block_found, 
+						    innermost_block))
 				    innermost_block = block_found;
 				}
 			      write_exp_elt_opcode (OP_VAR_VALUE);
@@ -514,16 +468,20 @@ variable:	name_not_typename
 			  else
 			    {
 			      struct minimal_symbol *msymbol;
-			      char *arg = copy_name ($1.stoken);
+			      register char *arg = copy_name ($1.stoken);
 
 			      msymbol =
 				lookup_minimal_symbol (arg, NULL, NULL);
 			      if (msymbol != NULL)
-				write_exp_msymbol (msymbol);
+				{
+				  write_exp_msymbol (msymbol,
+						     (struct type *)make_function_type (NULL, builtin_type_int, 0, NULL, 0),
+						     builtin_type_int);
+				}
 			      else if (!have_full_symbols () && !have_partial_symbols ())
-				error (_("No symbol table is loaded.  Use the \"file\" command."));
+				error ("No symbol table is loaded.  Use the \"file\" command.");
 			      else
-				error (_("No symbol \"%s\" in current context."),
+				error ("No symbol \"%s\" in current context.",
 				       copy_name ($1.stoken));
 			    }
 			}
@@ -540,7 +498,7 @@ ptype	:	typebase
 		  int done = 0;
 		  int array_size;
 		  struct type *follow_type = $1;
-		  struct type *range_type;
+		  struct range_type *range_type;
 		  
 		  while (!done)
 		    switch (pop_type ())
@@ -559,18 +517,18 @@ ptype	:	typebase
 			if (array_size != -1)
 			  {
 			    range_type =
-			      create_range_type ((struct type *) NULL,
-						 parse_f_type->builtin_integer,
-						 0, array_size - 1);
-			    follow_type =
-			      create_array_type ((struct type *) NULL,
+			      make_range_type (NULL,
+						 builtin_type_f_integer, 0,
+						 array_size - 1);
+			    follow_type = (struct type *)
+			      make_array_type (NULL, 
 						 follow_type, range_type);
 			  }
 			else
 			  follow_type = lookup_pointer_type (follow_type);
 			break;
 		      case tp_function:
-			follow_type = lookup_function_type (follow_type);
+			follow_type = (struct type *)make_function_type (NULL, follow_type, 0, NULL, 0);
 			break;
 		      }
 		  $$ = follow_type;
@@ -599,38 +557,39 @@ direct_abs_decl: '(' abs_decl ')'
 func_mod:	'(' ')'
 			{ $$ = 0; }
 	|	'(' nonempty_typelist ')'
-			{ free ($2); $$ = 0; }
+			{ free ((PTR)$2); $$ = 0; }
 	;
 
 typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 	:	TYPENAME
 			{ $$ = $1.type; }
 	|	INT_KEYWORD
-			{ $$ = parse_f_type->builtin_integer; }
+			{ $$ = builtin_type_f_integer; }
 	|	INT_S2_KEYWORD 
-			{ $$ = parse_f_type->builtin_integer_s2; }
+			{ $$ = builtin_type_f_integer_s2; }
 	|	CHARACTER 
-			{ $$ = parse_f_type->builtin_character; }
-	|	LOGICAL_S8_KEYWORD
-			{ $$ = parse_f_type->builtin_logical_s8; }
+			{ $$ = builtin_type_f_character; }
 	|	LOGICAL_KEYWORD 
-			{ $$ = parse_f_type->builtin_logical; }
+			{ $$ = builtin_type_f_logical;} 
 	|	LOGICAL_S2_KEYWORD
-			{ $$ = parse_f_type->builtin_logical_s2; }
+			{ $$ = builtin_type_f_logical_s2;}
 	|	LOGICAL_S1_KEYWORD 
-			{ $$ = parse_f_type->builtin_logical_s1; }
+			{ $$ = builtin_type_f_logical_s1;}
 	|	REAL_KEYWORD 
-			{ $$ = parse_f_type->builtin_real; }
+			{ $$ = builtin_type_f_real;}
 	|       REAL_S8_KEYWORD
-			{ $$ = parse_f_type->builtin_real_s8; }
+			{ $$ = builtin_type_f_real_s8;}
 	|	REAL_S16_KEYWORD
-			{ $$ = parse_f_type->builtin_real_s16; }
+			{ $$ = builtin_type_f_real_s16;}
 	|	COMPLEX_S8_KEYWORD
-			{ $$ = parse_f_type->builtin_complex_s8; }
+			{ $$ = builtin_type_f_complex_s8;}
 	|	COMPLEX_S16_KEYWORD 
-			{ $$ = parse_f_type->builtin_complex_s16; }
+			{ $$ = builtin_type_f_complex_s16;}
 	|	COMPLEX_S32_KEYWORD 
-			{ $$ = parse_f_type->builtin_complex_s32; }
+			{ $$ = builtin_type_f_complex_s32;}
+	;
+
+typename:	TYPENAME
 	;
 
 nonempty_typelist
@@ -647,7 +606,11 @@ nonempty_typelist
 	;
 
 name	:	NAME
-		{  $$ = $1.stoken; }
+			{ $$ = $1.stoken; }
+	|	TYPENAME
+			{ $$ = $1.stoken; }
+	|	NAME_OR_INT
+			{ $$ = $1.stoken; }
 	;
 
 name_not_typename :	NAME
@@ -669,12 +632,16 @@ name_not_typename :	NAME
 /*** Needs some error checking for the float case ***/
 
 static int
-parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
+parse_number (p, len, parsed_float, putithere)
+     register char *p;
+     register int len;
+     int parsed_float;
+     YYSTYPE *putithere;
 {
-  LONGEST n = 0;
-  LONGEST prevn = 0;
-  int c;
-  int base = input_radix;
+  register LONGEST n = 0;
+  register LONGEST prevn = 0;
+  register int c;
+  register int base = input_radix;
   int unsigned_p = 0;
   int long_p = 0;
   ULONGEST high_bit;
@@ -758,43 +725,42 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
       if (RANGE_CHECK && n != 0)
 	{
 	  if ((unsigned_p && (unsigned)prevn >= (unsigned)n))
-	    range_error (_("Overflow on numeric constant."));
+	    range_error("Overflow on numeric constant.");	 
 	}
       prevn = n;
     }
   
   /* If the number is too big to be an int, or it's got an l suffix
      then it's a long.  Work out if this has to be a long by
-     shifting right and seeing if anything remains, and the
+     shifting right and and seeing if anything remains, and the
      target int size is different to the target long size.
      
      In the expression below, we could have tested
-     (n >> gdbarch_int_bit (parse_gdbarch))
+     (n >> TARGET_INT_BIT)
      to see if it was zero,
      but too many compilers warn about that, when ints and longs
      are the same size.  So we shift it twice, with fewer bits
      each time, for the same result.  */
   
-  if ((gdbarch_int_bit (parse_gdbarch) != gdbarch_long_bit (parse_gdbarch)
-       && ((n >> 2)
-	   >> (gdbarch_int_bit (parse_gdbarch)-2))) /* Avoid shift warning */
+  if ((TARGET_INT_BIT != TARGET_LONG_BIT 
+       && ((n >> 2) >> (TARGET_INT_BIT-2)))   /* Avoid shift warning */
       || long_p)
     {
-      high_bit = ((ULONGEST)1) << (gdbarch_long_bit (parse_gdbarch)-1);
-      unsigned_type = parse_type->builtin_unsigned_long;
-      signed_type = parse_type->builtin_long;
+      high_bit = ((ULONGEST)1) << (TARGET_LONG_BIT-1);
+      unsigned_type = builtin_type_unsigned_long;
+      signed_type = builtin_type_long;
     }
   else 
     {
-      high_bit = ((ULONGEST)1) << (gdbarch_int_bit (parse_gdbarch)-1);
-      unsigned_type = parse_type->builtin_unsigned_int;
-      signed_type = parse_type->builtin_int;
+      high_bit = ((ULONGEST)1) << (TARGET_INT_BIT-1);
+      unsigned_type = builtin_type_unsigned_int;
+      signed_type = builtin_type_int;
     }    
   
   putithere->typed_val.val = n;
   
   /* If the high bit of the worked out type is set then this number
-     has to be unsigned.  */
+     has to be unsigned. */
   
   if (unsigned_p || (n & high_bit)) 
     putithere->typed_val.type = unsigned_type;
@@ -861,7 +827,6 @@ static const struct token f77_keywords[] =
   { "integer_2", INT_S2_KEYWORD, BINOP_END },
   { "logical_1", LOGICAL_S1_KEYWORD, BINOP_END },
   { "logical_2", LOGICAL_S2_KEYWORD, BINOP_END },
-  { "logical_8", LOGICAL_S8_KEYWORD, BINOP_END },
   { "complex_8", COMPLEX_S8_KEYWORD, BINOP_END },
   { "integer", INT_KEYWORD, BINOP_END },
   { "logical", LOGICAL_KEYWORD, BINOP_END },
@@ -875,7 +840,7 @@ static const struct token f77_keywords[] =
 
 /* Implementation of a dynamically expandable buffer for processing input
    characters acquired through lexptr and building a value to return in
-   yylval.  Ripped off from ch-exp.y */ 
+   yylval. Ripped off from ch-exp.y */ 
 
 static char *tempbuf;		/* Current buffer contents */
 static int tempbufsize;		/* Size of allocated buffer */
@@ -892,11 +857,12 @@ static int tempbufindex;	/* Current index into buffer */
   } while (0);
 
 
-/* Grow the static temp buffer if necessary, including allocating the
-   first one on demand.  */
+/* Grow the static temp buffer if necessary, including allocating the first one
+   on demand. */
 
 static void
-growbuf_by_size (int count)
+growbuf_by_size (count)
+     int count;
 {
   int growby;
 
@@ -909,7 +875,7 @@ growbuf_by_size (int count)
 }
 
 /* Blatantly ripped off from ch-exp.y. This routine recognizes F77 
-   string-literals.
+   string-literals. 
    
    Recognize a string literal.  A string literal is a nonzero sequence
    of characters enclosed in matching single quotes, except that
@@ -918,7 +884,7 @@ growbuf_by_size (int count)
    a string, it is simply doubled (I.E. 'this''is''one''string') */
 
 static int
-match_string_literal (void)
+match_string_literal ()
 {
   char *tokptr = lexptr;
 
@@ -950,7 +916,7 @@ match_string_literal (void)
 /* Read one token, getting characters through lexptr.  */
 
 static int
-yylex (void)
+yylex ()
 {
   int c;
   int namelen;
@@ -958,9 +924,7 @@ yylex (void)
   char *tokstart;
   
  retry:
- 
-  prev_lexptr = lexptr;
- 
+  
   tokstart = lexptr;
   
   /* First of all, let us make sure we are not dealing with the 
@@ -970,8 +934,8 @@ yylex (void)
     { 
       for (i = 0; boolean_values[i].name != NULL; i++)
 	{
-	  if (strncmp (tokstart, boolean_values[i].name,
-		       strlen (boolean_values[i].name)) == 0)
+	  if STREQN (tokstart, boolean_values[i].name,
+		    strlen (boolean_values[i].name))
 	    {
 	      lexptr += strlen (boolean_values[i].name); 
 	      yylval.lval = boolean_values[i].value; 
@@ -980,26 +944,16 @@ yylex (void)
 	}
     }
   
-  /* See if it is a special .foo. operator.  */
+  /* See if it is a special .foo. operator */
   
   for (i = 0; dot_ops[i].operator != NULL; i++)
-    if (strncmp (tokstart, dot_ops[i].operator,
-		 strlen (dot_ops[i].operator)) == 0)
+    if (STREQN (tokstart, dot_ops[i].operator, strlen (dot_ops[i].operator)))
       {
 	lexptr += strlen (dot_ops[i].operator);
 	yylval.opcode = dot_ops[i].opcode;
 	return dot_ops[i].token;
       }
   
-  /* See if it is an exponentiation operator.  */
-
-  if (strncmp (tokstart, "**", 2) == 0)
-    {
-      lexptr += 2;
-      yylval.opcode = BINOP_EXP;
-      return STARSTAR;
-    }
-
   switch (c = *tokstart)
     {
     case 0:
@@ -1038,7 +992,7 @@ yylex (void)
     case '.':
       /* Might be a floating point number.  */
       if (lexptr[1] < '0' || lexptr[1] > '9')
-	goto symbol;		/* Nope, must be a symbol.  */
+	goto symbol;		/* Nope, must be a symbol. */
       /* FALL THRU into number case.  */
       
     case '0':
@@ -1054,7 +1008,7 @@ yylex (void)
       {
         /* It's a number.  */
 	int got_dot = 0, got_e = 0, got_d = 0, toktype;
-	char *p = tokstart;
+	register char *p = tokstart;
 	int hex = input_radix > 10;
 	
 	if (c == '0' && (p[1] == 'x' || p[1] == 'X'))
@@ -1062,8 +1016,7 @@ yylex (void)
 	    p += 2;
 	    hex = 1;
 	  }
-	else if (c == '0' && (p[1]=='t' || p[1]=='T'
-			      || p[1]=='d' || p[1]=='D'))
+	else if (c == '0' && (p[1]=='t' || p[1]=='T' || p[1]=='d' || p[1]=='D'))
 	  {
 	    p += 2;
 	    hex = 0;
@@ -1098,7 +1051,7 @@ yylex (void)
 	    
 	    memcpy (err_copy, tokstart, p - tokstart);
 	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
+	    error ("Invalid number \"%s\".", err_copy);
 	  }
 	lexptr = p;
 	return toktype;
@@ -1129,14 +1082,14 @@ yylex (void)
       return c;
     }
   
-  if (!(c == '_' || c == '$' || c ==':'
+  if (!(c == '_' || c == '$'
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
     /* We must have come across a bad character (e.g. ';').  */
-    error (_("Invalid character '%c' in expression."), c);
+    error ("Invalid character '%c' in expression.", c);
   
   namelen = 0;
   for (c = tokstart[namelen];
-       (c == '_' || c == '$' || c == ':' || (c >= '0' && c <= '9')
+       (c == '_' || c == '$' || (c >= '0' && c <= '9') 
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')); 
        c = tokstart[++namelen]);
   
@@ -1151,8 +1104,8 @@ yylex (void)
   /* Catch specific keywords.  */
   
   for (i = 0; f77_keywords[i].operator != NULL; i++)
-    if (strlen (f77_keywords[i].operator) == namelen
-	&& strncmp (tokstart, f77_keywords[i].operator, namelen) == 0)
+    if (STREQN(tokstart, f77_keywords[i].operator,
+               strlen(f77_keywords[i].operator)))
       {
 	/* 	lexptr += strlen(f77_keywords[i].operator); */ 
 	yylval.opcode = f77_keywords[i].opcode;
@@ -1174,26 +1127,20 @@ yylex (void)
   {
     char *tmp = copy_name (yylval.sval);
     struct symbol *sym;
-    struct field_of_this_result is_a_field_of_this;
+    int is_a_field_of_this = 0;
     int hextype;
     
-    /* Initialize this in case we *don't* use it in this call; that
-       way we can refer to it unconditionally below.  */
-    memset (&is_a_field_of_this, 0, sizeof (is_a_field_of_this));
-
     sym = lookup_symbol (tmp, expression_context_block,
-			 VAR_DOMAIN,
-			 parse_language->la_language == language_cplus
-			 ? &is_a_field_of_this : NULL);
+			 VAR_NAMESPACE,
+			 current_language->la_language == language_cplus
+			 ? &is_a_field_of_this : NULL,
+			 NULL);
     if (sym && SYMBOL_CLASS (sym) == LOC_TYPEDEF)
       {
 	yylval.tsym.type = SYMBOL_TYPE (sym);
 	return TYPENAME;
       }
-    yylval.tsym.type
-      = language_lookup_primitive_type_by_name (parse_language,
-						parse_gdbarch, tmp);
-    if (yylval.tsym.type != NULL)
+    if ((yylval.tsym.type = lookup_primitive_typename (tmp)) != 0)
       return TYPENAME;
     
     /* Input names that aren't symbols but ARE valid hex numbers,
@@ -1208,23 +1155,21 @@ yylex (void)
 	if (hextype == INT)
 	  {
 	    yylval.ssym.sym = sym;
-	    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+	    yylval.ssym.is_a_field_of_this = is_a_field_of_this;
 	    return NAME_OR_INT;
 	  }
       }
     
     /* Any other kind of symbol */
     yylval.ssym.sym = sym;
-    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+    yylval.ssym.is_a_field_of_this = is_a_field_of_this;
     return NAME;
   }
 }
 
 void
-yyerror (char *msg)
+yyerror (msg)
+     char *msg;
 {
-  if (prev_lexptr)
-    lexptr = prev_lexptr;
-
-  error (_("A %s in expression, near `%s'."), (msg ? msg : "error"), lexptr);
+  error ("A %s in expression, near `%s'.", (msg ? msg : "error"), lexptr);
 }
