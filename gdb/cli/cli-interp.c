@@ -1,12 +1,12 @@
 /* CLI Definitions for GDB, the GNU debugger.
 
-   Copyright (c) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,30 +15,37 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "interps.h"
+#include "wrapper.h"
 #include "event-top.h"
 #include "ui-out.h"
 #include "cli-out.h"
 #include "top.h"		/* for "execute_command" */
 #include "gdb_string.h"
-#include "exceptions.h"
 
 struct ui_out *cli_uiout;
 
-/* These are the ui_out and the interpreter for the console
-   interpreter.  */
+/* These are the ui_out and the interpreter for the console interpreter. */
 
-/* Longjmp-safe wrapper for "execute_command".  */
-static struct gdb_exception safe_execute_command (struct ui_out *uiout,
-						  char *command, 
-						  int from_tty);
+/* Longjmp-safe wrapper for "execute_command" */
+static int do_captured_execute_command (struct ui_out *uiout, void *data);
+static enum gdb_rc safe_execute_command (struct ui_out *uiout, char *command,
+					 int from_tty);
+struct captured_execute_command_args
+{
+  char *command;
+  int from_tty;
+};
+
 /* These implement the cli out interpreter: */
 
 static void *
-cli_interpreter_init (struct interp *self, int top_level)
+cli_interpreter_init (void)
 {
   return NULL;
 }
@@ -50,9 +57,8 @@ cli_interpreter_resume (void *data)
 
   /*sync_execution = 1; */
 
-  /* gdb_setup_readline will change gdb_stdout.  If the CLI was
-     previously writing to gdb_stdout, then set it to the new
-     gdb_stdout afterwards.  */
+  /* gdb_setup_readline will change gdb_stdout.  If the CLI was previously
+     writing to gdb_stdout, then set it to the new gdb_stdout afterwards.  */
 
   stream = cli_out_set_stream (cli_uiout, gdb_stdout);
   if (stream != gdb_stdout)
@@ -86,60 +92,49 @@ cli_interpreter_display_prompt_p (void *data)
     return 1;
 }
 
-static struct gdb_exception
+static int
 cli_interpreter_exec (void *data, const char *command_str)
 {
+  int result;
   struct ui_file *old_stream;
-  struct gdb_exception result;
 
   /* FIXME: cagney/2003-02-01: Need to const char *propogate
      safe_execute_command.  */
   char *str = strcpy (alloca (strlen (command_str) + 1), command_str);
 
-  /* gdb_stdout could change between the time cli_uiout was
-     initialized and now.  Since we're probably using a different
-     interpreter which has a new ui_file for gdb_stdout, use that one
-     instead of the default.
+  /* gdb_stdout could change between the time cli_uiout was initialized
+     and now. Since we're probably using a different interpreter which has
+     a new ui_file for gdb_stdout, use that one instead of the default.
 
-     It is important that it gets reset everytime, since the user
-     could set gdb to use a different interpreter.  */
+     It is important that it gets reset everytime, since the user could
+     set gdb to use a different interpreter. */
   old_stream = cli_out_set_stream (cli_uiout, gdb_stdout);
   result = safe_execute_command (cli_uiout, str, 1);
   cli_out_set_stream (cli_uiout, old_stream);
   return result;
 }
 
-static struct gdb_exception
-safe_execute_command (struct ui_out *command_uiout, char *command, int from_tty)
+static int
+do_captured_execute_command (struct ui_out *uiout, void *data)
 {
-  volatile struct gdb_exception e;
-  struct ui_out *saved_uiout;
-
-  /* Save and override the global ``struct ui_out'' builder.  */
-  saved_uiout = current_uiout;
-  current_uiout = command_uiout;
-
-  TRY_CATCH (e, RETURN_MASK_ALL)
-    {
-      execute_command (command, from_tty);
-    }
-
-  /* Restore the global builder.  */
-  current_uiout = saved_uiout;
-
-  /* FIXME: cagney/2005-01-13: This shouldn't be needed.  Instead the
-     caller should print the exception.  */
-  exception_print (gdb_stderr, e);
-  return e;
+  struct captured_execute_command_args *args =
+    (struct captured_execute_command_args *) data;
+  execute_command (args->command, args->from_tty);
+  return GDB_RC_OK;
 }
 
-static struct ui_out *
-cli_ui_out (struct interp *self)
+static enum gdb_rc
+safe_execute_command (struct ui_out *uiout, char *command, int from_tty)
 {
-  return cli_uiout;
+  struct captured_execute_command_args args;
+  args.command = command;
+  args.from_tty = from_tty;
+  return catch_exceptions (uiout, do_captured_execute_command, &args,
+			   NULL, RETURN_MASK_ALL);
 }
 
-/* Standard gdb initialization hook.  */
+
+/* standard gdb initialization hook */
 extern initialize_file_ftype _initialize_cli_interp; /* -Wmissing-prototypes */
 
 void
@@ -150,14 +145,13 @@ _initialize_cli_interp (void)
     cli_interpreter_resume,	/* resume_proc */
     cli_interpreter_suspend,	/* suspend_proc */
     cli_interpreter_exec,	/* exec_proc */
-    cli_interpreter_display_prompt_p,	/* prompt_proc_p */
-    cli_ui_out			/* ui_out_proc */
+    cli_interpreter_display_prompt_p	/* prompt_proc_p */
   };
   struct interp *cli_interp;
 
-  /* Create a default uiout builder for the CLI.  */
+  /* Create a default uiout builder for the CLI. */
   cli_uiout = cli_out_new (gdb_stdout);
-  cli_interp = interp_new (INTERP_CONSOLE, &procs);
+  cli_interp = interp_new (INTERP_CONSOLE, NULL, cli_uiout, &procs);
 
   interp_add (cli_interp);
 }
