@@ -2,6 +2,7 @@
 #objdump: -dr --prefix-addresses --show-raw-insn -M reg-names=numeric
 #name: ulh2 -EB
 #source: ulh2.s
+#stderr: ulh2.l
 
 # Further checks of ulh/ulhu macros.
 

@@ -2,6 +2,7 @@
 #objdump: -dr --prefix-addresses --show-raw-insn -M reg-names=numeric
 #name: ulw2 -EL non-interlocked
 #source: ulw2.s
+#stderr: ulw2.l
 
 # Further checks of ulw macro.
 # XXX: note: when 'move' is changed to use 'or' rather than addu/daddu, the
