@@ -1,7 +1,6 @@
 /* init.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,101 +9,103 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <stdlib.h>
+#include "thread.h"
+#include "perprocess.h"
+#include "cygthread.h"
 #include "cygtls.h"
-#include "ntdll.h"
-#include "shared_info.h"
 
-static DWORD _my_oldfunc;
+int NO_COPY dynamically_loaded;
+static char *search_for = (char *) cygthread::stub;
+static unsigned threadfunc_ix __attribute__((section ("cygwin_dll_common"), shared)) = 0;
+DWORD tls_func;
 
-static char *search_for  = (char *) cygthread::stub;
-unsigned threadfunc_ix[8];
+HANDLE sync_startup;
 
-static bool dll_finished_loading;
-#define OLDFUNC_OFFSET -1
+#define OLDFUNC_OFFSET -3
 
 static void WINAPI
 threadfunc_fe (VOID *arg)
 {
-  (void)__builtin_return_address(1);
-  asm volatile ("andl $-16,%%esp" ::: "%esp");
-  _cygtls::call ((DWORD (*)  (void *, void *)) TlsGetValue (_my_oldfunc), arg);
+  void *threadfunc = (void *) TlsGetValue (tls_func);
+  TlsFree (tls_func);
+  // _threadinfo::call ((DWORD (*)  (void *, void *)) (((char **) _tlsbase)[OLDFUNC_OFFSET]));
+  _threadinfo::call ((DWORD (*)  (void *, void *)) (threadfunc), arg);
 }
 
-/* If possible, redirect the thread entry point to a cygwin routine which
-   adds tls stuff to the stack. */
-static void
-munge_threadfunc ()
+static DWORD WINAPI
+calibration_thread (VOID *arg)
 {
-  int i;
+  ExitThread (0);
+}
+
+static void
+munge_threadfunc (HANDLE cygwin_hmodule)
+{
   char **ebp = (char **) __builtin_frame_address (0);
-  if (!threadfunc_ix[0])
+  if (!threadfunc_ix)
     {
-      char **peb;
-      char **top = (char **) _tlsbase;
-      for (peb = ebp, i = 0; peb < top && i < 7; peb++)
+      for (char **peb = ebp; peb < (char **) _tlsbase; peb++)
 	if (*peb == search_for)
-	  threadfunc_ix[i++] = peb - ebp;
-      if (0 && !threadfunc_ix[0])
-	{
-	  try_to_debug ();
-	  return;
-	}
+	  {
+	    threadfunc_ix = peb - ebp;
+	    goto foundit;
+	  }
+#ifdef DEBUGGING
+      system_printf ("non-fatal warning: unknown thread! search_for %p, cygthread::stub %p, calibration_thread %p, possible func offset %p",
+		     search_for, cygthread::stub, calibration_thread, ebp[137]);
+#endif
+      try_to_debug ();
+      return;
     }
 
-  if (threadfunc_ix[0])
+foundit:
+  char *threadfunc = ebp[threadfunc_ix];
+  if (0 & (((DWORD) threadfunc & 0x80000000) == 0x80000000 || threadfunc == (char *) calibration_thread))
+    /*nothing*/;
+  else
     {
-      char *threadfunc = ebp[threadfunc_ix[0]];
-      if (!search_for || threadfunc == search_for)
-	{
-	  search_for = NULL;
-	  for (i = 0; threadfunc_ix[i]; i++)
-	    ebp[threadfunc_ix[i]] = (char *) threadfunc_fe;
-	  TlsSetValue (_my_oldfunc, threadfunc);
-	}
+      ebp[threadfunc_ix] = (char *) threadfunc_fe;
+      // ((char **) _tlsbase)[OLDFUNC_OFFSET] = threadfunc;
+      TlsSetValue (tls_func, (void *) threadfunc);
     }
 }
 
-void dll_crt0_0 ();
+void
+prime_threads ()
+{
+  tls_func = TlsAlloc ();
+  if (!threadfunc_ix)
+    {
+      DWORD id;
+      search_for = (char *) calibration_thread;
+      sync_startup = CreateThread (NULL, 0, calibration_thread, 0, 0, &id);
+    }
+}
 
-extern "C" BOOL WINAPI
+extern void __stdcall dll_crt0_0 ();
+
+extern "C" int WINAPI
 dll_entry (HANDLE h, DWORD reason, void *static_load)
 {
-  BOOL test_stack_marker;
-
   switch (reason)
     {
     case DLL_PROCESS_ATTACH:
-      init_console_handler (false);
-
-      cygwin_hmodule = (HMODULE) h;
       dynamically_loaded = (static_load == NULL);
-
+      // __cygwin_user_data.impure_ptr = &_my_tls.local_clib;
+      prime_threads ();
       dll_crt0_0 ();
-      _my_oldfunc = TlsAlloc ();
-      dll_finished_loading = true;
+      // small_printf ("%u, %p, %p\n", cygwin_pid (GetCurrentProcessId ()), _tlstop, _tlsbase);
       break;
     case DLL_PROCESS_DETACH:
-      if (dynamically_loaded)
-	shared_destroy ();
       break;
     case DLL_THREAD_ATTACH:
-      if (dll_finished_loading)
-	munge_threadfunc ();
+      munge_threadfunc (h);
+      // small_printf ("%u, %p, %p\n", cygwin_pid (GetCurrentProcessId ()), _tlstop, _tlsbase);
       break;
     case DLL_THREAD_DETACH:
-      if (dll_finished_loading
-	  && (PVOID) &_my_tls > (PVOID) &test_stack_marker
-	  && _my_tls.isinitialized ())
-	_my_tls.remove (0);
-      /* Windows 2000 has a bug in NtTerminateThread.  Instead of releasing
-	 the stack at teb->DeallocationStack it uses the value of
-	 teb->Tib.StackLimit to evaluate the stack address.  So we just claim
-	 there is no stack. */
-      if (NtCurrentTeb ()->DeallocationStack == NULL
-	  && !wincap.has_stack_size_param_is_a_reservation ())
-	NtCurrentTeb ()->Tib.StackLimit = NULL;
+      _my_tls.remove (0);
       break;
     }
-
-  return TRUE;
+  return 1;
 }

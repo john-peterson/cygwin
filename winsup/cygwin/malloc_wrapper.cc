@@ -1,7 +1,9 @@
 /* malloc_wrapper.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
+
+   Originally written by Steve Chamberlain of Cygnus Support
+   sac@cygnus.com
 
 This file is part of Cygwin.
 
@@ -10,17 +12,19 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "cygerrno.h"
+#include <stdlib.h>
+#include <assert.h>
 #include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
+#include "cygerrno.h"
+#include "cygheap.h"
+#include "heap.h"
+#include "sync.h"
 #include "perprocess.h"
-#include "miscfuncs.h"
 #include "cygmalloc.h"
-#ifndef MALLOC_DEBUG
 #include <malloc.h>
-#endif
 extern "C" struct mallinfo dlmallinfo ();
 
 /* we provide these stubs to call into a user's
@@ -29,9 +33,74 @@ extern "C" struct mallinfo dlmallinfo ();
    problems if malloced on our heap and free'd on theirs.
 */
 
-static bool use_internal = true;
-static bool internal_malloc_determined;
+static int export_malloc_called;
+static int use_internal_malloc = 1;
 
+#ifdef MALLOC_DEBUG
+extern "C" void * _sbrk (size_t incr_arg);
+
+#if 0
+extern "C" void *
+_sbrk_r (struct _reent *, size_t incr_arg)
+{
+  return _sbrk (incr_arg);
+}
+#endif
+
+extern "C" void *
+_malloc_r (struct _reent *, size_t size)
+{
+  export_malloc_called = 1;
+  return malloc (size);
+}
+#undef malloc
+
+extern "C" void *
+_calloc_r (struct _reent *, size_t nmemb, size_t size)
+{
+  export_malloc_called = 1;
+  return calloc (nmemb, size);
+}
+#undef calloc
+
+extern "C" void
+_free_r (struct _reent *, void *p)
+{
+  export_malloc_called = 1;
+  assert (!incygheap (p));
+  assert (inheap (p));
+  free (p);
+}
+#undef free
+
+extern "C" void *
+_realloc_r (struct _reent *, void *p, size_t size)
+{
+  export_malloc_called = 1;
+  assert (!incygheap (p));
+  assert (inheap (p));
+  return realloc (p, size);
+}
+#undef realloc
+
+extern "C" char *
+strdup_dbg (const char *s, const char *file, int line)
+{
+  char *p;
+  export_malloc_called = 1;
+  if ((p = (char *) malloc_dbg (strlen (s) + 1, file, line)) != NULL)
+      strcpy (p, s);
+  return p;
+}
+
+#undef strdup
+extern "C" char *
+strdup (const char *s)
+{
+  return strdup_dbg (s, __FILE__, __LINE__);
+}
+#else
+#endif
 /* These routines are used by the application if it
    doesn't provide its own malloc. */
 
@@ -39,7 +108,7 @@ extern "C" void
 free (void *p)
 {
   malloc_printf ("(%p), called by %p", p, __builtin_return_address (0));
-  if (!use_internal)
+  if (!use_internal_malloc)
     user_data->free (p);
   else
     {
@@ -53,7 +122,8 @@ extern "C" void *
 malloc (size_t size)
 {
   void *res;
-  if (!use_internal)
+  export_malloc_called = 1;
+  if (!use_internal_malloc)
     res = user_data->malloc (size);
   else
     {
@@ -69,7 +139,7 @@ extern "C" void *
 realloc (void *p, size_t size)
 {
   void *res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     res = user_data->realloc (p, size);
   else
     {
@@ -81,22 +151,11 @@ realloc (void *p, size_t size)
   return res;
 }
 
-/* BSD extension:  Same as realloc, just if it fails to allocate new memory,
-   it frees the incoming pointer. */
-extern "C" void *
-reallocf (void *p, size_t size)
-{
-  void *res = realloc (p, size);
-  if (!res && p)
-    free (p);
-  return res;
-}
-
 extern "C" void *
 calloc (size_t nmemb, size_t size)
 {
   void *res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     res = user_data->calloc (nmemb, size);
   else
     {
@@ -108,31 +167,11 @@ calloc (size_t nmemb, size_t size)
   return res;
 }
 
-extern "C" int
-posix_memalign (void **memptr, size_t alignment, size_t bytes)
-{
-  save_errno save;
-
-  void *res;
-  if (!use_internal)
-    return ENOSYS;
-  if ((alignment & (alignment - 1)) != 0)
-    return EINVAL;
-  __malloc_lock ();
-  res = dlmemalign (alignment, bytes);
-  __malloc_unlock ();
-  if (!res)
-    return ENOMEM;
-  if (memptr)
-    *memptr = res;
-  return 0;
-}
-
 extern "C" void *
 memalign (size_t alignment, size_t bytes)
 {
   void *res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     {
       set_errno (ENOSYS);
       res = NULL;
@@ -151,7 +190,7 @@ extern "C" void *
 valloc (size_t bytes)
 {
   void *res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     {
       set_errno (ENOSYS);
       res = NULL;
@@ -170,7 +209,7 @@ extern "C" size_t
 malloc_usable_size (void *p)
 {
   size_t res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     {
       set_errno (ENOSYS);
       res = 0;
@@ -189,7 +228,7 @@ extern "C" int
 malloc_trim (size_t pad)
 {
   size_t res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     {
       set_errno (ENOSYS);
       res = 0;
@@ -208,7 +247,7 @@ extern "C" int
 mallopt (int p, int v)
 {
   int res;
-  if (!use_internal)
+  if (!use_internal_malloc)
     {
       set_errno (ENOSYS);
       res = 0;
@@ -226,7 +265,7 @@ mallopt (int p, int v)
 extern "C" void
 malloc_stats ()
 {
-  if (!use_internal)
+  if (!use_internal_malloc)
     set_errno (ENOSYS);
   else
     {
@@ -234,13 +273,15 @@ malloc_stats ()
       dlmalloc_stats ();
       __malloc_unlock ();
     }
+
+  return;
 }
 
 extern "C" struct mallinfo
 mallinfo ()
 {
   struct mallinfo m;
-  if (!use_internal)
+  if (!use_internal_malloc)
     set_errno (ENOSYS);
   else
     {
@@ -269,33 +310,25 @@ strdup (const char *s)
    newlib will call __malloc_lock and __malloc_unlock at appropriate
    times.  */
 
-muto NO_COPY mallock;
+NO_COPY muto *mallock = NULL;
 
 void
 malloc_init ()
 {
-  mallock.init ("mallock");
+  new_muto (mallock);
 
-#ifndef MALLOC_DEBUG
-  /* Check if malloc is provided by application. If so, redirect all
+  /* Check if mallock is provided by application. If so, redirect all
      calls to malloc/free/realloc to application provided. This may
      happen if some other dll calls cygwin's malloc, but main code provides
      its own malloc */
-  if (!internal_malloc_determined)
+  if (!user_data->forkee)
     {
-      extern void *_sigfe_malloc;
-      /* Decide if we are using our own version of malloc by testing the import
-	 address from user_data.  */
-      use_internal = user_data->malloc == malloc
-		     || import_address (user_data->malloc) == &_sigfe_malloc;
-      malloc_printf ("using %s malloc", use_internal ? "internal" : "external");
-      internal_malloc_determined = true;
-    }
+#ifdef MALLOC_DEBUG
+      _free_r (NULL, _malloc_r (NULL, 16));
+#else
+      user_data->free (user_data->malloc (16));
 #endif
-}
-
-extern "C" void
-__set_ENOMEM ()
-{
-  set_errno (ENOMEM);
+      if (!export_malloc_called)
+	use_internal_malloc = 0;
+    }
 }
