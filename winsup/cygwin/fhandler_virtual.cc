@@ -1,7 +1,6 @@
 /* fhandler_virtual.cc: base fhandler class for virtual filesystems
 
-   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Red Hat, Inc.
+   Copyright 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,39 +9,37 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include <sys/acl.h>
-#include <sys/statvfs.h>
+#include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/cygwin.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "security.h"
 #include "fhandler.h"
+#include "path.h"
 #include "dtable.h"
+#include "shared_info.h"
 #include "cygheap.h"
-#include "sync.h"
-#include "child_info.h"
+#include <assert.h>
 
+#define _COMPILING_NEWLIB
 #include <dirent.h>
 
-fhandler_virtual::fhandler_virtual ():
-  fhandler_base (), filebuf (NULL), fileid (-1)
+fhandler_virtual::fhandler_virtual (DWORD devtype):
+  fhandler_base (devtype), filebuf (NULL), bufalloc ((size_t) -1),
+  fileid (-1)
 {
 }
 
 fhandler_virtual::~fhandler_virtual ()
 {
   if (filebuf)
-    {
-      cfree (filebuf);
-      filebuf = NULL;
-    }
-}
-
-void
-fhandler_virtual::fixup_after_exec ()
-{
+    cfree (filebuf);
+  filebuf = NULL;
 }
 
 DIR *
-fhandler_virtual::opendir (int fd)
+fhandler_virtual::opendir (path_conv& pc)
 {
   DIR *dir;
   DIR *res = NULL;
@@ -50,7 +47,7 @@ fhandler_virtual::opendir (int fd)
 
   if (exists () <= 0)
     set_errno (ENOTDIR);
-  else if ((len = strlen (get_name ())) > PATH_MAX - 3)
+  else if ((len = strlen (get_name ())) > MAX_PATH - 3)
     set_errno (ENAMETOOLONG);
   else if ((dir = (DIR *) malloc (sizeof (DIR))) == NULL)
     set_errno (ENOMEM);
@@ -62,62 +59,47 @@ fhandler_virtual::opendir (int fd)
   else if ((dir->__d_dirent =
       (struct dirent *) malloc (sizeof (struct dirent))) == NULL)
     {
-      free (dir->__d_dirname);
       free (dir);
       set_errno (ENOMEM);
     }
   else
     {
       strcpy (dir->__d_dirname, get_name ());
-      dir->__d_dirent->__d_version = __DIRENT_VERSION;
+      dir->__d_dirent->d_version = __DIRENT_VERSION;
+      cygheap_fdnew fd;
+      fd = this;
+      fd->set_nohandle (true);
+      dir->__d_dirent->d_fd = fd;
+      dir->__d_u.__d_data.__fh = this;
       dir->__d_cookie = __DIRENT_COOKIE;
-      dir->__handle = INVALID_HANDLE_VALUE;
+      dir->__d_u.__d_data.__handle = INVALID_HANDLE_VALUE;
       dir->__d_position = 0;
-      dir->__flags = 0;
+      dir->__d_dirhash = get_namehash ();
 
-      if (fd >= 0)
-	{
-	  dir->__d_fd = fd;
-	  dir->__fh = this;
-	  res = dir;
-	}
-      else
-	{
-	  cygheap_fdnew cfd;
-	  if (cfd >= 0)
-	    {
-	      cfd = this;
-	      cfd->nohandle (true);
-	      dir->__d_fd = cfd;
-	      dir->__fh = this;
-	      res = dir;
-	    }
-	}
-      close_on_exec (true);
+      res = dir;
     }
 
   syscall_printf ("%p = opendir (%s)", res, get_name ());
   return res;
 }
 
-long
-fhandler_virtual::telldir (DIR * dir)
+__off64_t fhandler_virtual::telldir (DIR * dir)
 {
   return dir->__d_position;
 }
 
 void
-fhandler_virtual::seekdir (DIR * dir, long loc)
+fhandler_virtual::seekdir (DIR * dir, __off64_t loc)
 {
-  dir->__flags |= dirent_saw_dot | dirent_saw_dot_dot;
   dir->__d_position = loc;
+  return;
 }
 
 void
 fhandler_virtual::rewinddir (DIR * dir)
 {
   dir->__d_position = 0;
-  dir->__flags |= dirent_saw_dot | dirent_saw_dot_dot;
+  return;
 }
 
 int
@@ -126,15 +108,14 @@ fhandler_virtual::closedir (DIR * dir)
   return 0;
 }
 
-_off64_t
-fhandler_virtual::lseek (_off64_t offset, int whence)
+__off64_t
+fhandler_virtual::lseek (__off64_t offset, int whence)
 {
   /*
    * On Linux, when you lseek within a /proc file,
    * the contents of the file are updated.
    */
-  if (!fill_filebuf ())
-    return (_off64_t) -1;
+  fill_filebuf ();
   switch (whence)
     {
     case SEEK_SET:
@@ -148,21 +129,24 @@ fhandler_virtual::lseek (_off64_t offset, int whence)
       break;
     default:
       set_errno (EINVAL);
-      return (_off64_t) -1;
+      return (__off64_t) -1;
     }
   return position;
 }
 
 int
-fhandler_virtual::dup (fhandler_base * child, int flags)
+fhandler_virtual::dup (fhandler_base * child)
 {
-  int ret = fhandler_base::dup (child, flags);
+  int ret = fhandler_base::dup (child);
 
   if (!ret)
     {
       fhandler_virtual *fhproc_child = (fhandler_virtual *) child;
-      fhproc_child->filebuf = (char *) cmalloc_abort (HEAP_BUF, filesize);
+      fhproc_child->filebuf = (char *) cmalloc (HEAP_BUF, filesize);
+      fhproc_child->bufalloc = fhproc_child->filesize = filesize;
+      fhproc_child->position = position;
       memcpy (fhproc_child->filebuf, filebuf, filesize);
+      fhproc_child->set_flags (get_flags ());
     }
   return ret;
 }
@@ -170,43 +154,38 @@ fhandler_virtual::dup (fhandler_base * child, int flags)
 int
 fhandler_virtual::close ()
 {
-  if (!have_execed)
-    {
-      if (filebuf)
-	{
-	  cfree (filebuf);
-	  filebuf = NULL;
-	}
-    }
+  if (filebuf)
+    cfree (filebuf);
+  filebuf = NULL;
+  bufalloc = (size_t) -1;
+  cygwin_shared->delqueue.process_queue ();
   return 0;
 }
 
-void __stdcall
-fhandler_virtual::read (void *ptr, size_t& len)
+int
+fhandler_virtual::read (void *ptr, size_t len)
 {
   if (len == 0)
-    return;
+    return 0;
   if (openflags & O_DIROPEN)
     {
       set_errno (EISDIR);
-      len = (size_t) -1;
-      return;
+      return -1;
     }
   if (!filebuf)
-    {
-      len = (size_t) 0;
-      return;
-    }
-  if ((ssize_t) len > filesize - position)
-    len = (size_t) (filesize - position);
-  if ((ssize_t) len < 0)
-    len = 0;
+    return 0;
+  int read = len;
+  if (read > filesize - position)
+    read = filesize - position;
+  if (read < 0)
+    read = 0;
   else
-    memcpy (ptr, filebuf + position, len);
-  position += len;
+    memcpy (ptr, filebuf + position, read);
+  position += read;
+  return read;
 }
 
-ssize_t __stdcall
+int
 fhandler_virtual::write (const void *ptr, size_t len)
 {
   set_errno (EACCES);
@@ -215,64 +194,33 @@ fhandler_virtual::write (const void *ptr, size_t len)
 
 /* low-level open for all proc files */
 int
-fhandler_virtual::open (int flags, mode_t mode)
+fhandler_virtual::open (path_conv *, int flags, mode_t mode)
 {
-  rbinary (true);
-  wbinary (true);
+  set_r_binary (1);
+  set_w_binary (1);
 
-  set_flags ((flags & ~O_TEXT) | O_BINARY);
+  set_has_acls (false);
+  set_isremote (false);
+
+  /* what to do about symlinks? */
+  set_symlink_p (false);
+  set_execable_p (not_executable);
+  set_socket_p (false);
+
+  set_flags (flags & ~O_TEXT, O_BINARY);
+
+  set_nohandle (true);
 
   return 1;
 }
 
-virtual_ftype_t
+int
 fhandler_virtual::exists ()
 {
-  return virt_none;
+  return 0;
 }
 
-bool
+void
 fhandler_virtual::fill_filebuf ()
 {
-  return true;
-}
-
-int
-fhandler_virtual::fchmod (mode_t mode)
-{
-  /* Same as on Linux. */
-  set_errno (EPERM);
-  return -1;
-}
-
-int
-fhandler_virtual::fchown (__uid32_t uid, __gid32_t gid)
-{
-  /* Same as on Linux. */
-  set_errno (EPERM);
-  return -1;
-}
-
-int
-fhandler_virtual::facl (int cmd, int nentries, __aclent32_t *aclbufp)
-{
-  int res = fhandler_base::facl (cmd, nentries, aclbufp);
-  if (res >= 0 && cmd == GETACL)
-    {
-      aclbufp[0].a_perm = (S_IRUSR | (pc.isdir () ? S_IXUSR : 0)) >> 6;
-      aclbufp[1].a_perm = (S_IRGRP | (pc.isdir () ? S_IXGRP : 0)) >> 3;
-      aclbufp[2].a_perm = S_IROTH | (pc.isdir () ? S_IXOTH : 0);
-    }
-  return res;
-}
-
-int __stdcall
-fhandler_virtual::fstatvfs (struct statvfs *sfs)
-{
-  /* Virtual file system.  Just return an empty buffer with a few values
-     set to something useful.  Just as on Linux. */
-  memset (sfs, 0, sizeof (*sfs));
-  sfs->f_bsize = sfs->f_frsize = 4096;
-  sfs->f_namemax = NAME_MAX;
-  return 0;
 }

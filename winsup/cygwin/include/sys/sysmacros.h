@@ -1,6 +1,6 @@
 /* sys/sysmacros.h
 
-   Copyright 1998, 2000, 2001, 2002, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1998, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -11,32 +11,14 @@ details. */
 #ifndef _SYS_SYSMACROS_H
 #define _SYS_SYSMACROS_H
 
-#include <sys/types.h>
-
-_ELIDABLE_INLINE int gnu_dev_major(dev_t);
-_ELIDABLE_INLINE int gnu_dev_minor(dev_t);
-_ELIDABLE_INLINE dev_t gnu_dev_makedev(int, int);
-
-_ELIDABLE_INLINE int
-gnu_dev_major(dev_t dev)
-{
-	return (int)(((dev) >> 16) & 0xffff);
-}
-
-_ELIDABLE_INLINE int
-gnu_dev_minor(dev_t dev)
-{
-	return (int)((dev) & 0xffff);
-}
-
-_ELIDABLE_INLINE dev_t
-gnu_dev_makedev(int maj, int min)
-{
-	return (((maj) << 16) | ((min) & 0xffff));
-}
-
-#define major(dev) gnu_dev_major(dev)
-#define minor(dev) gnu_dev_minor(dev)
-#define makedev(maj, min) gnu_dev_makedev(maj, min)
+#ifdef __CYGWIN_USE_BIG_TYPES__
+#define major(dev) ((int)(((dev) >> 16) & 0xffff))
+#define minor(dev) ((int)((dev) & 0xffff))
+#define makedev(major, minor) (((major) << 16) | ((minor) & 0xffff))
+#else
+#define major(dev) ((int)(((dev) >> 8) & 0xff))
+#define minor(dev) ((int)((dev) & 0xff))
+#define makedev(major, minor) (((major) << 8) | ((minor) & 0xff))
+#endif
 
 #endif /* _SYS_SYSMACROS_H */

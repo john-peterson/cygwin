@@ -1,11 +1,11 @@
 <sect1 id="func-cygwin-stackdump">
 <title>cygwin_stackdump</title>
 
-<funcsynopsis><funcprototype>
+<funcsynopsis>
 <funcdef>extern "C" void
 <function>cygwin_stackdump</function></funcdef>
-<void />
-</funcprototype></funcsynopsis>
+<void>
+</funcsynopsis>
 
 <para> Outputs a stackdump to stderr from the called location.
 </para>

@@ -35,14 +35,16 @@
 static char rcsid[] = "$OpenBSD: gmon.c,v 1.8 1997/07/23 21:11:27 kstailey Exp $";
 #endif
 
-#include "winlean.h"
 #include <fcntl.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/param.h>
+#include <sys/types.h>
 #include <gmon.h>
-#include <stdlib.h>
 
 #include <profil.h>
+#include <windows.h>
 
 /* XXX needed? */
 //extern char *minbrk __asm ("minbrk");
@@ -146,9 +148,6 @@ _mcleanup()
 	struct gmonparam *p = &_gmonparam;
 	struct gmonhdr gmonhdr, *hdr;
 	char *proffile;
-#ifndef nope
-	char gmon_out[] = "gmon.out";
-#endif
 #ifdef DEBUG
 	int log, len;
 	char dbuf[200];
@@ -206,7 +205,10 @@ _mcleanup()
 		proffile = "gmon.out";
 	}
 #else
-	proffile = gmon_out;
+	{
+	  char gmon_out[] = "gmon.out";
+	  proffile = gmon_out;
+	}
 #endif
 
 	fd = open(proffile , O_CREAT|O_TRUNC|O_WRONLY|O_BINARY, 0666);

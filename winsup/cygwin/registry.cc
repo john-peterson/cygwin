@@ -1,7 +1,6 @@
 /* registry.cc: registry interface
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,54 +9,14 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include "shared_info.h"
 #include "registry.h"
-#include "cygerrno.h"
-#include "path.h"
-#include "fhandler.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "tls_pbuf.h"
-#include "ntdll.h"
-#include <wchar.h>
-#include <alloca.h>
+#include "security.h"
+#include <cygwin/version.h>
 
-/* Opens a key under the appropriate Cygwin key.
-   Do not use HKCU per MS KB 199190  */
-static NTSTATUS
-top_key (bool isHKLM, REGSAM access, PHANDLE top)
-{
-  WCHAR rbuf[PATH_MAX], *p;
-  UNICODE_STRING rpath;
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
+static char NO_COPY cygnus_class[] = "cygnus";
 
-  InitializeObjectAttributes (&attr, &rpath, OBJ_CASE_INSENSITIVE, NULL, NULL);
-  if (isHKLM)
-    {
-      wcpcpy (rbuf, L"\\Registry\\Machine");
-      RtlInitUnicodeString (&rpath, rbuf);
-      status = NtOpenKey (top, access, &attr);
-    }
-  else
-    {
-      WCHAR name[128];
-      PCWSTR names[2] = {cygheap->user.get_windows_id (name),
-			 L".DEFAULT"};
-
-      p = wcpcpy (rbuf, L"\\Registry\\User\\");
-      for (int i = 0; i < 2; i++)
-	{
-	  wcpcpy (p, names[i]);
-	  RtlInitUnicodeString (&rpath, rbuf);
-	  status = NtOpenKey (top, access, &attr);
-	  if (NT_SUCCESS (status))
-	    break;
-	}
-    }
-  return status;
-}
-
-reg_key::reg_key (HKEY top, REGSAM access, ...): _disposition (0)
+reg_key::reg_key (HKEY top, REGSAM access, ...)
 {
   va_list av;
   va_start (av, access);
@@ -65,244 +24,229 @@ reg_key::reg_key (HKEY top, REGSAM access, ...): _disposition (0)
   va_end (av);
 }
 
-reg_key::reg_key (bool isHKLM, REGSAM access, ...): _disposition (0)
+reg_key::reg_key (REGSAM access, ...)
 {
   va_list av;
-  HANDLE top;
 
-  key_is_invalid = top_key (isHKLM, access, &top);
-  if (NT_SUCCESS (key_is_invalid))
-    {
-      new (this) reg_key ((HKEY) top, access, L"SOFTWARE",
-			  _WIDE (CYGWIN_INFO_CYGWIN_REGISTRY_NAME), NULL);
-      NtClose (top);
-      if (key_is_invalid)
-	return;
-      top = key;
-      va_start (av, access);
-      build_reg ((HKEY) top, access, av);
-      va_end (av);
-      if (top != key)
-	NtClose (top);
-    }
+  new (this) reg_key (HKEY_CURRENT_USER, access, "SOFTWARE",
+		 CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+		 CYGWIN_INFO_CYGWIN_REGISTRY_NAME, NULL);
+
+  HKEY top = key;
+  va_start (av, access);
+  build_reg (top, KEY_READ, av);
+  va_end (av);
+  if (top != key)
+    RegCloseKey (top);
+}
+
+reg_key::reg_key (REGSAM access)
+{
+  new (this) reg_key (HKEY_CURRENT_USER, access, "SOFTWARE",
+		 CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+		 CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+		 CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME, NULL);
 }
 
 void
 reg_key::build_reg (HKEY top, REGSAM access, va_list av)
 {
-  PWCHAR name;
-  HANDLE r;
-  UNICODE_STRING uname;
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-
-  if (top != HKEY_LOCAL_MACHINE && top != HKEY_CURRENT_USER)
-    r = (HANDLE) top;
-  else if (!NT_SUCCESS (top_key (top == HKEY_LOCAL_MACHINE, access, &r)))
-    return;
+  char *name;
+  HKEY r = top;
   key_is_invalid = 0;
-  while ((name = va_arg (av, PWCHAR)) != NULL)
-    {
-      RtlInitUnicodeString (&uname, name);
-      InitializeObjectAttributes (&attr, &uname,
-				  OBJ_CASE_INSENSITIVE | OBJ_OPENIF, r, NULL);
 
-      status = NtCreateKey (&key, access, &attr, 0, NULL,
-			    REG_OPTION_NON_VOLATILE, &_disposition);
-      if (r != (HANDLE) top)
-	NtClose (r);
+  /* FIXME: Most of the time a valid mount area should exist.  Perhaps
+     we should just try an open of the correct key first and only resort
+     to this method in the unlikely situation that it's the first time
+     the current mount areas are being used. */
+
+  while ((name = va_arg (av, char *)) != NULL)
+    {
+      DWORD disp;
+      int res = RegCreateKeyExA (r,
+				 name,
+				 0,
+				 cygnus_class,
+				 REG_OPTION_NON_VOLATILE,
+				 access,
+				 &sec_none_nih,
+				 &key,
+				 &disp);
+      if (r != top)
+	RegCloseKey (r);
       r = key;
-      if (!NT_SUCCESS (status))
+      if (res != ERROR_SUCCESS)
 	{
-	  key_is_invalid = status;
-	  debug_printf ("failed to create key %S in the registry", &uname);
+	  key_is_invalid = res;
+	  debug_printf ("failed to create key %s in the registry", name);
 	  break;
 	}
+
+      /* If we're considering the mounts key, check if it had to
+	 be created and set had_to_create appropriately. */
+      if (strcmp (name, CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME) == 0)
+	if (disp == REG_CREATED_NEW_KEY)
+	  mount_table->had_to_create_mount_areas++;
     }
 }
 
-/* Given the current registry key, return the specific DWORD value
+/* Given the current registry key, return the specific int value
    requested.  Return def on failure. */
 
-DWORD
-reg_key::get_dword (PCWSTR name, DWORD def)
+int
+reg_key::get_int (const char *name, int def)
 {
+  DWORD type;
+  DWORD dst;
+  DWORD size = sizeof (dst);
+
   if (key_is_invalid)
     return def;
 
-  NTSTATUS status;
-  UNICODE_STRING uname;
-  ULONG size = sizeof (KEY_VALUE_PARTIAL_INFORMATION) + sizeof (DWORD);
-  ULONG rsize;
-  PKEY_VALUE_PARTIAL_INFORMATION vbuf = (PKEY_VALUE_PARTIAL_INFORMATION)
-				      alloca (size);
+  LONG res = RegQueryValueExA (key, name, 0, &type, (unsigned char *) &dst,
+			       &size);
 
-  RtlInitUnicodeString (&uname, name);
-  status = NtQueryValueKey (key, &uname, KeyValuePartialInformation, vbuf,
-			    size, &rsize);
-  if (status != STATUS_SUCCESS || vbuf->Type != REG_DWORD)
+  if (type != REG_DWORD || res != ERROR_SUCCESS)
     return def;
-  DWORD *dst = (DWORD *) vbuf->Data;
-  return *dst;
+
+  return dst;
 }
 
-/* Given the current registry key, set a specific DWORD value. */
+/* Given the current registry key, set a specific int value. */
 
-NTSTATUS
-reg_key::set_dword (PCWSTR name, DWORD val)
+int
+reg_key::set_int (const char *name, int val)
 {
+  DWORD value = val;
   if (key_is_invalid)
     return key_is_invalid;
 
-  DWORD value = (DWORD) val;
-  UNICODE_STRING uname;
-  RtlInitUnicodeString (&uname, name);
-  return NtSetValueKey (key, &uname, 0, REG_DWORD, &value, sizeof (value));
+  return (int) RegSetValueExA (key, name, 0, REG_DWORD,
+			       (unsigned char *) &value, sizeof (value));
 }
 
 /* Given the current registry key, return the specific string value
    requested.  Return zero on success, non-zero on failure. */
 
-NTSTATUS
-reg_key::get_string (PCWSTR name, PWCHAR dst, size_t max, PCWSTR def)
+int
+reg_key::get_string (const char *name, char *dst, size_t max, const char * def)
 {
-  NTSTATUS status;
+  DWORD size = max;
+  DWORD type;
+  LONG res;
 
   if (key_is_invalid)
-    {
-      status = key_is_invalid;
-      if (def != NULL)
-	wcpncpy (dst, def, max);
-    }
+    res = key_is_invalid;
   else
-    {
-      UNICODE_STRING uname;
-      ULONG size = sizeof (KEY_VALUE_PARTIAL_INFORMATION) + max * sizeof (WCHAR);
-      ULONG rsize;
-      PKEY_VALUE_PARTIAL_INFORMATION vbuf = (PKEY_VALUE_PARTIAL_INFORMATION)
-					  alloca (size);
+    res = RegQueryValueExA (key, name, 0, &type, (unsigned char *) dst, &size);
 
-      RtlInitUnicodeString (&uname, name);
-      status = NtQueryValueKey (key, &uname, KeyValuePartialInformation, vbuf,
-				size, &rsize);
-      if (status != STATUS_SUCCESS || vbuf->Type != REG_SZ)
-	wcpncpy (dst, def, max);
-      else
-	wcpncpy (dst, (PWCHAR) vbuf->Data, max);
-    }
-  return status;
+  if ((def != 0) && ((type != REG_SZ) || (res != ERROR_SUCCESS)))
+    strcpy (dst, def);
+  return (int) res;
 }
 
 /* Given the current registry key, set a specific string value. */
 
-NTSTATUS
-reg_key::set_string (PCWSTR name, PCWSTR src)
+int
+reg_key::set_string (const char *name, const char *src)
 {
   if (key_is_invalid)
     return key_is_invalid;
+  return (int) RegSetValueExA (key, name, 0, REG_SZ, (unsigned char*) src,
+			       strlen (src) + 1);
+}
 
-  UNICODE_STRING uname;
-  RtlInitUnicodeString (&uname, name);
-  return NtSetValueKey (key, &uname, 0, REG_SZ, (PVOID) src,
-			(wcslen (src) + 1) * sizeof (WCHAR));
+/* Return the handle to key. */
+
+HKEY
+reg_key::get_key ()
+{
+  return key;
+}
+
+/* Delete subkey of current key.  Returns the error code from the
+   RegDeleteKeyA invocation. */
+
+int
+reg_key::kill (const char *name)
+{
+  if (key_is_invalid)
+    return key_is_invalid;
+  return RegDeleteKeyA (key, name);
+}
+
+/* Delete the value specified by name of current key.  Returns the error code
+   from the RegDeleteValueA invocation. */
+
+int
+reg_key::killvalue (const char *name)
+{
+  if (key_is_invalid)
+    return key_is_invalid;
+  return RegDeleteValueA (key, name);
 }
 
 reg_key::~reg_key ()
 {
   if (!key_is_invalid)
-    NtClose (key);
+    RegCloseKey (key);
   key_is_invalid = 1;
 }
 
-/* The buffer path points to should be at least MAX_PATH bytes. */
-PWCHAR
-get_registry_hive_path (PCWSTR name, PWCHAR path)
+char *
+get_registry_hive_path (const PSID psid, char *path)
 {
-  if (!name || !path)
+  char sid[256];
+  char key[256];
+  HKEY hkey;
+
+  if (!psid || !path)
     return NULL;
-
-  WCHAR key[256];
-  UNICODE_STRING buf;
-  tmp_pathbuf tp;
-  tp.u_get (&buf);
-  NTSTATUS status;
-
-  RTL_QUERY_REGISTRY_TABLE tab[2] = {
-    { NULL, RTL_QUERY_REGISTRY_NOEXPAND | RTL_QUERY_REGISTRY_DIRECT
-	    | RTL_QUERY_REGISTRY_REQUIRED,
-      L"ProfileImagePath", &buf, REG_NONE, NULL, 0 },
-    { NULL, 0, NULL, NULL, 0, NULL, 0 }
-  };
-  wcpcpy (wcpcpy (key, L"ProfileList\\"), name);
-  status = RtlQueryRegistryValues (RTL_REGISTRY_WINDOWS_NT, key, tab,
-				   NULL, NULL);
-  if (!NT_SUCCESS (status) || buf.Length == 0)
+  cygsid csid (psid);
+  csid.string (sid);
+  strcpy (key,"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\");
+  strcat (key, sid);
+  if (!RegOpenKeyExA (HKEY_LOCAL_MACHINE, key, 0, KEY_READ, &hkey))
     {
-      debug_printf ("ProfileImagePath for %W not found, status %p", name,
-		    status);
-      return NULL;
+      char buf[256];
+      DWORD type, siz;
+
+      key[0] = '\0';
+      if (!RegQueryValueExA (hkey, "ProfileImagePath", 0, &type,
+			     (BYTE *)buf, (siz = 256, &siz)))
+	ExpandEnvironmentStringsA (buf, key, 256);
+      RegCloseKey (hkey);
+      if (key[0])
+	return strcpy (path, key);
     }
-  ExpandEnvironmentStringsW (buf.Buffer, path, MAX_PATH);
-  debug_printf ("ProfileImagePath for %W: %W", name, path);
-  return path;
+  return NULL;
 }
 
 void
-load_registry_hive (PCWSTR name)
+load_registry_hive (PSID psid)
 {
-  if (!name)
+  char sid[256];
+  char path[MAX_PATH + 1];
+  HKEY hkey;
+  LONG ret;
+
+  if (!psid)
     return;
-
-  /* Fetch the path. Prepend native NT path prefix. */
-  tmp_pathbuf tp;
-  PWCHAR path = tp.w_get ();
-  if (!get_registry_hive_path (name, wcpcpy (path, L"\\??\\")))
-    return;
-
-  WCHAR key[256];
-  PWCHAR path_comp;
-  UNICODE_STRING ukey, upath;
-  OBJECT_ATTRIBUTES key_attr, path_attr;
-  NTSTATUS status;
-
-  /* Create keyname and path strings and object attributes. */
-  wcpcpy (wcpcpy (key, L"\\Registry\\User\\"), name);
-  RtlInitUnicodeString (&ukey, key);
-  InitializeObjectAttributes (&key_attr, &ukey, OBJ_CASE_INSENSITIVE,
-			      NULL, NULL);
-  /* First try to load the "normal" registry hive, which is what the user
-     is supposed to see under HKEY_CURRENT_USER. */
-  path_comp = wcschr (path, L'\0');
-  wcpcpy (path_comp, L"\\ntuser.dat");
-  RtlInitUnicodeString (&upath, path);
-  InitializeObjectAttributes (&path_attr, &upath, OBJ_CASE_INSENSITIVE,
-			      NULL, NULL);
-  status = NtLoadKey (&key_attr, &path_attr);
-  if (!NT_SUCCESS (status))
+  /* Check if user hive is already loaded. */
+  cygsid csid (psid);
+  csid.string (sid);
+  if (!RegOpenKeyExA (HKEY_USERS, sid, 0, KEY_READ, &hkey))
     {
-      debug_printf ("Loading user registry hive %S into %S failed: %p",
-		    &upath, &ukey, status);
+      debug_printf ("User registry hive for %s already exists", sid);
+      RegCloseKey (hkey);
       return;
     }
-  debug_printf ("Loading user registry hive %S into %S SUCCEEDED: %p",
-		&upath, &ukey, status);
-  /* If loading the normal hive worked, try to load the classes hive into
-     the sibling *_Classes subkey, which is what the user is supposed to
-     see under HKEY_CLASSES_ROOT, merged with the machine-wide classes. */
-  wcscat (key, L"_Classes");
-  RtlInitUnicodeString (&ukey, key);
-  /* Path to UsrClass.dat changed in Vista to
-     \\AppData\\Local\\Microsoft\\Windows\\UsrClass.dat
-     but old path is still available via symlinks. */
-  wcpcpy (path_comp, L"\\Local Settings\\Application Data\\Microsoft\\"
-		      "Windows\\UsrClass.dat");
-  RtlInitUnicodeString (&upath, path);
-  /* Load UsrClass.dat file into key. */
-  status = NtLoadKey (&key_attr, &path_attr);
-  if (!NT_SUCCESS (status))
-    debug_printf ("Loading user classes hive %S into %S failed: %p",
-		  &upath, &ukey, status);
-  else
-    debug_printf ("Loading user classes hive %S into %S SUCCEEDED: %p",
-		  &upath, &ukey, status);
+  set_process_privilege (SE_RESTORE_NAME);
+  if (get_registry_hive_path (psid, path))
+    {
+      strcat (path, "\\NTUSER.DAT");
+      if ((ret = RegLoadKeyA (HKEY_USERS, sid, path)) != ERROR_SUCCESS)
+	debug_printf ("Loading user registry hive for %s failed: %d", sid, ret);
+    }
 }
+

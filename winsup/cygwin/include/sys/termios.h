@@ -1,7 +1,6 @@
 /* sys/termios.h
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -13,33 +12,6 @@ details. */
 
 #ifndef	_SYS_TERMIOS_H
 #define _SYS_TERMIOS_H
-
-#include <sys/types.h>
-
-#define	TIOCMGET	0x5415
-#define	TIOCMBIS	0x5416
-#define	TIOCMBIC	0x5417
-#define	TIOCMSET	0x5418
-#define	TIOCINQ		0x541B
-#define TIOCSCTTY	0x540E
-
-/* TIOCINQ is utilized instead of FIONREAD which has been
-accupied for other purposes under CYGWIN.
-Other UNIX ioctl requests has been omited because
-effects of their work one can achive by standard
-POSIX commands */
-
-#define TIOCSBRK	0x5427
-#define TIOCCBRK	0x5428
-
-#define	TIOCM_DTR	0x002
-#define	TIOCM_RTS	0x004
-#define	TIOCM_CTS	0x020
-#define	TIOCM_CAR	0x040
-#define	TIOCM_RNG	0x080
-#define	TIOCM_DSR	0x100
-#define	TIOCM_CD	TIOCM_CAR
-#define	TIOCM_RI	TIOCM_RNG
 
 #define TCOOFF		0
 #define TCOON		1
@@ -80,12 +52,11 @@ POSIX commands */
 #define CESC	'\\'
 #define CINTR	CTRL('C')
 #define CQUIT	0x0001c
-#define CERASE	CDEL
+#define CERASE	CTRL('H')
 #define CKILL	CTRL('U')
 #define CEOT	CTRL('D')
 #define CEOL	0
 #define CEOL2	0
-#define CBRK	CEOL
 #define CEOF	CTRL('D')
 #define CSTART	CTRL('Q')
 #define CSTOP	CTRL('S')
@@ -94,9 +65,7 @@ POSIX commands */
 #define CSUSP	CTRL('Z')
 #define CDSUSP	CTRL('Y')
 #define CRPRNT	CTRL('R')
-#define CREPRINT	CRPRNT
 #define CFLUSH	CTRL('O')
-#define CDISCARD	CFLUSH
 #define CWERASE	CTRL('W')
 #define CLNEXT	CTRL('V')
 
@@ -184,25 +153,11 @@ POSIX commands */
 #define PARODD	 0x00200
 #define HUPCL	 0x00400
 #define CLOCAL	 0x00800
-
-/* Extended baud rates above 37K. */
 #define CBAUDEX	 0x0100f
 #define B57600	 0x01001
 #define B115200	 0x01002
 #define B128000	 0x01003
-#define B230400  0x01004
-#define B256000	 0x01005
-#define B460800  0x01006
-#define B500000  0x01007
-#define B576000  0x01008
-#define B921600  0x01009
-#define B1000000 0x0100a
-#define B1152000 0x0100b
-#define B1500000 0x0100c
-#define B2000000 0x0100d
-#define B2500000 0x0100e
-#define B3000000 0x0100f
-
+#define B256000	 0x01003
 #define CRTSXOFF 0x04000
 #define CRTSCTS	 0x08000
 
@@ -240,15 +195,13 @@ POSIX commands */
 
 #define NCCS		18
 
+/* `c_cc' member of 'struct termios' structure can be disabled by
+   using the value _POSIX_VDISABLE.  */
+#define	_POSIX_VDISABLE	'\0'
+
 /* Compare a character C to a value VAL from the `c_cc' array in a
    `struct termios'.  If VAL is _POSIX_VDISABLE, no character can match it.  */
 #define CCEQ(val, c)	((c) == (val) && (val) != _POSIX_VDISABLE)
-
-#define TTYDEF_IFLAG	(BRKINT	| ICRNL	| IMAXBEL | IXON | IXANY)
-#define TTYDEF_OFLAG	(OPOST | ONLCR)
-#define TTYDEF_LFLAG	(ICANON | ISIG | IEXTEN | ECHO | ECHOE | ECHOKE | ECHOCTL)
-#define TTYDEF_CFLAG	(CREAD | CS8 | HUPCL)
-#define TTYDEF_SPEED	(B9600)
 
 typedef unsigned char cc_t;
 typedef unsigned int  tcflag_t;
@@ -256,28 +209,26 @@ typedef unsigned int  speed_t;
 typedef unsigned short otcflag_t;
 typedef unsigned char ospeed_t;
 
-struct __oldtermios
-{
-  otcflag_t	c_iflag;
-  otcflag_t	c_oflag;
-  otcflag_t	c_cflag;
-  otcflag_t	c_lflag;
-  char		c_line;
-  cc_t		c_cc[NCCS];
-  ospeed_t	c_ispeed;
-  ospeed_t	c_ospeed;
+struct __oldtermios {
+	otcflag_t	c_iflag;
+	otcflag_t	c_oflag;
+	otcflag_t	c_cflag;
+	otcflag_t	c_lflag;
+	char		c_line;
+	cc_t		c_cc[NCCS];
+	ospeed_t	c_ispeed;
+	ospeed_t	c_ospeed;
 };
 
-struct termios
-{
-  tcflag_t	c_iflag;
-  tcflag_t	c_oflag;
-  tcflag_t	c_cflag;
-  tcflag_t	c_lflag;
-  char		c_line;
-  cc_t		c_cc[NCCS];
-  speed_t	c_ispeed;
-  speed_t	c_ospeed;
+struct termios {
+	tcflag_t	c_iflag;
+	tcflag_t	c_oflag;
+	tcflag_t	c_cflag;
+	tcflag_t	c_lflag;
+	char		c_line;
+	cc_t		c_cc[NCCS];
+	speed_t		c_ispeed;
+	speed_t		c_ospeed;
 };
 
 #ifdef CYGWIN_VERSION_DLL_IS_OLD_TERMIOS
@@ -329,6 +280,11 @@ struct termios
 
 #define termio termios
 
+#define cfgetospeed(tp)		((tp)->c_ospeed)
+#define cfgetispeed(tp)		((tp)->c_ispeed)
+#define cfsetospeed(tp,s)	(((tp)->c_ospeed = (s)), 0)
+#define cfsetispeed(tp,s)	(((tp)->c_ispeed = (s)), 0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -339,21 +295,9 @@ int tcsendbreak (int, int);
 int tcdrain (int);
 int tcflush (int, int);
 int tcflow (int, int);
-pid_t tcgetsid (int);
-void cfmakeraw (struct termios *);
-speed_t cfgetispeed(const struct termios *);
-speed_t cfgetospeed(const struct termios *);
-int cfsetispeed (struct termios *, speed_t);
-int cfsetospeed (struct termios *, speed_t);
-int cfsetspeed (struct termios *, speed_t);
 
 #ifdef __cplusplus
 }
-#endif
-
-#ifndef __cplusplus
-#define cfgetispeed(tp)		((tp)->c_ispeed)
-#define cfgetospeed(tp)		((tp)->c_ospeed)
 #endif
 
 /* Extra stuff to make porting stuff easier.  */
@@ -365,8 +309,5 @@ struct winsize
 
 #define TIOCGWINSZ (('T' << 8) | 1)
 #define TIOCSWINSZ (('T' << 8) | 2)
-#define TIOCLINUX  (('T' << 8) | 3)
-#define TIOCGPGRP  (('T' << 8) | 0xf)
-#define TIOCSPGRP  (('T' << 8) | 0x10)
 
 #endif	/* _SYS_TERMIOS_H */
