@@ -289,7 +289,7 @@ FormatClock(interp, clockVal, useGMT, format)
 	return TCL_OK;
     }
 
-#if !defined(HAVE_TM_ZONE) && !defined(WIN32)
+#if !defined(HAVE_TM_ZONE) && !defined(WIN32) && !defined(__CYGWIN__)
     /*
      * This is a kludge for systems not having the timezone string in
      * struct tm.  No matter what was specified, they use the local
@@ -338,7 +338,7 @@ FormatClock(interp, clockVal, useGMT, format)
     Tcl_MutexUnlock(&clockMutex);
     Tcl_DStringFree(&uniBuffer);
 
-#if !defined(HAVE_TM_ZONE) && !defined(WIN32)
+#if !defined(HAVE_TM_ZONE) && !defined(WIN32) && !defined(__CYGWIN__)
     if (useGMT) {
         if (savedTZEnv != NULL) {
             Tcl_SetVar2(interp, "env", "TZ", savedTZEnv, TCL_GLOBAL_ONLY);

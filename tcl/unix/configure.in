@@ -11,7 +11,7 @@ AC_PREREQ(2.13)
 TCL_VERSION=8.4
 TCL_MAJOR_VERSION=8
 TCL_MINOR_VERSION=4
-TCL_PATCH_LEVEL=".1"
+TCL_PATCH_LEVEL=".0"
 VERSION=${TCL_VERSION}
 
 #------------------------------------------------------------------------
@@ -196,8 +196,7 @@ if test $tcl_ok = yes; then
     AC_MSG_RESULT(yes)
 else
     AC_MSG_RESULT([broken, using substitute])
-    AC_LIBOBJ(strstr)
-    USE_COMPAT=1
+    LIBOBJS="$LIBOBJS strstr.o"
 fi
 
 #--------------------------------------------------------------------
@@ -222,8 +221,7 @@ int main()
 }], , tcl_ok=0, tcl_ok=0)
 if test "$tcl_ok" = 0; then
     test -n "$verbose" && echo "	Adding strtoul.o."
-    AC_LIBOBJ(strtoul)
-    USE_COMPAT=1
+    LIBOBJS="$LIBOBJS strtoul.o"
 fi
 
 #--------------------------------------------------------------------
@@ -247,8 +245,7 @@ int main()
 }], , tcl_ok=0, tcl_ok=0)
 if test "$tcl_ok" = 0; then
     test -n "$verbose" && echo "	Adding strtod.o."
-    AC_LIBOBJ(strtod)
-    USE_COMPAT=1
+    LIBOBJS="$LIBOBJS strtod.o"
 fi
 
 #--------------------------------------------------------------------
@@ -330,8 +327,7 @@ if test "$tcl_ok" = 0; then
     AC_CHECK_LIB(inet, strncasecmp, tcl_ok=1, tcl_ok=0)
 fi
 if test "$tcl_ok" = 0; then
-    AC_LIBOBJ(strncasecmp)
-    USE_COMPAT=1
+    LIBOBJS="$LIBOBJS strncasecmp.o"
 fi
 
 #--------------------------------------------------------------------
@@ -437,6 +433,7 @@ SC_ENABLE_SHARED
 SC_CONFIG_CFLAGS
 
 SC_ENABLE_SYMBOLS
+SC_ENABLE_MEMDEBUG
 
 TCL_DBGX=${DBGX}
 

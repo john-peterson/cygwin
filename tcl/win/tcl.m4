@@ -22,10 +22,8 @@ AC_DEFUN(SC_PATH_TCLCONFIG, [
 
     if test -d ../../tcl8.4$1/win;  then
 	TCL_BIN_DIR_DEFAULT=../../tcl8.4$1/win
-    elif test -d ../../tcl8.4/win;  then
-	TCL_BIN_DIR_DEFAULT=../../tcl8.4/win
     else
-	TCL_BIN_DIR_DEFAULT=../../tcl/win
+	TCL_BIN_DIR_DEFAULT=../../tcl8.4/win
     fi
     
     AC_ARG_WITH(tcl, [  --with-tcl=DIR          use Tcl 8.4 binaries from DIR],
@@ -62,10 +60,8 @@ AC_DEFUN(SC_PATH_TKCONFIG, [
 
     if test -d ../../tk8.4$1/win;  then
 	TK_BIN_DIR_DEFAULT=../../tk8.4$1/win
-    elif test -d ../../tk8.4/win;  then
-	TK_BIN_DIR_DEFAULT=../../tk8.4/win
     else
-	TK_BIN_DIR_DEFAULT=../../tk/win
+	TK_BIN_DIR_DEFAULT=../../tk8.4/win
     fi
     
     AC_ARG_WITH(tk, [  --with-tk=DIR          use Tk 8.4 binaries from DIR],
@@ -253,9 +249,6 @@ AC_DEFUN(SC_ENABLE_THREADS, [
 	AC_MSG_RESULT(yes)
 	TCL_THREADS=1
 	AC_DEFINE(TCL_THREADS)
-	# USE_THREAD_ALLOC tells us to try the special thread-based
-	# allocator that significantly reduces lock contention
-	AC_DEFINE(USE_THREAD_ALLOC)
     else
 	TCL_THREADS=0
 	AC_MSG_RESULT([no (default)])
@@ -267,8 +260,6 @@ AC_DEFUN(SC_ENABLE_THREADS, [
 # SC_ENABLE_SYMBOLS --
 #
 #	Specify if debugging symbols should be used
-#	Memory (TCL_MEM_DEBUG) and compile (TCL_COMPILE_DEBUG) debugging
-#	can also be enabled.
 #
 # Arguments:
 #	none
@@ -294,40 +285,56 @@ AC_DEFUN(SC_ENABLE_THREADS, [
 AC_DEFUN(SC_ENABLE_SYMBOLS, [
     AC_MSG_CHECKING([for build with symbols])
     AC_ARG_ENABLE(symbols, [  --enable-symbols        build with debugging symbols [--disable-symbols]],    [tcl_ok=$enableval], [tcl_ok=no])
-# FIXME: Currently, LDFLAGS_DEFAULT is not used, it should work like CFLAGS_DEFAULT.
-    if test "$tcl_ok" = "no"; then
+
+    if test "$tcl_ok" = "yes"; then
+	CFLAGS_DEFAULT='$(CFLAGS_DEBUG)'
+	LDFLAGS_DEFAULT='$(LDFLAGS_DEBUG)'
+	DBGX=d
+	AC_MSG_RESULT([yes])
+    else
 	CFLAGS_DEFAULT='$(CFLAGS_OPTIMIZE)'
 	LDFLAGS_DEFAULT='$(LDFLAGS_OPTIMIZE)'
 	DBGX=""
 	AC_MSG_RESULT([no])
-    else
-	CFLAGS_DEFAULT='$(CFLAGS_DEBUG)'
-	LDFLAGS_DEFAULT='$(LDFLAGS_DEBUG)'
-	DBGX=g
-	if test "$tcl_ok" = "yes"; then
-	    AC_MSG_RESULT([yes (standard debugging)])
-	fi
-    fi
-    AC_SUBST(CFLAGS_DEFAULT)
-    AC_SUBST(LDFLAGS_DEFAULT)
-
-    if test "$tcl_ok" = "mem" -o "$tcl_ok" = "all"; then
-	AC_DEFINE(TCL_MEM_DEBUG)
-    fi
-
-    if test "$tcl_ok" = "compile" -o "$tcl_ok" = "all"; then
-	AC_DEFINE(TCL_COMPILE_DEBUG)
-	AC_DEFINE(TCL_COMPILE_STATS)
-    fi
-
-    if test "$tcl_ok" != "yes" -a "$tcl_ok" != "no"; then
-	if test "$tcl_ok" = "all"; then
-	    AC_MSG_RESULT([enabled symbols mem compile debugging])
-	else
-	    AC_MSG_RESULT([enabled $tcl_ok debugging])
-	fi
     fi
 ])
+
+
+#------------------------------------------------------------------------
+# SC_ENABLE_MEMDEBUG --
+#
+#	Specify if the memory debugging code should be used
+#
+# Arguments:
+#	none
+#	
+#	Requires the following vars to be set in the Makefile:
+#		None.
+#	
+# Results:
+#
+#	Adds the following arguments to configure:
+#		--enable-memdebug
+#
+#	Defines the following @vars@:
+#		MEM_DEBUG_FLAGS	Sets to -DTCL_MEM_DEBUG if true
+#				Sets to "" if false
+#
+#------------------------------------------------------------------------
+
+AC_DEFUN(SC_ENABLE_MEMDEBUG, [
+    AC_MSG_CHECKING([for build with memory debugging])
+    AC_ARG_ENABLE(memdebug, [  --enable-memdebug       build with memory debugging [--disable-memdebug]],    [tcl_ok=$enableval], [tcl_ok=no])
+    if test "$tcl_ok" = "yes"; then
+	MEM_DEBUG_FLAGS=-DTCL_MEM_DEBUG
+	AC_MSG_RESULT([yes])
+    else
+	MEM_DEBUG_FLAGS=""
+	AC_MSG_RESULT([no])
+    fi
+    AC_SUBST(MEM_DEBUG_FLAGS)
+])
+
 
 #--------------------------------------------------------------------
 # SC_CONFIG_CFLAGS
@@ -387,34 +394,18 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
     # Set some defaults (may get changed below)
     EXTRA_CFLAGS=""
 
-    AC_CHECK_PROG(CYGPATH, cygpath, cygpath -w, echo)
+    case "$host" in
+	*mingw*)
+    	    AC_CHECK_PROG(CYGPATH, cygpath, cygpath -w, echo) ;;
+	*)
+	    CYGPATH="echo" ;;
+    esac
 
-    # Check for a bug in gcc's windres that causes the
-    # compile to fail when a Windows native path is
-    # passed into windres. The mingw toolchain requires
-    # Windows native paths while Cygwin should work
-    # with both. Avoid the bug by passing a POSIX
-    # path when using the Cygwin toolchain.
-
-    if test "$GCC" = "yes" && test "$CYGPATH" != "echo" ; then
-	conftest=/tmp/conftest.rc
-	echo "STRINGTABLE BEGIN" > $conftest
-	echo "101 \"name\"" >> $conftest
-	echo "END" >> $conftest
-
-	AC_MSG_CHECKING([for Windows native path bug in windres])
-	cyg_conftest=`$CYGPATH $conftest`
-	if AC_TRY_COMMAND($RC -o conftest.res.o $cyg_conftest) ; then
-	    AC_MSG_RESULT([no])
-	else
-	    AC_MSG_RESULT([yes])
-	    CYGPATH=echo
-	fi
-	conftest=
-	cyg_conftest=
+    if test "$CYGPATH" = "echo" || test "$ac_cv_cygwin" = "yes"; then
+        DEPARG='"$<"'
+    else
+        DEPARG='"$(shell $(CYGPATH) $<)"'
     fi
-
-    DEPARG='$<' # Legacy variable.  Really don't need this
 
     # set various compiler flags depending on whether we are using gcc or cl
 
@@ -438,20 +429,16 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
 	MAKE_EXE="\${CC} -o \[$]@"
 	LIBPREFIX="lib"
 
-	if ! ${CC} -mwin32 -c -xc /dev/null -o ac$$.c >/dev/null 2>&1; then
-	  : ${extra_cflags=''}
-	  : ${extra_ldflags=''}
-	else
-	  rm -f ac$$.c
-	  case "$extra_cflags" in
-	    *-mwin32*) ;;
-	    *) extra_cflags="-mwin32 $extra_cflags" ;;
-	  esac
-	  case "$extra_ldflags" in
-	    *-mwin32*) ;;
-	    *) extra_ldflags="-mwin32 $extra_ldflags" ;;
-	  esac
-	fi
+	case "${host}" in
+	    *mingw*)
+		extra_cflags="-mno-cygwin"
+		extra_ldflags="-mno-cygwin"
+		;;
+	    *)
+		extra_cflags=""
+		extra_ldflags=""
+		;;
+	esac
 
 	if test "${SHARED_BUILD}" = "0" ; then
 	    # static
@@ -491,7 +478,7 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
 	EXTRA_CFLAGS="${extra_cflags}"
 
 	CFLAGS_DEBUG=-g
-	CFLAGS_OPTIMIZE=
+	CFLAGS_OPTIMIZE=-O
 	CFLAGS_WARNING="-Wall -Wconversion"
 	LDFLAGS_DEBUG=
 	LDFLAGS_OPTIMIZE=
@@ -503,17 +490,19 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
 	# Specify linker flags depending on the type of app being 
 	# built -- Console vs. Window.
 	#
-	# ORIGINAL COMMENT:
 	# We need to pass -e _WinMain@16 so that ld will use
 	# WinMain() instead of main() as the entry point. We can't
 	# use autoconf to check for this case since it would need
 	# to run an executable and that does not work when
 	# cross compiling. Remove this -e workaround once we
 	# require a gcc that does not have this bug.
-	#
-	# MK NOTE: Tk should use a different mechanism. This causes 
-	# interesting problems, such as wish dying at startup.
-	#LDFLAGS_WINDOW="-mwindows -e _WinMain@16 ${extra_ldflags}"
+	case "$host" in
+	    *mingw*)
+		extra_ldflags="${extra_ldflags} -e _WinMain@16"
+		;;
+	    *)
+		;;
+	esac
 	LDFLAGS_CONSOLE="-mconsole ${extra_ldflags}"
 	LDFLAGS_WINDOW="-mwindows ${extra_ldflags}"
     else
@@ -689,12 +678,7 @@ AC_DEFUN(SC_PROG_TCLSH, [
     ])
 
     if test -f "$ac_cv_path_tclsh" ; then
-	TCLSH_PROG="$ac_cv_path_tclsh"
-	AC_MSG_RESULT($TCLSH_PROG)
-    elif test -f "$TCL_BIN_DIR/tclConfig.sh" ; then
-	# One-tree build.
-	ac_cv_path_tclsh="$TCL_BIN_DIR/tclsh"
-	TCLSH_PROG="$ac_cv_path_tclsh"
+	TCLSH_PROG=$ac_cv_path_tclsh
 	AC_MSG_RESULT($TCLSH_PROG)
     else
 	AC_MSG_ERROR(No tclsh found in PATH:  $search_path)

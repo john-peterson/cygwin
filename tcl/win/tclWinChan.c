@@ -1048,6 +1048,7 @@ Tcl_MakeFileChannel(rawHandle, mode)
 	 * of this duped handle which might throw EXCEPTION_INVALID_HANDLE.
 	 */
 
+#ifndef __CYGWIN__
 #ifdef HAVE_NO_SEH
         __asm__ __volatile__ (
                 "movl  %esp, _ESP" "\n\t"
@@ -1062,7 +1063,9 @@ Tcl_MakeFileChannel(rawHandle, mode)
 #else
 	__try {
 #endif /* HAVE_NO_SEH */
+#endif /* !__CYGWIN__ */
 	    CloseHandle(dupedHandle);
+#ifndef __CYGWIN__
 #ifdef HAVE_NO_SEH
         __asm__ __volatile__ (
                 "jmp   makefilechannel_pop" "\n"
@@ -1091,6 +1094,7 @@ Tcl_MakeFileChannel(rawHandle, mode)
 	    return NULL;
 	}
 #endif /* HAVE_NO_SEH */
+#endif /* !__CYGWIN__ */
 
 	/* Fall through, the handle is valid. */
 
@@ -1104,9 +1108,10 @@ Tcl_MakeFileChannel(rawHandle, mode)
 
     return channel;
 }
+#ifndef __CYGWIN__
 #ifdef HAVE_NO_SEH
 static
-__attribute__ ((cdecl,used))
+__attribute__ ((cdecl))
 EXCEPTION_DISPOSITION
 _except_makefilechannel_handler(
     struct _EXCEPTION_RECORD *ExceptionRecord,
@@ -1119,6 +1124,7 @@ _except_makefilechannel_handler(
     return 0; /* Function does not return */
 }
 #endif
+#endif /* !__CYGWIN__ */
 
 /*
  *----------------------------------------------------------------------

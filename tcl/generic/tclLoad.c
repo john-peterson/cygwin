@@ -657,7 +657,7 @@ TclFinalizeLoad()
     while (firstPackagePtr != NULL) {
 	pkgPtr = firstPackagePtr;
 	firstPackagePtr = pkgPtr->nextPtr;
-#if defined(TCL_UNLOAD_DLLS) || defined(__WIN32__)
+#if defined(TCL_UNLOAD_DLLS) || defined(__WIN32__) || defined(__CYGWIN__)
 	/*
 	 * Some Unix dlls are poorly behaved - registering things like
 	 * atexit calls that can't be unregistered.  If you unload

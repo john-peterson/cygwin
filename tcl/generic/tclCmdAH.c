@@ -801,16 +801,16 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	(char *) NULL
     };
     enum options {
-	FCMD_ATIME,	FCMD_ATTRIBUTES, FCMD_CHANNELS,	FCMD_COPY,
-	FCMD_DELETE,
-	FCMD_DIRNAME,	FCMD_EXECUTABLE, FCMD_EXISTS,	FCMD_EXTENSION,
-	FCMD_ISDIRECTORY, FCMD_ISFILE,	FCMD_JOIN,	FCMD_LINK, 
-	FCMD_LSTAT,     FCMD_MTIME,	FCMD_MKDIR,	FCMD_NATIVENAME, 
-	FCMD_NORMALIZE, FCMD_OWNED,
-	FCMD_PATHTYPE,	FCMD_READABLE,	FCMD_READLINK,	FCMD_RENAME,
-	FCMD_ROOTNAME,	FCMD_SEPARATOR, FCMD_SIZE,	FCMD_SPLIT,	
-	FCMD_STAT,      FCMD_SYSTEM, 
-	FCMD_TAIL,	FCMD_TYPE,	FCMD_VOLUMES,	FCMD_WRITABLE
+	FILE_ATIME,	FILE_ATTRIBUTES, FILE_CHANNELS,	FILE_COPY,
+	FILE_DELETE,
+	FILE_DIRNAME,	FILE_EXECUTABLE, FILE_EXISTS,	FILE_EXTENSION,
+	FILE_ISDIRECTORY, FILE_ISFILE,	FILE_JOIN,	FILE_LINK, 
+	FILE_LSTAT,     FILE_MTIME,	FILE_MKDIR,	FILE_NATIVENAME, 
+	FILE_NORMALIZE, FILE_OWNED,
+	FILE_PATHTYPE,	FILE_READABLE,	FILE_READLINK,	FILE_RENAME,
+	FILE_ROOTNAME,	FILE_SEPARATOR, FILE_SIZE,	FILE_SPLIT,	
+	FILE_STAT,      FILE_SYSTEM, 
+	FILE_TAIL,	FILE_TYPE,	FILE_VOLUMES,	FILE_WRITABLE
     };
 
     if (objc < 2) {
@@ -823,7 +823,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
     }
 
     switch ((enum options) index) {
-    	case FCMD_ATIME: {
+    	case FILE_ATIME: {
 	    Tcl_StatBuf buf;
 	    struct utimbuf tval;
 
@@ -861,10 +861,10 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetLongObj(Tcl_GetObjResult(interp), (long) buf.st_atime);
 	    return TCL_OK;
 	}
-	case FCMD_ATTRIBUTES: {
+	case FILE_ATTRIBUTES: {
             return TclFileAttrsCmd(interp, objc, objv);
 	}
-	case FCMD_CHANNELS: {
+	case FILE_CHANNELS: {
 	    if ((objc < 2) || (objc > 3)) {
 		Tcl_WrongNumArgs(interp, 2, objv, "?pattern?");
 		return TCL_ERROR;
@@ -872,13 +872,13 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    return Tcl_GetChannelNamesEx(interp,
 		    ((objc == 2) ? NULL : Tcl_GetString(objv[2])));
 	}
-	case FCMD_COPY: {
+	case FILE_COPY: {
 	    return TclFileCopyCmd(interp, objc, objv);
 	}	    
-	case FCMD_DELETE: {
+	case FILE_DELETE: {
 	    return TclFileDeleteCmd(interp, objc, objv);
 	}
-    	case FCMD_DIRNAME: {
+    	case FILE_DIRNAME: {
 	    Tcl_Obj *dirPtr;
 	    if (objc != 3) {
 		goto only3Args;
@@ -892,19 +892,19 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 		return TCL_OK;
 	    }
 	}
-	case FCMD_EXECUTABLE: {
+	case FILE_EXECUTABLE: {
 	    if (objc != 3) {
 		goto only3Args;
 	    }
 	    return CheckAccess(interp, objv[2], X_OK);
 	}
-	case FCMD_EXISTS: {
+	case FILE_EXISTS: {
 	    if (objc != 3) {
 		goto only3Args;
 	    }
 	    return CheckAccess(interp, objv[2], F_OK);
 	}
-	case FCMD_EXTENSION: {
+	case FILE_EXTENSION: {
 	    char *fileName, *extension;
 	    if (objc != 3) {
 	    	goto only3Args;
@@ -916,7 +916,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    }
 	    return TCL_OK;
 	}
-    	case FCMD_ISDIRECTORY: {
+    	case FILE_ISDIRECTORY: {
 	    int value;
 	    Tcl_StatBuf buf;
 
@@ -930,7 +930,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetBooleanObj(Tcl_GetObjResult(interp), value);
 	    return TCL_OK;
 	}
-    	case FCMD_ISFILE: {
+    	case FILE_ISFILE: {
 	    int value;
 	    Tcl_StatBuf buf;
 	    
@@ -944,7 +944,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetBooleanObj(Tcl_GetObjResult(interp), value);
 	    return TCL_OK;
 	}
-	case FCMD_JOIN: {
+	case FILE_JOIN: {
 	    Tcl_Obj *resObj;
 
 	    if (objc < 3) {
@@ -955,7 +955,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetObjResult(interp, resObj);
 	    return TCL_OK;
 	}
-	case FCMD_LINK: {
+	case FILE_LINK: {
 	    Tcl_Obj *contents;
 	    int index;
 	    
@@ -1045,7 +1045,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    }
 	    return TCL_OK;
 	}
-    	case FCMD_LSTAT: {
+    	case FILE_LSTAT: {
 	    char *varName;
 	    Tcl_StatBuf buf;
 
@@ -1059,7 +1059,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    varName = Tcl_GetString(objv[3]);
 	    return StoreStatData(interp, varName, &buf);
 	}
-	case FCMD_MTIME: {
+	case FILE_MTIME: {
 	    Tcl_StatBuf buf;
 	    struct utimbuf tval;
 
@@ -1097,14 +1097,14 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetLongObj(Tcl_GetObjResult(interp), (long) buf.st_mtime);
 	    return TCL_OK;
 	}
-	case FCMD_MKDIR: {
+	case FILE_MKDIR: {
 	    if (objc < 3) {
 		Tcl_WrongNumArgs(interp, 2, objv, "name ?name ...?");
 		return TCL_ERROR;
 	    }
 	    return TclFileMakeDirsCmd(interp, objc, objv);
 	}
-	case FCMD_NATIVENAME: {
+	case FILE_NATIVENAME: {
 	    CONST char *fileName;
 	    Tcl_DString ds;
 
@@ -1121,7 +1121,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_DStringFree(&ds);
 	    return TCL_OK;
 	}
-	case FCMD_NORMALIZE: {
+	case FILE_NORMALIZE: {
 	    Tcl_Obj *fileName;
 
 	    if (objc != 3) {
@@ -1133,7 +1133,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetObjResult(interp, fileName);
 	    return TCL_OK;
 	}
-	case FCMD_OWNED: {
+	case FILE_OWNED: {
 	    int value;
 	    Tcl_StatBuf buf;
 	    
@@ -1147,7 +1147,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 		 * associated with a file, so we always return 1.
 		 */
 
-#if (defined(__WIN32__) || defined(MAC_TCL))
+#if (defined(__WIN32__) || defined(MAC_TCL) || defined(__CYGWIN__))
 		value = 1;
 #else
 		value = (geteuid() == buf.st_uid);
@@ -1156,7 +1156,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetBooleanObj(Tcl_GetObjResult(interp), value);
 	    return TCL_OK;
 	}
-	case FCMD_PATHTYPE: {
+	case FILE_PATHTYPE: {
 	    if (objc != 3) {
 		goto only3Args;
 	    }
@@ -1174,13 +1174,13 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    }
 	    return TCL_OK;
 	}
-    	case FCMD_READABLE: {
+    	case FILE_READABLE: {
 	    if (objc != 3) {
 		goto only3Args;
 	    }
 	    return CheckAccess(interp, objv[2], R_OK);
 	}
-	case FCMD_READLINK: {
+	case FILE_READLINK: {
 	    Tcl_Obj *contents;
 		
 	    if (objc != 3) {
@@ -1203,10 +1203,10 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_DecrRefCount(contents);
 	    return TCL_OK;
 	}
-	case FCMD_RENAME: {
+	case FILE_RENAME: {
 	    return TclFileRenameCmd(interp, objc, objv);
 	}
-	case FCMD_ROOTNAME: {
+	case FILE_ROOTNAME: {
 	    int length;
 	    char *fileName, *extension;
 	    
@@ -1223,7 +1223,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    }
 	    return TCL_OK;
 	}
-	case FCMD_SEPARATOR: {
+	case FILE_SEPARATOR: {
 	    if ((objc < 2) || (objc > 3)) {
 		Tcl_WrongNumArgs(interp, 2, objv, "?name?");
 		return TCL_ERROR;
@@ -1254,7 +1254,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    }
 	    return TCL_OK;
 	}
-	case FCMD_SIZE: {
+	case FILE_SIZE: {
 	    Tcl_StatBuf buf;
 	    
 	    if (objc != 3) {
@@ -1267,14 +1267,14 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 		    (Tcl_WideInt) buf.st_size);
 	    return TCL_OK;
 	}
-	case FCMD_SPLIT: {
+	case FILE_SPLIT: {
 	    if (objc != 3) {
 		goto only3Args;
 	    }
 	    Tcl_SetObjResult(interp, Tcl_FSSplitPath(objv[2], NULL));
 	    return TCL_OK;
 	}
-	case FCMD_STAT: {
+	case FILE_STAT: {
 	    char *varName;
 	    Tcl_StatBuf buf;
 	    
@@ -1288,7 +1288,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    varName = Tcl_GetString(objv[3]);
 	    return StoreStatData(interp, varName, &buf);
 	}
-	case FCMD_SYSTEM: {
+	case FILE_SYSTEM: {
 	    Tcl_Obj* fsInfo;
 	    if (objc != 3) {
 		goto only3Args;
@@ -1303,7 +1303,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 		return TCL_ERROR;
 	    }
 	}
-    	case FCMD_TAIL: {
+    	case FILE_TAIL: {
 	    int splitElements;
 	    Tcl_Obj *splitPtr;
 
@@ -1344,7 +1344,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_DecrRefCount(splitPtr);
 	    return TCL_OK;
 	}
-	case FCMD_TYPE: {
+	case FILE_TYPE: {
 	    Tcl_StatBuf buf;
 
 	    if (objc != 3) {
@@ -1357,7 +1357,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 		    GetTypeFromMode((unsigned short) buf.st_mode), -1);
 	    return TCL_OK;
 	}
-	case FCMD_VOLUMES: {
+	case FILE_VOLUMES: {
 	    if (objc != 2) {
 		Tcl_WrongNumArgs(interp, 2, objv, NULL);
 		return TCL_ERROR;
@@ -1365,7 +1365,7 @@ Tcl_FileObjCmd(dummy, interp, objc, objv)
 	    Tcl_SetObjResult(interp, Tcl_FSListVolumes());
 	    return TCL_OK;
 	}
-	case FCMD_WRITABLE: {
+	case FILE_WRITABLE: {
 	    if (objc != 3) {
 	    	goto only3Args;
 	    }

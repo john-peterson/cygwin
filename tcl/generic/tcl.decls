@@ -411,7 +411,7 @@ declare 109 generic {
 declare 110 generic {
     void Tcl_DeleteInterp(Tcl_Interp *interp)
 }
-declare 111 {unix win} {
+declare 111 {unix win cygwin} {
     void Tcl_DetachPids(int numPids, Tcl_Pid *pidPtr)
 }
 declare 112 generic {
@@ -702,7 +702,7 @@ declare 196 generic {
     Tcl_Obj * Tcl_ObjSetVar2(Tcl_Interp *interp, Tcl_Obj *part1Ptr,
 	    Tcl_Obj *part2Ptr, Tcl_Obj *newValuePtr, int flags)
 }
-declare 197 {unix win} {
+declare 197 {unix win cygwin} {
     Tcl_Channel Tcl_OpenCommandChannel(Tcl_Interp *interp, int argc,
 	    CONST84 char **argv, int flags)
 }
@@ -738,7 +738,7 @@ declare 205 generic {
 declare 206 generic {
     int Tcl_Read(Tcl_Channel chan, char *bufPtr, int toRead)
 }
-declare 207 {unix win} {
+declare 207 {unix win cygwin} {
     void Tcl_ReapDetachedProcs(void)
 }
 declare 208 generic {
@@ -1766,10 +1766,10 @@ interface tclPlat
 
 # Added in Tcl 8.1
 
-declare 0 win {
+declare 0 {win cygwin} {
     TCHAR * Tcl_WinUtfToTChar(CONST char *str, int len, Tcl_DString *dsPtr)
 }
-declare 1 win {
+declare 1 {win cygwin} {
     char * Tcl_WinTCharToUtf(CONST TCHAR *str, int len, Tcl_DString *dsPtr)
 }
 

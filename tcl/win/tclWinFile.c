@@ -1330,27 +1330,9 @@ TclpObjChdir(pathPtr)
 {
     int result;
     CONST TCHAR *nativePath;
-#ifdef __CYGWIN__
-    extern int cygwin_conv_to_posix_path 
-	_ANSI_ARGS_((CONST char *, char *));
-    char posixPath[MAX_PATH+1];
-    CONST char *path;
-    Tcl_DString ds;
-#endif /* __CYGWIN__ */
-
 
     nativePath = (CONST TCHAR *) Tcl_FSGetNativePath(pathPtr);
     result = (*tclWinProcs->setCurrentDirectoryProc)(nativePath);
-#ifdef __CYGWIN__
-    /* Cygwin chdir only groks POSIX path. */
-    if (result)
-      {
-	path = Tcl_WinTCharToUtf(nativePath, -1, &ds);
-	cygwin_conv_to_posix_path(path, posixPath);
-	result = (chdir(posixPath) == 0 ? 1 : 0);
-	Tcl_DStringFree(&ds);
-      }
-#endif /* __CYGWIN__ */
 
     if (result == 0) {
 	TclWinConvertError(GetLastError());

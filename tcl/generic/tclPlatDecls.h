@@ -15,9 +15,7 @@
 /*
  *  Pull in the typedef of TCHAR for windows.
  */
-#if defined(__CYGWIN__)
-    typedef char TCHAR;
-#elif defined(__WIN32__) && !defined(_TCHAR_DEFINED)
+#if defined(__WIN32__) && !defined(_TCHAR_DEFINED)
 #   include <tchar.h>
 #   ifndef _TCHAR_DEFINED
 	/* Borland seems to forget to set this. */
@@ -27,6 +25,13 @@
 #   if defined(_MSC_VER) && defined(__STDC__)
 	/* MSVC++ misses this. */
 	typedef _TCHAR TCHAR;
+#   endif
+#endif
+#if defined(__CYGWIN__) && !defined(_TCHAR_DEFINED)
+#   include <windows.h>
+#   undef small
+#   ifndef _TCHAR_DEFINED
+#       define _TCHAR_DEFINED
 #   endif
 #endif
 
@@ -44,6 +49,14 @@ EXTERN TCHAR *		Tcl_WinUtfToTChar _ANSI_ARGS_((CONST char * str,
 EXTERN char *		Tcl_WinTCharToUtf _ANSI_ARGS_((CONST TCHAR * str, 
 				int len, Tcl_DString * dsPtr));
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 0 */
+EXTERN TCHAR *		Tcl_WinUtfToTChar _ANSI_ARGS_((CONST char * str, 
+				int len, Tcl_DString * dsPtr));
+/* 1 */
+EXTERN char *		Tcl_WinTCharToUtf _ANSI_ARGS_((CONST TCHAR * str, 
+				int len, Tcl_DString * dsPtr));
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
 /* 0 */
 EXTERN void		Tcl_MacSetEventProc _ANSI_ARGS_((
@@ -92,6 +105,10 @@ typedef struct TclPlatStubs {
     TCHAR * (*tcl_WinUtfToTChar) _ANSI_ARGS_((CONST char * str, int len, Tcl_DString * dsPtr)); /* 0 */
     char * (*tcl_WinTCharToUtf) _ANSI_ARGS_((CONST TCHAR * str, int len, Tcl_DString * dsPtr)); /* 1 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TCHAR * (*tcl_WinUtfToTChar) _ANSI_ARGS_((CONST char * str, int len, Tcl_DString * dsPtr)); /* 0 */
+    char * (*tcl_WinTCharToUtf) _ANSI_ARGS_((CONST TCHAR * str, int len, Tcl_DString * dsPtr)); /* 1 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     void (*tcl_MacSetEventProc) _ANSI_ARGS_((Tcl_MacConvertEventPtr procPtr)); /* 0 */
     char * (*tcl_MacConvertTextResource) _ANSI_ARGS_((Handle resource)); /* 1 */
@@ -132,6 +149,16 @@ extern TclPlatStubs *tclPlatStubsPtr;
 	(tclPlatStubsPtr->tcl_WinTCharToUtf) /* 1 */
 #endif
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef Tcl_WinUtfToTChar
+#define Tcl_WinUtfToTChar \
+	(tclPlatStubsPtr->tcl_WinUtfToTChar) /* 0 */
+#endif
+#ifndef Tcl_WinTCharToUtf
+#define Tcl_WinTCharToUtf \
+	(tclPlatStubsPtr->tcl_WinTCharToUtf) /* 1 */
+#endif
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
 #ifndef Tcl_MacSetEventProc
 #define Tcl_MacSetEventProc \

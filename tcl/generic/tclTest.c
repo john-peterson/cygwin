@@ -2100,7 +2100,7 @@ TestgetplatformCmd(clientData, interp, argc, argv)
     static CONST char *platformStrings[] = { "unix", "mac", "windows" };
     TclPlatformType *platform;
 
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     platform = TclWinGetPlatform();
 #else
     platform = &tclPlatform;
@@ -3321,7 +3321,7 @@ TestsetplatformCmd(clientData, interp, argc, argv)
     size_t length;
     TclPlatformType *platform;
 
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     platform = TclWinGetPlatform();
 #else
     platform = &tclPlatform;

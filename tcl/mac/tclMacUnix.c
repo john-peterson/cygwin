@@ -74,7 +74,7 @@ Tcl_EchoCmd(
     ClientData dummy,			/* Not used. */
     Tcl_Interp *interp,			/* Current interpreter. */
     int argc,				/* Number of arguments. */
-    CONST char **argv)			/* Argument strings. */
+    char **argv)			/* Argument strings. */
 {
     Tcl_Channel chan;
     int mode, result, i;

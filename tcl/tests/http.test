@@ -20,7 +20,7 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
 }
 
 if {[catch {package require http 2} version]} {
-    if {[info exists http2]} {
+    if {[info exist http2]} {
 	catch {puts "Cannot load http 2.* package"}
 	return
     } else {
@@ -494,7 +494,7 @@ if {[info exists httpthread]} {
     close $listen
 }
 
-if {[info exists removeHttpd]} {
+if {[info exist removeHttpd]} {
     removeFile $httpdFile
 }
 

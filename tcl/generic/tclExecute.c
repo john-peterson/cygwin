@@ -374,15 +374,14 @@ static int		ExprUnaryFunc _ANSI_ARGS_((Tcl_Interp *interp,
 #ifndef TCL_WIDE_INT_IS_LONG
 static int		ExprWideFunc _ANSI_ARGS_((Tcl_Interp *interp,
 			    ExecEnv *eePtr, ClientData clientData));
-#endif /* TCL_WIDE_INT_IS_LONG */
+#endif
 #ifdef TCL_COMPILE_STATS
 static int              EvalStatsCmd _ANSI_ARGS_((ClientData clientData,
-                            Tcl_Interp *interp, int objc,
-			    Tcl_Obj *CONST objv[]));
-#endif /* TCL_COMPILE_STATS */
+                            Tcl_Interp *interp, int argc, char **argv));
+#endif
 #ifdef TCL_COMPILE_DEBUG
 static char *		GetOpcodeName _ANSI_ARGS_((unsigned char *pc));
-#endif /* TCL_COMPILE_DEBUG */
+#endif
 static ExceptionRange *	GetExceptRangeForPc _ANSI_ARGS_((unsigned char *pc,
 			    int catchOnly, ByteCode* codePtr));
 static char *		GetSrcInfoForPc _ANSI_ARGS_((unsigned char *pc,
@@ -399,7 +398,7 @@ static char *		StringForResultCode _ANSI_ARGS_((int result));
 static void		ValidatePcAndStackTop _ANSI_ARGS_((
 			    ByteCode *codePtr, unsigned char *pc,
 			    int stackTop, int stackLowerBound));
-#endif /* TCL_COMPILE_DEBUG */
+#endif
 static int		VerifyExprObjType _ANSI_ARGS_((Tcl_Interp *interp,
 			    Tcl_Obj *objPtr));
 
@@ -479,8 +478,8 @@ InitByteCodeExecution(interp)
     }
 #endif
 #ifdef TCL_COMPILE_STATS    
-    Tcl_CreateObjCommand(interp, "evalstats", EvalStatsCmd,
-	    (ClientData) NULL, (Tcl_CmdDeleteProc *) NULL);
+    Tcl_CreateCommand(interp, "evalstats", EvalStatsCmd,
+		      (ClientData) NULL, (Tcl_CmdDeleteProc *) NULL);
 #endif /* TCL_COMPILE_STATS */
 }
 
@@ -5783,11 +5782,11 @@ TclLog2(value)
  */
 
 static int
-EvalStatsCmd(unused, interp, objc, objv)
+EvalStatsCmd(unused, interp, argc, argv)
     ClientData unused;		/* Unused. */
     Tcl_Interp *interp;		/* The current interpreter. */
-    int objc;			/* The number of arguments. */
-    Tcl_Obj *CONST objv[];	/* The argument strings. */
+    int argc;			/* The number of arguments. */
+    char **argv;		/* The argument strings. */
 {
     Interp *iPtr = (Interp *) interp;
     LiteralTable *globalTablePtr = &(iPtr->literalTable);

@@ -39,7 +39,7 @@ EXTERN int		TclAccessInsertProc _ANSI_ARGS_((
 /* 3 */
 EXTERN void		TclAllocateFreeObjects _ANSI_ARGS_((void));
 /* Slot 4 is reserved */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 /* 5 */
 EXTERN int		TclCleanupChildren _ANSI_ARGS_((Tcl_Interp * interp, 
 				int numPids, Tcl_Pid * pidPtr, 
@@ -51,6 +51,12 @@ EXTERN int		TclCleanupChildren _ANSI_ARGS_((Tcl_Interp * interp,
 				int numPids, Tcl_Pid * pidPtr, 
 				Tcl_Channel errorChan));
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 5 */
+EXTERN int		TclCleanupChildren _ANSI_ARGS_((Tcl_Interp * interp, 
+				int numPids, Tcl_Pid * pidPtr, 
+				Tcl_Channel errorChan));
+#endif /* __CYGWIN__ */
 /* 6 */
 EXTERN void		TclCleanupCommand _ANSI_ARGS_((Command * cmdPtr));
 /* 7 */
@@ -60,7 +66,7 @@ EXTERN int		TclCopyAndCollapse _ANSI_ARGS_((int count,
 EXTERN int		TclCopyChannel _ANSI_ARGS_((Tcl_Interp * interp, 
 				Tcl_Channel inChan, Tcl_Channel outChan, 
 				int toRead, Tcl_Obj * cmdPtr));
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 /* 9 */
 EXTERN int		TclCreatePipeline _ANSI_ARGS_((Tcl_Interp * interp, 
 				int argc, CONST char ** argv, 
@@ -74,6 +80,13 @@ EXTERN int		TclCreatePipeline _ANSI_ARGS_((Tcl_Interp * interp,
 				Tcl_Pid ** pidArrayPtr, TclFile * inPipePtr, 
 				TclFile * outPipePtr, TclFile * errFilePtr));
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 9 */
+EXTERN int		TclCreatePipeline _ANSI_ARGS_((Tcl_Interp * interp, 
+				int argc, CONST char ** argv, 
+				Tcl_Pid ** pidArrayPtr, TclFile * inPipePtr, 
+				TclFile * outPipePtr, TclFile * errFilePtr));
+#endif /* __CYGWIN__ */
 /* 10 */
 EXTERN int		TclCreateProc _ANSI_ARGS_((Tcl_Interp * interp, 
 				Namespace * nsPtr, CONST char * procName, 
@@ -285,14 +298,24 @@ EXTERN void		TclResetShadowedCmdRefs _ANSI_ARGS_((
 EXTERN int		TclServiceIdle _ANSI_ARGS_((void));
 /* Slot 99 is reserved */
 /* Slot 100 is reserved */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 /* 101 */
 EXTERN char *		TclSetPreInitScript _ANSI_ARGS_((char * string));
+#endif /* UNIX */
+#ifdef __WIN32__
+/* 101 */
+EXTERN char *		TclSetPreInitScript _ANSI_ARGS_((char * string));
+#endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 101 */
+EXTERN char *		TclSetPreInitScript _ANSI_ARGS_((char * string));
+#endif /* __CYGWIN__ */
 /* 102 */
 EXTERN void		TclSetupEnv _ANSI_ARGS_((Tcl_Interp * interp));
 /* 103 */
 EXTERN int		TclSockGetPort _ANSI_ARGS_((Tcl_Interp * interp, 
 				char * str, char * proto, int * portPtr));
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 /* 104 */
 EXTERN int		TclSockMinimumBuffers _ANSI_ARGS_((int sock, 
 				int size));
@@ -302,6 +325,11 @@ EXTERN int		TclSockMinimumBuffers _ANSI_ARGS_((int sock,
 EXTERN int		TclSockMinimumBuffers _ANSI_ARGS_((int sock, 
 				int size));
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 104 */
+EXTERN int		TclSockMinimumBuffers _ANSI_ARGS_((int sock, 
+				int size));
+#endif /* __CYGWIN__ */
 /* Slot 105 is reserved */
 /* 106 */
 EXTERN int		TclStatDeleteProc _ANSI_ARGS_((TclStatProc_ * proc));
@@ -506,24 +534,30 @@ typedef struct TclIntStubs {
     int (*tclAccessInsertProc) _ANSI_ARGS_((TclAccessProc_ * proc)); /* 2 */
     void (*tclAllocateFreeObjects) _ANSI_ARGS_((void)); /* 3 */
     void *reserved4;
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     int (*tclCleanupChildren) _ANSI_ARGS_((Tcl_Interp * interp, int numPids, Tcl_Pid * pidPtr, Tcl_Channel errorChan)); /* 5 */
 #endif /* UNIX */
 #ifdef __WIN32__
     int (*tclCleanupChildren) _ANSI_ARGS_((Tcl_Interp * interp, int numPids, Tcl_Pid * pidPtr, Tcl_Channel errorChan)); /* 5 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    int (*tclCleanupChildren) _ANSI_ARGS_((Tcl_Interp * interp, int numPids, Tcl_Pid * pidPtr, Tcl_Channel errorChan)); /* 5 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     void *reserved5;
 #endif /* MAC_TCL */
     void (*tclCleanupCommand) _ANSI_ARGS_((Command * cmdPtr)); /* 6 */
     int (*tclCopyAndCollapse) _ANSI_ARGS_((int count, CONST char * src, char * dst)); /* 7 */
     int (*tclCopyChannel) _ANSI_ARGS_((Tcl_Interp * interp, Tcl_Channel inChan, Tcl_Channel outChan, int toRead, Tcl_Obj * cmdPtr)); /* 8 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     int (*tclCreatePipeline) _ANSI_ARGS_((Tcl_Interp * interp, int argc, CONST char ** argv, Tcl_Pid ** pidArrayPtr, TclFile * inPipePtr, TclFile * outPipePtr, TclFile * errFilePtr)); /* 9 */
 #endif /* UNIX */
 #ifdef __WIN32__
     int (*tclCreatePipeline) _ANSI_ARGS_((Tcl_Interp * interp, int argc, CONST char ** argv, Tcl_Pid ** pidArrayPtr, TclFile * inPipePtr, TclFile * outPipePtr, TclFile * errFilePtr)); /* 9 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    int (*tclCreatePipeline) _ANSI_ARGS_((Tcl_Interp * interp, int argc, CONST char ** argv, Tcl_Pid ** pidArrayPtr, TclFile * inPipePtr, TclFile * outPipePtr, TclFile * errFilePtr)); /* 9 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     void *reserved9;
 #endif /* MAC_TCL */
@@ -618,15 +652,29 @@ typedef struct TclIntStubs {
     int (*tclServiceIdle) _ANSI_ARGS_((void)); /* 98 */
     void *reserved99;
     void *reserved100;
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     char * (*tclSetPreInitScript) _ANSI_ARGS_((char * string)); /* 101 */
+#endif /* UNIX */
+#ifdef __WIN32__
+    char * (*tclSetPreInitScript) _ANSI_ARGS_((char * string)); /* 101 */
+#endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    char * (*tclSetPreInitScript) _ANSI_ARGS_((char * string)); /* 101 */
+#endif /* __CYGWIN__ */
+#ifdef MAC_TCL
+    void *reserved101;
+#endif /* MAC_TCL */
     void (*tclSetupEnv) _ANSI_ARGS_((Tcl_Interp * interp)); /* 102 */
     int (*tclSockGetPort) _ANSI_ARGS_((Tcl_Interp * interp, char * str, char * proto, int * portPtr)); /* 103 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     int (*tclSockMinimumBuffers) _ANSI_ARGS_((int sock, int size)); /* 104 */
 #endif /* UNIX */
 #ifdef __WIN32__
     int (*tclSockMinimumBuffers) _ANSI_ARGS_((int sock, int size)); /* 104 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    int (*tclSockMinimumBuffers) _ANSI_ARGS_((int sock, int size)); /* 104 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     void *reserved104;
 #endif /* MAC_TCL */
@@ -727,7 +775,7 @@ extern TclIntStubs *tclIntStubsPtr;
 	(tclIntStubsPtr->tclAllocateFreeObjects) /* 3 */
 #endif
 /* Slot 4 is reserved */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 #ifndef TclCleanupChildren
 #define TclCleanupChildren \
 	(tclIntStubsPtr->tclCleanupChildren) /* 5 */
@@ -739,6 +787,12 @@ extern TclIntStubs *tclIntStubsPtr;
 	(tclIntStubsPtr->tclCleanupChildren) /* 5 */
 #endif
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef TclCleanupChildren
+#define TclCleanupChildren \
+	(tclIntStubsPtr->tclCleanupChildren) /* 5 */
+#endif
+#endif /* __CYGWIN__ */
 #ifndef TclCleanupCommand
 #define TclCleanupCommand \
 	(tclIntStubsPtr->tclCleanupCommand) /* 6 */
@@ -751,7 +805,7 @@ extern TclIntStubs *tclIntStubsPtr;
 #define TclCopyChannel \
 	(tclIntStubsPtr->tclCopyChannel) /* 8 */
 #endif
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 #ifndef TclCreatePipeline
 #define TclCreatePipeline \
 	(tclIntStubsPtr->tclCreatePipeline) /* 9 */
@@ -763,6 +817,12 @@ extern TclIntStubs *tclIntStubsPtr;
 	(tclIntStubsPtr->tclCreatePipeline) /* 9 */
 #endif
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef TclCreatePipeline
+#define TclCreatePipeline \
+	(tclIntStubsPtr->tclCreatePipeline) /* 9 */
+#endif
+#endif /* __CYGWIN__ */
 #ifndef TclCreateProc
 #define TclCreateProc \
 	(tclIntStubsPtr->tclCreateProc) /* 10 */
@@ -1031,10 +1091,24 @@ extern TclIntStubs *tclIntStubsPtr;
 #endif
 /* Slot 99 is reserved */
 /* Slot 100 is reserved */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 #ifndef TclSetPreInitScript
 #define TclSetPreInitScript \
 	(tclIntStubsPtr->tclSetPreInitScript) /* 101 */
 #endif
+#endif /* UNIX */
+#ifdef __WIN32__
+#ifndef TclSetPreInitScript
+#define TclSetPreInitScript \
+	(tclIntStubsPtr->tclSetPreInitScript) /* 101 */
+#endif
+#endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef TclSetPreInitScript
+#define TclSetPreInitScript \
+	(tclIntStubsPtr->tclSetPreInitScript) /* 101 */
+#endif
+#endif /* __CYGWIN__ */
 #ifndef TclSetupEnv
 #define TclSetupEnv \
 	(tclIntStubsPtr->tclSetupEnv) /* 102 */
@@ -1043,7 +1117,7 @@ extern TclIntStubs *tclIntStubsPtr;
 #define TclSockGetPort \
 	(tclIntStubsPtr->tclSockGetPort) /* 103 */
 #endif
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 #ifndef TclSockMinimumBuffers
 #define TclSockMinimumBuffers \
 	(tclIntStubsPtr->tclSockMinimumBuffers) /* 104 */
@@ -1055,6 +1129,12 @@ extern TclIntStubs *tclIntStubsPtr;
 	(tclIntStubsPtr->tclSockMinimumBuffers) /* 104 */
 #endif
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef TclSockMinimumBuffers
+#define TclSockMinimumBuffers \
+	(tclIntStubsPtr->tclSockMinimumBuffers) /* 104 */
+#endif
+#endif /* __CYGWIN__ */
 /* Slot 105 is reserved */
 #ifndef TclStatDeleteProc
 #define TclStatDeleteProc \

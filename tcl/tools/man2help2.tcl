@@ -868,7 +868,7 @@ proc THmacro {argList} {
     tab
     text $curSect
     font R
-    if {[info exists bitmap]} {
+    if {[info exist bitmap]} {
 	# a right justified bitmap
 	puts $file "\\\{bmrt $bitmap\\\}"
     }

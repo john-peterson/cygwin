@@ -260,11 +260,7 @@ CONST char *path;		/* Path to the executable in native
      * executable is run from a develpment directory.
      */
      
-    /* REDHAT LOCAL */
-    sprintf(installLib, "share/tcl%s", TCL_VERSION);
-    /* sprintf(installLib, "lib/tcl%s", TCL_VERSION); */
-    /* END REDHAT LOCAL */
-
+    sprintf(installLib, "lib/tcl%s", TCL_VERSION);
     sprintf(developLib, "tcl%s/library", TCL_PATCH_LEVEL);
 
     /*
@@ -408,9 +404,9 @@ CONST char *path;		/* Path to the executable in native
 			      
     {
 #ifdef HAVE_CFBUNDLE
-    char tclLibPath[MAXPATHLEN + 1];
+    char tclLibPath[1024];
     
-    if (Tcl_MacOSXGetLibraryPath(NULL, MAXPATHLEN, tclLibPath) == TCL_OK) {
+    if (Tcl_MacOSXGetLibraryPath(NULL, 1024, tclLibPath) == TCL_OK) {
         str = tclLibPath;
     } else
 #endif /* HAVE_CFBUNDLE */
@@ -704,60 +700,15 @@ TclpSetVariables(interp)
     Tcl_DString ds;
 
 #ifdef HAVE_CFBUNDLE
-    char tclLibPath[MAXPATHLEN + 1];
+    char tclLibPath[1024];
     
-    if (Tcl_MacOSXGetLibraryPath(interp, MAXPATHLEN, tclLibPath) == TCL_OK) {
-        CONST char *str;
-        Tcl_DString ds;
-        CFBundleRef bundleRef;
-
+    if (Tcl_MacOSXGetLibraryPath(interp, 1024, tclLibPath) == TCL_OK) {
         Tcl_SetVar(interp, "tclDefaultLibrary", tclLibPath, 
                 TCL_GLOBAL_ONLY);
         Tcl_SetVar(interp, "tcl_pkgPath", tclLibPath,
                 TCL_GLOBAL_ONLY);
         Tcl_SetVar(interp, "tcl_pkgPath", " ",
                 TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-        str = TclGetEnv("DYLD_FRAMEWORK_PATH", &ds);
-        if ((str != NULL) && (str[0] != '\0')) {
-            char *p = Tcl_DStringValue(&ds);
-            /* convert DYLD_FRAMEWORK_PATH from colon to space separated */
-            do {
-                if(*p == ':') *p = ' ';
-            } while (*p++);
-            Tcl_SetVar(interp, "tcl_pkgPath", Tcl_DStringValue(&ds),
-                    TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-            Tcl_SetVar(interp, "tcl_pkgPath", " ",
-                    TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-            Tcl_DStringFree(&ds);
-        }
-        if ((bundleRef = CFBundleGetMainBundle())) {
-            CFURLRef frameworksURL;
-            Tcl_StatBuf statBuf;
-            if((frameworksURL = CFBundleCopyPrivateFrameworksURL(bundleRef))) {
-                if(CFURLGetFileSystemRepresentation(frameworksURL, TRUE,
-                            tclLibPath, MAXPATHLEN) &&
-                        ! TclOSstat(tclLibPath, &statBuf) &&
-                        S_ISDIR(statBuf.st_mode)) {
-                    Tcl_SetVar(interp, "tcl_pkgPath", tclLibPath,
-                            TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-                    Tcl_SetVar(interp, "tcl_pkgPath", " ",
-                            TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-                }
-                CFRelease(frameworksURL);
-            }
-            if((frameworksURL = CFBundleCopySharedFrameworksURL(bundleRef))) {
-                if(CFURLGetFileSystemRepresentation(frameworksURL, TRUE,
-                            tclLibPath, MAXPATHLEN) &&
-                        ! TclOSstat(tclLibPath, &statBuf) &&
-                        S_ISDIR(statBuf.st_mode)) {
-                    Tcl_SetVar(interp, "tcl_pkgPath", tclLibPath,
-                            TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-                    Tcl_SetVar(interp, "tcl_pkgPath", " ",
-                            TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
-                }
-                CFRelease(frameworksURL);
-            }
-        }
         Tcl_SetVar(interp, "tcl_pkgPath", pkgPath,
                 TCL_GLOBAL_ONLY | TCL_APPEND_VALUE);
     } else

@@ -65,11 +65,6 @@ CONST TclFileAttrProcs tclpFileAttrProcs[] = {
 	{GetFileReadOnly, SetFileReadOnly},
 	{GetFileFinderAttributes, SetFileFinderAttributes}};
 
-/*
- * File specific static data
- */
-
-static long startSeed = 248923489;
 
 /*
  * Prototypes for procedure only used in this file
@@ -92,6 +87,8 @@ static int		DoRenameFile _ANSI_ARGS_((CONST char *src,
 			    CONST char *dst));
 OSErr			FSpGetFLockCompat _ANSI_ARGS_((const FSSpec *specPtr, 
 			    Boolean *lockedPtr));
+static OSErr		GenerateUniqueName _ANSI_ARGS_((short vRefNum, 
+			    long dirID1, long dirID2, Str31 uniqueName));
 static OSErr		GetFileSpecs _ANSI_ARGS_((CONST char *path, 
 			    FSSpec *pathSpecPtr, FSSpec *dirSpecPtr,	
 			    Boolean *pathExistsPtr, 
@@ -221,7 +218,7 @@ DoRenameFile(
 	        Str31 tmpName;
 	        FSSpec tmpFileSpec;
 
-	        err = GenerateUniqueName(dstFileSpec.vRefNum, &startSeed,
+	        err = GenerateUniqueName(dstFileSpec.vRefNum, 
 	        	dstFileSpec.parID, dstFileSpec.parID, tmpName);
 	        if (err == noErr) {
 	            err = FSpRenameCompat(&dstFileSpec, tmpName);
@@ -337,7 +334,7 @@ MoveRename(
          * dest directory, and rename temp to target.
          */
           
-        err = GenerateUniqueName(srcFileSpecPtr->vRefNum, &startSeed,
+        err = GenerateUniqueName(srcFileSpecPtr->vRefNum, 
        		srcFileSpecPtr->parID, dstID, tmpName);
         FSMakeFSSpecCompat(srcFileSpecPtr->vRefNum, srcFileSpecPtr->parID,
          	tmpName, &tmpSrcFileSpec);
@@ -439,7 +436,7 @@ DoCopyFile(
          * Backup dest file.
          */
          
-        dstErr = GenerateUniqueName(dstFileSpec.vRefNum, &startSeed, dstFileSpec.parID, 
+        dstErr = GenerateUniqueName(dstFileSpec.vRefNum, dstFileSpec.parID, 
     	        dstFileSpec.parID, tmpName);
         if (dstErr == noErr) {
             dstErr = FSpRenameCompat(&dstFileSpec, tmpName);
@@ -710,7 +707,7 @@ DoCopyDirectory(
         FSpRstFLockCompat(&srcFileSpec);
     }
     if (err == noErr) {
-        err = GenerateUniqueName(dstFileSpec.vRefNum, &startSeed, dstFileSpec.parID, 
+        err = GenerateUniqueName(dstFileSpec.vRefNum, dstFileSpec.parID, 
     	        dstFileSpec.parID, tmpName);
     }
     if (err == noErr) {
@@ -934,6 +931,69 @@ DoRemoveDirectory(
     return TCL_OK;
 }
 			    
+/*
+ *---------------------------------------------------------------------------
+ *
+ * GenerateUniqueName --
+ *
+ * 	Generate a filename that is not in either of the two specified
+ *	directories (on the same volume). 
+ *
+ * Results:
+ *	Standard macintosh error.  On success, uniqueName is filled with 
+ *	the name of the temporary file.
+ *
+ * Side effects:
+ *	None.
+ *
+ *---------------------------------------------------------------------------
+ */ 
+ 
+static OSErr
+GenerateUniqueName(
+    short vRefNum,		/* Volume on which the following directories
+    				 * are located. */		
+    long dirID1,		/* ID of first directory. */
+    long dirID2,		/* ID of second directory.  May be the same
+    				 * as the first. */
+    Str31 uniqueName)		/* Filled with filename for a file that is
+    				 * not located in either of the above two
+    				 * directories. */
+{
+    OSErr err;
+    long i;
+    CInfoPBRec pb;
+    static unsigned char hexStr[16] = "0123456789ABCDEF";
+    static long startSeed = 248923489;
+    
+    pb.hFileInfo.ioVRefNum = vRefNum;
+    pb.hFileInfo.ioFDirIndex = 0;
+    pb.hFileInfo.ioNamePtr = uniqueName;
+
+    while (1) {
+        startSeed++;		
+	pb.hFileInfo.ioNamePtr[0] = 8;
+	for (i = 1; i <= 8; i++) {
+	    pb.hFileInfo.ioNamePtr[i] = hexStr[((startSeed >> ((8-i)*4)) & 0xf)];
+	}
+	pb.hFileInfo.ioDirID = dirID1;
+	err = PBGetCatInfoSync(&pb);
+	if (err == fnfErr) {
+	    if (dirID1 != dirID2) {
+		pb.hFileInfo.ioDirID = dirID2;
+		err = PBGetCatInfoSync(&pb);
+	    }
+	    if (err == fnfErr) {
+	        return noErr;
+	    }
+	}
+	if (err == noErr) {
+	    continue;
+	} 
+	return err;
+    }
+} 
+
 /*
  *---------------------------------------------------------------------------
  *

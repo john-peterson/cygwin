@@ -103,7 +103,6 @@ proc tcl_findLibrary {basename version patch initScript enVarName varName} {
 		[string equal $::tcl_platform(os) "Darwin"]} {
 	    foreach d $::tcl_pkgPath {
 		lappend dirs [file join $d $basename$version]
-		lappend dirs [file join $d $basename$version Resources Scripts]
 	    }
 	}
     }

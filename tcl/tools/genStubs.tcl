@@ -122,7 +122,8 @@ proc genStubs::hooks {names} {
 # Arguments:
 #	index		The index number of the interface.
 #	platform	The platform the interface belongs to.  Should be one
-#			of generic, win, unix, or mac, or macosx or aqua or x11.
+#			of generic, win, cygwin, unix, or mac, or macosx or
+#                       aqua or x11.
 #	decl		The C function declaration, or {} for an undefined
 #			entry.
 #
@@ -175,7 +176,7 @@ proc genStubs::declare {args} {
 #	None.
 
 proc genStubs::rewriteFile {file text} {
-    if {![file exists $file]} {
+    if {![file exist $file]} {
 	puts stderr "Cannot find file: $file"
 	return
     }
@@ -220,8 +221,11 @@ proc genStubs::addPlatformGuard {plat text} {
 	win {
 	    return "#ifdef __WIN32__\n${text}#endif /* __WIN32__ */\n"
 	}
+        cygwin {
+	    return "#ifdef __CYGWIN__\n${text}#endif /* __CYGWIN__ */\n"
+        }
 	unix {
-	    return "#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */\n${text}#endif /* UNIX */\n"
+	    return "#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */\n${text}#endif /* UNIX */\n"
 	}		    
 	mac {
 	    return "#ifdef MAC_TCL\n${text}#endif /* MAC_TCL */\n"
@@ -233,7 +237,7 @@ proc genStubs::addPlatformGuard {plat text} {
 	    return "#ifdef MAC_OSX_TK\n${text}#endif /* MAC_OSX_TK */\n"
 	}
 	x11 {
-	    return "#if !(defined(__WIN32__) || defined(MAC_TCL) || defined(MAC_OSX_TK)) /* X11 */\n${text}#endif /* X11 */\n"
+	    return "#if !(defined(__WIN32__) || defined(__CYGWIN__) || defined(MAC_TCL) || defined(MAC_OSX_TK)) /* X11 */\n${text}#endif /* X11 */\n"
 	}
     }
     return "$text"
@@ -614,7 +618,7 @@ proc genStubs::forAllStubs {name slotProc onAll textVar \
 		append text [$slotProc $name $stubs($name,generic,$i) $i]
 		set emit 1
 	    } elseif {[llength $slots] > 0} {
-		foreach plat {unix win mac} {
+		foreach plat {unix win cygwin mac} {
 		    if {[info exists stubs($name,$plat,$i)]} {
 			append text [addPlatformGuard $plat \
 				[$slotProc $name $stubs($name,$plat,$i) $i]]
@@ -656,7 +660,7 @@ proc genStubs::forAllStubs {name slotProc onAll textVar \
 	
     } else {
 	# Emit separate stubs blocks per platform
-	foreach plat {unix win mac} {
+	foreach plat {unix win cygwin mac} {
 	    if {[info exists stubs($name,$plat,lastNum)]} {
 		set lastNum $stubs($name,$plat,lastNum)
 		set temp {}

@@ -27,7 +27,7 @@
  * Exported function declarations:
  */
 
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 /* 0 */
 EXTERN void		TclGetAndDetachPids _ANSI_ARGS_((Tcl_Interp * interp, 
 				Tcl_Channel chan));
@@ -138,6 +138,76 @@ EXTERN void		TclWinSetInterfaces _ANSI_ARGS_((int wide));
 /* 27 */
 EXTERN void		TclWinFlushDirtyChannels _ANSI_ARGS_((void));
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+/* 0 */
+EXTERN void		TclWinConvertError _ANSI_ARGS_((DWORD errCode));
+/* 1 */
+EXTERN void		TclWinConvertWSAError _ANSI_ARGS_((DWORD errCode));
+/* 2 */
+EXTERN struct servent *	 TclWinGetServByName _ANSI_ARGS_((CONST char * nm, 
+				CONST char * proto));
+/* 3 */
+EXTERN int		TclWinGetSockOpt _ANSI_ARGS_((SOCKET s, int level, 
+				int optname, char FAR * optval, 
+				int FAR * optlen));
+/* 4 */
+EXTERN HINSTANCE	TclWinGetTclInstance _ANSI_ARGS_((void));
+/* Slot 5 is reserved */
+/* 6 */
+EXTERN u_short		TclWinNToHS _ANSI_ARGS_((u_short ns));
+/* 7 */
+EXTERN int		TclWinSetSockOpt _ANSI_ARGS_((SOCKET s, int level, 
+				int optname, CONST char FAR * optval, 
+				int optlen));
+/* 8 */
+EXTERN unsigned long	TclpGetPid _ANSI_ARGS_((Tcl_Pid pid));
+/* 9 */
+EXTERN int		TclWinGetPlatformId _ANSI_ARGS_((void));
+/* Slot 10 is reserved */
+/* 11 */
+EXTERN void		TclGetAndDetachPids _ANSI_ARGS_((Tcl_Interp * interp, 
+				Tcl_Channel chan));
+/* 12 */
+EXTERN int		TclpCloseFile _ANSI_ARGS_((TclFile file));
+/* 13 */
+EXTERN Tcl_Channel	TclpCreateCommandChannel _ANSI_ARGS_((
+				TclFile readFile, TclFile writeFile, 
+				TclFile errorFile, int numPids, 
+				Tcl_Pid * pidPtr));
+/* 14 */
+EXTERN int		TclpCreatePipe _ANSI_ARGS_((TclFile * readPipe, 
+				TclFile * writePipe));
+/* 15 */
+EXTERN int		TclpCreateProcess _ANSI_ARGS_((Tcl_Interp * interp, 
+				int argc, CONST char ** argv, 
+				TclFile inputFile, TclFile outputFile, 
+				TclFile errorFile, Tcl_Pid * pidPtr));
+/* Slot 16 is reserved */
+/* Slot 17 is reserved */
+/* 18 */
+EXTERN TclFile		TclpMakeFile _ANSI_ARGS_((Tcl_Channel channel, 
+				int direction));
+/* 19 */
+EXTERN TclFile		TclpOpenFile _ANSI_ARGS_((CONST char * fname, 
+				int mode));
+/* 20 */
+EXTERN void		TclWinAddProcess _ANSI_ARGS_((HANDLE hProcess, 
+				DWORD id));
+/* Slot 21 is reserved */
+/* 22 */
+EXTERN TclFile		TclpCreateTempFile _ANSI_ARGS_((
+				CONST char * contents));
+/* 23 */
+EXTERN char *		TclpGetTZName _ANSI_ARGS_((int isdst));
+/* 24 */
+EXTERN char *		TclWinNoBackslash _ANSI_ARGS_((char * path));
+/* 25 */
+EXTERN TclPlatformType * TclWinGetPlatform _ANSI_ARGS_((void));
+/* 26 */
+EXTERN void		TclWinSetInterfaces _ANSI_ARGS_((int wide));
+/* 27 */
+EXTERN void		TclWinFlushDirtyChannels _ANSI_ARGS_((void));
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
 /* 0 */
 EXTERN VOID *		TclpSysAlloc _ANSI_ARGS_((long size, int isBin));
@@ -215,7 +285,7 @@ typedef struct TclIntPlatStubs {
     int magic;
     struct TclIntPlatStubHooks *hooks;
 
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     void (*tclGetAndDetachPids) _ANSI_ARGS_((Tcl_Interp * interp, Tcl_Channel chan)); /* 0 */
     int (*tclpCloseFile) _ANSI_ARGS_((TclFile file)); /* 1 */
     Tcl_Channel (*tclpCreateCommandChannel) _ANSI_ARGS_((TclFile readFile, TclFile writeFile, TclFile errorFile, int numPids, Tcl_Pid * pidPtr)); /* 2 */
@@ -261,6 +331,36 @@ typedef struct TclIntPlatStubs {
     void (*tclWinSetInterfaces) _ANSI_ARGS_((int wide)); /* 26 */
     void (*tclWinFlushDirtyChannels) _ANSI_ARGS_((void)); /* 27 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    void (*tclWinConvertError) _ANSI_ARGS_((DWORD errCode)); /* 0 */
+    void (*tclWinConvertWSAError) _ANSI_ARGS_((DWORD errCode)); /* 1 */
+    struct servent * (*tclWinGetServByName) _ANSI_ARGS_((CONST char * nm, CONST char * proto)); /* 2 */
+    int (*tclWinGetSockOpt) _ANSI_ARGS_((SOCKET s, int level, int optname, char FAR * optval, int FAR * optlen)); /* 3 */
+    HINSTANCE (*tclWinGetTclInstance) _ANSI_ARGS_((void)); /* 4 */
+    void *reserved5;
+    u_short (*tclWinNToHS) _ANSI_ARGS_((u_short ns)); /* 6 */
+    int (*tclWinSetSockOpt) _ANSI_ARGS_((SOCKET s, int level, int optname, CONST char FAR * optval, int optlen)); /* 7 */
+    unsigned long (*tclpGetPid) _ANSI_ARGS_((Tcl_Pid pid)); /* 8 */
+    int (*tclWinGetPlatformId) _ANSI_ARGS_((void)); /* 9 */
+    void *reserved10;
+    void (*tclGetAndDetachPids) _ANSI_ARGS_((Tcl_Interp * interp, Tcl_Channel chan)); /* 11 */
+    int (*tclpCloseFile) _ANSI_ARGS_((TclFile file)); /* 12 */
+    Tcl_Channel (*tclpCreateCommandChannel) _ANSI_ARGS_((TclFile readFile, TclFile writeFile, TclFile errorFile, int numPids, Tcl_Pid * pidPtr)); /* 13 */
+    int (*tclpCreatePipe) _ANSI_ARGS_((TclFile * readPipe, TclFile * writePipe)); /* 14 */
+    int (*tclpCreateProcess) _ANSI_ARGS_((Tcl_Interp * interp, int argc, CONST char ** argv, TclFile inputFile, TclFile outputFile, TclFile errorFile, Tcl_Pid * pidPtr)); /* 15 */
+    void *reserved16;
+    void *reserved17;
+    TclFile (*tclpMakeFile) _ANSI_ARGS_((Tcl_Channel channel, int direction)); /* 18 */
+    TclFile (*tclpOpenFile) _ANSI_ARGS_((CONST char * fname, int mode)); /* 19 */
+    void (*tclWinAddProcess) _ANSI_ARGS_((HANDLE hProcess, DWORD id)); /* 20 */
+    void *reserved21;
+    TclFile (*tclpCreateTempFile) _ANSI_ARGS_((CONST char * contents)); /* 22 */
+    char * (*tclpGetTZName) _ANSI_ARGS_((int isdst)); /* 23 */
+    char * (*tclWinNoBackslash) _ANSI_ARGS_((char * path)); /* 24 */
+    TclPlatformType * (*tclWinGetPlatform) _ANSI_ARGS_((void)); /* 25 */
+    void (*tclWinSetInterfaces) _ANSI_ARGS_((int wide)); /* 26 */
+    void (*tclWinFlushDirtyChannels) _ANSI_ARGS_((void)); /* 27 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     VOID * (*tclpSysAlloc) _ANSI_ARGS_((long size, int isBin)); /* 0 */
     void (*tclpSysFree) _ANSI_ARGS_((VOID * ptr)); /* 1 */
@@ -306,7 +406,7 @@ extern TclIntPlatStubs *tclIntPlatStubsPtr;
  * Inline function declarations:
  */
 
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
 #ifndef TclGetAndDetachPids
 #define TclGetAndDetachPids \
 	(tclIntPlatStubsPtr->tclGetAndDetachPids) /* 0 */
@@ -460,6 +560,105 @@ extern TclIntPlatStubs *tclIntPlatStubsPtr;
 	(tclIntPlatStubsPtr->tclWinFlushDirtyChannels) /* 27 */
 #endif
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+#ifndef TclWinConvertError
+#define TclWinConvertError \
+	(tclIntPlatStubsPtr->tclWinConvertError) /* 0 */
+#endif
+#ifndef TclWinConvertWSAError
+#define TclWinConvertWSAError \
+	(tclIntPlatStubsPtr->tclWinConvertWSAError) /* 1 */
+#endif
+#ifndef TclWinGetServByName
+#define TclWinGetServByName \
+	(tclIntPlatStubsPtr->tclWinGetServByName) /* 2 */
+#endif
+#ifndef TclWinGetSockOpt
+#define TclWinGetSockOpt \
+	(tclIntPlatStubsPtr->tclWinGetSockOpt) /* 3 */
+#endif
+#ifndef TclWinGetTclInstance
+#define TclWinGetTclInstance \
+	(tclIntPlatStubsPtr->tclWinGetTclInstance) /* 4 */
+#endif
+/* Slot 5 is reserved */
+#ifndef TclWinNToHS
+#define TclWinNToHS \
+	(tclIntPlatStubsPtr->tclWinNToHS) /* 6 */
+#endif
+#ifndef TclWinSetSockOpt
+#define TclWinSetSockOpt \
+	(tclIntPlatStubsPtr->tclWinSetSockOpt) /* 7 */
+#endif
+#ifndef TclpGetPid
+#define TclpGetPid \
+	(tclIntPlatStubsPtr->tclpGetPid) /* 8 */
+#endif
+#ifndef TclWinGetPlatformId
+#define TclWinGetPlatformId \
+	(tclIntPlatStubsPtr->tclWinGetPlatformId) /* 9 */
+#endif
+/* Slot 10 is reserved */
+#ifndef TclGetAndDetachPids
+#define TclGetAndDetachPids \
+	(tclIntPlatStubsPtr->tclGetAndDetachPids) /* 11 */
+#endif
+#ifndef TclpCloseFile
+#define TclpCloseFile \
+	(tclIntPlatStubsPtr->tclpCloseFile) /* 12 */
+#endif
+#ifndef TclpCreateCommandChannel
+#define TclpCreateCommandChannel \
+	(tclIntPlatStubsPtr->tclpCreateCommandChannel) /* 13 */
+#endif
+#ifndef TclpCreatePipe
+#define TclpCreatePipe \
+	(tclIntPlatStubsPtr->tclpCreatePipe) /* 14 */
+#endif
+#ifndef TclpCreateProcess
+#define TclpCreateProcess \
+	(tclIntPlatStubsPtr->tclpCreateProcess) /* 15 */
+#endif
+/* Slot 16 is reserved */
+/* Slot 17 is reserved */
+#ifndef TclpMakeFile
+#define TclpMakeFile \
+	(tclIntPlatStubsPtr->tclpMakeFile) /* 18 */
+#endif
+#ifndef TclpOpenFile
+#define TclpOpenFile \
+	(tclIntPlatStubsPtr->tclpOpenFile) /* 19 */
+#endif
+#ifndef TclWinAddProcess
+#define TclWinAddProcess \
+	(tclIntPlatStubsPtr->tclWinAddProcess) /* 20 */
+#endif
+/* Slot 21 is reserved */
+#ifndef TclpCreateTempFile
+#define TclpCreateTempFile \
+	(tclIntPlatStubsPtr->tclpCreateTempFile) /* 22 */
+#endif
+#ifndef TclpGetTZName
+#define TclpGetTZName \
+	(tclIntPlatStubsPtr->tclpGetTZName) /* 23 */
+#endif
+#ifndef TclWinNoBackslash
+#define TclWinNoBackslash \
+	(tclIntPlatStubsPtr->tclWinNoBackslash) /* 24 */
+#endif
+#ifndef TclWinGetPlatform
+#define TclWinGetPlatform \
+	(tclIntPlatStubsPtr->tclWinGetPlatform) /* 25 */
+#endif
+#ifndef TclWinSetInterfaces
+#define TclWinSetInterfaces \
+	(tclIntPlatStubsPtr->tclWinSetInterfaces) /* 26 */
+#endif
+#ifndef TclWinFlushDirtyChannels
+#define TclWinFlushDirtyChannels \
+	(tclIntPlatStubsPtr->tclWinFlushDirtyChannels) /* 27 */
+#endif
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
 #ifndef TclpSysAlloc
 #define TclpSysAlloc \

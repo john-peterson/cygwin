@@ -52,24 +52,30 @@ TclIntStubs tclIntStubs = {
     TclAccessInsertProc, /* 2 */
     TclAllocateFreeObjects, /* 3 */
     NULL, /* 4 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     TclCleanupChildren, /* 5 */
 #endif /* UNIX */
 #ifdef __WIN32__
     TclCleanupChildren, /* 5 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TclCleanupChildren, /* 5 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 5 */
 #endif /* MAC_TCL */
     TclCleanupCommand, /* 6 */
     TclCopyAndCollapse, /* 7 */
     TclCopyChannel, /* 8 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     TclCreatePipeline, /* 9 */
 #endif /* UNIX */
 #ifdef __WIN32__
     TclCreatePipeline, /* 9 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TclCreatePipeline, /* 9 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 9 */
 #endif /* MAC_TCL */
@@ -164,15 +170,29 @@ TclIntStubs tclIntStubs = {
     TclServiceIdle, /* 98 */
     NULL, /* 99 */
     NULL, /* 100 */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     TclSetPreInitScript, /* 101 */
+#endif /* UNIX */
+#ifdef __WIN32__
+    TclSetPreInitScript, /* 101 */
+#endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TclSetPreInitScript, /* 101 */
+#endif /* __CYGWIN__ */
+#ifdef MAC_TCL
+    NULL, /* 101 */
+#endif /* MAC_TCL */
     TclSetupEnv, /* 102 */
     TclSockGetPort, /* 103 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     TclSockMinimumBuffers, /* 104 */
 #endif /* UNIX */
 #ifdef __WIN32__
     TclSockMinimumBuffers, /* 104 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TclSockMinimumBuffers, /* 104 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 104 */
 #endif /* MAC_TCL */
@@ -248,7 +268,7 @@ TclIntStubs tclIntStubs = {
 TclIntPlatStubs tclIntPlatStubs = {
     TCL_STUB_MAGIC,
     NULL,
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     TclGetAndDetachPids, /* 0 */
     TclpCloseFile, /* 1 */
     TclpCreateCommandChannel, /* 2 */
@@ -294,6 +314,36 @@ TclIntPlatStubs tclIntPlatStubs = {
     TclWinSetInterfaces, /* 26 */
     TclWinFlushDirtyChannels, /* 27 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    TclWinConvertError, /* 0 */
+    TclWinConvertWSAError, /* 1 */
+    TclWinGetServByName, /* 2 */
+    TclWinGetSockOpt, /* 3 */
+    TclWinGetTclInstance, /* 4 */
+    NULL, /* 5 */
+    TclWinNToHS, /* 6 */
+    TclWinSetSockOpt, /* 7 */
+    TclpGetPid, /* 8 */
+    TclWinGetPlatformId, /* 9 */
+    NULL, /* 10 */
+    TclGetAndDetachPids, /* 11 */
+    TclpCloseFile, /* 12 */
+    TclpCreateCommandChannel, /* 13 */
+    TclpCreatePipe, /* 14 */
+    TclpCreateProcess, /* 15 */
+    NULL, /* 16 */
+    NULL, /* 17 */
+    TclpMakeFile, /* 18 */
+    TclpOpenFile, /* 19 */
+    TclWinAddProcess, /* 20 */
+    NULL, /* 21 */
+    TclpCreateTempFile, /* 22 */
+    TclpGetTZName, /* 23 */
+    TclWinNoBackslash, /* 24 */
+    TclWinGetPlatform, /* 25 */
+    TclWinSetInterfaces, /* 26 */
+    TclWinFlushDirtyChannels, /* 27 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     TclpSysAlloc, /* 0 */
     TclpSysFree, /* 1 */
@@ -332,6 +382,10 @@ TclPlatStubs tclPlatStubs = {
     Tcl_WinUtfToTChar, /* 0 */
     Tcl_WinTCharToUtf, /* 1 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    Tcl_WinUtfToTChar, /* 0 */
+    Tcl_WinTCharToUtf, /* 1 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     Tcl_MacSetEventProc, /* 0 */
     Tcl_MacConvertTextResource, /* 1 */
@@ -366,21 +420,27 @@ TclStubs tclStubs = {
     Tcl_DbCkalloc, /* 6 */
     Tcl_DbCkfree, /* 7 */
     Tcl_DbCkrealloc, /* 8 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_CreateFileHandler, /* 9 */
 #endif /* UNIX */
 #ifdef __WIN32__
     NULL, /* 9 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    NULL, /* 9 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 9 */
 #endif /* MAC_TCL */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_DeleteFileHandler, /* 10 */
 #endif /* UNIX */
 #ifdef __WIN32__
     NULL, /* 10 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    NULL, /* 10 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 10 */
 #endif /* MAC_TCL */
@@ -484,12 +544,15 @@ TclStubs tclStubs = {
     Tcl_DeleteHashEntry, /* 108 */
     Tcl_DeleteHashTable, /* 109 */
     Tcl_DeleteInterp, /* 110 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_DetachPids, /* 111 */
 #endif /* UNIX */
 #ifdef __WIN32__
     Tcl_DetachPids, /* 111 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    Tcl_DetachPids, /* 111 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 111 */
 #endif /* MAC_TCL */
@@ -548,12 +611,15 @@ TclStubs tclStubs = {
     Tcl_GetMaster, /* 164 */
     Tcl_GetNameOfExecutable, /* 165 */
     Tcl_GetObjResult, /* 166 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_GetOpenFile, /* 167 */
 #endif /* UNIX */
 #ifdef __WIN32__
     NULL, /* 167 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    NULL, /* 167 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 167 */
 #endif /* MAC_TCL */
@@ -586,12 +652,15 @@ TclStubs tclStubs = {
     Tcl_NotifyChannel, /* 194 */
     Tcl_ObjGetVar2, /* 195 */
     Tcl_ObjSetVar2, /* 196 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_OpenCommandChannel, /* 197 */
 #endif /* UNIX */
 #ifdef __WIN32__
     Tcl_OpenCommandChannel, /* 197 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    Tcl_OpenCommandChannel, /* 197 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 197 */
 #endif /* MAC_TCL */
@@ -604,12 +673,15 @@ TclStubs tclStubs = {
     Tcl_PosixError, /* 204 */
     Tcl_QueueEvent, /* 205 */
     Tcl_Read, /* 206 */
-#if !defined(__WIN32__) && !defined(MAC_TCL) /* UNIX */
+#if !defined(__WIN32__) && !defined(MAC_TCL) && !defined(__CYGWIN__)/* UNIX */
     Tcl_ReapDetachedProcs, /* 207 */
 #endif /* UNIX */
 #ifdef __WIN32__
     Tcl_ReapDetachedProcs, /* 207 */
 #endif /* __WIN32__ */
+#ifdef __CYGWIN__
+    Tcl_ReapDetachedProcs, /* 207 */
+#endif /* __CYGWIN__ */
 #ifdef MAC_TCL
     NULL, /* 207 */
 #endif /* MAC_TCL */

@@ -42,7 +42,7 @@ declare 3 generic {
 #  declare 4 generic {   
 #      int TclChdir(Tcl_Interp *interp, char *dirName)
 #  }
-declare 5 {unix win} {
+declare 5 {unix win cygwin} {
     int TclCleanupChildren(Tcl_Interp *interp, int numPids, Tcl_Pid *pidPtr,
 	    Tcl_Channel errorChan)
 }
@@ -59,7 +59,7 @@ declare 8 generic {
 
 # TclCreatePipeline unofficially exported for use by BLT.
 
-declare 9 {unix win} {
+declare 9 {unix win cygwin} {
     int TclCreatePipeline(Tcl_Interp *interp, int argc, CONST char **argv,
 	    Tcl_Pid **pidArrayPtr, TclFile *inPipePtr, TclFile *outPipePtr,
 	    TclFile *errFilePtr)
@@ -399,7 +399,7 @@ declare 98 generic {
 #    Tcl_Obj * TclSetIndexedScalar(Tcl_Interp *interp, int localIndex,
 #	    Tcl_Obj *objPtr, int flags)
 #}
-declare 101 generic {
+declare 101 {unix win cygwin} {
     char * TclSetPreInitScript(char *string)
 }
 declare 102 generic {
@@ -409,7 +409,7 @@ declare 103 generic {
     int TclSockGetPort(Tcl_Interp *interp, char *str, char *proto,
 	    int *portPtr)
 }
-declare 104 {unix win} {
+declare 104 {unix win cygwin} {
     int TclSockMinimumBuffers(int sock, int size)
 }
 # Replaced by Tcl_FSStat in 8.4:
@@ -807,38 +807,38 @@ declare 26 mac {
 ############################
 # Windows specific internals
 
-declare 0 win {
+declare 0 {win cygwin} {
     void TclWinConvertError(DWORD errCode)
 }
-declare 1 win {
+declare 1 {win cygwin} {
     void TclWinConvertWSAError(DWORD errCode)
 }
-declare 2 win {
+declare 2 {win cygwin} {
     struct servent * TclWinGetServByName(CONST char *nm,
 	    CONST char *proto)
 }
-declare 3 win {
+declare 3 {win cygwin} {
     int TclWinGetSockOpt(SOCKET s, int level, int optname,
 	    char FAR * optval, int FAR *optlen)
 }
-declare 4 win {
+declare 4 {win cygwin} {
     HINSTANCE TclWinGetTclInstance(void)
 }
 # Removed in 8.1:
 #  declare 5 win {
 #      HINSTANCE TclWinLoadLibrary(char *name)
 #  }
-declare 6 win {
+declare 6 {win cygwin} {
     u_short TclWinNToHS(u_short ns)
 }
-declare 7 win {
+declare 7 {win cygwin} {
     int TclWinSetSockOpt(SOCKET s, int level, int optname,
 	    CONST char FAR * optval, int optlen)
 }
-declare 8 win {
+declare 8 {win cygwin} {
     unsigned long TclpGetPid(Tcl_Pid pid)
 }
-declare 9 win {
+declare 9 {win cygwin} {
     int TclWinGetPlatformId(void)
 }
 # Removed in 8.3.1 (for Win32s only)
@@ -848,20 +848,20 @@ declare 9 win {
 
 # Pipe channel functions
 
-declare 11 win {
+declare 11 {win cygwin} {
     void TclGetAndDetachPids(Tcl_Interp *interp, Tcl_Channel chan)
 }
-declare 12 win {
+declare 12 {win cygwin} {
     int TclpCloseFile(TclFile file)
 }
-declare 13 win {
+declare 13 {win cygwin} {
     Tcl_Channel TclpCreateCommandChannel(TclFile readFile,
 	    TclFile writeFile, TclFile errorFile, int numPids, Tcl_Pid *pidPtr)
 }
-declare 14 win {
+declare 14 {win cygwin} {
     int TclpCreatePipe(TclFile *readPipe, TclFile *writePipe)
 }
-declare 15 win {
+declare 15 {win cygwin} {
     int TclpCreateProcess(Tcl_Interp *interp, int argc, CONST char **argv,
 	    TclFile inputFile, TclFile outputFile, TclFile errorFile,
 	    Tcl_Pid *pidPtr)
@@ -873,13 +873,13 @@ declare 15 win {
 #  declare 17 win {
 #      char * TclpGetTZName(void)
 #  }
-declare 18 win {
+declare 18 {win cygwin} {
     TclFile TclpMakeFile(Tcl_Channel channel, int direction)
 }
-declare 19 win {
+declare 19 {win cygwin} {
     TclFile TclpOpenFile(CONST char *fname, int mode)
 }
-declare 20 win {
+declare 20 {win cygwin} {
     void TclWinAddProcess(HANDLE hProcess, DWORD id)
 }
 
@@ -889,25 +889,25 @@ declare 20 win {
 #}
 
 # Added in 8.1:
-declare 22 win {
+declare 22 {win cygwin} {
     TclFile TclpCreateTempFile(CONST char *contents)
 }
-declare 23 win {
+declare 23 {win cygwin} {
     char * TclpGetTZName(int isdst)
 }
-declare 24 win {
+declare 24 {win cygwin} {
     char * TclWinNoBackslash(char *path)
 }
-declare 25 win {
+declare 25 {win cygwin} {
     TclPlatformType *TclWinGetPlatform(void)
 }
-declare 26 win {
+declare 26 {win cygwin} {
     void TclWinSetInterfaces(int wide)
 }
 
 # Added in Tcl 8.3.3 / 8.4
 
-declare 27 win {
+declare 27 {win cygwin} {
     void TclWinFlushDirtyChannels (void)
 }
 

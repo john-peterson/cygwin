@@ -17,9 +17,6 @@
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
-#ifdef __CYGWIN__
-#include <sys/cygwin.h>
-#endif
 
 /*
  * The following variable is used to tell whether this module has been
@@ -1227,12 +1224,6 @@ TclpCreateProcess(
      */
 
     BuildCommandLine(execPath, argc, argv, &cmdLine);
-
-#if defined(__CYGWIN__) && \
-    (CYGWIN_VERSION_API_MAJOR > 0 || CYGWIN_VERSION_API_MINOR >= 154)
-    /* Only available in Cygwin 1.5.20+. */
-    cygwin_internal (CW_SYNC_WINENV);
-#endif
 
     if ((*tclWinProcs->createProcessProc)(NULL, 
 	    (TCHAR *) Tcl_DStringValue(&cmdLine), NULL, NULL, TRUE, 

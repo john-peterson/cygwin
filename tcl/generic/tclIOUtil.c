@@ -25,7 +25,7 @@
 #ifdef MAC_TCL
 #include "tclMacInt.h"
 #endif
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
 /* for tclWinProcs->useWide */
 #include "tclWinInt.h"
 #endif
@@ -3947,28 +3947,6 @@ SetFsPathFromAny(interp, objPtr)
 	transPtr = Tcl_FSJoinToPath(objPtr,0,NULL);
     }
 
-#if defined(__CYGWIN__) && defined(__WIN32__)
-    {
-
-    extern int cygwin_conv_to_win32_path 
-	_ANSI_ARGS_((CONST char *, char *));
-    char winbuf[MAX_PATH+1];
-
-    /*
-     * In the Cygwin world, call conv_to_win32_path in order to use the
-     * mount table to translate the file name into something Windows will
-     * understand.  Take care when converting empty strings!
-     */
-    name = Tcl_GetStringFromObj(transPtr, &len);
-    if (len > 0) {
-	cygwin_conv_to_win32_path(name, winbuf);
-	TclWinNoBackslash(winbuf);
-	Tcl_SetStringObj(transPtr, winbuf, -1);
-    }
-
-    }
-#endif /* __CYGWIN__ && __WIN32__ */
-
     /* 
      * Now we have a translated filename in 'transPtr'.  This will have
      * forward slashes on Windows, and will not contain any ~user
@@ -4509,7 +4487,7 @@ NativeCreateNativeRep(pathObjPtr)
     normPtr = Tcl_FSGetNormalizedPath(NULL, pathObjPtr);
 
     str = Tcl_GetStringFromObj(normPtr,&len);
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     Tcl_WinUtfToTChar(str, len, &ds);
     if (tclWinProcs->useWide) {
 	nativePathPtr = ckalloc((unsigned)(sizeof(WCHAR)+Tcl_DStringLength(&ds)));
@@ -4556,7 +4534,7 @@ TclpNativeToNormalized(clientData)
     CONST char *copy;
     int len;
     
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     Tcl_WinTCharToUtf((CONST char*)clientData, -1, &ds);
 #else
     Tcl_ExternalToUtfDString(NULL, (CONST char*)clientData, -1, &ds);
@@ -4565,7 +4543,7 @@ TclpNativeToNormalized(clientData)
     copy = Tcl_DStringValue(&ds);
     len = Tcl_DStringLength(&ds);
 
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     /* 
      * Certain native path representations on Windows have this special
      * prefix to indicate that they are to be treated specially.  For
@@ -4616,7 +4594,7 @@ NativeDupInternalRep(clientData)
 	return NULL;
     }
 
-#ifdef __WIN32__
+#if defined(__WIN32__) || defined(__CYGWIN__)
     if (tclWinProcs->useWide) {
 	/* unicode representation when running on NT/2K/XP */
 	len = sizeof(WCHAR) + (wcslen((CONST WCHAR*)clientData) * sizeof(WCHAR));
