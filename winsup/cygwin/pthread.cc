@@ -1,7 +1,6 @@
 /* pthread.cc: posix pthread interface for Cygwin
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2008, 2010, 2011,
-   2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
    Originally written by Marco Fuykschot <marco@ddi.nl>
 
@@ -13,12 +12,13 @@
 
 #include "winsup.h"
 #include "thread.h"
+#include "errno.h"
 
 extern "C"
 {
 /*  ThreadCreation */
 int
-pthread_create (pthread_t *thread, const pthread_attr_t *attr,
+pthread_create (pthread_t * thread, const pthread_attr_t * attr,
 		void *(*start_routine) (void *), void *arg)
 {
   return pthread::create (thread, attr, start_routine, arg);
@@ -40,8 +40,7 @@ pthread_atfork (void (*prepare)(void), void (*parent)(void), void (*child)(void)
 void
 pthread_exit (void *value_ptr)
 {
-  pthread::self ()->exit (value_ptr);
-  __builtin_unreachable ();	/* FIXME: don't know why this is necessary */
+  return pthread::self ()->exit (value_ptr);
 }
 
 int
@@ -74,7 +73,7 @@ pthread_continue (pthread_t thread)
 unsigned long
 pthread_getsequence_np (pthread_t * thread)
 {
-  if (!pthread::is_good_object (thread))
+  if (!pthread::isGoodObject (thread))
     return EINVAL;
   return (*thread)->getsequence_np ();
 }
@@ -90,16 +89,8 @@ pthread_t pthread_self ()
 int
 pthread_mutex_init (pthread_mutex_t * mutex, const pthread_mutexattr_t * attr)
 {
-  return pthread_mutex::init (mutex, attr, NULL);
+  return pthread_mutex::init (mutex, attr);
 }
-
-/* Spinlocks */
-int
-pthread_spin_init (pthread_spinlock_t *spinlock, int pshared)
-{
-  return pthread_spinlock::init (spinlock, pshared);
-}
-
 
 /* Synchronisation */
 int
@@ -136,7 +127,7 @@ pthread_setcanceltype (int type, int *oldtype)
 }
 
 void
-pthread_testcancel ()
+pthread_testcancel (void)
 {
   pthread::self ()->testcancel ();
 }
@@ -179,21 +170,9 @@ sem_trywait (sem_t * sem)
 }
 
 int
-sem_timedwait (sem_t * sem, const struct timespec *abstime)
-{
-  return semaphore::timedwait (sem, abstime);
-}
-
-int
 sem_post (sem_t * sem)
 {
   return semaphore::post (sem);
-}
-
-int
-sem_getvalue (sem_t * sem, int *sval)
-{
-  return semaphore::getvalue (sem, sval);
 }
 
 }
