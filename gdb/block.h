@@ -1,12 +1,13 @@
-/* Code dealing with blocks for GDB.
-
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+/* Block definitions for GDB.
+   Copyright 1986, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996,
+   1997, 1998, 1999, 2000, 2001, 2002
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,21 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-
-#ifndef BLOCK_H
-#define BLOCK_H
-
-#include "dictionary.h"
-
-/* Opaque declarations.  */
-
-struct symbol;
-struct symtab;
-struct block_namespace_info;
-struct using_direct;
-struct obstack;
-struct addrmap;
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* All of the name-scope contours of the program
    are represented by `struct block' objects.
@@ -57,6 +46,12 @@ struct addrmap;
    This implies that within the body of one function
    the blocks appear in the order of a depth-first tree walk.  */
 
+/* Opaque declarations.  */
+
+struct symbol;
+struct dictionary;
+struct using_direct_node;
+
 struct block
 {
 
@@ -66,7 +61,7 @@ struct block
   CORE_ADDR endaddr;
 
   /* The symbol that names this block, if the block is the body of a
-     function (real or inlined); otherwise, zero.  */
+     function; otherwise, zero.  */
 
   struct symbol *function;
 
@@ -88,30 +83,28 @@ struct block
   {
     struct
     {
-      /* Contains information about namespace-related info relevant to
-	 this block: using directives and the current namespace
-	 scope.  */
+      /* Contains information about what using directives or other
+	 similar features are added by this block.  This should always
+	 be NULL for global blocks: if there are using directives that
+	 affect an entire file, put it in the static block.  */
       
-      struct block_namespace_info *namespace;
+      struct using_direct_node *using;
     }
     cplus_specific;
   }
   language_specific;
-};
 
-/* The global block is singled out so that we can provide a back-link
-   to the primary symtab.  */
+  /* Version of GCC used to compile the function corresponding
+     to this block, or 0 if not compiled with GCC.  When possible,
+     GCC should be compatible with the native compiler, or if that
+     is not feasible, the differences should be fixed during symbol
+     reading.  As of 16 Apr 93, this flag is never used to distinguish
+     between gcc2 and the native compiler.
 
-struct global_block
-{
-  /* The block.  */
+     If there is no function corresponding to this block, this meaning
+     of this flag is undefined.  */
 
-  struct block block;
-
-  /* This holds a pointer to the primary symtab holding this
-     block.  */
-
-  struct symtab *symtab;
+  unsigned char gcc_compile_flag;
 };
 
 #define BLOCK_START(bl)		(bl)->startaddr
@@ -119,164 +112,27 @@ struct global_block
 #define BLOCK_FUNCTION(bl)	(bl)->function
 #define BLOCK_SUPERBLOCK(bl)	(bl)->superblock
 #define BLOCK_DICT(bl)		(bl)->dict
-#define BLOCK_NAMESPACE(bl)   (bl)->language_specific.cplus_specific.namespace
+#define BLOCK_USING(bl)		(bl)->language_specific.cplus_specific.using
+#define BLOCK_GCC_COMPILED(bl)	(bl)->gcc_compile_flag
 
 struct blockvector
 {
   /* Number of blocks in the list.  */
   int nblocks;
-  /* An address map mapping addresses to blocks in this blockvector.
-     This pointer is zero if the blocks' start and end addresses are
-     enough.  */
-  struct addrmap *map;
   /* The blocks themselves.  */
   struct block *block[1];
 };
 
 #define BLOCKVECTOR_NBLOCKS(blocklist) (blocklist)->nblocks
 #define BLOCKVECTOR_BLOCK(blocklist,n) (blocklist)->block[n]
-#define BLOCKVECTOR_MAP(blocklist) ((blocklist)->map)
 
-extern struct symbol *block_linkage_function (const struct block *);
+/* Special block numbers */
 
-extern struct symbol *block_containing_function (const struct block *);
+#define GLOBAL_BLOCK		0
+#define	STATIC_BLOCK		1
+#define	FIRST_LOCAL_BLOCK	2
 
-extern int block_inlined_p (const struct block *block);
+extern struct symbol *block_function (struct block *);
 
-extern int contained_in (const struct block *, const struct block *);
+extern int contained_in (struct block *, struct block *);
 
-extern struct blockvector *blockvector_for_pc (CORE_ADDR, struct block **);
-
-extern struct blockvector *blockvector_for_pc_sect (CORE_ADDR, 
-						    struct obj_section *,
-						    struct block **,
-                                                    struct symtab *);
-
-extern int blockvector_contains_pc (struct blockvector *bv, CORE_ADDR pc);
-
-extern struct call_site *call_site_for_pc (struct gdbarch *gdbarch,
-					   CORE_ADDR pc);
-
-extern struct block *block_for_pc (CORE_ADDR);
-
-extern struct block *block_for_pc_sect (CORE_ADDR, struct obj_section *);
-
-extern const char *block_scope (const struct block *block);
-
-extern void block_set_scope (struct block *block, const char *scope,
-			     struct obstack *obstack);
-
-extern struct using_direct *block_using (const struct block *block);
-
-extern void block_set_using (struct block *block,
-			     struct using_direct *using,
-			     struct obstack *obstack);
-
-extern const struct block *block_static_block (const struct block *block);
-
-extern const struct block *block_global_block (const struct block *block);
-
-extern struct block *allocate_block (struct obstack *obstack);
-
-extern struct block *allocate_global_block (struct obstack *obstack);
-
-extern void set_block_symtab (struct block *, struct symtab *);
-
-/* A block iterator.  This structure should be treated as though it
-   were opaque; it is only defined here because we want to support
-   stack allocation of iterators.  */
-
-struct block_iterator
-{
-  /* If we're iterating over a single block, this holds the block.
-     Otherwise, it holds the canonical symtab.  */
-
-  union
-  {
-    struct symtab *symtab;
-    const struct block *block;
-  } d;
-
-  /* If we're iterating over a single block, this is always -1.
-     Otherwise, it holds the index of the current "included" symtab in
-     the canonical symtab (that is, d.symtab->includes[idx]), with -1
-     meaning the canonical symtab itself.  */
-
-  int idx;
-
-  /* Which block, either static or global, to iterate over.  If this
-     is FIRST_LOCAL_BLOCK, then we are iterating over a single block.
-     This is used to select which field of 'd' is in use.  */
-
-  enum block_enum which;
-
-  /* The underlying dictionary iterator.  */
-
-  struct dict_iterator dict_iter;
-};
-
-/* Initialize ITERATOR to point at the first symbol in BLOCK, and
-   return that first symbol, or NULL if BLOCK is empty.  */
-
-extern struct symbol *block_iterator_first (const struct block *block,
-					    struct block_iterator *iterator);
-
-/* Advance ITERATOR, and return the next symbol, or NULL if there are
-   no more symbols.  Don't call this if you've previously received
-   NULL from block_iterator_first or block_iterator_next on this
-   iteration.  */
-
-extern struct symbol *block_iterator_next (struct block_iterator *iterator);
-
-/* Initialize ITERATOR to point at the first symbol in BLOCK whose
-   SYMBOL_SEARCH_NAME is NAME (as tested using strcmp_iw), and return
-   that first symbol, or NULL if there are no such symbols.  */
-
-extern struct symbol *block_iter_name_first (const struct block *block,
-					     const char *name,
-					     struct block_iterator *iterator);
-
-/* Advance ITERATOR to point at the next symbol in BLOCK whose
-   SYMBOL_SEARCH_NAME is NAME (as tested using strcmp_iw), or NULL if
-   there are no more such symbols.  Don't call this if you've
-   previously received NULL from block_iterator_first or
-   block_iterator_next on this iteration.  And don't call it unless
-   ITERATOR was created by a previous call to block_iter_name_first
-   with the same NAME.  */
-
-extern struct symbol *block_iter_name_next (const char *name,
-					    struct block_iterator *iterator);
-
-/* Initialize ITERATOR to point at the first symbol in BLOCK whose
-   SYMBOL_SEARCH_NAME is NAME, as tested using COMPARE (which must use
-   the same conventions as strcmp_iw and be compatible with any
-   block hashing function), and return that first symbol, or NULL
-   if there are no such symbols.  */
-
-extern struct symbol *block_iter_match_first (const struct block *block,
-					      const char *name,
-					      symbol_compare_ftype *compare,
-					      struct block_iterator *iterator);
-
-/* Advance ITERATOR to point at the next symbol in BLOCK whose
-   SYMBOL_SEARCH_NAME is NAME, as tested using COMPARE (see
-   block_iter_match_first), or NULL if there are no more such symbols.
-   Don't call this if you've previously received NULL from 
-   block_iterator_match_first or block_iterator_match_next on this
-   iteration.  And don't call it unless ITERATOR was created by a
-   previous call to block_iter_match_first with the same NAME and COMPARE.  */
-
-extern struct symbol *block_iter_match_next (const char *name,
-					     symbol_compare_ftype *compare,
-					     struct block_iterator *iterator);
-
-/* Macro to loop through all symbols in a block BL, in no particular
-   order.  ITER helps keep track of the iteration, and should be a
-   struct block_iterator.  SYM points to the current symbol.  */
-
-#define ALL_BLOCK_SYMBOLS(block, iter, sym)		\
-  for ((sym) = block_iterator_first ((block), &(iter));	\
-       (sym);						\
-       (sym) = block_iterator_next (&(iter)))
-
-#endif /* BLOCK_H */
