@@ -1,12 +1,14 @@
 /* Code dealing with register stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994,
+   1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002 Free Software
+   Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,74 +17,91 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #include "defs.h"
 #include "regcache.h"
 #include "sentinel-frame.h"
 #include "inferior.h"
-#include "frame-unwind.h"
 
 struct frame_unwind_cache
 {
   struct regcache *regcache;
 };
 
-void *
+struct frame_unwind_cache *
 sentinel_frame_cache (struct regcache *regcache)
 {
   struct frame_unwind_cache *cache = 
     FRAME_OBSTACK_ZALLOC (struct frame_unwind_cache);
-
   cache->regcache = regcache;
   return cache;
 }
 
 /* Here the register value is taken direct from the register cache.  */
 
-static struct value *
-sentinel_frame_prev_register (struct frame_info *this_frame,
-			      void **this_prologue_cache,
-			      int regnum)
+void
+sentinel_frame_register_unwind (struct frame_info *frame,
+				struct frame_unwind_cache **unwind_cache,
+				int regnum, int *optimized,
+				enum lval_type *lvalp, CORE_ADDR *addrp,
+				int *realnum, void *bufferp)
 {
-  struct frame_unwind_cache *cache = *this_prologue_cache;
-  struct value *value;
+  struct frame_unwind_cache *cache = *unwind_cache;
+  /* Describe the register's location.  A reg-frame maps all registers
+     onto the corresponding hardware register.  */
+  *optimized = 0;
+  *lvalp = lval_register;
+  *addrp = REGISTER_BYTE (regnum);
+  *realnum = regnum;
 
-  value = regcache_cooked_read_value (cache->regcache, regnum);
-  VALUE_FRAME_ID (value) = get_frame_id (this_frame);
-
-  return value;
+  /* If needed, find and return the value of the register.  */
+  if (bufferp != NULL)
+    {
+      /* Return the actual value.  */
+      /* Use the regcache_cooked_read() method so that it, on the fly,
+         constructs either a raw or pseudo register from the raw
+         register cache.  */
+      regcache_cooked_read (cache->regcache, regnum, bufferp);
+    }
 }
 
-static void
-sentinel_frame_this_id (struct frame_info *this_frame,
-			void **this_prologue_cache,
-			struct frame_id *this_id)
+CORE_ADDR
+sentinel_frame_pc_unwind (struct frame_info *frame,
+			  struct frame_unwind_cache **cache)
 {
-  /* The sentinel frame is used as a starting point for creating the
-     previous (inner most) frame.  That frame's THIS_ID method will be
-     called to determine the inner most frame's ID.  Not this one.  */
-  internal_error (__FILE__, __LINE__, _("sentinel_frame_this_id called"));
+  /* FIXME: cagney/2003-01-08: This should be using a per-architecture
+     method that doesn't suffer from DECR_PC_AFTER_BREAK problems.
+     Such a method would take unwind_cache, regcache and stop reason
+     parameters.  */
+  return read_pc ();
 }
 
-static struct gdbarch *
-sentinel_frame_prev_arch (struct frame_info *this_frame,
-			  void **this_prologue_cache)
+void
+sentinel_frame_id_unwind (struct frame_info *frame,
+			  struct frame_unwind_cache **cache,
+			  struct frame_id *id)
 {
-  struct frame_unwind_cache *cache = *this_prologue_cache;
-
-  return get_regcache_arch (cache->regcache);
+  /* FIXME: cagney/2003-01-08: This should be using a per-architecture
+     method that doesn't suffer from DECR_PC_AFTER_BREAK problems.
+     Such a method would take unwind_cache, regcache and stop reason
+     parameters.  */
+  id->base = read_fp ();
+  id->pc = read_pc ();
 }
 
 const struct frame_unwind sentinel_frame_unwind =
 {
-  SENTINEL_FRAME,
-  default_frame_unwind_stop_reason,
-  sentinel_frame_this_id,
-  sentinel_frame_prev_register,
-  NULL,
-  NULL,
-  NULL,
-  sentinel_frame_prev_arch,
+  sentinel_frame_pc_unwind,
+  sentinel_frame_id_unwind,
+  sentinel_frame_register_unwind
 };
+
+const struct frame_unwind *
+sentinel_frame_unwind_p (CORE_ADDR pc)
+{
+  return &sentinel_frame_unwind;
+}
