@@ -1,21 +1,22 @@
 /* OS ABI variant handling for GDB.
-
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright 2001, 2002, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
+   This program is distributed in the hope that it will be useful,  
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+  
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 
@@ -59,21 +60,21 @@ static const char * const gdb_osabi_names[] =
   "FreeBSD ELF",
   "NetBSD a.out",
   "NetBSD ELF",
-  "OpenBSD ELF",
   "Windows CE",
   "DJGPP",
+  "NetWare",
   "Irix",
+  "LynxOS",
   "Interix",
   "HP/UX ELF",
   "HP/UX SOM",
+
+  "ARM EABI v1",
+  "ARM EABI v2",
+  "ARM APCS",
   "QNX Neutrino",
+
   "Cygwin",
-  "AIX",
-  "DICOS",
-  "Darwin",
-  "Symbian",
-  "OpenVMS",
-  "LynxOS178",
 
   "<invalid>"
 };
@@ -85,30 +86,6 @@ gdbarch_osabi_name (enum gdb_osabi osabi)
     return gdb_osabi_names[osabi];
 
   return gdb_osabi_names[GDB_OSABI_INVALID];
-}
-
-/* Lookup the OS ABI corresponding to the specified target description
-   string.  */
-
-enum gdb_osabi
-osabi_from_tdesc_string (const char *name)
-{
-  int i;
-
-  for (i = 0; i < ARRAY_SIZE (gdb_osabi_names); i++)
-    if (strcmp (name, gdb_osabi_names[i]) == 0)
-      {
-	/* See note above: the name table matches the indices assigned
-	   to enum gdb_osabi.  */
-	enum gdb_osabi osabi = (enum gdb_osabi) i;
-
-	if (osabi == GDB_OSABI_INVALID)
-	  return GDB_OSABI_UNKNOWN;
-	else
-	  return osabi;
-      }
-
-  return GDB_OSABI_UNKNOWN;
 }
 
 /* Handler for a given architecture/OS ABI pair.  There should be only
@@ -138,9 +115,9 @@ gdbarch_register_osabi (enum bfd_architecture arch, unsigned long machine,
     {
       internal_error
 	(__FILE__, __LINE__,
-	 _("gdbarch_register_osabi: An attempt to register a handler for "
+	 "gdbarch_register_osabi: An attempt to register a handler for "
          "OS ABI \"%s\" for architecture %s was made.  The handler will "
-	 "not be registered"),
+	 "not be registered",
 	 gdbarch_osabi_name (osabi),
 	 bfd_printable_arch_mach (arch, machine));
       return;
@@ -156,8 +133,8 @@ gdbarch_register_osabi (enum bfd_architecture arch, unsigned long machine,
 	{
 	  internal_error
 	    (__FILE__, __LINE__,
-	     _("gdbarch_register_osabi: A handler for OS ABI \"%s\" "
-	     "has already been registered for architecture %s"),
+	     "gdbarch_register_osabi: A handler for OS ABI \"%s\" "
+	     "has already been registered for architecture %s",
 	     gdbarch_osabi_name (osabi),
 	     arch_info->printable_name);
 	  /* If user wants to continue, override previous definition.  */
@@ -185,7 +162,7 @@ gdbarch_register_osabi (enum bfd_architecture arch, unsigned long machine,
 }
 
 
-/* Sniffer to find the OS ABI for a given file's architecture and flavour.
+/* Sniffer to find the OS ABI for a given file's architecture and flavour. 
    It is legal to have multiple sniffers for each arch/flavour pair, to
    disambiguate one OS's a.out from another, for example.  The first sniffer
    to return something other than GDB_OSABI_UNKNOWN wins, so a sniffer should
@@ -229,11 +206,15 @@ gdbarch_lookup_osabi (bfd *abfd)
   if (user_osabi_state == osabi_user)
     return user_selected_osabi;
 
-  /* If we don't have a binary, just return unknown.  The caller may
-     have other sources the OSABI can be extracted from, e.g., the
-     target description.  */
+  /* If we don't have a binary, return the default OS ABI (if set) or
+     an inconclusive result (otherwise).  */
   if (abfd == NULL) 
-    return GDB_OSABI_UNKNOWN;
+    {
+      if (GDB_OSABI_DEFAULT != GDB_OSABI_UNKNOWN)
+	return GDB_OSABI_DEFAULT;
+      else
+	return GDB_OSABI_UNINITIALIZED;
+    }
 
   match = GDB_OSABI_UNKNOWN;
   match_specific = 0;
@@ -250,8 +231,8 @@ gdbarch_lookup_osabi (bfd *abfd)
 	    {
 	      internal_error
 		(__FILE__, __LINE__,
-		 _("gdbarch_lookup_osabi: invalid OS ABI (%d) from sniffer "
-		 "for architecture %s flavour %d"),
+		 "gdbarch_lookup_osabi: invalid OS ABI (%d) from sniffer "
+		 "for architecture %s flavour %d",
 		 (int) osabi,
 		 bfd_printable_arch_mach (bfd_get_arch (abfd), 0),
 		 (int) bfd_get_flavour (abfd));
@@ -269,9 +250,9 @@ gdbarch_lookup_osabi (bfd *abfd)
 		    {
 		      internal_error
 		        (__FILE__, __LINE__,
-		         _("gdbarch_lookup_osabi: multiple %sspecific OS ABI "
+		         "gdbarch_lookup_osabi: multiple %sspecific OS ABI "
 			 "match for architecture %s flavour %d: first "
-			 "match \"%s\", second match \"%s\""),
+			 "match \"%s\", second match \"%s\"",
 			 match_specific ? "" : "non-",
 		         bfd_printable_arch_mach (bfd_get_arch (abfd), 0),
 		         (int) bfd_get_flavour (abfd),
@@ -294,7 +275,12 @@ gdbarch_lookup_osabi (bfd *abfd)
 	}
     }
 
-  return match;
+  /* If we didn't find a match, but a default was specified at configure
+     time, return the default.  */
+  if (GDB_OSABI_DEFAULT != GDB_OSABI_UNKNOWN && match == GDB_OSABI_UNKNOWN)
+    return GDB_OSABI_DEFAULT;
+  else
+    return match;
 }
 
 
@@ -361,160 +347,119 @@ gdbarch_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
 	}
     }
 
-  warning
-    ("A handler for the OS ABI \"%s\" is not built into this configuration\n"
-     "of GDB.  Attempting to continue with the default %s settings.\n",
-     gdbarch_osabi_name (info.osabi),
-     info.bfd_arch_info->printable_name);
+  warning ("A handler for the OS ABI \"%s\" is not built into this "
+	   "configuration of GDB.  "
+	   "Attempting to continue with the default %s settings",
+	   gdbarch_osabi_name (info.osabi),
+	   info.bfd_arch_info->printable_name);
 }
 
-/* Limit on the amount of data to be read.  */
-#define MAX_NOTESZ	128
-
-/* Return non-zero if NOTE matches NAME, DESCSZ and TYPE.  If
-   *SECTSIZE is non-zero, then this reads that many bytes from
-   the start of the section and clears *SECTSIZE.  */
-
-static int
-check_note (bfd *abfd, asection *sect, char *note, unsigned int *sectsize,
-	    const char *name, unsigned long descsz, unsigned long type)
-{
-  unsigned long notesz;
-
-  if (*sectsize)
-    {
-      if (!bfd_get_section_contents (abfd, sect, note, 0, *sectsize))
-	return 0;
-      *sectsize = 0;
-    }
-
-  /* Calculate the size of this note.  */
-  notesz = strlen (name) + 1;
-  notesz = ((notesz + 3) & ~3);
-  notesz += descsz;
-  notesz = ((notesz + 3) & ~3);
-
-  /* If this assertion triggers, increase MAX_NOTESZ.  */
-  gdb_assert (notesz <= MAX_NOTESZ);
-
-  /* Check whether SECT is big enough to comtain the complete note.  */
-  if (notesz > bfd_section_size (abfd, sect))
-    return 0;
-
-  /* Check the note name.  */
-  if (bfd_h_get_32 (abfd, note) != (strlen (name) + 1)
-      || strcmp (note + 12, name) != 0)
-    return 0;
-
-  /* Check the descriptor size.  */
-  if (bfd_h_get_32 (abfd, note + 4) != descsz)
-    return 0;
-
-  /* Check the note type.  */
-  if (bfd_h_get_32 (abfd, note + 8) != type)
-    return 0;
-
-  return 1;
-}
 
 /* Generic sniffer for ELF flavoured files.  */
 
 void
 generic_elf_osabi_sniff_abi_tag_sections (bfd *abfd, asection *sect, void *obj)
 {
-  enum gdb_osabi *osabi = obj;
+  enum gdb_osabi *os_ident_ptr = obj;
   const char *name;
   unsigned int sectsize;
-  char *note;
 
   name = bfd_get_section_name (abfd, sect);
   sectsize = bfd_section_size (abfd, sect);
 
-  /* Limit the amount of data to read.  */
-  if (sectsize > MAX_NOTESZ)
-    sectsize = MAX_NOTESZ;
-
-  /* We lazily read the section data here.  Since we use
-     BFD_DECOMPRESS, we can't use bfd_get_section_contents on a
-     compressed section.  But, since note sections are not compressed,
-     deferring the reading until we recognize the section avoids any
-     error.  */
-  note = alloca (sectsize);
-
   /* .note.ABI-tag notes, used by GNU/Linux and FreeBSD.  */
-  if (strcmp (name, ".note.ABI-tag") == 0)
+  if (strcmp (name, ".note.ABI-tag") == 0 && sectsize > 0)
     {
-      /* GNU.  */
-      if (check_note (abfd, sect, note, &sectsize, "GNU", 16, NT_GNU_ABI_TAG))
-	{
-	  unsigned int abi_tag = bfd_h_get_32 (abfd, note + 16);
+      unsigned int name_length, data_length, note_type;
+      char *note;
 
-	  switch (abi_tag)
+      /* If the section is larger than this, it's probably not what we are
+	 looking for.  */
+      if (sectsize > 128)
+	sectsize = 128;
+
+      note = alloca (sectsize);
+
+      bfd_get_section_contents (abfd, sect, note,
+				(file_ptr) 0, (bfd_size_type) sectsize);
+
+      name_length = bfd_h_get_32 (abfd, note);
+      data_length = bfd_h_get_32 (abfd, note + 4);
+      note_type   = bfd_h_get_32 (abfd, note + 8);
+
+      if (name_length == 4 && data_length == 16 && note_type == NT_GNU_ABI_TAG
+	  && strcmp (note + 12, "GNU") == 0)
+	{
+	  int os_number = bfd_h_get_32 (abfd, note + 16);
+
+	  switch (os_number)
 	    {
 	    case GNU_ABI_TAG_LINUX:
-	      *osabi = GDB_OSABI_LINUX;
+	      *os_ident_ptr = GDB_OSABI_LINUX;
 	      break;
 
 	    case GNU_ABI_TAG_HURD:
-	      *osabi = GDB_OSABI_HURD;
+	      *os_ident_ptr = GDB_OSABI_HURD;
 	      break;
 
 	    case GNU_ABI_TAG_SOLARIS:
-	      *osabi = GDB_OSABI_SOLARIS;
+	      *os_ident_ptr = GDB_OSABI_SOLARIS;
 	      break;
 
 	    case GNU_ABI_TAG_FREEBSD:
-	      *osabi = GDB_OSABI_FREEBSD_ELF;
+	      *os_ident_ptr = GDB_OSABI_FREEBSD_ELF;
 	      break;
-
+	      
 	    case GNU_ABI_TAG_NETBSD:
-	      *osabi = GDB_OSABI_NETBSD_ELF;
+	      *os_ident_ptr = GDB_OSABI_NETBSD_ELF;
 	      break;
-
+	      
 	    default:
-	      internal_error (__FILE__, __LINE__,
-			      _("generic_elf_osabi_sniff_abi_tag_sections: "
-				"unknown OS number %d"),
-			      abi_tag);
+	      internal_error
+		(__FILE__, __LINE__,
+		 "generic_elf_osabi_sniff_abi_tag_sections: unknown OS number %d",
+		 os_number);
 	    }
 	  return;
 	}
-
-      /* FreeBSD.  */
-      if (check_note (abfd, sect, note, &sectsize, "FreeBSD", 4,
-		      NT_FREEBSD_ABI_TAG))
+      else if (name_length == 8 && data_length == 4
+	       && note_type == NT_FREEBSD_ABI_TAG
+	       && strcmp (note + 12, "FreeBSD") == 0)
 	{
-	  /* There is no need to check the version yet.  */
-	  *osabi = GDB_OSABI_FREEBSD_ELF;
-	  return;
+	  /* XXX Should we check the version here?  Probably not
+	     necessary yet.  */
+	  *os_ident_ptr = GDB_OSABI_FREEBSD_ELF;
 	}
-
       return;
     }
-      
+
   /* .note.netbsd.ident notes, used by NetBSD.  */
-  if (strcmp (name, ".note.netbsd.ident") == 0
-      && check_note (abfd, sect, note, &sectsize, "NetBSD", 4, NT_NETBSD_IDENT))
+  if (strcmp (name, ".note.netbsd.ident") == 0 && sectsize > 0)
     {
-      /* There is no need to check the version yet.  */
-      *osabi = GDB_OSABI_NETBSD_ELF;
-      return;
-    }
+      unsigned int name_length, data_length, note_type;
+      char *note;
 
-  /* .note.openbsd.ident notes, used by OpenBSD.  */
-  if (strcmp (name, ".note.openbsd.ident") == 0
-      && check_note (abfd, sect, note, &sectsize, "OpenBSD", 4,
-		     NT_OPENBSD_IDENT))
-    {
-      /* There is no need to check the version yet.  */
-      *osabi = GDB_OSABI_OPENBSD_ELF;
-      return;
-    }
+      /* If the section is larger than this, it's probably not what we are
+	 looking for.  */
+      if (sectsize > 128) 
+	sectsize = 128;
 
-  /* .note.netbsdcore.procinfo notes, used by NetBSD.  */
-  if (strcmp (name, ".note.netbsdcore.procinfo") == 0)
-    {
-      *osabi = GDB_OSABI_NETBSD_ELF;
+      note = alloca (sectsize);
+
+      bfd_get_section_contents (abfd, sect, note,
+				(file_ptr) 0, (bfd_size_type) sectsize);
+      
+      name_length = bfd_h_get_32 (abfd, note);
+      data_length = bfd_h_get_32 (abfd, note + 4);
+      note_type   = bfd_h_get_32 (abfd, note + 8);
+
+      if (name_length == 7 && data_length == 4 && note_type == NT_NETBSD_IDENT
+	  && strcmp (note + 12, "NetBSD") == 0)
+	{
+	  /* XXX Should we check the version here?  Probably not
+	     necessary yet.  */
+	  *os_ident_ptr = GDB_OSABI_NETBSD_ELF;
+	}
       return;
     }
 }
@@ -530,15 +475,10 @@ generic_elf_osabi_sniffer (bfd *abfd)
   switch (elfosabi)
     {
     case ELFOSABI_NONE:
-    case ELFOSABI_GNU:
-      /* When the EI_OSABI field in the ELF header is ELFOSABI_NONE
-         (0), then the ELF structures in the file are conforming to
-         the base specification for that machine (there are no
-         OS-specific extensions).  In order to determine the real OS
-         in use, we must look for OS-specific notes.
-
-         The same applies for ELFOSABI_GNU: this can mean GNU/Hurd,
-         GNU/Linux, and possibly more.  */
+      /* When elfosabi is ELFOSABI_NONE (0), then the ELF structures in the
+         file are conforming to the base specification for that machine
+	 (there are no OS-specific extensions).  In order to determine the
+	 real OS in use we must look for OS notes that have been added.  */
       bfd_map_over_sections (abfd,
 			     generic_elf_osabi_sniff_abi_tag_sections,
 			     &osabi);
@@ -552,23 +492,20 @@ generic_elf_osabi_sniffer (bfd *abfd)
       osabi = GDB_OSABI_NETBSD_ELF;
       break;
 
+    case ELFOSABI_LINUX:
+      osabi = GDB_OSABI_LINUX;
+      break;
+
+    case ELFOSABI_HURD:
+      osabi = GDB_OSABI_HURD;
+      break;
+
     case ELFOSABI_SOLARIS:
       osabi = GDB_OSABI_SOLARIS;
       break;
 
     case ELFOSABI_HPUX:
-      /* For some reason the default value for the EI_OSABI field is
-         ELFOSABI_HPUX for all PA-RISC targets (with the exception of
-         GNU/Linux).  We use HP-UX ELF as the default, but let any
-         OS-specific notes override this.  */
       osabi = GDB_OSABI_HPUX_ELF;
-      bfd_map_over_sections (abfd,
-			     generic_elf_osabi_sniff_abi_tag_sections,
-			     &osabi);
-      break;
-
-    case ELFOSABI_OPENVMS:
-      osabi = GDB_OSABI_OPENVMS;
       break;
     }
 
@@ -577,8 +514,7 @@ generic_elf_osabi_sniffer (bfd *abfd)
       /* The FreeBSD folks have been naughty; they stored the string
          "FreeBSD" in the padding of the e_ident field of the ELF
          header to "brand" their ELF binaries in FreeBSD 3.x.  */
-      if (memcmp (&elf_elfheader (abfd)->e_ident[8],
-		  "FreeBSD", sizeof ("FreeBSD")) == 0)
+      if (strcmp (&elf_elfheader (abfd)->e_ident[8], "FreeBSD") == 0)
 	osabi = GDB_OSABI_FREEBSD_ELF;
     }
 
@@ -605,7 +541,6 @@ set_osabi (char *args, int from_tty, struct cmd_list_element *c)
   else
     {
       int i;
-
       for (i = 1; i < GDB_OSABI_INVALID; i++)
 	if (strcmp (set_osabi_string, gdbarch_osabi_name (i)) == 0)
 	  {
@@ -615,7 +550,7 @@ set_osabi (char *args, int from_tty, struct cmd_list_element *c)
 	  }
       if (i == GDB_OSABI_INVALID)
 	internal_error (__FILE__, __LINE__,
-			_("Invalid OS ABI \"%s\" passed to command handler."),
+			"Invalid OS ABI \"%s\" passed to command handler.",
 			set_osabi_string);
     }
 
@@ -623,25 +558,22 @@ set_osabi (char *args, int from_tty, struct cmd_list_element *c)
      graceful here.  */
   gdbarch_info_init (&info);
   if (! gdbarch_update_p (info))
-    internal_error (__FILE__, __LINE__, _("Updating OS ABI failed."));
+    internal_error (__FILE__, __LINE__, "Updating OS ABI failed.");
 }
 
 static void
-show_osabi (struct ui_file *file, int from_tty, struct cmd_list_element *c,
-	    const char *value)
+show_osabi (char *args, int from_tty)
 {
   if (user_osabi_state == osabi_auto)
-    fprintf_filtered (file,
-		      _("The current OS ABI is \"auto\" "
-			"(currently \"%s\").\n"),
-		      gdbarch_osabi_name (gdbarch_osabi (get_current_arch ())));
+    printf_filtered ("The current OS ABI is \"auto\" (currently \"%s\").\n",
+		     gdbarch_osabi_name (gdbarch_osabi (current_gdbarch)));
   else
-    fprintf_filtered (file, _("The current OS ABI is \"%s\".\n"),
-		      gdbarch_osabi_name (user_selected_osabi));
+    printf_filtered ("The current OS ABI is \"%s\".\n",
+		     gdbarch_osabi_name (user_selected_osabi));
 
   if (GDB_OSABI_DEFAULT != GDB_OSABI_UNKNOWN)
-    fprintf_filtered (file, _("The default OS ABI is \"%s\".\n"),
-		      gdbarch_osabi_name (GDB_OSABI_DEFAULT));
+    printf_filtered ("The default OS ABI is \"%s\".\n",
+		     gdbarch_osabi_name (GDB_OSABI_DEFAULT));
 }
 
 extern initialize_file_ftype _initialize_gdb_osabi; /* -Wmissing-prototype */
@@ -649,22 +581,26 @@ extern initialize_file_ftype _initialize_gdb_osabi; /* -Wmissing-prototype */
 void
 _initialize_gdb_osabi (void)
 {
+  struct cmd_list_element *c;
+
   if (strcmp (gdb_osabi_names[GDB_OSABI_INVALID], "<invalid>") != 0)
     internal_error
       (__FILE__, __LINE__,
-       _("_initialize_gdb_osabi: gdb_osabi_names[] is inconsistent"));
+       "_initialize_gdb_osabi: gdb_osabi_names[] is inconsistent");
 
   /* Register a generic sniffer for ELF flavoured files.  */
   gdbarch_register_osabi_sniffer (bfd_arch_unknown,
 				  bfd_target_elf_flavour,
 				  generic_elf_osabi_sniffer);
 
+  return;
+
   /* Register the "set osabi" command.  */
-  add_setshow_enum_cmd ("osabi", class_support, gdb_osabi_available_names,
-			&set_osabi_string,
-			_("Set OS ABI of target."),
-			_("Show OS ABI of target."),
-			NULL, set_osabi, show_osabi,
-			&setlist, &showlist);
+  c = add_set_enum_cmd ("osabi", class_support, gdb_osabi_available_names,
+			&set_osabi_string, "Set OS ABI of target.", &setlist);
+
+  set_cmd_sfunc (c, set_osabi);
+  add_cmd ("osabi", class_support, show_osabi, "Show OS/ABI of target.",
+	   &showlist);
   user_osabi_state = osabi_auto;
 }
