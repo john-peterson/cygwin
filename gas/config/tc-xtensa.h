@@ -1,12 +1,11 @@
 /* tc-xtensa.h -- Header file for tc-xtensa.c.
-   Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009
-   Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -16,13 +15,19 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 #ifndef TC_XTENSA
 #define TC_XTENSA 1
 
+#ifdef ANSI_PROTOTYPES
 struct fix;
+#endif
+
+#ifndef BFD_ASSEMBLER
+#error Xtensa support requires BFD_ASSEMBLER
+#endif
 
 #ifndef OBJ_ELF
 #error Xtensa support requires ELF object format
@@ -47,8 +52,6 @@ struct fix;
 
 enum xtensa_relax_statesE
 {
-  RELAX_XTENSA_NONE,
-
   RELAX_ALIGN_NEXT_OPCODE,
   /* Use the first opcode of the next fragment to determine the
      alignment requirements.  This is ONLY used for LOOPs currently.  */
@@ -107,9 +110,7 @@ enum xtensa_relax_statesE
   RELAX_LOOP_END_ADD_NOP,
   /* When the code density option is available, this will generate a
      NOP.N marked RELAX_NARROW.  Otherwise, it will create an rs_fill
-     fragment with a NOP in it.  Once a frag has been converted to
-     RELAX_LOOP_END_ADD_NOP, it should never be changed back to 
-     RELAX_LOOP_END.  */
+     fragment with a NOP in it.  */
 
   RELAX_LITERAL,
   /* Another fragment could generate an expansion here but has not yet.  */
@@ -136,20 +137,18 @@ enum xtensa_relax_statesE
 
   RELAX_IMMED,
   /* The last instruction in this fragment (at->fr_opcode) contains
-     an immediate or symbol.  If the value does not fit, relax the
-     opcode using expansions from the relax table.  */
-
+     the value defined by fr_symbol (fr_offset = 0).  If the value
+     does not fit, use the specified expansion.  This is similar to
+     "NARROW", except that these may not be expanded in order to align
+     code.  */
+  
   RELAX_IMMED_STEP1,
   /* The last instruction in this fragment (at->fr_opcode) contains a
-     literal.  It has already been expanded 1 step.  */
+     literal.  It has already been expanded at least 1 step.  */
 
   RELAX_IMMED_STEP2,
   /* The last instruction in this fragment (at->fr_opcode) contains a
-     literal.  It has already been expanded 2 steps.  */
-
-  RELAX_IMMED_STEP3,
-  /* The last instruction in this fragment (at->fr_opcode) contains a
-     literal.  It has already been expanded 3 steps.  */
+     literal.  It has already been expanded at least 2 steps.  */
 
   RELAX_SLOTS,
   /* There are instructions within the last VLIW instruction that need
@@ -171,22 +170,15 @@ enum xtensa_relax_statesE
   RELAX_MAYBE_UNREACHABLE,
   /* This marks the location as possibly unreachable.  These are placed
      after a branch that may be relaxed into a branch and jump. If the
-     branch is relaxed, then this frag will be converted to a
+     branch is relaxed, then this frag will be converted to a 
      RELAX_UNREACHABLE frag.  */
-
-  RELAX_ORG,
-  /* This marks the location as having previously been an rs_org frag.  
-     rs_org frags are converted to fill-zero frags immediately after
-     relaxation.  However, we need to remember where they were so we can
-     prevent the linker from changing the size of any frag between the
-     section start and the org frag.  */
 
   RELAX_NONE
 };
 
 /* This is used as a stopper to bound the number of steps that
    can be taken.  */
-#define RELAX_IMMED_MAXSTEPS (RELAX_IMMED_STEP3 - RELAX_IMMED)
+#define RELAX_IMMED_MAXSTEPS (RELAX_IMMED_STEP2 - RELAX_IMMED)
 
 struct xtensa_frag_type
 {
@@ -203,7 +195,6 @@ struct xtensa_frag_type
   unsigned int is_assembly_state_set : 1;
   unsigned int is_no_density : 1;
   unsigned int is_no_transform : 1;
-  unsigned int use_longcalls : 1;
   unsigned int use_absolute_literals : 1;
 
   /* Inhibits relaxation of machine-dependent alignment frags the
@@ -227,26 +218,16 @@ struct xtensa_frag_type
      contains an instruction.  */
   unsigned int is_first_loop_insn : 1;
 
-  /* A frag with this bit set is a branch that we are using to
-     align branch targets as if it were a normal narrow instruction.  */
-  unsigned int is_aligning_branch : 1;
-
   /* For text fragments that can generate literals at relax time, this
      variable points to the frag where the literal will be stored.  For
      literal frags, this variable points to the nearest literal pool
      location frag.  This literal frag will be moved to after this
-     location.  For RELAX_LITERAL_POOL_BEGIN frags, this field points
-     to the frag immediately before the corresponding RELAX_LITERAL_POOL_END
-     frag, to make moving frags for this literal pool efficient.  */
+     location.  */
   fragS *literal_frag;
 
   /* The destination segment for literal frags.  (Note that this is only
-     valid after xtensa_move_literals.)  This field is also used for
-     LITERAL_POOL_END frags.  */
+     valid after xtensa_move_literals.  */
   segT lit_seg;
-
-  /* Frag chain for LITERAL_POOL_BEGIN frags.  */
-  struct frchain *lit_frchain;
 
   /* For the relaxation scheme, some literal fragments can have their
      expansions modified by an instruction that relaxes.  */
@@ -254,20 +235,16 @@ struct xtensa_frag_type
   int literal_expansion[MAX_SLOTS];
   int unreported_expansion;
 
-  /* For slots that have a free register for relaxation, record that
-     register.  */
-  expressionS free_reg[MAX_SLOTS];
-
   /* For text fragments that can generate literals at relax time:  */
   fragS *literal_frags[MAX_SLOTS];
   enum xtensa_relax_statesE slot_subtypes[MAX_SLOTS];
   symbolS *slot_symbols[MAX_SLOTS];
+  symbolS *slot_sub_symbols[MAX_SLOTS];
   offsetT slot_offsets[MAX_SLOTS];
 
-  /* When marking frags after this one in the chain as no transform,
-     cache the last one in the chain, so that we can skip to the
-     end of the chain.  */
-  fragS *no_transform_end;
+  /* The global aligner needs to walk backward through the list of
+     frags.  This field is only valid after xtensa_end.  */
+  fragS *fr_prev;
 };
 
 
@@ -285,7 +262,6 @@ typedef struct xtensa_symfield_type
 {
   unsigned int is_loop_target : 1;
   unsigned int is_branch_target : 1;
-  symbolS *next_expr_symbol;
 } xtensa_symfield_type;
 
 
@@ -315,7 +291,6 @@ extern const char *xtensa_target_format (void);
 extern void xtensa_init_fix_data (struct fix *);
 extern void xtensa_frag_init (fragS *);
 extern int xtensa_force_relocation (struct fix *);
-extern int xtensa_validate_fix_sub (struct fix *);
 extern void xtensa_frob_label (struct symbol *);
 extern void xtensa_end (void);
 extern void xtensa_post_relax_hook (void);
@@ -339,9 +314,6 @@ extern char *xtensa_section_rename (char *);
 #define TC_FRAG_TYPE			struct xtensa_frag_type
 #define TC_FRAG_INIT(frag)		xtensa_frag_init (frag)
 #define TC_FORCE_RELOCATION(fix)	xtensa_force_relocation (fix)
-#define TC_FORCE_RELOCATION_SUB_SAME(fix, seg) \
-  (! SEG_NORMAL (seg) || xtensa_force_relocation (fix))
-#define	TC_VALIDATE_FIX_SUB(fix, seg)	xtensa_validate_fix_sub (fix)
 #define NO_PSEUDO_DOT			xtensa_check_inside_bundle ()
 #define tc_canonicalize_symbol_name(s)	xtensa_section_rename (s)
 #define tc_canonicalize_section_name(s)	xtensa_section_rename (s)
@@ -349,7 +321,6 @@ extern char *xtensa_section_rename (char *);
 #define tc_fix_adjustable(fix)		xtensa_fix_adjustable (fix)
 #define tc_frob_label(sym)		xtensa_frob_label (sym)
 #define tc_unrecognized_line(ch)	xtensa_unrecognized_line (ch)
-#define tc_symbol_new_hook(sym)		xtensa_symbol_new_hook (sym)
 #define md_do_align(a,b,c,d,e)		xtensa_flush_pending_output ()
 #define md_elf_section_change_hook	xtensa_elf_section_change_hook
 #define md_end				xtensa_end
@@ -359,7 +330,6 @@ extern char *xtensa_section_rename (char *);
 #define DATA_SECTION_NAME		xtensa_section_rename (".data")
 #define BSS_SECTION_NAME		xtensa_section_rename (".bss")
 #define HANDLE_ALIGN(fragP)		xtensa_handle_align (fragP)
-#define MAX_MEM_FOR_RS_ALIGN_CODE	1
 
 
 /* The renumber_section function must be mapped over all the sections
@@ -384,10 +354,6 @@ extern char *xtensa_section_rename (char *);
 #define md_relax_frag(segment, fragP, stretch) \
   xtensa_relax_frag (fragP, stretch, &stretched)
 
-/* Only allow call frame debug info optimization when linker relaxation is
-   not enabled as otherwise we could generate the DWARF directives without
-   the relocs necessary to patch them up.  */
-#define md_allow_eh_opt (linkrelax == 0)
 
 #define LOCAL_LABELS_FB 1
 #define WORKING_DOT_WORD 1
@@ -398,9 +364,6 @@ extern char *xtensa_section_rename (char *);
 #define MD_APPLY_SYM_VALUE(FIX) 0
 #define SUB_SEGMENT_ALIGN(SEG, FRCHAIN) 0
 
-/* Use line number format that is amenable to linker relaxation.  */
-#define DWARF2_USE_FIXED_ADVANCE_PC (linkrelax != 0)
-
 
 /* Resource reservation info functions.  */
 
@@ -410,27 +373,27 @@ typedef int (*unit_num_copies_func) (void *, xtensa_funcUnit);
 /* Returns the number of units the opcode uses.  */
 typedef int (*opcode_num_units_func) (void *, xtensa_opcode);
 
-/* Given an opcode and an index into the opcode's funcUnit list,
+/* Given an opcode and an index into the opcode's funcUnit list, 
    returns the unit used for the index.  */
 typedef int (*opcode_funcUnit_use_unit_func) (void *, xtensa_opcode, int);
 
-/* Given an opcode and an index into the opcode's funcUnit list,
+/* Given an opcode and an index into the opcode's funcUnit list, 
    returns the cycle during which the unit is used.  */
 typedef int (*opcode_funcUnit_use_stage_func) (void *, xtensa_opcode, int);
 
-/* The above typedefs parameterize the resource_table so that the
+/* The above typedefs parameterize the resource_table so that the 
    optional scheduler doesn't need its own resource reservation system.
-
-   For simple resource checking, which is all that happens normally,
-   the functions will be as follows (with some wrapping to make the
-   interface more convenient):
+   
+   For simple resource checking, which is all that happens normally, 
+   the functions will be as follows (with some wrapping to make the 
+   interface more convenient): 
 
    unit_num_copies_func = xtensa_funcUnit_num_copies
    opcode_num_units_func = xtensa_opcode_num_funcUnit_uses
    opcode_funcUnit_use_unit_func = xtensa_opcode_funcUnit_use->unit
    opcode_funcUnit_use_stage_func = xtensa_opcode_funcUnit_use->stage
 
-   Of course the optional scheduler has its own reservation table
+   Of course the optional scheduler has its own reservation table 
    and functions.  */
 
 int opcode_funcUnit_use_unit (void *, xtensa_opcode, int);
@@ -446,11 +409,11 @@ typedef struct
   opcode_num_units_func opcode_num_units;
   opcode_funcUnit_use_unit_func opcode_unit_use;
   opcode_funcUnit_use_stage_func opcode_unit_stage;
-  unsigned char **units;
+  char **units;
 } resource_table;
 
-resource_table *new_resource_table
-  (void *, int, int, unit_num_copies_func, opcode_num_units_func,
+resource_table *new_resource_table 
+  (void *, int, int, unit_num_copies_func, opcode_num_units_func, 
    opcode_funcUnit_use_unit_func, opcode_funcUnit_use_stage_func);
 void resize_resource_table (resource_table *, int);
 void clear_resource_table (resource_table *);
