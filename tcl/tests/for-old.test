@@ -14,10 +14,7 @@
 #
 # RCS: @(#) $Id$
 
-if {[lsearch [namespace children] ::tcltest] == -1} {
-    package require tcltest
-    namespace import -force ::tcltest::*
-}
+if {[string compare test [info procs test]] == 1} then {source defs}
 
 # Check "for" and its use of continue and break.
 
@@ -67,19 +64,3 @@ test for-old-1.9 {for tests} {
     }
     set a
 } {1 2 3}
-
-# cleanup
-::tcltest::cleanupTests
-return
-
-
-
-
-
-
-
-
-
-
-
-

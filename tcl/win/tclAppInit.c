@@ -5,8 +5,7 @@
  *	procedure for Tcl applications (without Tk).  Note that this
  *	program must be built in Win32 console mode to work properly.
  *
- * Copyright (c) 1996-1997 by Sun Microsystems, Inc.
- * Copyright (c) 1998-1999 by Scriptics Corporation.
+ * Copyright (c) 1996 by Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -19,21 +18,13 @@
 #include <locale.h>
 
 #ifdef TCL_TEST
-extern int		Procbodytest_Init _ANSI_ARGS_((Tcl_Interp *interp));
-extern int		Procbodytest_SafeInit _ANSI_ARGS_((Tcl_Interp *interp));
-extern int		Tcltest_Init _ANSI_ARGS_((Tcl_Interp *interp));
-extern int		TclObjTest_Init _ANSI_ARGS_((Tcl_Interp *interp));
-#ifdef TCL_THREADS
-extern int		TclThread_Init _ANSI_ARGS_((Tcl_Interp *interp));
-#endif
+EXTERN int		Procbodytest_Init _ANSI_ARGS_((Tcl_Interp *interp));
+EXTERN int		Procbodytest_SafeInit _ANSI_ARGS_((Tcl_Interp *interp));
+EXTERN int		Tcltest_Init _ANSI_ARGS_((Tcl_Interp *interp));
+EXTERN int		TclObjTest_Init _ANSI_ARGS_((Tcl_Interp *interp));
 #endif /* TCL_TEST */
 
 static void		setargv _ANSI_ARGS_((int *argcPtr, char ***argvPtr));
-static BOOL __stdcall	sigHandler (DWORD fdwCtrlType);
-static Tcl_AsyncProc	asyncExit;
-
-Tcl_AsyncHandler	exitToken;
-DWORD			exitErrorCode;
 
 
 /*
@@ -58,36 +49,16 @@ main(argc, argv)
     int argc;			/* Number of command-line arguments. */
     char **argv;		/* Values of command-line arguments. */
 {
-    /*
-     * The following #if block allows you to change the AppInit
-     * function by using a #define of TCL_LOCAL_APPINIT instead
-     * of rewriting this entire file.  The #if checks for that
-     * #define and uses Tcl_AppInit if it doesn't exist.
-     */
-    
-#ifndef TCL_LOCAL_APPINIT
-#define TCL_LOCAL_APPINIT Tcl_AppInit    
-#endif
-    extern int TCL_LOCAL_APPINIT _ANSI_ARGS_((Tcl_Interp *interp));
-    
-    /*
-     * The following #if block allows you to change how Tcl finds the startup
-     * script, prime the library or encoding paths, fiddle with the argv,
-     * etc., without needing to rewrite Tcl_Main()
-     */
-    
-#ifdef TCL_LOCAL_MAIN_HOOK
-    extern int TCL_LOCAL_MAIN_HOOK _ANSI_ARGS_((int *argc, char ***argv));
-#endif
-
-    char buffer[MAX_PATH +1];
     char *p;
+    char buffer[MAX_PATH];
+
     /*
      * Set up the default locale to be standard "C" locale so parsing
      * is performed correctly.
      */
 
     setlocale(LC_ALL, "C");
+
     setargv(&argc, &argv);
 
     /*
@@ -103,12 +74,7 @@ main(argc, argv)
 	}
     }
 
-#ifdef TCL_LOCAL_MAIN_HOOK
-    TCL_LOCAL_MAIN_HOOK(&argc, &argv);
-#endif
-
-    Tcl_Main(argc, argv, TCL_LOCAL_APPINIT);
-
+    Tcl_Main(argc, argv, Tcl_AppInit);
     return 0;			/* Needed only to prevent compiler warning. */
 }
 
@@ -124,7 +90,7 @@ main(argc, argv)
  *
  * Results:
  *	Returns a standard Tcl completion code, and leaves an error
- *	message in the interp's result if an error occurs.
+ *	message in interp->result if an error occurs.
  *
  * Side effects:
  *	Depends on the startup script.
@@ -140,12 +106,6 @@ Tcl_AppInit(interp)
 	return TCL_ERROR;
     }
 
-    /*
-     * Install a signal handler to the win32 console tclsh is running in.
-     */
-    SetConsoleCtrlHandler(sigHandler, TRUE); 
-    exitToken = Tcl_AsyncCreate(asyncExit, NULL); 
-
 #ifdef TCL_TEST
     if (Tcltest_Init(interp) == TCL_ERROR) {
 	return TCL_ERROR;
@@ -155,11 +115,6 @@ Tcl_AppInit(interp)
     if (TclObjTest_Init(interp) == TCL_ERROR) {
 	return TCL_ERROR;
     }
-#ifdef TCL_THREADS
-    if (TclThread_Init(interp) == TCL_ERROR) {
-	return TCL_ERROR;
-    }
-#endif
     if (Procbodytest_Init(interp) == TCL_ERROR) {
 	return TCL_ERROR;
     }
@@ -230,7 +185,7 @@ setargv(argcPtr, argvPtr)
     char **argv;
     int argc, size, inquote, copy, slashes;
     
-    cmdLine = GetCommandLine();	/* INTL: BUG */
+    cmdLine = GetCommandLine();
 
     /*
      * Precompute an overly pessimistic guess at the number of arguments
@@ -239,9 +194,9 @@ setargv(argcPtr, argvPtr)
 
     size = 2;
     for (p = cmdLine; *p != '\0'; p++) {
-	if ((*p == ' ') || (*p == '\t')) {	/* INTL: ISO space. */
+	if (isspace(*p)) {
 	    size++;
-	    while ((*p == ' ') || (*p == '\t')) { /* INTL: ISO space. */
+	    while (isspace(*p)) {
 		p++;
 	    }
 	    if (*p == '\0') {
@@ -249,8 +204,8 @@ setargv(argcPtr, argvPtr)
 	    }
 	}
     }
-    argSpace = (char *) Tcl_Alloc(
-	    (unsigned) (size * sizeof(char *) + strlen(cmdLine) + 1));
+    argSpace = (char *) ckalloc((unsigned) (size * sizeof(char *) 
+	    + strlen(cmdLine) + 1));
     argv = (char **) argSpace;
     argSpace += size * sizeof(char *);
     size--;
@@ -258,7 +213,7 @@ setargv(argcPtr, argvPtr)
     p = cmdLine;
     for (argc = 0; argc < size; argc++) {
 	argv[argc] = arg = argSpace;
-	while ((*p == ' ') || (*p == '\t')) {	/* INTL: ISO space. */
+	while (isspace(*p)) {
 	    p++;
 	}
 	if (*p == '\0') {
@@ -292,8 +247,7 @@ setargv(argcPtr, argvPtr)
 		slashes--;
 	    }
 
-	    if ((*p == '\0')
-		    || (!inquote && ((*p == ' ') || (*p == '\t')))) { /* INTL: ISO space. */
+	    if ((*p == '\0') || (!inquote && isspace(*p))) {
 		break;
 	    }
 	    if (copy != 0) {
@@ -310,70 +264,3 @@ setargv(argcPtr, argvPtr)
     *argcPtr = argc;
     *argvPtr = argv;
 }
-
-/*
- *----------------------------------------------------------------------
- *
- * asyncExit --
- *
- * 	The AsyncProc for the exitToken.
- *
- * Results:
- * 	doesn't actually return.
- *
- * Side effects:
- * 	tclsh cleanly exits.
- *
- *----------------------------------------------------------------------
- */
-
-int
-asyncExit (ClientData clientData, Tcl_Interp *interp, int code)
-{
-    Tcl_Exit((int)exitErrorCode);
-
-    /* NOTREACHED */
-    return code;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * sigHandler --
- *
- *	Signal handler for the Win32 OS. Catches Ctrl+C, Ctrl+Break and
- *	other exits. This is needed so tclsh can do it's real clean-up
- *	and not an unclean crash terminate.
- *
- * Results:
- *	TRUE.
- *
- * Side effects:
- *	Effects the way the app exits from a signal. This is an
- *	operating system supplied thread and unsafe to call ANY
- *	Tcl commands except for Tcl_AsyncMark.
- *
- *----------------------------------------------------------------------
- */
-
-BOOL __stdcall
-sigHandler(DWORD fdwCtrlType)
-{
-    /*
-     * If Tcl is currently executing some bytecode or in the eventloop,
-     * this will cause Tcl to enter asyncExit at the next command
-     * boundry.
-     */
-    exitErrorCode = fdwCtrlType;
-    Tcl_AsyncMark(exitToken);
-
-    /* 
-     * This will cause Tcl_Gets in Tcl_Main() to drop-out with an <EOF> 
-     * should it be blocked on input and our Tcl_AsyncMark didn't grab 
-     * the attention of the interpreter. 
-     */ 
-    CloseHandle(GetStdHandle(STD_INPUT_HANDLE));
-
-    /* indicate to the OS not to call the default terminator */ 
-    return TRUE; 
-} 

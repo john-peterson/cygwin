@@ -5,17 +5,13 @@
 # and generates output for errors.  No output means no errors were found.
 #
 # Copyright (c) 1995-1996 Sun Microsystems, Inc.
-# Copyright (c) 1998-1999 by Scriptics Corporation.
 #
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 #
 # RCS: @(#) $Id$
 
-if {[lsearch [namespace children] ::tcltest] == -1} {
-    package require tcltest
-    namespace import -force ::tcltest::*
-}
+if {[string compare test [info procs test]] == 1} then {source defs}
 
 foreach i [interp slaves] {
   interp delete $i
@@ -85,7 +81,7 @@ test safe-3.2 {calling safe::interpCreate on trusted interp} {
     set l [lsort [a aliases]]
     safe::interpDelete a
     set l
-} {encoding exit file load source}
+} {exit file load source}
 test safe-3.3 {calling safe::interpCreate on trusted interp} {
     catch {safe::interpDelete a}
     safe::interpCreate a
@@ -122,7 +118,7 @@ test safe-4.3 {safe::interpDelete, state array (not a public api)} {
     catch {namespace eval safe {set [InterpStateName a](foo)}} m2
     list $m1 $m2
 } "{}\
-   {can't read \"[safe::InterpStateName a](foo)\": no such variable}"
+   {can't read \"[safe::InterpStateName a]\": no such variable}"
 
 
 test safe-4.4 {safe::interpDelete, state array, indirectly (not a public api)} {
@@ -171,21 +167,12 @@ test safe-6.1 {test safe interpreters knowledge of the world} {
 test safe-6.2 {test safe interpreters knowledge of the world} {
     SI; set r [$I eval {info script}]; DI; set r
 } {}
-test safe-6.3 {test safe interpreters knowledge of the world} {
-    SI
-    set r [lsort [$I eval {array names tcl_platform}]]
-    DI
-    # If running a windows-debug shell, remove the "debug" element from r.
-    if {$tcl_platform(platform) == "windows" && \
-	    [lsearch $r "debug"] != -1} {
-	set r [lreplace $r 1 1]
-    }
-    set threaded [lsearch $r "threaded"]
-    if {$threaded != -1} {
-	set r [lreplace $r $threaded $threaded]
-    }
-    set r
-} {byteOrder platform wordSize}
+test safe-6.3 {test safe interpreters knowledge of the world} {pcOnly} {
+    SI; set r [lsort [$I eval {array names tcl_platform}]]; DI; set r
+} {byteOrder debug platform}
+test safe-6.3 {test safe interpreters knowledge of the world} {macOrUnix} {
+    SI; set r [lsort [$I eval {array names tcl_platform}]]; DI; set r
+} {byteOrder platform}
 
 # more test should be added to check that hostname, nameofexecutable,
 # aren't leaking infos, but they still do...
@@ -271,8 +258,6 @@ test safe-8.4 {safe source control on file} {
 
 
 test safe-8.5 {safe source control on file} {
-    # This tested filename == *.tcl or tclIndex, but that restriction
-    # was removed in 8.4a4 - hobbs
     set i "a";
     catch {safe::interpDelete $i}
     safe::interpCreate $i;
@@ -285,7 +270,7 @@ test safe-8.5 {safe source control on file} {
 	    $log \
 	    [safe::setLogCmd $prevlog; unset log] \
 	    [safe::interpDelete $i] ;
-} [list 1 {no such file or directory} [list "ERROR for slave a : [file join [info library] blah]:no such file or directory"] {} {}]
+} "1 {blah: must be a *.tcl or tclIndex} {{ERROR for slave a : [file join [info library] blah]:blah: must be a *.tcl or tclIndex}} {} {}"
 
 
 test safe-8.6 {safe source control on file} {
@@ -301,12 +286,10 @@ test safe-8.6 {safe source control on file} {
 	    $log \
 	    [safe::setLogCmd $prevlog; unset log] \
 	    [safe::interpDelete $i] ;
-} [list 1 {no such file or directory} [list "ERROR for slave a : [file join [info library] blah.tcl]:no such file or directory"] {} {}]
+} "1 {no such file or directory} {{ERROR for slave a : [file join [info library] blah.tcl]:no such file or directory}} {} {}"
 
 
 test safe-8.7 {safe source control on file} {
-    # This tested length of filename, but that restriction
-    # was removed in 8.4a4 - hobbs
     set i "a";
     catch {safe::interpDelete $i}
     safe::interpCreate $i;
@@ -320,7 +303,7 @@ test safe-8.7 {safe source control on file} {
 	    $log \
 	    [safe::setLogCmd $prevlog; unset log] \
 	    [safe::interpDelete $i] ;
-} [list 1 {no such file or directory} [list "ERROR for slave a : [file join [info library] xxxxxxxxxxx.tcl]:no such file or directory"] {} {}]
+} "1 {xxxxxxxxxxx.tcl: filename too long} {{ERROR for slave a : [file join [info library] xxxxxxxxxxx.tcl]:xxxxxxxxxxx.tcl: filename too long}} {} {}"
 
 test safe-8.8 {safe source forbids -rsrc} {
     set i "a";
@@ -451,74 +434,3 @@ test safe-10.4 {testing nested statics loading / -nestedloadok} {
 
 
 }
-
-test safe-11.1 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {1 {wrong # args: should be "encoding option ?arg ...?"} {}}
-
-test safe-11.2 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding system cp775} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {1 {wrong # args: should be "encoding system"} {}}
-
-test safe-11.3 {testing safe encoding} {
-    set i [safe::interpCreate]
-    set result [catch {
-	string match [encoding system] [interp eval $i encoding system]
-    } msg]
-    list $result $msg [safe::interpDelete $i]
-} {0 1 {}}
-
-test safe-11.4 {testing safe encoding} {
-    set i [safe::interpCreate]
-    set result [catch {
-	string match [encoding names] [interp eval $i encoding names]
-    } msg]
-    list $result $msg  [safe::interpDelete $i]
-} {0 1 {}}
-
-test safe-11.5 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding convertfrom cp1258 foobar} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {0 foobar {}}
-
-
-test safe-11.6 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding convertto cp1258 foobar} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {0 foobar {}}
-
-test safe-11.7 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding convertfrom} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {1 {wrong # args: should be "encoding convertfrom ?encoding? data"} {}}
-
-
-test safe-11.8 {testing safe encoding} {
-    set i [safe::interpCreate]
-    list \
-	    [catch {interp eval $i encoding convertto} msg] \
-	    $msg \
-	    [safe::interpDelete $i];
-} {1 {wrong # args: should be "encoding convertto ?encoding? data"} {}}
-
-
-# cleanup
-::tcltest::cleanupTests
-return

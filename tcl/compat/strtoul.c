@@ -12,8 +12,7 @@
  * RCS: @(#) $Id$
  */
 
-#include "tclInt.h"
-#include "tclPort.h"
+#include <ctype.h>
 
 /*
  * The table below is used to convert from ASCII digits to a
@@ -54,7 +53,7 @@ static char cvtIn[] = {
 
 unsigned long int
 strtoul(string, endPtr, base)
-    CONST char *string;		/* String of ASCII digits, possibly
+    char *string;		/* String of ASCII digits, possibly
 				 * preceded by white space.  For bases
 				 * greater than 10, either lower- or
 				 * upper-case digits may be used.
@@ -68,28 +67,18 @@ strtoul(string, endPtr, base)
 				 * else means decimal.
 				 */
 {
-    register CONST char *p;
+    register char *p;
     register unsigned long int result = 0;
     register unsigned digit;
     int anyDigits = 0;
-    int negative=0;
-    int overflow=0;
 
     /*
      * Skip any leading blanks.
      */
 
     p = string;
-    while (isspace(UCHAR(*p))) {
+    while (isspace(*p)) {
 	p += 1;
-    }
-    if (*p == '-') {
-        negative = 1;
-        p += 1;
-    } else {
-        if (*p == '+') {
-            p += 1;
-        }
     }
 
     /*
@@ -101,7 +90,7 @@ strtoul(string, endPtr, base)
     {
 	if (*p == '0') {
 	    p += 1;
-	    if ((*p == 'x') || (*p == 'X')) {
+	    if (*p == 'x') {
 		p += 1;
 		base = 16;
 	    } else {
@@ -122,7 +111,7 @@ strtoul(string, endPtr, base)
 	 * Skip a leading "0x" from hex numbers.
 	 */
 
-	if ((p[0] == '0') && ((p[1] == 'x') || (p[1] == 'X'))) {
+	if ((p[0] == '0') && (p[1] == 'x')) {
 	    p += 2;
 	}
     }
@@ -133,33 +122,24 @@ strtoul(string, endPtr, base)
      */
 
     if (base == 8) {
-	unsigned long maxres = ULONG_MAX >> 3;
 	for ( ; ; p += 1) {
 	    digit = *p - '0';
 	    if (digit > 7) {
 		break;
 	    }
-	    if (result > maxres) { overflow = 1; }
-	    result = (result << 3);
-	    if (digit > (ULONG_MAX - result)) { overflow = 1; }
-	    result += digit;
+	    result = (result << 3) + digit;
 	    anyDigits = 1;
 	}
     } else if (base == 10) {
-	unsigned long maxres = ULONG_MAX / 10;
 	for ( ; ; p += 1) {
 	    digit = *p - '0';
 	    if (digit > 9) {
 		break;
 	    }
-	    if (result > maxres) { overflow = 1; }
-	    result *= 10;
-	    if (digit > (ULONG_MAX - result)) { overflow = 1; }
-	    result += digit;
+	    result = (10*result) + digit;
 	    anyDigits = 1;
 	}
     } else if (base == 16) {
-	unsigned long maxres = ULONG_MAX >> 4;
 	for ( ; ; p += 1) {
 	    digit = *p - '0';
 	    if (digit > ('z' - '0')) {
@@ -169,27 +149,20 @@ strtoul(string, endPtr, base)
 	    if (digit > 15) {
 		break;
 	    }
-	    if (result > maxres) { overflow = 1; }
-	    result = (result << 4);
-	    if (digit > (ULONG_MAX - result)) { overflow = 1; }
-	    result += digit;
+	    result = (result << 4) + digit;
 	    anyDigits = 1;
 	}
-    } else if ( base >= 2 && base <= 36 ) {
-	unsigned long maxres = ULONG_MAX / base;
+    } else {
 	for ( ; ; p += 1) {
 	    digit = *p - '0';
 	    if (digit > ('z' - '0')) {
 		break;
 	    }
 	    digit = cvtIn[digit];
-	    if (digit >= ( (unsigned) base )) {
+	    if (digit >= base) {
 		break;
 	    }
-	    if (result > maxres) { overflow = 1; }
-	    result *= base;
-	    if (digit > (ULONG_MAX - result)) { overflow = 1; }
-	    result += digit;
+	    result = result*base + digit;
 	    anyDigits = 1;
 	}
     }
@@ -203,16 +176,8 @@ strtoul(string, endPtr, base)
     }
 
     if (endPtr != 0) {
-	/* unsafe, but required by the strtoul prototype */
-	*endPtr = (char *) p;
+	*endPtr = p;
     }
 
-    if (overflow) {
-	errno = ERANGE;
-	return ULONG_MAX;
-    } 
-    if (negative) {
-	return -result;
-    }
     return result;
 }

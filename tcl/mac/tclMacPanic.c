@@ -1,9 +1,9 @@
 /* 
  * tclMacPanic.c --
  *
- *	Source code for the "Tcl_Panic" library procedure used in "Simple
- *	Shell";	other Mac applications will probably call Tcl_SetPanicProc
- *	to set a more robust application-specific panic procedure.
+ *	Source code for the "panic" library procedure used in "Simple Shell";
+ *	other Mac applications will probably override this with a more robust
+ *	application-specific panic procedure.
  *
  * Copyright (c) 1993-1994 Lockheed Missle & Space Company, AI Center
  * Copyright (c) 1995-1996 Sun Microsystems, Inc.
@@ -17,7 +17,6 @@
 
 #include <Events.h>
 #include <Controls.h>
-#include <ControlDefinitions.h>
 #include <Windows.h>
 #include <TextEdit.h>
 #include <Fonts.h>
@@ -29,7 +28,6 @@
 #include <stdlib.h>
 
 #include "tclInt.h"
-#include "tclMacInt.h"
 
 /*
  * constants for panic dialog
@@ -42,29 +40,56 @@
 #define	ENTERCODE  (0x03)
 #define	RETURNCODE (0x0D)
 
+/*
+ * The panicProc variable contains a pointer to an application
+ * specific panic procedure.
+ */
+
+void (*panicProc) _ANSI_ARGS_(TCL_VARARGS(char *,format)) = NULL;
 
 /*
  *----------------------------------------------------------------------
  *
- * TclpPanic --
+ * Tcl_SetPanicProc --
  *
- *	Displays panic info, then aborts
+ *	Replace the default panic behavior with the specified functiion.
  *
  * Results:
  *	None.
  *
  * Side effects:
- *	The process dies, entering the debugger if possible.
+ *	Sets the panicProc variable.
  *
  *----------------------------------------------------------------------
  */
 
-        /* VARARGS ARGSUSED */
 void
-TclpPanic TCL_VARARGS_DEF(CONST char *, format)
+Tcl_SetPanicProc(proc)
+    void (*proc) _ANSI_ARGS_(TCL_VARARGS(char *,format));
 {
-    va_list varg;
-    char msg[256];
+    panicProc = proc;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * MacPanic --
+ *
+ *	Displays panic info..
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	Sets the panicProc variable.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+MacPanic(
+    char *msg)		/* Text to show in panic dialog. */
+{
     WindowRef macWinPtr, foundWinPtr;
     Rect macRect;
     Rect buttonRect = PANIC_BUTTON_RECT;
@@ -75,10 +100,7 @@ TclpPanic TCL_VARARGS_DEF(CONST char *, format)
     Handle stopIconHandle;
     int	part;
     Boolean done = false;
-
-    va_start(varg, format);
-    vsprintf(msg, format, varg);
-    va_end(varg);
+            
 
     /*
      * Put up an alert without using the Resource Manager (there may 
@@ -129,7 +151,7 @@ TclpPanic TCL_VARARGS_DEF(CONST char *, format)
 		    	part = FindControl(event.where, macWinPtr,
 				&okButtonHandle);
     	
-			if ((kControlButtonPart == part) && 
+			if ((inButton == part) && 
 				(TrackControl(okButtonHandle,
 					event.where, NULL))) {
 			    done = true;
@@ -153,7 +175,7 @@ TclpPanic TCL_VARARGS_DEF(CONST char *, format)
 		    if (stopIconHandle != NULL) {
 			PlotIcon(&iconRect, stopIconHandle);
 		    }
-		    TETextBox(msg, strlen(msg), &textRect, teFlushDefault);
+		    TextBox(msg, strlen(msg), &textRect, teFlushDefault);
 		    DrawControls(macWinPtr);
 		    EndUpdate(macWinPtr);
 	    }
@@ -170,3 +192,44 @@ TclpPanic TCL_VARARGS_DEF(CONST char *, format)
 #endif
 }
 
+/*
+ *----------------------------------------------------------------------
+ *
+ * panic --
+ *
+ *	Print an error message and kill the process.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	The process dies, entering the debugger if possible.
+ *
+ *----------------------------------------------------------------------
+ */
+
+#pragma ignore_oldstyle on
+void
+panic(char * format, ...)
+{
+    va_list varg;
+    char errorText[256];
+	
+    if (panicProc != NULL) {
+	va_start(varg, format);
+	
+	(void) (*panicProc)(format, varg);
+	
+	va_end(varg);
+    } else {
+	va_start(varg, format);
+	
+	vsprintf(errorText, format, varg);
+	
+	va_end(varg);
+	
+	MacPanic(errorText);
+    }
+
+}
+#pragma ignore_oldstyle reset

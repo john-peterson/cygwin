@@ -12,8 +12,12 @@
  * RCS: @(#) $Id$
  */
 
-#include "tclInt.h"
-#include "tclPort.h"
+#include "tcl.h"
+#ifdef NO_STDLIB_H
+#   include "../compat/stdlib.h"
+#else
+#   include <stdlib.h>
+#endif
 #include <ctype.h>
 
 #ifndef TRUE
@@ -104,7 +108,7 @@ strtod(string, endPtr)
      */
 
     p = string;
-    while (isspace(UCHAR(*p))) {
+    while (isspace(*p)) {
 	p += 1;
     }
     if (*p == '-') {
@@ -202,11 +206,7 @@ strtod(string, endPtr)
 	    }
 	    expSign = FALSE;
 	}
-	if (!isdigit(UCHAR(*p))) {
-	    p = pExp;
-	    goto done;
-	}
-	while (isdigit(UCHAR(*p))) {
+	while (isdigit(*p)) {
 	    exp = exp * 10 + (*p - '0');
 	    p += 1;
 	}
@@ -232,7 +232,6 @@ strtod(string, endPtr)
     }
     if (exp > maxExponent) {
 	exp = maxExponent;
-	errno = ERANGE;
     }
     dblExp = 1.0;
     for (d = powersOf10; exp != 0; exp >>= 1, d += 1) {

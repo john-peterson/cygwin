@@ -13,8 +13,6 @@
  */
 
 #include <ctype.h>
-#include "tclInt.h"
-#include "tclPort.h"
 
 
 /*
@@ -39,7 +37,7 @@
 
 long int
 strtol(string, endPtr, base)
-    CONST char *string;		/* String of ASCII digits, possibly
+    char *string;		/* String of ASCII digits, possibly
 				 * preceded by white space.  For bases
 				 * greater than 10, either lower- or
 				 * upper-case digits may be used.
@@ -53,15 +51,15 @@ strtol(string, endPtr, base)
 				 * else means decimal.
 				 */
 {
-    register CONST char *p;
-    long result;
+    register char *p;
+    int result;
 
     /*
      * Skip any leading blanks.
      */
 
     p = string;
-    while (isspace(UCHAR(*p))) {
+    while (isspace(*p)) {
 	p += 1;
     }
 
@@ -79,7 +77,7 @@ strtol(string, endPtr, base)
 	result = strtoul(p, endPtr, base);
     }
     if ((result == 0) && (endPtr != 0) && (*endPtr == p)) {
-	*endPtr = (char *) string;
+	*endPtr = string;
     }
     return result;
 }

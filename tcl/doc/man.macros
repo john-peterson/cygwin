@@ -72,8 +72,8 @@
 .   ie !"\\$2"" .TP \\n()Cu
 .   el          .TP 15
 .\}
-.ta \\n()Au \\n()Bu
 .ie !"\\$3"" \{\
+.ta \\n()Au \\n()Bu
 \&\\$1	\\fI\\$2\\fP	(\\$3)
 .\".b
 .\}
@@ -199,7 +199,7 @@
 .SH "STANDARD OPTIONS"
 .LP
 .nf
-.ta 5.5c 11c
+.ta 4c 8c 12c
 .ft B
 ..
 '\"	# SE - end of list of standard options

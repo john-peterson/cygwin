@@ -12,10 +12,7 @@
 #
 # RCS: @(#) $Id$
 
-if {[lsearch [namespace children] ::tcltest] == -1} {
-    package require tcltest
-    namespace import -force ::tcltest::*
-}
+if {[string compare test [info procs test]] == 1} then {source defs}
 
 catch {unset a}
 catch {unset x}
@@ -157,8 +154,8 @@ test foreach-3.1 {compiled foreach backward jump works correctly} {
         return $l
     }
     array set x {0 zero 1 one 2 two 3 three}
-    lsort [foo x]
-} [lsort {{0 zero} {1 one} {2 two} {3 three}}]
+    foo x
+} {{0 zero} {1 one} {2 two} {3 three}}
 
 test foreach-4.1 {noncompiled foreach and shared variable or value list objects that are converted to another type} {
     catch {unset x}
@@ -210,43 +207,6 @@ test foreach-5.4 {break tests} {
     catch {break foo} msg
     set msg
 } {wrong # args: should be "break"}
-# Check for bug #406709 
-test foreach-5.5 {break tests} {
-    proc a {} {
-	set a 1
-	foreach b b {list [concat a; break]; incr a}
-	incr a
-    }
-    a
-} {2}
 
-# Test for incorrect "double evaluation" semantics
-
-test foreach-6.1 {delayed substitution of body} {
-    proc foo {} {
-       set a 0
-       foreach a [list 1 2 3] "
-           set x $a
-       "
-       set x
-    }
-    foo
-} {0}
-
-# cleanup
 catch {unset a}
 catch {unset x}
-::tcltest::cleanupTests
-return
-
-
-
-
-
-
-
-
-
-
-
-

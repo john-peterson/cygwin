@@ -7,7 +7,7 @@
 '\" RCS: @(#) $Id$
 '\" 
 .so man.macros
-.TH Tcl_FindExecutable 3 8.1 Tcl "Tcl Library Procedures"
+.TH Tcl_FindExecutable 3 7.5 Tcl "Tcl Library Procedures"
 .BS
 .SH NAME
 Tcl_FindExecutable, Tcl_GetNameOfExecutable \- identify or return the name of the binary file containing the application
@@ -15,7 +15,7 @@ Tcl_FindExecutable, Tcl_GetNameOfExecutable \- identify or return the name of th
 .nf
 \fB#include <tcl.h>\fR
 .sp
-void
+char *
 \fBTcl_FindExecutable\fR(\fIargv0\fR)
 .sp
 CONST char *
@@ -39,9 +39,7 @@ It is also returned by the \fBinfo nameofexecutable\fR command.
 .PP
 On UNIX platforms this procedure is typically invoked as the very
 first thing in the application's main program;  it must be passed
-\fIargv[0]\fR as its argument.  It is important not to change the
-working directory before the invocation.
-\fBTcl_FindExecutable\fR uses \fIargv0\fR
+\fIargv[0]\fR as its argument.  \fBTcl_FindExecutable\fR uses \fIargv0\fR
 along with the \fBPATH\fR environment variable to find the
 application's executable, if possible.  If it fails to find
 the binary, then future calls to \fBinfo nameofexecutable\fR

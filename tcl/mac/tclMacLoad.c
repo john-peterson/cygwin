@@ -5,7 +5,7 @@
  *	on the Macintosh.  This procedure will only work with systems 
  *	that use the Code Fragment Manager.
  *
- * Copyright (c) 1995-1997 Sun Microsystems, Inc.
+ * Copyright (c) 1995-1996 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
  * of this file, and for a DISCLAIMER OF ALL WARRANTIES.
@@ -76,30 +76,11 @@ struct CfrgItem {
     Str255	name;		/* This is actually variable sized. */
 };
 typedef struct CfrgItem CfrgItem;
-
-/*
- * On MacOS, old shared libraries which contain many code fragments
- * cannot, it seems, be loaded in one go.  We need to look provide
- * the name of a code fragment while we load.  Since with the
- * separation of the 'load' and 'findsymbol' be do not necessarily
- * know a symbol name at load time, we have to store some further
- * information in a structure like this so we can ensure we load
- * properly in 'findsymbol' if the first attempts didn't work.
- */
-typedef struct TclMacLoadInfo {
-    int loaded;
-    CFragConnectionID connID;
-    FSSpec fileSpec;
-} TclMacLoadInfo;
-
-static int TryToLoad(Tcl_Interp *interp, TclMacLoadInfo *loadInfo, Tcl_Obj *pathPtr, 
-		     CONST char *sym /* native */);
-
 
 /*
  *----------------------------------------------------------------------
  *
- * TclpDlopen --
+ * TclLoadFile --
  *
  *	This procedure is called to carry out dynamic loading of binary
  *	code for the Macintosh.  This implementation is based on the
@@ -107,7 +88,7 @@ static int TryToLoad(Tcl_Interp *interp, TclMacLoadInfo *loadInfo, Tcl_Obj *path
  *
  * Results:
  *	The result is TCL_ERROR, and an error message is left in
- *	the interp's result.
+ *	interp->result.
  *
  * Side effects:
  *	New binary code is loaded.
@@ -116,103 +97,74 @@ static int TryToLoad(Tcl_Interp *interp, TclMacLoadInfo *loadInfo, Tcl_Obj *path
  */
 
 int
-TclpDlopen(interp, pathPtr, loadHandle, unloadProcPtr)
-    Tcl_Interp *interp;		/* Used for error reporting. */
-    Tcl_Obj *pathPtr;		/* Name of the file containing the desired
-				 * code (UTF-8). */
-    Tcl_LoadHandle *loadHandle;	/* Filled with token for dynamically loaded
-				 * file which will be passed back to 
-				 * (*unloadProcPtr)() to unload the file. */
-    Tcl_FSUnloadFileProc **unloadProcPtr;
-				/* Filled with address of Tcl_FSUnloadFileProc
-				 * function which should be used for
-				 * this file. */
+TclLoadFile(
+    Tcl_Interp *interp,		/* Used for error reporting. */
+    char *fileName,		/* Name of the file containing the desired
+				 * code. */
+    char *sym1, char *sym2,	/* Names of two procedures to look up in
+				 * the file's symbol table. */
+    Tcl_PackageInitProc **proc1Ptr,
+    Tcl_PackageInitProc **proc2Ptr)
+				/* Where to return the addresses corresponding
+				 * to sym1 and sym2. */
 {
-    OSErr err;
-    FSSpec fileSpec;
-    CONST char *native;
-    TclMacLoadInfo *loadInfo;
-    
-    native = Tcl_FSGetNativePath(pathPtr);
-    err = FSpLocationFromPath(strlen(native), native, &fileSpec);
-    
-    if (err != noErr) {
-	Tcl_SetResult(interp, "could not locate shared library", TCL_STATIC);
-	return TCL_ERROR;
-    }
-    
-    loadInfo = (TclMacLoadInfo *) ckalloc(sizeof(TclMacLoadInfo));
-    loadInfo->loaded = 0;
-    loadInfo->fileSpec = fileSpec;
-    loadInfo->connID = NULL;
-    
-    if (TryToLoad(interp, loadInfo, pathPtr, NULL) != TCL_OK) {
-	ckfree((char*) loadInfo);
-	return TCL_ERROR;
-    }
-
-    *loadHandle = (Tcl_LoadHandle)loadInfo;
-    *unloadProcPtr = &TclpUnloadFile;
-    return TCL_OK;
-}
-
-/* 
- * See the comments about 'struct TclMacLoadInfo' above. This
- * function ensures the appropriate library or symbol is
- * loaded.
- */
-static int
-TryToLoad(Tcl_Interp *interp, TclMacLoadInfo *loadInfo, Tcl_Obj *pathPtr,
-	  CONST char *sym /* native */) 
-{
-    OSErr err;
     CFragConnectionID connID;
     Ptr dummy;
+    OSErr err;
+    CFragSymbolClass symClass;
+    FSSpec fileSpec;
     short fragFileRef, saveFileRef;
     Handle fragResource;
     UInt32 offset = 0;
     UInt32 length = kCFragGoesToEOF;
+    char packageName[255];
     Str255 errName;
-    StringPtr fragName=NULL;
-
-    if (loadInfo->loaded == 1) {
-        return TCL_OK;
-    }
-
+    
     /*
-     * See if this fragment has a 'cfrg' resource.  It will tell us where
+     * First thing we must do is infer the package name from the sym1
+     * variable.  This is kind of dumb since the caller actually knows
+     * this value, it just doesn't give it to us.
+     */
+    strcpy(packageName, sym1);
+    *packageName = (char) tolower(*packageName);
+    packageName[strlen(packageName) - 5] = NULL;
+    
+    err = FSpLocationFromPath(strlen(fileName), fileName, &fileSpec);
+    if (err != noErr) {
+	interp->result = "could not locate shared library";
+	return TCL_ERROR;
+    }
+    
+    /*
+     * See if this fragment has a 'cfrg' resource.  It will tell us were
      * to look for the fragment in the file.  If it doesn't exist we will
      * assume we have a ppc frag using the whole data fork.  If it does
      * exist we find the frag that matches the one we are looking for and
      * get the offset and size from the resource.
      */
-     
     saveFileRef = CurResFile();
     SetResLoad(false);
-    fragFileRef = FSpOpenResFile(&loadInfo->fileSpec, fsRdPerm);
+    fragFileRef = FSpOpenResFile(&fileSpec, fsRdPerm);
     SetResLoad(true);
     if (fragFileRef != -1) {
-	if (sym != NULL) {
-	    UseResFile(fragFileRef);
-	    fragResource = Get1Resource(kCFragResourceType, kCFragResourceID);
-	    HLock(fragResource);
-	    if (ResError() == noErr) {
-		CfrgItem* srcItem;
-		long itemCount, index;
-		Ptr itemStart;
+	UseResFile(fragFileRef);
+	fragResource = Get1Resource(kCFragResourceType, kCFragResourceID);
+	HLock(fragResource);
+	if (ResError() == noErr) {
+	    CfrgItem* srcItem;
+	    long itemCount, index;
+	    Ptr itemStart;
 
-		itemCount = (*(CfrgHeaderPtrHand)fragResource)->itemCount;
-		itemStart = &(*(CfrgHeaderPtrHand)fragResource)->arrayStart;
-		for (index = 0; index < itemCount;
-		     index++, itemStart += srcItem->itemSize) {
-		    srcItem = (CfrgItem*)itemStart;
-		    if (srcItem->archType != OUR_ARCH_TYPE) continue;
-		    if (!strncasecmp(sym, (char *) srcItem->name + 1,
-			    strlen(sym))) {
-			offset = srcItem->codeOffset;
-			length = srcItem->codeLength;
-			fragName=srcItem->name;
-		    }
+	    itemCount = (*(CfrgHeaderPtrHand)fragResource)->itemCount;
+	    itemStart = &(*(CfrgHeaderPtrHand)fragResource)->arrayStart;
+	    for (index = 0; index < itemCount;
+		 index++, itemStart += srcItem->itemSize) {
+		srcItem = (CfrgItem*)itemStart;
+		if (srcItem->archType != OUR_ARCH_TYPE) continue;
+		if (!strncasecmp(packageName, (char *) srcItem->name + 1,
+			srcItem->name[0])) {
+		    offset = srcItem->codeOffset;
+		    length = srcItem->codeLength;
 		}
 	    }
 	}
@@ -225,128 +177,41 @@ TryToLoad(Tcl_Interp *interp, TclMacLoadInfo *loadInfo, Tcl_Obj *pathPtr,
 	ReleaseResource(fragResource);
 	CloseResFile(fragFileRef);
 	UseResFile(saveFileRef);
-	if (sym == NULL) {
-	    /* We just return */
-	    return TCL_OK;
-	}
     }
 
     /*
-     * Now we can attempt to load the fragment using the offset & length
+     * Now we can attempt to load the fragement using the offset & length
      * obtained from the resource.  We don't worry about the main entry point
      * as we are going to search for specific entry points passed to us.
      */
     
-    err = GetDiskFragment(&loadInfo->fileSpec, offset, length, fragName,
+    c2pstr(packageName);
+    err = GetDiskFragment(&fileSpec, offset, length, (StringPtr) packageName,
 	    kLoadCFrag, &connID, &dummy, errName);
-    
     if (err != fragNoErr) {
 	p2cstr(errName);
-	if(pathPtr) {
-	Tcl_AppendResult(interp, "couldn't load file \"", 
-			 Tcl_GetString(pathPtr),
-			 "\": ", errName, (char *) NULL);
-	} else if(sym) {
-	Tcl_AppendResult(interp, "couldn't load library \"", 
-			 sym,
-			 "\": ", errName, (char *) NULL);
-	}
+	Tcl_AppendResult(interp, "couldn't load file \"", fileName,
+	    "\": ", errName, (char *) NULL);
+	return TCL_ERROR;
+    }
+    
+    c2pstr(sym1);
+    err = FindSymbol(connID, (StringPtr) sym1, (Ptr *) proc1Ptr, &symClass);
+    p2cstr((StringPtr) sym1);
+    if (err != fragNoErr || symClass == kDataCFragSymbol) {
+	interp->result =
+	    "could not find Initialization routine in library";
 	return TCL_ERROR;
     }
 
-    loadInfo->connID = connID;
-    loadInfo->loaded = 1;
-
-    return TCL_OK;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclpFindSymbol --
- *
- *	Looks up a symbol, by name, through a handle associated with
- *	a previously loaded piece of code (shared library).
- *
- * Results:
- *	Returns a pointer to the function associated with 'symbol' if
- *	it is found.  Otherwise returns NULL and may leave an error
- *	message in the interp's result.
- *
- *----------------------------------------------------------------------
- */
-Tcl_PackageInitProc*
-TclpFindSymbol(interp, loadHandle, symbol) 
-    Tcl_Interp *interp;
-    Tcl_LoadHandle loadHandle;
-    CONST char *symbol;
-{
-    Tcl_DString ds;
-    Tcl_PackageInitProc *proc=NULL;
-    TclMacLoadInfo *loadInfo = (TclMacLoadInfo *)loadHandle;
-    Str255 symbolName;
-    CFragSymbolClass symClass;
-    OSErr err;
-   
-    if (loadInfo->loaded == 0) {
-	int res;
-	/*
-	 * First thing we must do is infer the package name from the
-	 * sym variable.  We do this by removing the '_Init'.
-	 */
-	Tcl_UtfToExternalDString(NULL, symbol, -1, &ds);
-	Tcl_DStringSetLength(&ds, Tcl_DStringLength(&ds) - 5);
-	res = TryToLoad(interp, loadInfo, NULL, Tcl_DStringValue(&ds));
-	Tcl_DStringFree(&ds);
-	if (res != TCL_OK) {
-	    return NULL;
-	}
+    c2pstr(sym2);
+    err = FindSymbol(connID, (StringPtr) sym2, (Ptr *) proc2Ptr, &symClass);
+    p2cstr((StringPtr) sym2);
+    if (err != fragNoErr || symClass == kDataCFragSymbol) {
+	*proc2Ptr = NULL;
     }
     
-    Tcl_UtfToExternalDString(NULL, symbol, -1, &ds);
-    strcpy((char *) symbolName + 1, Tcl_DStringValue(&ds));
-    symbolName[0] = (unsigned) Tcl_DStringLength(&ds);
-    err = FindSymbol(loadInfo->connID, symbolName, (Ptr *) &proc, &symClass);
-    Tcl_DStringFree(&ds);
-    if (err != fragNoErr || symClass == kDataCFragSymbol) {
-	Tcl_SetResult(interp,
-		"could not find Initialization routine in library",
-		TCL_STATIC);
-	return NULL;
-    }
-    return proc;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * TclpUnloadFile --
- *
- *	Unloads a dynamically loaded binary code file from memory.
- *	Code pointers in the formerly loaded file are no longer valid
- *	after calling this function.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	Does nothing.  Can anything be done?
- *
- *----------------------------------------------------------------------
- */
-
-void
-TclpUnloadFile(loadHandle)
-    Tcl_LoadHandle loadHandle;	/* loadHandle returned by a previous call
-				 * to TclpDlopen().  The loadHandle is 
-				 * a token that represents the loaded 
-				 * file. */
-{
-    TclMacLoadInfo *loadInfo = (TclMacLoadInfo *)loadHandle;
-    if (loadInfo->loaded) {
-	CloseConnection((CFragConnectionID*) &(loadInfo->connID));
-    }
-    ckfree((char*)loadInfo);
+    return TCL_OK;
 }
 
 /*
@@ -371,7 +236,7 @@ TclpUnloadFile(loadHandle)
 
 int
 TclGuessPackageName(
-    CONST char *fileName,	/* Name of file containing package (already
+    char *fileName,		/* Name of file containing package (already
 				 * translated to local form if needed). */
     Tcl_DString *bufPtr)	/* Initialized empty dstring.  Append
 				 * package name to this if possible. */

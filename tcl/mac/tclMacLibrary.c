@@ -2,7 +2,7 @@
  * tclMacLibrary.c --
  *
  *	This file should be included in Tcl extensions that want to 
- *	automatically open their resource forks when the code is linked. 
+ *	automatically oepn their resource forks when the code is linked. 
  *	These routines should not be exported but should be compiled 
  *	locally by each fragment.  Many thanks to Jay Lieske
  *	<lieske@princeton.edu> who provide an initial version of this
@@ -19,21 +19,14 @@
 /*
  * Here is another place that we are using the old routine names...
  */
+ 
+#define OLDROUTINENAMES 1
 
 #include <CodeFragments.h>
 #include <Errors.h>
 #include <Resources.h>
 #include <Strings.h>
 #include "tclMacInt.h"
-
-#if defined(TCL_REGISTER_LIBRARY) && defined(USE_TCL_STUBS)
-#error "Can't use TCL_REGISTER_LIBRARY and USE_TCL_STUBS at the same time!"
-/*
- * Can't register a library with Tcl when using stubs in the current
- * implementation, since Tcl_InitStubs hasn't been called yet
- *  when OpenLibraryResource is executing. 
- */
-#endif
 
 /*
  * These function are not currently defined in any header file.  The
@@ -178,9 +171,9 @@ OpenLibraryResource(
     OSErr err = noErr;
     
 
-    if (realInitBlkPtr->fragLocator.where == kDataForkCFragLocator) {
+    if (realInitBlkPtr->fragLocator.where == kOnDiskFlat) {
     	fileSpec = realInitBlkPtr->fragLocator.u.onDisk.fileSpec;
-    } else if (realInitBlkPtr->fragLocator.where == kResourceCFragLocator) {
+    } else if (realInitBlkPtr->fragLocator.where == kOnDiskSegmented) {
     	fileSpec = realInitBlkPtr->fragLocator.u.inSegs.fileSpec;
     } else {
     	err = resFNotFound;

@@ -50,6 +50,17 @@
 
 
 /*
+* The following defines control the behavior of the Macintosh
+* Universial Headers.
+*/
+
+
+#define SystemSevenOrLater 1
+#define STRICT_CONTROLS 1
+#define STRICT_WINDOWS 1
+
+
+/*
 * Define the following symbol if you want
 * comprehensive debugging turned on.
 */
@@ -64,8 +75,14 @@
 #endif
 
 
+
 /*
-* for Metrowerks Pro 6 MSL
+* For a while, we will continue to use the old routine names, so that
+* people with older versions of CodeWarrior will still be able to compile
+* the source (albeit they will have to update the project files themselves).
+*
+* At some point, we will convert over to the new routine names.
 */
 
-#include <UseDLLPrefix.h>
+
+#define OLDROUTINENAMES 1

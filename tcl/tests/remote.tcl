@@ -159,14 +159,3 @@ if {[catch {set serverSocket \
 } else {
     vwait __server_wait_variable__
 }
-
-
-
-
-
-
-
-
-
-
-

@@ -18,10 +18,6 @@
 #include "tclInt.h"
 #include "tclPort.h"
 
-#ifndef pid_t
-#define pid_t int
-#endif
-
 /*
  * A linked list of the following structures is used to keep track
  * of processes for which we received notification from the kernel,
@@ -32,7 +28,7 @@
  */
 
 typedef struct WaitInfo {
-    pid_t pid;				/* Pid of process that exited. */
+    int pid;				/* Pid of process that exited. */
     WAIT_STATUS_TYPE status;		/* Status returned when child exited
 					 * or suspended. */
     struct WaitInfo *nextPtr;		/* Next in list of exited processes. */
@@ -68,9 +64,9 @@ static WaitInfo *deadList = NULL;	/* First in list of all dead
 #   undef waitpid
 #endif
 
-pid_t
+int
 waitpid(pid, statusPtr, options)
-    pid_t pid;			/* The pid to wait on.  Must be -1 or
+    int pid;			/* The pid to wait on.  Must be -1 or
 				 * greater than zero. */
     int *statusPtr;		/* Where to store wait status for the
 				 * process. */
@@ -78,7 +74,7 @@ waitpid(pid, statusPtr, options)
 				 * WUNTRACED. */
 {
     register WaitInfo *waitPtr, *prevPtr;
-    pid_t result;
+    int result;
     WAIT_STATUS_TYPE status;
 
     if ((pid < -1) || (pid == 0)) {

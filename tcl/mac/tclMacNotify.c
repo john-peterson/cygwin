@@ -5,10 +5,6 @@
  *	which is the lowest-level part of the Tcl event loop.  This file
  *	works together with ../generic/tclNotify.c.
  *
- *	The Mac notifier only polls for system and OS events, so it is process
- *	wide, rather than thread specific.  However, this means that the convert
- *	event proc will have to arbitrate which events go to which threads.
- *
  * Copyright (c) 1995-1996 Sun Microsystems, Inc.
  *
  * See the file "license.terms" for information on usage and redistribution
@@ -26,7 +22,6 @@
 #include <LowMem.h>
 #include <Processes.h>
 #include <Timer.h>
-#include <Threads.h>
 
 
 /* 
@@ -41,13 +36,6 @@ extern pascal QHdrPtr GetEventQueue(void)
 #pragma import list GetEventQueue
 #define GetEvQHdr() GetEventQueue()
 #endif
-
-/*
- * Need this for replacing Tcl_SetTimer and Tcl_WaitForEvent defined 
- * in THIS file with ones defined in the stub table.
- */
- 
-extern TclStubs tclStubs;
 
 /*
  * The follwing static indicates whether this module has been initialized.
@@ -93,105 +81,9 @@ static void		NotifierExitHandler _ANSI_ARGS_((
 /*
  *----------------------------------------------------------------------
  *
- * Tcl_InitNotifier --
- *
- *	Initializes the platform specific notifier state.  There is no thread
- *	specific platform notifier on the Mac, so this really doesn't do 
- *	anything.  However, we need to return the ThreadID, since the generic
- *	notifier hands this back to us in AlertThread.
- *
- * Results:
- *	Returns the threadID for this thread.  
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-ClientData
-Tcl_InitNotifier()
-{
-    
-#ifdef TCL_THREADS
-    ThreadID curThread;
-    if (TclMacHaveThreads()) {
-        GetCurrentThread(&curThread);
-        return (ClientData) curThread;
-    } else {
-        return NULL;
-    }
-#else
-    return NULL;
-#endif
-
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * Tcl_FinalizeNotifier --
- *
- *	This function is called to cleanup the notifier state before
- *	a thread is terminated.  There is no platform thread specific
- *	notifier, so this does nothing.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-void
-Tcl_FinalizeNotifier(clientData)
-    ClientData clientData;	/* Pointer to notifier data. */
-{
-    /* Nothing to do on the Mac */
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * Tcl_AlertNotifier --
- *
- *	Wake up the specified notifier from any thread. This routine
- *	is called by the platform independent notifier code whenever
- *	the Tcl_ThreadAlert routine is called.  This routine is
- *	guaranteed not to be called on a given notifier after
- *	Tcl_FinalizeNotifier is called for that notifier.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	Calls YieldToThread from this thread.
- *
- *----------------------------------------------------------------------
- */
-
-void
-Tcl_AlertNotifier(clientData)
-    ClientData clientData;	/* Pointer to thread data. */
-{
-
-#ifdef TCL_THREADS
-    if (TclMacHaveThreads()) {
-        YieldToThread((ThreadID) clientData);
-    }
-#endif
-
-}
-
-/*
- *----------------------------------------------------------------------
- *
  * InitNotifier --
  *
- *	Initializes the notifier structure.  Note - this function is never
- *	used.
+ *	Initializes the notifier structure.
  *
  * Results:
  *	None.
@@ -216,8 +108,7 @@ InitNotifier(void)
  * NotifierExitHandler --
  *
  *	This function is called to cleanup the notifier state before
- *	Tcl is unloaded.  This function is never used, since InitNotifier
- *	isn't either.
+ *	Tcl is unloaded.
  *
  * Results:
  *	None.
@@ -266,7 +157,7 @@ HandleMacEvents(void)
      * system event queue unless we call WaitNextEvent.
      */
 
-    GetGlobalMouseTcl(&currentMouse);
+    GetGlobalMouse(&currentMouse);
     if ((notifier.eventProcPtr != NULL) &&
 	    !EqualPt(currentMouse, notifier.lastMousePosition)) {
 	notifier.lastMousePosition = currentMouse;
@@ -296,7 +187,7 @@ HandleMacEvents(void)
      */
 
     while (needsUpdate || (GetEvQHdr()->qHead != NULL)) {
-	GetGlobalMouseTcl(&currentMouse);
+	GetGlobalMouse(&currentMouse);
 	SetRect(&mouseRect, currentMouse.h, currentMouse.v,
 		currentMouse.h + 1, currentMouse.v + 1);
 	RectRgn(notifier.utilityRgn, &mouseRect);
@@ -334,16 +225,6 @@ void
 Tcl_SetTimer(
     Tcl_Time *timePtr)		/* New value for interval timer. */
 {
-    /*
-     * Allow the notifier to be hooked.  This may not make sense
-     * on the Mac, but mirrors the UNIX hook.
-     */
-
-    if (tclStubs.tcl_SetTimer != Tcl_SetTimer) {
-	tclStubs.tcl_SetTimer(timePtr);
-	return;
-    }
-
     if (!timePtr) {
 	notifier.timerActive = 0;
     } else {
@@ -351,7 +232,7 @@ Tcl_SetTimer(
 	 * Compute when the timer should fire.
 	 */
 	
-	Tcl_GetTime(&notifier.timer);
+	TclpGetTime(&notifier.timer);
 	notifier.timer.sec += timePtr->sec;
 	notifier.timer.usec += timePtr->usec;
 	if (notifier.timer.usec >= 1000000) {
@@ -360,29 +241,6 @@ Tcl_SetTimer(
 	}
 	notifier.timerActive = 1;
     }
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * Tcl_ServiceModeHook --
- *
- *	This function is invoked whenever the service mode changes.
- *
- * Results:
- *	None.
- *
- * Side effects:
- *	None.
- *
- *----------------------------------------------------------------------
- */
-
-void
-Tcl_ServiceModeHook(mode)
-    int mode;			/* Either TCL_SERVICE_ALL, or
-				 * TCL_SERVICE_NONE. */
-{
 }
 
 /*
@@ -414,15 +272,6 @@ Tcl_WaitForEvent(
     Point currentMouse;
     void * timerToken;
     Rect mouseRect;
-
-    /*
-     * Allow the notifier to be hooked.  This may not make
-     * sense on the Mac, but mirrors the UNIX hook.
-     */
-
-    if (tclStubs.tcl_WaitForEvent != Tcl_WaitForEvent) {
-	return tclStubs.tcl_WaitForEvent(timePtr);
-    }
 
     /*
      * Compute the next timeout value.
@@ -481,7 +330,7 @@ Tcl_WaitForEvent(
 	     * the current mouse position.
 	     */
 
-	    GetGlobalMouseTcl(&currentMouse);
+	    GetGlobalMouse(&currentMouse);
 	    SetRect(&mouseRect, currentMouse.h, currentMouse.v,
 		    currentMouse.h + 1, currentMouse.v + 1);
 	    RectRgn(notifier.utilityRgn, &mouseRect);
@@ -497,17 +346,6 @@ Tcl_WaitForEvent(
 	}
     }
     TclMacRemoveTimer(timerToken);
-    
-    /*
-     * Yield time to nay other thread at this point.  If we find that the
-     * apps thrash too switching between threads, we can put a timer here,
-     * and only yield when the timer fires.
-     */
-     
-    if (TclMacHaveThreads()) {
-        YieldToAnyThread();
-    }
-    
     return 0;
 }
 
@@ -543,9 +381,7 @@ Tcl_Sleep(
     timerToken = TclMacStartTimer((long) ms);
     while (1) {
 	WaitNextEvent(0, &dummy, (ms / 16.66) + 1, NULL);
-        if (TclMacHaveThreads()) {
-	    YieldToAnyThread();
-	}
+	
 	if (TclMacTimerExpired(timerToken)) {
 	    break;
 	}

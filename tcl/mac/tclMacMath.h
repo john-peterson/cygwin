@@ -135,7 +135,7 @@
 #endif
 #endif
 
-#if (defined(THINK_C))
+#if (defined(THINK_C) || defined(__MWERKS__))
 #pragma export on
 double		hypotd(double x, double y);
 #define hypot hypotd
