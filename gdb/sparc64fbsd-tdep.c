@@ -1,12 +1,12 @@
 /* Target-dependent code for FreeBSD/sparc64.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,221 +15,213 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
-#include "frame.h"
-#include "frame-unwind.h"
 #include "gdbcore.h"
 #include "osabi.h"
 #include "regcache.h"
-#include "regset.h"
 #include "target.h"
-#include "trad-frame.h"
 
-#include "gdb_assert.h"
 #include "gdb_string.h"
 
 #include "sparc64-tdep.h"
-#include "solib-svr4.h"
 
 /* From <machine/reg.h>.  */
-const struct sparc_gregset sparc64fbsd_gregset =
+
+/* Offset of registers in `struct reg'.  */
+int sparc64fbsd_r_global_offset = (0 * 8);
+int sparc64fbsd_r_out_offset = (8 * 8);
+int sparc64fbsd_r_fprs_offset = (16 * 8);
+int sparc64fbsd_r_tnpc_offset = (24 * 8);
+int sparc64fbsd_r_tpc_offset = (25 * 8);
+int sparc64fbsd_r_tstate_offset = (26 * 8);
+int sparc64fbsd_r_y_offset = (28 * 8);
+
+/* Size of `struct reg' and `struct fpreg'.  */
+int sparc64fbsd_sizeof_struct_reg = 256;
+int sparc64fbsd_sizeof_struct_fpreg = 272;
+
+void
+sparc64fbsd_supply_reg (const char *regs, int regnum)
 {
-  26 * 8,			/* "tstate" */
-  25 * 8,			/* %pc */
-  24 * 8,			/* %npc */
-  28 * 8,			/* %y */
-  16 * 8,			/* %fprs */
-  -1,
-  1 * 8,			/* %g1 */
-  -1,				/* %l0 */
-  8				/* sizeof (%y) */
-};
-
+  char buf[8];
+  int i;
 
-static void
-sparc64fbsd_supply_gregset (const struct regset *regset,
-			    struct regcache *regcache,
-			    int regnum, const void *gregs, size_t len)
-{
-  sparc64_supply_gregset (&sparc64fbsd_gregset, regcache, regnum, gregs);
-}
+  if (regnum == SPARC64_PC_REGNUM || regnum == -1)
+    supply_register (SPARC64_PC_REGNUM, regs + sparc64fbsd_r_tpc_offset);
 
-static void
-sparc64fbsd_collect_gregset (const struct regset *regset,
-			     const struct regcache *regcache,
-			     int regnum, void *gregs, size_t len)
-{
-  sparc64_collect_gregset (&sparc64fbsd_gregset, regcache, regnum, gregs);
-}
+  if (regnum == SPARC64_NPC_REGNUM || regnum == -1)
+    supply_register (SPARC64_NPC_REGNUM, regs + sparc64fbsd_r_tnpc_offset);
 
-static void
-sparc64fbsd_supply_fpregset (const struct regset *regset,
-			     struct regcache *regcache,
-			     int regnum, const void *fpregs, size_t len)
-{
-  sparc64_supply_fpregset (&sparc64_bsd_fpregset, regcache, regnum, fpregs);
-}
+  if (regnum == SPARC64_STATE_REGNUM || regnum == -1)
+    supply_register (SPARC64_STATE_REGNUM, regs + sparc64fbsd_r_tstate_offset);
 
-static void
-sparc64fbsd_collect_fpregset (const struct regset *regset,
-			      const struct regcache *regcache,
-			      int regnum, void *fpregs, size_t len)
-{
-  sparc64_collect_fpregset (&sparc64_bsd_fpregset, regcache, regnum, fpregs);
-}
-
+  if (regnum == SPARC64_FPRS_REGNUM || regnum == -1)
+    supply_register (SPARC64_FPRS_REGNUM, regs + sparc64fbsd_r_fprs_offset);
 
-/* Signal trampolines.  */
+  if (regnum == SPARC64_Y_REGNUM || regnum == -1)
+    supply_register (SPARC64_Y_REGNUM, regs + sparc64fbsd_r_y_offset);
 
-static int
-sparc64fbsd_pc_in_sigtramp (CORE_ADDR pc, const char *name)
-{
-  return (name && strcmp (name, "__sigtramp") == 0);
-}
-
-static struct sparc_frame_cache *
-sparc64fbsd_sigtramp_frame_cache (struct frame_info *this_frame,
-				   void **this_cache)
-{
-  struct sparc_frame_cache *cache;
-  CORE_ADDR addr, mcontext_addr, sp;
-  LONGEST fprs;
-  int regnum;
-
-  if (*this_cache)
-    return *this_cache;
-
-  cache = sparc_frame_cache (this_frame, this_cache);
-  gdb_assert (cache == *this_cache);
-
-  cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
-
-  /* The third argument is a pointer to an instance of `ucontext_t',
-     which has a member `uc_mcontext' that contains the saved
-     registers.  */
-  addr = get_frame_register_unsigned (this_frame, SPARC_O2_REGNUM);
-  mcontext_addr = addr + 64;
-
-  /* The following registers travel in the `mc_local' slots of
-     `mcontext_t'.  */
-  addr = mcontext_addr + 16 * 8;
-  cache->saved_regs[SPARC64_FPRS_REGNUM].addr = addr + 0 * 8;
-  cache->saved_regs[SPARC64_FSR_REGNUM].addr = addr + 1 * 8;
-
-  /* The following registers travel in the `mc_in' slots of
-     `mcontext_t'.  */
-  addr = mcontext_addr + 24 * 8;
-  cache->saved_regs[SPARC64_NPC_REGNUM].addr = addr + 0 * 8;
-  cache->saved_regs[SPARC64_PC_REGNUM].addr = addr + 1 * 8;
-  cache->saved_regs[SPARC64_STATE_REGNUM].addr = addr + 2 * 8;
-  cache->saved_regs[SPARC64_Y_REGNUM].addr = addr + 4 * 8;
-
-  /* The `global' and `out' registers travel in the `mc_global' and
-     `mc_out' slots of `mcontext_t', except for %g0.  Since %g0 is
-     always zero, keep the identity encoding.  */
-  for (regnum = SPARC_G1_REGNUM, addr = mcontext_addr + 8;
-       regnum <= SPARC_O7_REGNUM; regnum++, addr += 8)
-    cache->saved_regs[regnum].addr = addr;
-
-  /* The `local' and `in' registers have been saved in the register
-     save area.  */
-  addr = cache->saved_regs[SPARC_SP_REGNUM].addr;
-  sp = get_frame_memory_unsigned (this_frame, addr, 8);
-  for (regnum = SPARC_L0_REGNUM, addr = sp + BIAS;
-       regnum <= SPARC_I7_REGNUM; regnum++, addr += 8)
-    cache->saved_regs[regnum].addr = addr;
-
-  /* The floating-point registers are only saved if the FEF bit in
-     %fprs has been set.  */
-
-#define FPRS_FEF	(1 << 2)
-
-  addr = cache->saved_regs[SPARC64_FPRS_REGNUM].addr;
-  fprs = get_frame_memory_unsigned (this_frame, addr, 8);
-  if (fprs & FPRS_FEF)
+  if ((regnum >= SPARC_G0_REGNUM && regnum <= SPARC_G7_REGNUM) || regnum == -1)
     {
-      for (regnum = SPARC_F0_REGNUM, addr = mcontext_addr + 32 * 8;
-	   regnum <= SPARC_F31_REGNUM; regnum++, addr += 4)
-	cache->saved_regs[regnum].addr = addr;
-
-      for (regnum = SPARC64_F32_REGNUM;
-	   regnum <= SPARC64_F62_REGNUM; regnum++, addr += 8)
-	cache->saved_regs[regnum].addr = addr;
+      if (regnum == SPARC_G0_REGNUM || regnum == -1)
+	supply_register (SPARC_G0_REGNUM, NULL); /* %g0 is always zero.  */
+      for (i = SPARC_G1_REGNUM; i <= SPARC_G7_REGNUM; i++)
+	{
+	  if (regnum == i || regnum == -1)
+	    supply_register (i, (regs + sparc64fbsd_r_global_offset
+				 + ((i - SPARC_G0_REGNUM) * 8)));
+	}
     }
 
-  return cache;
+  if ((regnum >= SPARC_O0_REGNUM && regnum <= SPARC_O7_REGNUM) || regnum == -1)
+    {
+      for (i = SPARC_O0_REGNUM; i <= SPARC_O7_REGNUM; i++)
+	{
+	  if (regnum == i || regnum == -1)
+	    supply_register (i, (regs + sparc64fbsd_r_out_offset
+				 + ((i - SPARC_O0_REGNUM) * 8)));
+        }
+    }
+
+  /* Inputs and Locals are stored onto the stack by by the kernel.  */
+  if ((regnum >= SPARC_L0_REGNUM && regnum <= SPARC_I7_REGNUM) || regnum == -1)
+    {
+      ULONGEST sp;
+
+      regcache_cooked_read_unsigned (current_regcache, SPARC_SP_REGNUM, &sp);
+      sparc_supply_rwindow (current_regcache, sp, regnum);
+    }
 }
+
+void
+sparc64fbsd_fill_reg (char *regs, int regnum)
+{
+  char buf[8];
+  int i;
+
+  if (regnum == SPARC64_PC_REGNUM || regnum == -1)
+    regcache_collect (SPARC64_PC_REGNUM, regs + sparc64fbsd_r_tpc_offset);
+
+  if (regnum == SPARC64_NPC_REGNUM || regnum == -1)
+    regcache_collect (SPARC64_NPC_REGNUM, regs + sparc64fbsd_r_tnpc_offset);
+
+  if (regnum == SPARC64_FPRS_REGNUM || regnum == -1)
+    regcache_collect (SPARC64_FPRS_REGNUM, regs + sparc64fbsd_r_fprs_offset);
+
+  if (regnum == SPARC64_Y_REGNUM || regnum == -1)
+    regcache_collect (SPARC64_Y_REGNUM, regs + sparc64fbsd_r_y_offset);
+
+  if ((regnum >= SPARC_G0_REGNUM && regnum <= SPARC_G7_REGNUM) || regnum == -1)
+    {
+      /* %g0 is always zero.  */
+      for (i = SPARC_G1_REGNUM; i <= SPARC_G7_REGNUM; i++)
+	{
+	  if (regnum == i || regnum == -1)
+	    regcache_collect (i, (regs + sparc64fbsd_r_global_offset
+				  + ((i - SPARC_G0_REGNUM) * 8)));
+	}
+    }
+
+  if ((regnum >= SPARC_O0_REGNUM && regnum <= SPARC_O7_REGNUM) || regnum == -1)
+    {
+      for (i = SPARC_O0_REGNUM; i <= SPARC_O7_REGNUM; i++)
+	{
+	  if (regnum == i || regnum == -1)
+	    regcache_collect (i, (regs + sparc64fbsd_r_out_offset
+				  + ((i - SPARC_O0_REGNUM) * 8)));
+        }
+    }
+
+  /* Responsibility for the stack regs is pushed off onto the caller.  */
+}
+
+void
+sparc64fbsd_supply_fpreg (const char *fpregs, int regnum)
+{
+  int i;
+
+  for (i = 0; i < 32; i++)
+    {
+      if (regnum == (SPARC_F0_REGNUM + i) || regnum == -1)
+	supply_register (SPARC_F0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  for (i = 0; i < 16; i++)
+    {
+      if (regnum == (SPARC64_F32_REGNUM + i) || regnum == -1)
+	supply_register (SPARC64_F32_REGNUM + i, fpregs + (32 * 4) + (i * 8));
+    }
+
+  if (regnum == SPARC64_FSR_REGNUM || regnum == -1)
+    supply_register (SPARC64_FSR_REGNUM, fpregs + (32 * 4) + (16 * 8));
+}
+
+void
+sparc64fbsd_fill_fpreg (char *fpregs, int regnum)
+{
+  int i;
+
+  for (i = 0; i < 32; i++)
+    {
+      if (regnum == (SPARC_F0_REGNUM + i) || regnum == -1)
+	regcache_collect (SPARC_F0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  for (i = 0; i < 16; i++)
+    {
+      if (regnum == (SPARC64_F32_REGNUM + i) || regnum == -1)
+	regcache_collect (SPARC64_F32_REGNUM + i, fpregs + (32 * 4) + (i * 8));
+    }
+
+  if (regnum == SPARC64_FSR_REGNUM || regnum == -1)
+    regcache_collect (SPARC64_FSR_REGNUM, fpregs + (32 * 4) + (16 * 8));
+}
+
 
 static void
-sparc64fbsd_sigtramp_frame_this_id (struct frame_info *this_frame,
-				    void **this_cache,
-				    struct frame_id *this_id)
+fetch_core_registers (char *core_reg_sect, unsigned core_reg_size, int which,
+                      CORE_ADDR ignore)
 {
-  struct sparc_frame_cache *cache =
-    sparc64fbsd_sigtramp_frame_cache (this_frame, this_cache);
+  switch (which)
+    {
+    case 0:  /* Integer registers */
+      if (core_reg_size != sparc64fbsd_sizeof_struct_reg)
+	warning ("Wrong size register set in core file.");
+      else
+	sparc64fbsd_supply_reg (core_reg_sect, -1);
+      break;
 
-  (*this_id) = frame_id_build (cache->base, cache->pc);
+    case 2:  /* Floating pointer registers */
+      if (core_reg_size != sparc64fbsd_sizeof_struct_fpreg)
+	warning ("Wrong size FP register set in core file.");
+      else
+	sparc64fbsd_supply_fpreg (core_reg_sect, -1);
+      break;
+
+    default:
+      /* Don't know what kind of register request this is; just ignore it.  */
+      break;
+    }
 }
 
-static struct value *
-sparc64fbsd_sigtramp_frame_prev_register (struct frame_info *this_frame,
-					  void **this_cache, int regnum)
+static struct core_fns sparc64fbsd_core_fns =
 {
-  struct sparc_frame_cache *cache =
-    sparc64fbsd_sigtramp_frame_cache (this_frame, this_cache);
-
-  return trad_frame_get_prev_register (this_frame, cache->saved_regs, regnum);
-}
-
-static int
-sparc64fbsd_sigtramp_frame_sniffer (const struct frame_unwind *self,
-				    struct frame_info *this_frame,
-				    void **this_cache)
-{
-  CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
-
-  find_pc_partial_function (pc, &name, NULL, NULL);
-  if (sparc64fbsd_pc_in_sigtramp (pc, name))
-    return 1;
-
-  return 0;
-}
-
-static const struct frame_unwind sparc64fbsd_sigtramp_frame_unwind =
-{
-  SIGTRAMP_FRAME,
-  default_frame_unwind_stop_reason,
-  sparc64fbsd_sigtramp_frame_this_id,
-  sparc64fbsd_sigtramp_frame_prev_register,
-  NULL,
-  sparc64fbsd_sigtramp_frame_sniffer
+  bfd_target_elf_flavour,		/* core_flavour */
+  default_check_format,			/* check_format */
+  default_core_sniffer,			/* core_sniffer */
+  fetch_core_registers,			/* core_read_registers */
+  NULL
 };
 
 
 static void
 sparc64fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
-  tdep->gregset = regset_alloc (gdbarch, sparc64fbsd_supply_gregset,
-				sparc64fbsd_collect_gregset);
-  tdep->sizeof_gregset = 256;
-
-  tdep->fpregset = regset_alloc (gdbarch, sparc64fbsd_supply_fpregset,
-				 sparc64fbsd_collect_fpregset);
-  tdep->sizeof_fpregset = 272;
-
-  frame_unwind_append_unwinder (gdbarch, &sparc64fbsd_sigtramp_frame_unwind);
-
   sparc64_init_abi (info, gdbarch);
-
-  /* FreeBSD/sparc64 has SVR4-style shared libraries.  */
-  set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
 }
 
 /* Provide a prototype to silence -Wmissing-prototypes.  */
@@ -240,4 +232,6 @@ _initialize_sparc64fbsd_tdep (void)
 {
   gdbarch_register_osabi (bfd_arch_sparc, bfd_mach_sparc_v9,
 			  GDB_OSABI_FREEBSD_ELF, sparc64fbsd_init_abi);
+
+  add_core_fns (&sparc64fbsd_core_fns);
 }
