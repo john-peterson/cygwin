@@ -108,7 +108,7 @@ tty_raw (int fd, speed_t speed)
   buf.c_cc[VMIN] = 1;
   buf.c_cc[VTIME] = 0;
 
-  if (speed != B0)
+  if (speed != 0)
     {
       cfsetispeed (&buf, speed);
       cfsetospeed (&buf, speed);
@@ -290,10 +290,10 @@ main (int argc, char **argv)
   int verbose = 0;
   int attach = 0;
   int optidx;
-  int infd = 0, outfd = 0;
+  int infd, outfd;
   struct child_process *process;
   char *devicename = "";
-  speed_t speed = B0;
+  speed_t speed;
 
   /* Parse options.  */
   for (optidx = 1; optidx < argc; optidx++)
@@ -413,7 +413,7 @@ main (int argc, char **argv)
   /* Poll for socket traffic. */
   while (! server_quit_p)
     {
-      gdbloop_poll (10 /* milliseconds */);
+      gdbloop_poll (1 /* second */);
       if (! server_quit_p)
 	{
 	  if (gdbserver.check_child_state (process))
