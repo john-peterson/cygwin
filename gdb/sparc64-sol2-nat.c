@@ -1,4 +1,4 @@
-/* Native-dependent code for GNU/Linux UltraSPARC.
+/* Native-dependent code for Solaris UltraSPARC.
 
    Copyright 2003 Free Software Foundation, Inc.
 
@@ -20,29 +20,38 @@
    Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
+#include "regcache.h"
+
+#include <sys/procfs.h>
+#include "gregset.h"
 
 #include "sparc64-tdep.h"
-#include "sparc-nat.h"
 
-static const struct sparc_gregset sparc64_linux_ptrace_gregset =
-{
-  16 * 8,			/* "tstate" */
-  17 * 8,			/* %pc */
-  18 * 8,			/* %npc */
-  19 * 8,			/* %y */
-  -1,				/* %wim */
-  -1,				/* %tbr */
-  0 * 8,			/* %g1 */
-  -1,				/* %l0 */
-  4				/* sizeof (%y) */
-};
-
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_sparc64_linux_nat (void);
+/* These functions provide the (temporary) glue between the Solaris
+   SPARC target dependent code and the machine independent SVR4 /proc
+   support.  */
 
 void
-_initialize_sparc64_linux_nat (void)
+supply_gregset (prgregset_t *gregs)
 {
-  sparc_gregset = &sparc64_linux_ptrace_gregset;
+  sparc64_supply_gregset (&sparc64_sol2_gregset, current_regcache, -1, gregs);
+}
+
+void
+supply_fpregset (prfpregset_t *fpregs)
+{
+  sparc64_supply_fpregset (current_regcache, -1, fpregs);
+}
+
+void
+fill_gregset (prgregset_t *gregs, int regnum)
+{
+  sparc64_collect_gregset (&sparc64_sol2_gregset,
+			   current_regcache, regnum, gregs);
+}
+
+void
+fill_fpregset (prfpregset_t *fpregs, int regnum)
+{
+  sparc64_collect_fpregset (current_regcache, regnum, fpregs);
 }
