@@ -8,11 +8,6 @@ namespace AAA {
     int xx;
     int fum (int);
   };
-  enum SomeEnum {
-    ALPHA,
-    BETA,
-    DELTA
-  };
 };
 
 int AAA::inA::fum (int i)
@@ -88,6 +83,53 @@ namespace
   }
 }
 
+namespace H
+{
+  int h = 14;
+}
+
+namespace I = H;
+
+namespace J
+{
+  int j = 15;
+}
+
+using namespace J;
+
+namespace K
+{
+  int k = 16;
+}
+
+namespace L
+{
+  using namespace K;
+}
+
+namespace O
+{
+  int o = 18;
+}
+
+namespace P
+{
+  using namespace O;
+}
+
+namespace Q
+{
+  using namespace P;
+}
+
+namespace R
+{
+  int r1 = 19;
+  int r2 = 20;
+}
+
+using R::r1;
+
 namespace C
 {
   int c = 1;
@@ -101,13 +143,6 @@ namespace C
       int y;
     };
   };
-
-  void ensureRefs () {
-    // NOTE (2004-04-23, carlton): This function is here only to make
-    // sure that GCC 3.4 outputs debug info for these classes.
-    static CClass *c = new CClass();
-    static CClass::NestedClass *n = new CClass::NestedClass();
-  }
 
   namespace
   {
@@ -144,6 +179,13 @@ namespace C
       int cde = 5;
     }
 
+    namespace M
+    {
+      int cdm = 17;
+    }
+
+    using namespace M;
+
     void marker2 (void)
     {
       // NOTE: carlton/2003-04-23: I'm listing the expressions that I
@@ -166,6 +208,15 @@ namespace C
       //cXOtherFile;
       //XOtherFile;
       G::XgX;
+      I::h;
+      j;
+      L::k;
+      //k;
+      cdm;
+      Q::o;
+      //o;
+      r1;
+      //r2;
 
       return;
     }
@@ -173,13 +224,10 @@ namespace C
   }
 }
 
-extern int ensureOtherRefs ();
-
 int main ()
 {
   using AAA::inA;
   char c1;
-  AAA::SomeEnum var = AAA::ALPHA;
 
   using namespace BBB;
   
@@ -203,7 +251,4 @@ int main ()
   marker1();
   
   C::D::marker2 ();
-
-  C::ensureRefs ();
-  ensureOtherRefs ();
 }
