@@ -7,9 +7,9 @@
 #
 ################################################################################
 
-INSTALL_ROOT	?=
+INSTALL_ROOT	=
 
-BUILD_DIR	?= ${CURDIR}/../../build
+BUILD_DIR	= ../../build
 
 TARGET		= Tcl
 
@@ -33,9 +33,9 @@ all: develop deploy
 
 install: install-develop install-deploy
 
-embedded: embedded-deploy
+embedded: embedded-develop embedded-deploy
 
-install-embedded: install-embedded-deploy
+install-embedded: install-embedded-develop install-embedded-deploy
 
 clean: clean-develop clean-deploy
 
@@ -53,10 +53,10 @@ install-develop:
 install-deploy:
 	${DEPBUILD} install ${INSTALLOPTS}
 
-embedded-develop: forceRelink
+embedded-develop: 
 	${DEVBUILD} ${EMBEDDEDOPTS}
 
-embedded-deploy: forceRelink
+embedded-deploy:
 	${DEPBUILD} ${EMBEDDEDOPTS}
 
 install-embedded-develop: 
@@ -70,18 +70,5 @@ clean-develop:
 
 clean-deploy:
 	${DEPBUILD} clean
-
-################################################################################
-
-forceRelink:
-	@-cd ${BUILD_DIR}; \
-	rm -rf Tcl.framework tclsh8.4 \
-	Development.build/Tcl.build/Tcl Deployment.build/Tcl.build/Tcl
-
-################################################################################
-
-.PHONY: all install embedded clean develop deploy install-develop install-deploy \
-embedded-develop embedded-deploy install-embedded-develop install-embedded-deploy \
-clean-develop clean-deploy forceRelink \
 
 ################################################################################
