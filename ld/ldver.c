@@ -1,28 +1,26 @@
 /* ldver.c -- Print linker version.
-   Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 2000, 2001, 2002,
-   2003, 2005, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+   Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 2000
    Free Software Foundation, Inc.
 
-   This file is part of the GNU Binutils.
+This file is part of GLD, the Gnu Linker.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
+#include <stdio.h>
 #include "bfd.h"
-#include "bfdver.h"
+#include "sysdep.h"
 
 #include "ld.h"
 #include "ldver.h"
@@ -32,22 +30,16 @@
 #include "ldemul.h"
 #include "ldmain.h"
 
+const char *ld_program_version = VERSION;
+
 void
-ldversion (int noisy)
+ldversion (noisy)
+     int noisy;
 {
-  /* Output for noisy == 2 is intended to follow the GNU standards.  */
-  fprintf (stdout, _("GNU ld %s\n"), BFD_VERSION_STRING);
+  fprintf (stdout, _("GNU ld version %s (with BFD %s)\n"),
+	   ld_program_version, BFD_VERSION);
 
-  if (noisy & 2)
-    {
-      printf (_("Copyright 2013 Free Software Foundation, Inc.\n"));
-      printf (_("\
-This program is free software; you may redistribute it under the terms of\n\
-the GNU General Public License version 3 or (at your option) a later version.\n\
-This program has absolutely no warranty.\n"));
-    }
-
-  if (noisy & 1)
+  if (noisy)
     {
       ld_emulation_xfer_type **ptr = ld_emulations;
 

@@ -1,31 +1,31 @@
 /* Instruction building/extraction support for m32r. -*- C -*-
 
-   THIS FILE IS MACHINE GENERATED WITH CGEN: Cpu tools GENerator.
-   - the resultant file is machine generated, cgen-ibld.in isn't
+THIS FILE IS MACHINE GENERATED WITH CGEN: Cpu tools GENerator.
+- the resultant file is machine generated, cgen-ibld.in isn't
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2005, 2006, 2007,
-   2008, 2010  Free Software Foundation, Inc.
+Copyright 1996, 1997, 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
-   This file is part of libopcodes.
+This file is part of the GNU Binutils and GDB, the GNU debugger.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software Foundation, Inc.,
-   51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* ??? Eventually more and more of this stuff can go to cpu-independent files.
    Keep that in mind.  */
 
 #include "sysdep.h"
+#include <ctype.h>
 #include <stdio.h>
 #include "ansidecl.h"
 #include "dis-asm.h"
@@ -33,43 +33,33 @@
 #include "symcat.h"
 #include "m32r-desc.h"
 #include "m32r-opc.h"
-#include "cgen/basic-modes.h"
 #include "opintl.h"
-#include "safe-ctype.h"
 
-#undef  min
+#undef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
-#undef  max
+#undef max
 #define max(a,b) ((a) > (b) ? (a) : (b))
 
 /* Used by the ifield rtx function.  */
 #define FLD(f) (fields->f)
 
 static const char * insert_normal
-  (CGEN_CPU_DESC, long, unsigned int, unsigned int, unsigned int,
-   unsigned int, unsigned int, unsigned int, CGEN_INSN_BYTES_PTR);
+     PARAMS ((CGEN_CPU_DESC, long, unsigned int, unsigned int, unsigned int,
+	      unsigned int, unsigned int, unsigned int, CGEN_INSN_BYTES_PTR));
 static const char * insert_insn_normal
-  (CGEN_CPU_DESC, const CGEN_INSN *,
-   CGEN_FIELDS *, CGEN_INSN_BYTES_PTR, bfd_vma);
+     PARAMS ((CGEN_CPU_DESC, const CGEN_INSN *,
+	      CGEN_FIELDS *, CGEN_INSN_BYTES_PTR, bfd_vma));
+
 static int extract_normal
-  (CGEN_CPU_DESC, CGEN_EXTRACT_INFO *, CGEN_INSN_INT,
-   unsigned int, unsigned int, unsigned int, unsigned int,
-   unsigned int, unsigned int, bfd_vma, long *);
+     PARAMS ((CGEN_CPU_DESC, CGEN_EXTRACT_INFO *, CGEN_INSN_INT,
+	      unsigned int, unsigned int, unsigned int, unsigned int,
+	      unsigned int, unsigned int, bfd_vma, long *));
 static int extract_insn_normal
-  (CGEN_CPU_DESC, const CGEN_INSN *, CGEN_EXTRACT_INFO *,
-   CGEN_INSN_INT, CGEN_FIELDS *, bfd_vma);
-#if CGEN_INT_INSN_P
+     PARAMS ((CGEN_CPU_DESC, const CGEN_INSN *, CGEN_EXTRACT_INFO *,
+	      CGEN_INSN_INT, CGEN_FIELDS *, bfd_vma));
 static void put_insn_int_value
-  (CGEN_CPU_DESC, CGEN_INSN_BYTES_PTR, int, int, CGEN_INSN_INT);
-#endif
-#if ! CGEN_INT_INSN_P
-static CGEN_INLINE void insert_1
-  (CGEN_CPU_DESC, unsigned long, int, int, int, unsigned char *);
-static CGEN_INLINE int fill_cache
-  (CGEN_CPU_DESC, CGEN_EXTRACT_INFO *,  int, int, bfd_vma);
-static CGEN_INLINE long extract_1
-  (CGEN_CPU_DESC, CGEN_EXTRACT_INFO *, int, int, int, unsigned char *, bfd_vma);
-#endif
+     PARAMS ((CGEN_CPU_DESC, CGEN_INSN_BYTES_PTR, int, int, CGEN_INSN_INT));
+
 
 /* Operand insertion.  */
 
@@ -78,17 +68,44 @@ static CGEN_INLINE long extract_1
 /* Subroutine of insert_normal.  */
 
 static CGEN_INLINE void
-insert_1 (CGEN_CPU_DESC cd,
-	  unsigned long value,
-	  int start,
-	  int length,
-	  int word_length,
-	  unsigned char *bufp)
+insert_1 (cd, value, start, length, word_length, bufp)
+     CGEN_CPU_DESC cd;
+     unsigned long value;
+     int start,length,word_length;
+     unsigned char *bufp;
 {
   unsigned long x,mask;
   int shift;
+  int big_p = CGEN_CPU_INSN_ENDIAN (cd) == CGEN_ENDIAN_BIG;
 
-  x = cgen_get_insn_value (cd, bufp, word_length);
+  switch (word_length)
+    {
+    case 8:
+      x = *bufp;
+      break;
+    case 16:
+      if (big_p)
+	x = bfd_getb16 (bufp);
+      else
+	x = bfd_getl16 (bufp);
+      break;
+    case 24:
+      /* ??? This may need reworking as these cases don't necessarily
+	 want the first byte and the last two bytes handled like this.  */
+      if (big_p)
+	x = (bufp[0] << 16) | bfd_getb16 (bufp + 1);
+      else
+	x = bfd_getl16 (bufp) | (bufp[2] << 16);
+      break;
+    case 32:
+      if (big_p)
+	x = bfd_getb32 (bufp);
+      else
+	x = bfd_getl32 (bufp);
+      break;
+    default :
+      abort ();
+    }
 
   /* Written this way to avoid undefined behaviour.  */
   mask = (((1L << (length - 1)) - 1) << 1) | 1;
@@ -98,7 +115,40 @@ insert_1 (CGEN_CPU_DESC cd,
     shift = (word_length - (start + length));
   x = (x & ~(mask << shift)) | ((value & mask) << shift);
 
-  cgen_put_insn_value (cd, bufp, word_length, (bfd_vma) x);
+  switch (word_length)
+    {
+    case 8:
+      *bufp = x;
+      break;
+    case 16:
+      if (big_p)
+	bfd_putb16 (x, bufp);
+      else
+	bfd_putl16 (x, bufp);
+      break;
+    case 24:
+      /* ??? This may need reworking as these cases don't necessarily
+	 want the first byte and the last two bytes handled like this.  */
+      if (big_p)
+	{
+	  bufp[0] = x >> 16;
+	  bfd_putb16 (x, bufp + 1);
+	}
+      else
+	{
+	  bfd_putl16 (x, bufp);
+	  bufp[2] = x >> 16;
+	}
+      break;
+    case 32:
+      if (big_p)
+	bfd_putb32 (x, bufp);
+      else
+	bfd_putl32 (x, bufp);
+      break;
+    default :
+      abort ();
+    }
 }
 
 #endif /* ! CGEN_INT_INSN_P */
@@ -120,15 +170,13 @@ insert_1 (CGEN_CPU_DESC cd,
    necessary.  */
 
 static const char *
-insert_normal (CGEN_CPU_DESC cd,
-	       long value,
-	       unsigned int attrs,
-	       unsigned int word_offset,
-	       unsigned int start,
-	       unsigned int length,
-	       unsigned int word_length,
-	       unsigned int total_length,
-	       CGEN_INSN_BYTES_PTR buffer)
+insert_normal (cd, value, attrs, word_offset, start, length, word_length,
+	       total_length, buffer)
+     CGEN_CPU_DESC cd;
+     long value;
+     unsigned int attrs;
+     unsigned int word_offset, start, length, word_length, total_length;
+     CGEN_INSN_BYTES_PTR buffer;
 {
   static char errbuf[100];
   /* Written this way to avoid undefined behaviour.  */
@@ -138,7 +186,13 @@ insert_normal (CGEN_CPU_DESC cd,
   if (length == 0)
     return NULL;
 
-  if (word_length > 8 * sizeof (CGEN_INSN_INT))
+#if 0
+  if (CGEN_INT_INSN_P
+      && word_offset != 0)
+    abort ();
+#endif
+
+  if (word_length > 32)
     abort ();
 
   /* For architectures with insns smaller than the base-insn-bitsize,
@@ -151,39 +205,16 @@ insert_normal (CGEN_CPU_DESC cd,
     }
 
   /* Ensure VALUE will fit.  */
-  if (CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGN_OPT))
+  if (! CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGNED))
     {
-      long minval = - (1L << (length - 1));
       unsigned long maxval = mask;
       
-      if ((value > 0 && (unsigned long) value > maxval)
-	  || value < minval)
+      if ((unsigned long) value > maxval)
 	{
 	  /* xgettext:c-format */
 	  sprintf (errbuf,
-		   _("operand out of range (%ld not between %ld and %lu)"),
-		   value, minval, maxval);
-	  return errbuf;
-	}
-    }
-  else if (! CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGNED))
-    {
-      unsigned long maxval = mask;
-      unsigned long val = (unsigned long) value;
-
-      /* For hosts with a word size > 32 check to see if value has been sign
-	 extended beyond 32 bits.  If so then ignore these higher sign bits
-	 as the user is attempting to store a 32-bit signed value into an
-	 unsigned 32-bit field which is allowed.  */
-      if (sizeof (unsigned long) > 4 && ((value >> 32) == -1))
-	val &= 0xFFFFFFFF;
-
-      if (val > maxval)
-	{
-	  /* xgettext:c-format */
-	  sprintf (errbuf,
-		   _("operand out of range (0x%lx not between 0 and 0x%lx)"),
-		   val, maxval);
+		   _("operand out of range (%lu not between 0 and %lu)"),
+		   value, maxval);
 	  return errbuf;
 	}
     }
@@ -231,22 +262,23 @@ insert_normal (CGEN_CPU_DESC cd,
 }
 
 /* Default insn builder (insert handler).
-   The instruction is recorded in CGEN_INT_INSN_P byte order (meaning
-   that if CGEN_INSN_BYTES_PTR is an int * and thus, the value is
-   recorded in host byte order, otherwise BUFFER is an array of bytes
-   and the value is recorded in target byte order).
+   The instruction is recorded in CGEN_INT_INSN_P byte order
+   (meaning that if CGEN_INT_INSN_P BUFFER is an int * and thus the value is
+   recorded in host byte order, otherwise BUFFER is an array of bytes and the
+   value is recorded in target byte order).
    The result is an error message or NULL if success.  */
 
 static const char *
-insert_insn_normal (CGEN_CPU_DESC cd,
-		    const CGEN_INSN * insn,
-		    CGEN_FIELDS * fields,
-		    CGEN_INSN_BYTES_PTR buffer,
-		    bfd_vma pc)
+insert_insn_normal (cd, insn, fields, buffer, pc)
+     CGEN_CPU_DESC cd;
+     const CGEN_INSN * insn;
+     CGEN_FIELDS * fields;
+     CGEN_INSN_BYTES_PTR buffer;
+     bfd_vma pc;
 {
   const CGEN_SYNTAX *syntax = CGEN_INSN_SYNTAX (insn);
   unsigned long value;
-  const CGEN_SYNTAX_CHAR_TYPE * syn;
+  const unsigned char * syn;
 
   CGEN_INIT_INSERT (cd);
   value = CGEN_INSN_BASE_VALUE (insn);
@@ -261,8 +293,8 @@ insert_insn_normal (CGEN_CPU_DESC cd,
 
 #else
 
-  cgen_put_insn_value (cd, buffer, min ((unsigned) cd->base_insn_bitsize,
-					(unsigned) CGEN_FIELDS_BITSIZE (fields)),
+  cgen_put_insn_value (cd, buffer, min (cd->base_insn_bitsize,
+					CGEN_FIELDS_BITSIZE (fields)),
 		       value);
 
 #endif /* ! CGEN_INT_INSN_P */
@@ -272,7 +304,7 @@ insert_insn_normal (CGEN_CPU_DESC cd,
      e.g. storing a branch displacement that got resolved later.
      Needs more thought first.  */
 
-  for (syn = CGEN_SYNTAX_STRING (syntax); * syn; ++ syn)
+  for (syn = CGEN_SYNTAX_STRING (syntax); * syn != '\0'; ++ syn)
     {
       const char *errmsg;
 
@@ -288,16 +320,16 @@ insert_insn_normal (CGEN_CPU_DESC cd,
   return NULL;
 }
 
-#if CGEN_INT_INSN_P
 /* Cover function to store an insn value into an integral insn.  Must go here
-   because it needs <prefix>-desc.h for CGEN_INT_INSN_P.  */
+ because it needs <prefix>-desc.h for CGEN_INT_INSN_P.  */
 
 static void
-put_insn_int_value (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-		    CGEN_INSN_BYTES_PTR buf,
-		    int length,
-		    int insn_length,
-		    CGEN_INSN_INT value)
+put_insn_int_value (cd, buf, length, insn_length, value)
+     CGEN_CPU_DESC cd;
+     CGEN_INSN_BYTES_PTR buf;
+     int length;
+     int insn_length;
+     CGEN_INSN_INT value;
 {
   /* For architectures with insns smaller than the base-insn-bitsize,
      length may be too big.  */
@@ -308,11 +340,9 @@ put_insn_int_value (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
       int shift = insn_length - length;
       /* Written this way to avoid undefined behaviour.  */
       CGEN_INSN_INT mask = (((1L << (length - 1)) - 1) << 1) | 1;
-
       *buf = (*buf & ~(mask << shift)) | ((value & mask) << shift);
     }
 }
-#endif
 
 /* Operand extraction.  */
 
@@ -325,15 +355,15 @@ put_insn_int_value (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
    Returns 1 for success, 0 for failure.  */
 
 static CGEN_INLINE int
-fill_cache (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-	    CGEN_EXTRACT_INFO *ex_info,
-	    int offset,
-	    int bytes,
-	    bfd_vma pc)
+fill_cache (cd, ex_info, offset, bytes, pc)
+     CGEN_CPU_DESC cd;
+     CGEN_EXTRACT_INFO *ex_info;
+     int offset, bytes;
+     bfd_vma pc;
 {
   /* It's doubtful that the middle part has already been fetched so
      we don't optimize that case.  kiss.  */
-  unsigned int mask;
+  int mask;
   disassemble_info *info = (disassemble_info *) ex_info->dis_info;
 
   /* First do a quick check.  */
@@ -369,24 +399,53 @@ fill_cache (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 /* Subroutine of extract_normal.  */
 
 static CGEN_INLINE long
-extract_1 (CGEN_CPU_DESC cd,
-	   CGEN_EXTRACT_INFO *ex_info ATTRIBUTE_UNUSED,
-	   int start,
-	   int length,
-	   int word_length,
-	   unsigned char *bufp,
-	   bfd_vma pc ATTRIBUTE_UNUSED)
+extract_1 (cd, ex_info, start, length, word_length, bufp, pc)
+     CGEN_CPU_DESC cd;
+     CGEN_EXTRACT_INFO *ex_info;
+     int start,length,word_length;
+     unsigned char *bufp;
+     bfd_vma pc;
 {
-  unsigned long x;
+  unsigned long x,mask;
   int shift;
+  int big_p = CGEN_CPU_INSN_ENDIAN (cd) == CGEN_ENDIAN_BIG;
 
-  x = cgen_get_insn_value (cd, bufp, word_length);
+  switch (word_length)
+    {
+    case 8:
+      x = *bufp;
+      break;
+    case 16:
+      if (big_p)
+	x = bfd_getb16 (bufp);
+      else
+	x = bfd_getl16 (bufp);
+      break;
+    case 24:
+      /* ??? This may need reworking as these cases don't necessarily
+	 want the first byte and the last two bytes handled like this.  */
+      if (big_p)
+	x = (bufp[0] << 16) | bfd_getb16 (bufp + 1);
+      else
+	x = bfd_getl16 (bufp) | (bufp[2] << 16);
+      break;
+    case 32:
+      if (big_p)
+	x = bfd_getb32 (bufp);
+      else
+	x = bfd_getl32 (bufp);
+      break;
+    default :
+      abort ();
+    }
 
+  /* Written this way to avoid undefined behaviour.  */
+  mask = (((1L << (length - 1)) - 1) << 1) | 1;
   if (CGEN_INSN_LSB0_P)
     shift = (start + 1) - length;
   else
     shift = (word_length - (start + length));
-  return x >> shift;
+  return (x >> shift) & mask;
 }
 
 #endif /* ! CGEN_INT_INSN_P */
@@ -412,27 +471,25 @@ extract_1 (CGEN_CPU_DESC cd,
    necessary.  */
 
 static int
-extract_normal (CGEN_CPU_DESC cd,
+extract_normal (cd, ex_info, insn_value, attrs, word_offset, start, length,
+		word_length, total_length, pc, valuep)
+     CGEN_CPU_DESC cd;
 #if ! CGEN_INT_INSN_P
-		CGEN_EXTRACT_INFO *ex_info,
+     CGEN_EXTRACT_INFO *ex_info;
 #else
-		CGEN_EXTRACT_INFO *ex_info ATTRIBUTE_UNUSED,
+     CGEN_EXTRACT_INFO *ex_info ATTRIBUTE_UNUSED;
 #endif
-		CGEN_INSN_INT insn_value,
-		unsigned int attrs,
-		unsigned int word_offset,
-		unsigned int start,
-		unsigned int length,
-		unsigned int word_length,
-		unsigned int total_length,
+     CGEN_INSN_INT insn_value;
+     unsigned int attrs;
+     unsigned int word_offset, start, length, word_length, total_length;
 #if ! CGEN_INT_INSN_P
-		bfd_vma pc,
+     bfd_vma pc;
 #else
-		bfd_vma pc ATTRIBUTE_UNUSED,
+     bfd_vma pc ATTRIBUTE_UNUSED;
 #endif
-		long *valuep)
+     long *valuep;
 {
-  long value, mask;
+  CGEN_INSN_INT value;
 
   /* If LENGTH is zero, this operand doesn't contribute to the value
      so give it a standard value of zero.  */
@@ -442,25 +499,40 @@ extract_normal (CGEN_CPU_DESC cd,
       return 1;
     }
 
-  if (word_length > 8 * sizeof (CGEN_INSN_INT))
+#if 0
+  if (CGEN_INT_INSN_P
+      && word_offset != 0)
+    abort ();
+#endif
+
+  if (word_length > 32)
     abort ();
 
   /* For architectures with insns smaller than the insn-base-bitsize,
      word_length may be too big.  */
   if (cd->min_insn_bitsize < cd->base_insn_bitsize)
     {
-      if (word_offset + word_length > total_length)
-	word_length = total_length - word_offset;
+      if (word_offset == 0
+	  && word_length > total_length)
+	word_length = total_length;
     }
 
-  /* Does the value reside in INSN_VALUE, and at the right alignment?  */
+  /* Does the value reside in INSN_VALUE?  */
 
-  if (CGEN_INT_INSN_P || (word_offset == 0 && word_length == total_length))
+  if (CGEN_INT_INSN_P || word_offset == 0)
     {
+      /* Written this way to avoid undefined behaviour.  */
+      CGEN_INSN_INT mask = (((1L << (length - 1)) - 1) << 1) | 1;
+
       if (CGEN_INSN_LSB0_P)
 	value = insn_value >> ((word_offset + start + 1) - length);
       else
 	value = insn_value >> (total_length - ( word_offset + start + length));
+      value &= mask;
+      /* sign extend? */
+      if (CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGNED)
+	  && (value & (1L << (length - 1))))
+	value |= ~mask;
     }
 
 #if ! CGEN_INT_INSN_P
@@ -469,7 +541,7 @@ extract_normal (CGEN_CPU_DESC cd,
     {
       unsigned char *bufp = ex_info->insn_bytes + word_offset / 8;
 
-      if (word_length > 8 * sizeof (CGEN_INSN_INT))
+      if (word_length > 32)
 	abort ();
 
       if (fill_cache (cd, ex_info, word_offset / 8, word_length / 8, pc) == 0)
@@ -479,15 +551,6 @@ extract_normal (CGEN_CPU_DESC cd,
     }
 
 #endif /* ! CGEN_INT_INSN_P */
-
-  /* Written this way to avoid undefined behaviour.  */
-  mask = (((1L << (length - 1)) - 1) << 1) | 1;
-
-  value &= mask;
-  /* sign extend? */
-  if (CGEN_BOOL_ATTR (attrs, CGEN_IFLD_SIGNED)
-      && (value & (1L << (length - 1))))
-    value |= ~mask;
 
   *valuep = value;
 
@@ -504,15 +567,16 @@ extract_normal (CGEN_CPU_DESC cd,
    been called).  */
 
 static int
-extract_insn_normal (CGEN_CPU_DESC cd,
-		     const CGEN_INSN *insn,
-		     CGEN_EXTRACT_INFO *ex_info,
-		     CGEN_INSN_INT insn_value,
-		     CGEN_FIELDS *fields,
-		     bfd_vma pc)
+extract_insn_normal (cd, insn, ex_info, insn_value, fields, pc)
+     CGEN_CPU_DESC cd;
+     const CGEN_INSN *insn;
+     CGEN_EXTRACT_INFO *ex_info;
+     CGEN_INSN_INT insn_value;
+     CGEN_FIELDS *fields;
+     bfd_vma pc;
 {
   const CGEN_SYNTAX *syntax = CGEN_INSN_SYNTAX (insn);
-  const CGEN_SYNTAX_CHAR_TYPE *syn;
+  const unsigned char *syn;
 
   CGEN_FIELDS_BITSIZE (fields) = CGEN_INSN_BITSIZE (insn);
 
@@ -535,10 +599,7 @@ extract_insn_normal (CGEN_CPU_DESC cd,
   return CGEN_INSN_BITSIZE (insn);
 }
 
-/* Machine generated code added here.  */
-
-const char * m32r_cgen_insert_operand
-  (CGEN_CPU_DESC, int, CGEN_FIELDS *, CGEN_INSN_BYTES_PTR, bfd_vma);
+/* machine generated code added here */
 
 /* Main entry point for operand insertion.
 
@@ -552,14 +613,16 @@ const char * m32r_cgen_insert_operand
    This function could be moved into `parse_insn_normal', but keeping it
    separate makes clear the interface between `parse_insn_normal' and each of
    the handlers.  It's also needed by GAS to insert operands that couldn't be
-   resolved during parsing.  */
+   resolved during parsing.
+*/
 
 const char *
-m32r_cgen_insert_operand (CGEN_CPU_DESC cd,
-			     int opindex,
-			     CGEN_FIELDS * fields,
-			     CGEN_INSN_BYTES_PTR buffer,
-			     bfd_vma pc ATTRIBUTE_UNUSED)
+m32r_cgen_insert_operand (cd, opindex, fields, buffer, pc)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     CGEN_FIELDS * fields;
+     CGEN_INSN_BYTES_PTR buffer;
+     bfd_vma pc;
 {
   const char * errmsg = NULL;
   unsigned int total_length = CGEN_FIELDS_BITSIZE (fields);
@@ -581,21 +644,21 @@ m32r_cgen_insert_operand (CGEN_CPU_DESC cd,
     case M32R_OPERAND_DISP16 :
       {
         long value = fields->f_disp16;
-        value = ((SI) (((value) - (pc))) >> (2));
+        value = ((int) (((value) - (pc))) >> (2));
         errmsg = insert_normal (cd, value, 0|(1<<CGEN_IFLD_SIGNED)|(1<<CGEN_IFLD_RELOC)|(1<<CGEN_IFLD_PCREL_ADDR), 0, 16, 16, 32, total_length, buffer);
       }
       break;
     case M32R_OPERAND_DISP24 :
       {
         long value = fields->f_disp24;
-        value = ((SI) (((value) - (pc))) >> (2));
+        value = ((int) (((value) - (pc))) >> (2));
         errmsg = insert_normal (cd, value, 0|(1<<CGEN_IFLD_SIGNED)|(1<<CGEN_IFLD_RELOC)|(1<<CGEN_IFLD_PCREL_ADDR), 0, 8, 24, 32, total_length, buffer);
       }
       break;
     case M32R_OPERAND_DISP8 :
       {
         long value = fields->f_disp8;
-        value = ((SI) (((value) - (((pc) & (-4))))) >> (2));
+        value = ((int) (((value) - (((pc) & (-4))))) >> (2));
         errmsg = insert_normal (cd, value, 0|(1<<CGEN_IFLD_SIGNED)|(1<<CGEN_IFLD_RELOC)|(1<<CGEN_IFLD_PCREL_ADDR), 0, 8, 8, 32, total_length, buffer);
       }
       break;
@@ -641,17 +704,11 @@ m32r_cgen_insert_operand (CGEN_CPU_DESC cd,
     case M32R_OPERAND_UIMM24 :
       errmsg = insert_normal (cd, fields->f_uimm24, 0|(1<<CGEN_IFLD_RELOC)|(1<<CGEN_IFLD_ABS_ADDR), 0, 8, 24, 32, total_length, buffer);
       break;
-    case M32R_OPERAND_UIMM3 :
-      errmsg = insert_normal (cd, fields->f_uimm3, 0, 0, 5, 3, 32, total_length, buffer);
-      break;
     case M32R_OPERAND_UIMM4 :
       errmsg = insert_normal (cd, fields->f_uimm4, 0, 0, 12, 4, 32, total_length, buffer);
       break;
     case M32R_OPERAND_UIMM5 :
       errmsg = insert_normal (cd, fields->f_uimm5, 0, 0, 11, 5, 32, total_length, buffer);
-      break;
-    case M32R_OPERAND_UIMM8 :
-      errmsg = insert_normal (cd, fields->f_uimm8, 0, 0, 8, 8, 32, total_length, buffer);
       break;
     case M32R_OPERAND_ULO16 :
       errmsg = insert_normal (cd, fields->f_uimm16, 0, 0, 16, 16, 32, total_length, buffer);
@@ -667,9 +724,6 @@ m32r_cgen_insert_operand (CGEN_CPU_DESC cd,
   return errmsg;
 }
 
-int m32r_cgen_extract_operand
-  (CGEN_CPU_DESC, int, CGEN_EXTRACT_INFO *, CGEN_INSN_INT, CGEN_FIELDS *, bfd_vma);
-
 /* Main entry point for operand extraction.
    The result is <= 0 for error, >0 for success.
    ??? Actual values aren't well defined right now.
@@ -683,15 +737,17 @@ int m32r_cgen_extract_operand
 
    This function could be moved into `print_insn_normal', but keeping it
    separate makes clear the interface between `print_insn_normal' and each of
-   the handlers.  */
+   the handlers.
+*/
 
 int
-m32r_cgen_extract_operand (CGEN_CPU_DESC cd,
-			     int opindex,
-			     CGEN_EXTRACT_INFO *ex_info,
-			     CGEN_INSN_INT insn_value,
-			     CGEN_FIELDS * fields,
-			     bfd_vma pc)
+m32r_cgen_extract_operand (cd, opindex, ex_info, insn_value, fields, pc)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     CGEN_EXTRACT_INFO *ex_info;
+     CGEN_INSN_INT insn_value;
+     CGEN_FIELDS * fields;
+     bfd_vma pc;
 {
   /* Assume success (for those operands that are nops).  */
   int length = 1;
@@ -778,17 +834,11 @@ m32r_cgen_extract_operand (CGEN_CPU_DESC cd,
     case M32R_OPERAND_UIMM24 :
       length = extract_normal (cd, ex_info, insn_value, 0|(1<<CGEN_IFLD_RELOC)|(1<<CGEN_IFLD_ABS_ADDR), 0, 8, 24, 32, total_length, pc, & fields->f_uimm24);
       break;
-    case M32R_OPERAND_UIMM3 :
-      length = extract_normal (cd, ex_info, insn_value, 0, 0, 5, 3, 32, total_length, pc, & fields->f_uimm3);
-      break;
     case M32R_OPERAND_UIMM4 :
       length = extract_normal (cd, ex_info, insn_value, 0, 0, 12, 4, 32, total_length, pc, & fields->f_uimm4);
       break;
     case M32R_OPERAND_UIMM5 :
       length = extract_normal (cd, ex_info, insn_value, 0, 0, 11, 5, 32, total_length, pc, & fields->f_uimm5);
-      break;
-    case M32R_OPERAND_UIMM8 :
-      length = extract_normal (cd, ex_info, insn_value, 0, 0, 8, 8, 32, total_length, pc, & fields->f_uimm8);
       break;
     case M32R_OPERAND_ULO16 :
       length = extract_normal (cd, ex_info, insn_value, 0, 0, 16, 16, 32, total_length, pc, & fields->f_uimm16);
@@ -814,18 +864,16 @@ cgen_extract_fn * const m32r_cgen_extract_handlers[] =
   extract_insn_normal,
 };
 
-int m32r_cgen_get_int_operand     (CGEN_CPU_DESC, int, const CGEN_FIELDS *);
-bfd_vma m32r_cgen_get_vma_operand (CGEN_CPU_DESC, int, const CGEN_FIELDS *);
-
 /* Getting values from cgen_fields is handled by a collection of functions.
    They are distinguished by the type of the VALUE argument they return.
    TODO: floating point, inlining support, remove cases where result type
    not appropriate.  */
 
 int
-m32r_cgen_get_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-			     int opindex,
-			     const CGEN_FIELDS * fields)
+m32r_cgen_get_int_operand (cd, opindex, fields)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     const CGEN_FIELDS * fields;
 {
   int value;
 
@@ -891,17 +939,11 @@ m32r_cgen_get_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
     case M32R_OPERAND_UIMM24 :
       value = fields->f_uimm24;
       break;
-    case M32R_OPERAND_UIMM3 :
-      value = fields->f_uimm3;
-      break;
     case M32R_OPERAND_UIMM4 :
       value = fields->f_uimm4;
       break;
     case M32R_OPERAND_UIMM5 :
       value = fields->f_uimm5;
-      break;
-    case M32R_OPERAND_UIMM8 :
-      value = fields->f_uimm8;
       break;
     case M32R_OPERAND_ULO16 :
       value = fields->f_uimm16;
@@ -918,9 +960,10 @@ m32r_cgen_get_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 }
 
 bfd_vma
-m32r_cgen_get_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-			     int opindex,
-			     const CGEN_FIELDS * fields)
+m32r_cgen_get_vma_operand (cd, opindex, fields)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     const CGEN_FIELDS * fields;
 {
   bfd_vma value;
 
@@ -986,17 +1029,11 @@ m32r_cgen_get_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
     case M32R_OPERAND_UIMM24 :
       value = fields->f_uimm24;
       break;
-    case M32R_OPERAND_UIMM3 :
-      value = fields->f_uimm3;
-      break;
     case M32R_OPERAND_UIMM4 :
       value = fields->f_uimm4;
       break;
     case M32R_OPERAND_UIMM5 :
       value = fields->f_uimm5;
-      break;
-    case M32R_OPERAND_UIMM8 :
-      value = fields->f_uimm8;
       break;
     case M32R_OPERAND_ULO16 :
       value = fields->f_uimm16;
@@ -1012,19 +1049,17 @@ m32r_cgen_get_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
   return value;
 }
 
-void m32r_cgen_set_int_operand  (CGEN_CPU_DESC, int, CGEN_FIELDS *, int);
-void m32r_cgen_set_vma_operand  (CGEN_CPU_DESC, int, CGEN_FIELDS *, bfd_vma);
-
 /* Stuffing values in cgen_fields is handled by a collection of functions.
    They are distinguished by the type of the VALUE argument they accept.
    TODO: floating point, inlining support, remove cases where argument type
    not appropriate.  */
 
 void
-m32r_cgen_set_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-			     int opindex,
-			     CGEN_FIELDS * fields,
-			     int value)
+m32r_cgen_set_int_operand (cd, opindex, fields, value)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     CGEN_FIELDS * fields;
+     int value;
 {
   switch (opindex)
     {
@@ -1087,17 +1122,11 @@ m32r_cgen_set_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
     case M32R_OPERAND_UIMM24 :
       fields->f_uimm24 = value;
       break;
-    case M32R_OPERAND_UIMM3 :
-      fields->f_uimm3 = value;
-      break;
     case M32R_OPERAND_UIMM4 :
       fields->f_uimm4 = value;
       break;
     case M32R_OPERAND_UIMM5 :
       fields->f_uimm5 = value;
-      break;
-    case M32R_OPERAND_UIMM8 :
-      fields->f_uimm8 = value;
       break;
     case M32R_OPERAND_ULO16 :
       fields->f_uimm16 = value;
@@ -1112,10 +1141,11 @@ m32r_cgen_set_int_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 }
 
 void
-m32r_cgen_set_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-			     int opindex,
-			     CGEN_FIELDS * fields,
-			     bfd_vma value)
+m32r_cgen_set_vma_operand (cd, opindex, fields, value)
+     CGEN_CPU_DESC cd;
+     int opindex;
+     CGEN_FIELDS * fields;
+     bfd_vma value;
 {
   switch (opindex)
     {
@@ -1178,17 +1208,11 @@ m32r_cgen_set_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
     case M32R_OPERAND_UIMM24 :
       fields->f_uimm24 = value;
       break;
-    case M32R_OPERAND_UIMM3 :
-      fields->f_uimm3 = value;
-      break;
     case M32R_OPERAND_UIMM4 :
       fields->f_uimm4 = value;
       break;
     case M32R_OPERAND_UIMM5 :
       fields->f_uimm5 = value;
-      break;
-    case M32R_OPERAND_UIMM8 :
-      fields->f_uimm8 = value;
       break;
     case M32R_OPERAND_ULO16 :
       fields->f_uimm16 = value;
@@ -1205,7 +1229,8 @@ m32r_cgen_set_vma_operand (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 /* Function to call before using the instruction builder tables.  */
 
 void
-m32r_cgen_init_ibld_table (CGEN_CPU_DESC cd)
+m32r_cgen_init_ibld_table (cd)
+     CGEN_CPU_DESC cd;
 {
   cd->insert_handlers = & m32r_cgen_insert_handlers[0];
   cd->extract_handlers = & m32r_cgen_extract_handlers[0];

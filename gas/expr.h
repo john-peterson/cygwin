@@ -1,12 +1,12 @@
 /* expr.h -> header file for expr.c
-   Copyright 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2002, 2003, 2005, 2007, 2009 Free Software Foundation, Inc.
+   Copyright 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000
+   Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -16,8 +16,8 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 /*
  * By popular demand, we define a struct to represent an expression.
@@ -68,23 +68,23 @@ typedef enum {
   O_multiply,
   /* (X_add_symbol / X_op_symbol) + X_add_number.  */
   O_divide,
-  /* (X_add_symbol % X_op_symbol) + X_add_number.  */
+  /* X_add_symbol % X_op_symbol) + X_add_number.  */
   O_modulus,
-  /* (X_add_symbol << X_op_symbol) + X_add_number.  */
+  /* X_add_symbol << X_op_symbol) + X_add_number.  */
   O_left_shift,
-  /* (X_add_symbol >> X_op_symbol) + X_add_number.  */
+  /* X_add_symbol >> X_op_symbol) + X_add_number.  */
   O_right_shift,
-  /* (X_add_symbol | X_op_symbol) + X_add_number.  */
+  /* X_add_symbol | X_op_symbol) + X_add_number.  */
   O_bit_inclusive_or,
-  /* (X_add_symbol |~ X_op_symbol) + X_add_number.  */
+  /* X_add_symbol |~ X_op_symbol) + X_add_number.  */
   O_bit_or_not,
-  /* (X_add_symbol ^ X_op_symbol) + X_add_number.  */
+  /* X_add_symbol ^ X_op_symbol) + X_add_number.  */
   O_bit_exclusive_or,
-  /* (X_add_symbol & X_op_symbol) + X_add_number.  */
+  /* X_add_symbol & X_op_symbol) + X_add_number.  */
   O_bit_and,
-  /* (X_add_symbol + X_op_symbol) + X_add_number.  */
+  /* X_add_symbol + X_op_symbol) + X_add_number.  */
   O_add,
-  /* (X_add_symbol - X_op_symbol) + X_add_number.  */
+  /* X_add_symbol - X_op_symbol) + X_add_number.  */
   O_subtract,
   /* (X_add_symbol == X_op_symbol) + X_add_number.  */
   O_eq,
@@ -107,8 +107,6 @@ typedef enum {
   /* machine dependent operators */
   O_md1,  O_md2,  O_md3,  O_md4,  O_md5,  O_md6,  O_md7,  O_md8,
   O_md9,  O_md10, O_md11, O_md12, O_md13, O_md14, O_md15, O_md16,
-  O_md17, O_md18, O_md19, O_md20, O_md21, O_md22, O_md23, O_md24,
-  O_md25, O_md26, O_md27, O_md28, O_md29, O_md30, O_md31, O_md32,
   /* this must be the largest value */
   O_max
 } operatorT;
@@ -143,17 +141,8 @@ typedef struct expressionS {
   unsigned short X_md;
 } expressionS;
 
-enum expr_mode
-{
-  expr_evaluate,
-  expr_normal,
-  expr_defer
-};
-
 /* "result" should be type (expressionS *).  */
-#define expression(result) expr (0, result, expr_normal)
-#define expression_and_evaluate(result) expr (0, result, expr_evaluate)
-#define deferred_expression(result) expr (0, result, expr_defer)
+#define expression(result) expr (0, result)
 
 /* If an expression is O_big, look here for its value. These common
    data may be clobbered whenever expr() is called.  */
@@ -166,17 +155,16 @@ extern LITTLENUM_TYPE generic_bignum[];
 
 typedef char operator_rankT;
 
-extern char get_symbol_end (void);
-extern void expr_begin (void);
-extern void expr_set_precedence (void);
-extern void expr_set_rank (operatorT, operator_rankT);
-extern segT expr (int, expressionS *, enum expr_mode);
-extern unsigned int get_single_number (void);
-extern symbolS *make_expr_symbol (expressionS * expressionP);
-extern int expr_symbol_where (symbolS *, char **, unsigned int *);
-extern void current_location (expressionS *);
+extern char get_symbol_end PARAMS ((void));
+extern void expr_begin PARAMS ((void));
+extern void expr_set_precedence PARAMS ((void));
+extern segT expr PARAMS ((int rank, expressionS * resultP));
+extern unsigned int get_single_number PARAMS ((void));
+extern symbolS *make_expr_symbol PARAMS ((expressionS * expressionP));
+extern int expr_symbol_where
+  PARAMS ((symbolS *, char **, unsigned int *));
 
-extern symbolS *expr_build_uconstant (offsetT);
-extern symbolS *expr_build_dot (void);
-
-int resolve_expression (expressionS *);
+extern symbolS *expr_build_uconstant PARAMS ((offsetT));
+extern symbolS *expr_build_unary PARAMS ((operatorT, symbolS *));
+extern symbolS *expr_build_binary PARAMS ((operatorT, symbolS *, symbolS *));
+extern symbolS *expr_build_dot PARAMS ((void));

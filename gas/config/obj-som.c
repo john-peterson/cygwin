@@ -1,12 +1,11 @@
 /* SOM object file format.
-   Copyright 1993, 1994, 1998, 2000, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009  Free Software Foundation, Inc.
+   Copyright 1993, 1994, 1998, 2000 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as
-   published by the Free Software Foundation; either version 3,
+   published by the Free Software Foundation; either version 2,
    or (at your option) any later version.
 
    GAS is distributed in the hope that it will be useful, but
@@ -16,8 +15,8 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.
 
    Written by the Center for Software Science at the University of Utah
    and by Cygnus Support.  */
@@ -27,6 +26,14 @@
 #include "aout/stab_gnu.h"
 #include "obstack.h"
 
+static void obj_som_weak PARAMS ((int));
+
+const pseudo_typeS obj_pseudo_table[] =
+{
+  {"weak", obj_som_weak, 0},
+  {NULL, NULL, 0}
+};
+
 static int version_seen = 0;
 static int copyright_seen = 0;
 static int compiler_seen = 0;
@@ -34,7 +41,7 @@ static int compiler_seen = 0;
 /* Unused by SOM.  */
 
 void
-obj_read_begin_hook (void)
+obj_read_begin_hook ()
 {
 }
 
@@ -44,7 +51,8 @@ obj_read_begin_hook (void)
    string is "sourcefile language version" and is delimited by blanks.  */
 
 void
-obj_som_compiler (int unused ATTRIBUTE_UNUSED)
+obj_som_compiler (unused)
+     int unused;
 {
   char *buf;
   char c;
@@ -55,7 +63,7 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
 
   if (compiler_seen)
     {
-      as_bad (_("Only one .compiler pseudo-op per file!"));
+      as_bad ("Only one .compiler pseudo-op per file!");
       ignore_rest_of_line ();
       return;
     }
@@ -72,7 +80,7 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
     }
   else
     {
-      as_bad (_("Expected quoted string"));
+      as_bad ("Expected quoted string");
       ignore_rest_of_line ();
       return;
     }
@@ -85,7 +93,7 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
     p++;
   if (*p == '\000')
     {
-      as_bad (_(".compiler directive missing language and version"));
+      as_bad (".compiler directive missing language and version");
       return;
     }
   *p = '\000';
@@ -95,7 +103,7 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
     p++;
   if (*p == '\000')
     {
-      as_bad (_(".compiler directive missing version"));
+      as_bad (".compiler directive missing version");
       return;
     }
   *p = '\000';
@@ -111,7 +119,7 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
 					 "GNU Tools", version_id))
     {
       bfd_perror (stdoutput->filename);
-      as_fatal (_("FATAL: Attaching compiler header %s"), stdoutput->filename);
+      as_fatal ("FATAL: Attaching compiler header %s", stdoutput->filename);
     }
   *input_line_pointer = c;
   demand_empty_rest_of_line ();
@@ -120,7 +128,8 @@ obj_som_compiler (int unused ATTRIBUTE_UNUSED)
 /* Handle a .version directive.  */
 
 void
-obj_som_version (int unused ATTRIBUTE_UNUSED)
+obj_som_version (unused)
+     int unused;
 {
   char *version, c;
 
@@ -149,10 +158,13 @@ obj_som_version (int unused ATTRIBUTE_UNUSED)
     }
 
   version_seen = 1;
-  if (!bfd_som_attach_aux_hdr (stdoutput, VERSION_AUX_ID, version))
-    as_fatal (_("attaching version header %s: %s"),
-	      stdoutput->filename, bfd_errmsg (bfd_get_error ()));
-
+  if (bfd_som_attach_aux_hdr (stdoutput, VERSION_AUX_ID, version) == false)
+    {
+      bfd_perror (stdoutput->filename);
+      as_perror (_("FATAL: Attaching version header %s"),
+		 stdoutput->filename);
+      exit (EXIT_FAILURE);
+    }
   *input_line_pointer = c;
   demand_empty_rest_of_line ();
 }
@@ -162,7 +174,8 @@ obj_som_version (int unused ATTRIBUTE_UNUSED)
    If you care about copyright strings that much, you fix it.  */
 
 void
-obj_som_copyright (int unused ATTRIBUTE_UNUSED)
+obj_som_copyright (unused)
+     int unused;
 {
   char *copyright, c;
 
@@ -191,10 +204,13 @@ obj_som_copyright (int unused ATTRIBUTE_UNUSED)
     }
 
   copyright_seen = 1;
-  if (!bfd_som_attach_aux_hdr (stdoutput, COPYRIGHT_AUX_ID, copyright))
-    as_fatal (_("attaching copyright header %s: %s"),
-	      stdoutput->filename, bfd_errmsg (bfd_get_error ()));
-
+  if (bfd_som_attach_aux_hdr (stdoutput, COPYRIGHT_AUX_ID, copyright) == false)
+    {
+      bfd_perror (stdoutput->filename);
+      as_perror (_("FATAL: Attaching copyright header %s"),
+		 stdoutput->filename);
+      exit (EXIT_FAILURE);
+    }
   *input_line_pointer = c;
   demand_empty_rest_of_line ();
 }
@@ -207,7 +223,8 @@ obj_som_copyright (int unused ATTRIBUTE_UNUSED)
    which BFD does not understand.  */
 
 void
-obj_som_init_stab_section (segT seg)
+obj_som_init_stab_section (seg)
+     segT seg;
 {
   segT saved_seg = now_seg;
   segT space;
@@ -231,7 +248,7 @@ obj_som_init_stab_section (segT seg)
      (just created above).  Also set some attributes which BFD does
      not understand.  In particular, access bits, sort keys, and load
      quadrant.  */
-  obj_set_subsection_attributes (seg, space, 0x1f, 73, 0, 0, 0, 0);
+  obj_set_subsection_attributes (seg, space, 0x1f, 73, 0);
   bfd_set_section_alignment (stdoutput, seg, 2);
 
   /* Make some space for the first special stab entry and zero the memory.
@@ -254,7 +271,7 @@ obj_som_init_stab_section (segT seg)
      not understand.  In particular, access bits, sort keys, and load
      quadrant.  */
   seg = bfd_get_section_by_name (stdoutput, "$GDB_STRINGS$");
-  obj_set_subsection_attributes (seg, space, 0x1f, 72, 0, 0, 0, 0);
+  obj_set_subsection_attributes (seg, space, 0x1f, 72, 0);
   bfd_set_section_alignment (stdoutput, seg, 2);
 
   subseg_set (saved_seg, saved_subseg);
@@ -263,7 +280,10 @@ obj_som_init_stab_section (segT seg)
 /* Fill in the counts in the first entry in a .stabs section.  */
 
 static void
-adjust_stab_sections (bfd *abfd, asection *sec, void *xxx ATTRIBUTE_UNUSED)
+adjust_stab_sections (abfd, sec, xxx)
+     bfd *abfd;
+     asection *sec;
+     PTR xxx;
 {
   asection *strsec;
   char *p;
@@ -280,23 +300,24 @@ adjust_stab_sections (bfd *abfd, asection *sec, void *xxx ATTRIBUTE_UNUSED)
   nsyms = bfd_section_size (abfd, sec) / 12 - 1;
 
   p = seg_info (sec)->stabu.p;
-  gas_assert (p != 0);
+  assert (p != 0);
 
   bfd_h_put_16 (abfd, (bfd_vma) nsyms, (bfd_byte *) p + 6);
   bfd_h_put_32 (abfd, (bfd_vma) strsz, (bfd_byte *) p + 8);
 }
 
-/* Called late in the assembly phase to adjust the special
+/* Called late in the asssembly phase to adjust the special
    stab entry and to set the starting address for each code subspace.  */
 
 void
-som_frob_file (void)
+som_frob_file ()
 {
-  bfd_map_over_sections (stdoutput, adjust_stab_sections, (void *) 0);
+  bfd_map_over_sections (stdoutput, adjust_stab_sections, (PTR) 0);
 }
 
 static void
-obj_som_weak (int ignore ATTRIBUTE_UNUSED)
+obj_som_weak (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   char *name;
   int c;
@@ -310,6 +331,9 @@ obj_som_weak (int ignore ATTRIBUTE_UNUSED)
       *input_line_pointer = c;
       SKIP_WHITESPACE ();
       S_SET_WEAK (symbolP);
+#if 0
+      symbol_get_obj (symbolP)->local = 1;
+#endif
       if (c == ',')
 	{
 	  input_line_pointer++;
@@ -321,9 +345,3 @@ obj_som_weak (int ignore ATTRIBUTE_UNUSED)
   while (c == ',');
   demand_empty_rest_of_line ();
 }
-
-const pseudo_typeS obj_pseudo_table[] =
-{
-  {"weak", obj_som_weak, 0},
-  {NULL, NULL, 0}
-};

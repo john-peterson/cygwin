@@ -1,50 +1,29 @@
 /*
- * Copyright (c) 1983, 1993, 2001
- *      The Regents of the University of California.  All rights reserved.
+ * Copyright (c) 1983, 2001 Regents of the University of California.
+ * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * Redistribution and use in source and binary forms are permitted
+ * provided that: (1) source distributions retain this entire copyright
+ * notice and comment, and (2) distributions including binaries display
+ * the following acknowledgement:  ``This product includes software
+ * developed by the University of California, Berkeley and its contributors''
+ * in the documentation or other materials provided with the distribution
+ * and in all advertising materials mentioning features or use of this
+ * software. Neither the name of the University nor the names of its
+ * contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
-#include "gprof.h"
 #include "libiberty.h"
-#include "search_list.h"
-#include "source.h"
-#include "symtab.h"
+#include "gprof.h"
 #include "call_graph.h"
 #include "cg_arcs.h"
 #include "cg_dfn.h"
 #include "cg_print.h"
 #include "utils.h"
 #include "sym_ids.h"
-
-static int cmp_topo (const PTR, const PTR);
-static void propagate_time (Sym *);
-static void cycle_time (void);
-static void cycle_link (void);
-static void inherit_flags (Sym *);
-static void propagate_flags (Sym **);
-static int cmp_total (const PTR, const PTR);
 
 Sym *cycle_header;
 unsigned int num_cycles;
@@ -56,7 +35,7 @@ unsigned int numarcs;
  * range covered by CHILD.
  */
 Arc *
-arc_lookup (Sym *parent, Sym *child)
+DEFUN (arc_lookup, (parent, child), Sym * parent AND Sym * child)
 {
   Arc *arc;
 
@@ -85,7 +64,8 @@ arc_lookup (Sym *parent, Sym *child)
  * Add (or just increment) an arc:
  */
 void
-arc_add (Sym *parent, Sym *child, unsigned long count)
+DEFUN (arc_add, (parent, child, count),
+       Sym * parent AND Sym * child AND unsigned long count)
 {
   static unsigned int maxarcs = 0;
   Arc *arc, **newarcs;
@@ -122,7 +102,7 @@ arc_add (Sym *parent, Sym *child, unsigned long count)
 	  if (maxarcs == 0)
 	    maxarcs = 1;
 	  maxarcs *= 2;
-
+	
 	  /* Allocate the new array.  */
 	  newarcs = (Arc **)xmalloc(sizeof (Arc *) * maxarcs);
 
@@ -151,7 +131,7 @@ arc_add (Sym *parent, Sym *child, unsigned long count)
 
 
 static int
-cmp_topo (const PTR lp, const PTR rp)
+DEFUN (cmp_topo, (lp, rp), const PTR lp AND const PTR rp)
 {
   const Sym *left = *(const Sym **) lp;
   const Sym *right = *(const Sym **) rp;
@@ -161,7 +141,7 @@ cmp_topo (const PTR lp, const PTR rp)
 
 
 static void
-propagate_time (Sym *parent)
+DEFUN (propagate_time, (parent), Sym * parent)
 {
   Arc *arc;
   Sym *child;
@@ -245,7 +225,7 @@ propagate_time (Sym *parent)
  * its members.
  */
 static void
-cycle_time ()
+DEFUN_VOID (cycle_time)
 {
   Sym *member, *cyc;
 
@@ -269,7 +249,7 @@ cycle_time ()
 
 
 static void
-cycle_link ()
+DEFUN_VOID (cycle_link)
 {
   Sym *sym, *cyc, *member;
   Arc *arc;
@@ -357,7 +337,7 @@ cycle_link ()
  * fractions from parents.
  */
 static void
-inherit_flags (Sym *child)
+DEFUN (inherit_flags, (child), Sym * child)
 {
   Sym *head, *parent, *member;
   Arc *arc;
@@ -435,15 +415,15 @@ inherit_flags (Sym *child)
  * and while we're here, sum time for functions.
  */
 static void
-propagate_flags (Sym **symbols)
+DEFUN (propagate_flags, (symbols), Sym ** symbols)
 {
-  int sym_index;
+  int index;
   Sym *old_head, *child;
 
   old_head = 0;
-  for (sym_index = symtab.len - 1; sym_index >= 0; --sym_index)
+  for (index = symtab.len - 1; index >= 0; --index)
     {
-      child = symbols[sym_index];
+      child = symbols[index];
       /*
        * If we haven't done this function or cycle, inherit things
        * from parent.  This way, we are linear in the number of arcs
@@ -535,7 +515,7 @@ propagate_flags (Sym **symbols)
  * first.  All else being equal, compare by names.
  */
 static int
-cmp_total (const PTR lp, const PTR rp)
+DEFUN (cmp_total, (lp, rp), const PTR lp AND const PTR rp)
 {
   const Sym *left = *(const Sym **) lp;
   const Sym *right = *(const Sym **) rp;
@@ -587,20 +567,23 @@ cmp_total (const PTR lp, const PTR rp)
 }
 
 
-/* Topologically sort the graph (collapsing cycles), and propagates
-   time bottom up and flags top down.  */
-
+/*
+ * Topologically sort the graph (collapsing cycles), and propagates
+ * time bottom up and flags top down.
+ */
 Sym **
-cg_assemble (void)
+DEFUN_VOID (cg_assemble)
 {
   Sym *parent, **time_sorted_syms, **top_sorted_syms;
-  unsigned int sym_index;
+  unsigned int index;
   Arc *arc;
 
-  /* Initialize various things:
-       Zero out child times.
-       Count self-recursive calls.
-       Indicate that nothing is on cycles.  */
+  /*
+   * initialize various things:
+   *      zero out child times.
+   *      count self-recursive calls.
+   *      indicate that nothing is on cycles.
+   */
   for (parent = symtab.base; parent < symtab.limit; parent++)
     {
       parent->cg.child_time = 0.0;
@@ -623,65 +606,80 @@ cg_assemble (void)
       parent->cg.cyc.head = parent;
       parent->cg.cyc.next = 0;
       if (ignore_direct_calls)
-	find_call (parent, parent->addr, (parent + 1)->addr);
+	{
+	  find_call (parent, parent->addr, (parent + 1)->addr);
+	}
     }
-
-  /* Topologically order things.  If any node is unnumbered, number
-     it and any of its descendents.  */
+  /*
+   * Topologically order things.  If any node is unnumbered, number
+   * it and any of its descendents.
+   */
   for (parent = symtab.base; parent < symtab.limit; parent++)
     {
       if (parent->cg.top_order == DFN_NAN)
-	cg_dfn (parent);
+	{
+	  cg_dfn (parent);
+	}
     }
 
-  /* Link together nodes on the same cycle.  */
+  /* link together nodes on the same cycle: */
   cycle_link ();
 
-  /* Sort the symbol table in reverse topological order.  */
+  /* sort the symbol table in reverse topological order: */
   top_sorted_syms = (Sym **) xmalloc (symtab.len * sizeof (Sym *));
-  for (sym_index = 0; sym_index < symtab.len; ++sym_index)
-    top_sorted_syms[sym_index] = &symtab.base[sym_index];
-
+  for (index = 0; index < symtab.len; ++index)
+    {
+      top_sorted_syms[index] = &symtab.base[index];
+    }
   qsort (top_sorted_syms, symtab.len, sizeof (Sym *), cmp_topo);
   DBG (DFNDEBUG,
        printf ("[cg_assemble] topological sort listing\n");
-       for (sym_index = 0; sym_index < symtab.len; ++sym_index)
-	 {
-	   printf ("[cg_assemble] ");
-	   printf ("%d:", top_sorted_syms[sym_index]->cg.top_order);
-	   print_name (top_sorted_syms[sym_index]);
-	   printf ("\n");
-	 }
+       for (index = 0; index < symtab.len; ++index)
+       {
+       printf ("[cg_assemble] ");
+       printf ("%d:", top_sorted_syms[index]->cg.top_order);
+       print_name (top_sorted_syms[index]);
+       printf ("\n");
+       }
   );
-
-  /* Starting from the topological top, propagate print flags to
-     children.  also, calculate propagation fractions.  this happens
-     before time propagation since time propagation uses the
-     fractions.  */
+  /*
+   * Starting from the topological top, propagate print flags to
+   * children.  also, calculate propagation fractions.  this happens
+   * before time propagation since time propagation uses the
+   * fractions.
+   */
   propagate_flags (top_sorted_syms);
 
-  /* Starting from the topological bottom, propogate children times
-     up to parents.  */
+  /*
+   * Starting from the topological bottom, propogate children times
+   * up to parents.
+   */
   cycle_time ();
-  for (sym_index = 0; sym_index < symtab.len; ++sym_index)
-    propagate_time (top_sorted_syms[sym_index]);
+  for (index = 0; index < symtab.len; ++index)
+    {
+      propagate_time (top_sorted_syms[index]);
+    }
 
   free (top_sorted_syms);
 
-  /* Now, sort by CG.PROP.SELF + CG.PROP.CHILD.  Sorting both the regular
-     function names and cycle headers.  */
+  /*
+   * Now, sort by CG.PROP.SELF + CG.PROP.CHILD.  Sorting both the regular
+   * function names and cycle headers.
+   */
   time_sorted_syms = (Sym **) xmalloc ((symtab.len + num_cycles) * sizeof (Sym *));
-  for (sym_index = 0; sym_index < symtab.len; sym_index++)
-    time_sorted_syms[sym_index] = &symtab.base[sym_index];
-
-  for (sym_index = 1; sym_index <= num_cycles; sym_index++)
-    time_sorted_syms[symtab.len + sym_index - 1] = &cycle_header[sym_index];
-
+  for (index = 0; index < symtab.len; index++)
+    {
+      time_sorted_syms[index] = &symtab.base[index];
+    }
+  for (index = 1; index <= num_cycles; index++)
+    {
+      time_sorted_syms[symtab.len + index - 1] = &cycle_header[index];
+    }
   qsort (time_sorted_syms, symtab.len + num_cycles, sizeof (Sym *),
 	 cmp_total);
-
-  for (sym_index = 0; sym_index < symtab.len + num_cycles; sym_index++)
-    time_sorted_syms[sym_index]->cg.index = sym_index + 1;
-
+  for (index = 0; index < symtab.len + num_cycles; index++)
+    {
+      time_sorted_syms[index]->cg.index = index + 1;
+    }
   return time_sorted_syms;
 }

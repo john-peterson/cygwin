@@ -1,25 +1,23 @@
 /* chew
-   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1998, 2000, 2001,
-   2002, 2003, 2005, 2007, 2009, 2012
+   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1998, 2000, 2001
    Free Software Foundation, Inc.
    Contributed by steve chamberlain @cygnus
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* Yet another way of extracting documentation from source.
    No, I haven't finished it yet, but I hope you people like it better
@@ -83,12 +81,11 @@
 
    Foo.  */
 
-#include "ansidecl.h"
+#include <ansidecl.h>
+#include "sysdep.h"
 #include <assert.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define DEF_SIZE 5000
 #define STACK 50
@@ -120,7 +117,6 @@ static void overwrite_string (string_type *, string_type *);
 static void catbuf (string_type *, char *, unsigned int);
 static void cattext (string_type *, char *);
 static void catstr (string_type *, string_type *);
-static void die (char *);
 #endif
 
 static void
@@ -130,7 +126,7 @@ init_string_with_size (buffer, size)
 {
   buffer->write_idx = 0;
   buffer->size = size;
-  buffer->ptr = (char *) malloc (size);
+  buffer->ptr = malloc (size);
 }
 
 static void
@@ -163,9 +159,7 @@ write_buffer (buffer, f)
      string_type *buffer;
      FILE *f;
 {
-  if (buffer->write_idx != 0
-      && fwrite (buffer->ptr, buffer->write_idx, 1, f) != 1)
-    die ("cannot write output");
+  fwrite (buffer->ptr, buffer->write_idx, 1, f);
 }
 
 static void
@@ -201,7 +195,7 @@ catchar (buffer, ch)
   if (buffer->write_idx == buffer->size)
     {
       buffer->size *= 2;
-      buffer->ptr = (char *) realloc (buffer->ptr, buffer->size);
+      buffer->ptr = realloc (buffer->ptr, buffer->size);
     }
 
   buffer->ptr[buffer->write_idx++] = ch;
@@ -228,7 +222,7 @@ catbuf (buffer, buf, len)
     {
       while (buffer->write_idx + len >= buffer->size)
 	buffer->size *= 2;
-      buffer->ptr = (char *) realloc (buffer->ptr, buffer->size);
+      buffer->ptr = realloc (buffer->ptr, buffer->size);
     }
   memcpy (buffer->ptr + buffer->write_idx, buf, len);
   buffer->write_idx += len;
@@ -294,6 +288,8 @@ struct dict_struct
 };
 
 typedef struct dict_struct dict_type;
+
+#define WORD(x) static void x()
 
 static void
 die (msg)
@@ -366,8 +362,7 @@ exec (word)
     (*pc) ();
 }
 
-static void
-call ()
+WORD (call)
 {
   stinst_type *oldpc = pc;
   dict_type *e;
@@ -376,8 +371,7 @@ call ()
   pc = oldpc + 2;
 }
 
-static void
-remchar ()
+WORD (remchar)
 {
   if (tos->write_idx)
     tos->write_idx--;
@@ -394,8 +388,7 @@ strip_trailing_newlines ()
   pc++;
 }
 
-static void
-push_number ()
+WORD (push_number)
 {
   isp++;
   icheck_range ();
@@ -404,8 +397,7 @@ push_number ()
   pc++;
 }
 
-static void
-push_text ()
+WORD (push_text)
 {
   tos++;
   check_range ();
@@ -476,8 +468,8 @@ remove_noncomments (src, dst)
 static void
 print_stack_level ()
 {
-  fprintf (stderr, "current string stack depth = %ld, ", tos - stack);
-  fprintf (stderr, "current integer stack depth = %ld\n", isp - istack);
+  fprintf (stderr, "current string stack depth = %d, ", tos - stack);
+  fprintf (stderr, "current integer stack depth = %d\n", isp - istack);
   pc++;
 }
 
@@ -490,7 +482,7 @@ print_stack_level ()
  */
 
 static void
-paramstuff ()
+paramstuff (void)
 {
   unsigned int openp;
   unsigned int fname;
@@ -499,11 +491,8 @@ paramstuff ()
   string_type out;
   init_string (&out);
 
-#define NO_PARAMS 1
-
   /* Make sure that it's not already param'd or proto'd.  */
-  if (NO_PARAMS
-      || find (tos, "PARAMS") || find (tos, "PROTO") || !find (tos, "("))
+  if (find (tos, "PARAMS") || find (tos, "PROTO") || !find (tos, "("))
     {
       catstr (&out, tos);
     }
@@ -562,8 +551,7 @@ paramstuff ()
 /* turn {*
    and *} into comments */
 
-static void
-translatecomments ()
+WORD (translatecomments)
 {
   unsigned int idx = 0;
   string_type out;
@@ -593,9 +581,47 @@ translatecomments ()
   pc++;
 }
 
+#if 0
+
+/* This is not currently used.  */
+
+/* turn everything not starting with a . into a comment */
+
+WORD (manglecomments)
+{
+  unsigned int idx = 0;
+  string_type out;
+  init_string (&out);
+
+  while (at (tos, idx))
+    {
+      if (at (tos, idx) == '\n' && at (tos, idx + 1) == '*')
+	{
+	  cattext (&out, "	/*");
+	  idx += 2;
+	}
+      else if (at (tos, idx) == '*' && at (tos, idx + 1) == '}')
+	{
+	  cattext (&out, "*/");
+	  idx += 2;
+	}
+      else
+	{
+	  catchar (&out, at (tos, idx));
+	  idx++;
+	}
+    }
+
+  overwrite_string (tos, &out);
+
+  pc++;
+}
+
+#endif
+
 /* Mod tos so that only lines with leading dots remain */
 static void
-outputdots ()
+outputdots (void)
 {
   unsigned int idx = 0;
   string_type out;
@@ -639,8 +665,7 @@ outputdots ()
 }
 
 /* Find lines starting with . and | and put example around them on tos */
-static void
-courierize ()
+WORD (courierize)
 {
   string_type out;
   unsigned int idx = 0;
@@ -661,47 +686,37 @@ courierize ()
 
 	      while (at (tos, idx) && at (tos, idx) != '\n')
 		{
-		  if (command > 1)
-		    {
-		      /* We are inside {} parameters of some command;
-			 Just pass through until matching brace.  */
-		      if (at (tos, idx) == '{')
-			++command;
-		      else if (at (tos, idx) == '}')
-			--command;
-		    }
-		  else if (command != 0)
-		    {
-		      if (at (tos, idx) == '{')
-			++command;
-		      else if (!islower ((unsigned char) at (tos, idx)))
-			--command;
-		    }
-		  else if (at (tos, idx) == '@'
-			   && islower ((unsigned char) at (tos, idx + 1)))
-		    {
-		      ++command;
-		    }
-		  else if (at (tos, idx) == '{' && at (tos, idx + 1) == '*')
+		  if (at (tos, idx) == '{' && at (tos, idx + 1) == '*')
 		    {
 		      cattext (&out, "/*");
 		      idx += 2;
-		      continue;
 		    }
 		  else if (at (tos, idx) == '*' && at (tos, idx + 1) == '}')
 		    {
 		      cattext (&out, "*/");
 		      idx += 2;
-		      continue;
 		    }
-		  else if (at (tos, idx) == '{'
-			   || at (tos, idx) == '}')
+		  else if (at (tos, idx) == '{' && !command)
 		    {
-		      catchar (&out, '@');
+		      cattext (&out, "@{");
+		      idx++;
+		    }
+		  else if (at (tos, idx) == '}' && !command)
+		    {
+		      cattext (&out, "@}");
+		      idx++;
+		    }
+		  else
+		    {
+		      if (at (tos, idx) == '@')
+			command = 1;
+		      else if (isspace ((unsigned char) at (tos, idx))
+			       || at (tos, idx) == '}')
+			command = 0;
+		      catchar (&out, at (tos, idx));
+		      idx++;
 		    }
 
-		  catchar (&out, at (tos, idx));
-		  idx++;
 		}
 	      catchar (&out, '\n');
 	    }
@@ -726,8 +741,7 @@ courierize ()
    on @itemize @bullet, and @items each of them. Then ends with @end
    itemize, inplace at TOS*/
 
-static void
-bulletize ()
+WORD (bulletize)
 {
   unsigned int idx = 0;
   int on = 0;
@@ -781,8 +795,7 @@ bulletize ()
 
 /* Turn <<foo>> into @code{foo} in place at TOS*/
 
-static void
-do_fancy_stuff ()
+WORD (do_fancy_stuff)
 {
   unsigned int idx = 0;
   string_type out;
@@ -878,8 +891,7 @@ copy_past_newline (ptr, idx, dst)
 
 }
 
-static void
-icopy_past_newline ()
+WORD (icopy_past_newline)
 {
   tos++;
   check_range ();
@@ -891,8 +903,7 @@ icopy_past_newline ()
 /* indent
    Take the string at the top of the stack, do some prettying.  */
 
-static void
-kill_bogus_lines ()
+WORD (kill_bogus_lines)
 {
   int sl;
 
@@ -978,8 +989,7 @@ kill_bogus_lines ()
 
 }
 
-static void
-indent ()
+WORD (indent)
 {
   string_type out;
   int tab = 0;
@@ -1029,8 +1039,7 @@ indent ()
 
 }
 
-static void
-get_stuff_in_command ()
+WORD (get_stuff_in_command)
 {
   tos++;
   check_range ();
@@ -1045,8 +1054,7 @@ get_stuff_in_command ()
   pc++;
 }
 
-static void
-swap ()
+WORD (swap)
 {
   string_type t;
 
@@ -1056,8 +1064,7 @@ swap ()
   pc++;
 }
 
-static void
-other_dup ()
+WORD (other_dup)
 {
   tos++;
   check_range ();
@@ -1066,24 +1073,21 @@ other_dup ()
   pc++;
 }
 
-static void
-drop ()
+WORD (drop)
 {
   tos--;
   check_range ();
   pc++;
 }
 
-static void
-idrop ()
+WORD (idrop)
 {
   isp--;
   icheck_range ();
   pc++;
 }
 
-static void
-icatstr ()
+WORD (icatstr)
 {
   tos--;
   check_range ();
@@ -1092,8 +1096,7 @@ icatstr ()
   pc++;
 }
 
-static void
-skip_past_newline ()
+WORD (skip_past_newline)
 {
   while (at (ptr, idx)
 	 && at (ptr, idx) != '\n')
@@ -1102,8 +1105,7 @@ skip_past_newline ()
   pc++;
 }
 
-static void
-internalmode ()
+WORD (internalmode)
 {
   internal_mode = *(isp);
   isp--;
@@ -1111,8 +1113,7 @@ internalmode ()
   pc++;
 }
 
-static void
-maybecatstr ()
+WORD (maybecatstr)
 {
   if (internal_wanted == internal_mode)
     {
@@ -1177,7 +1178,7 @@ nextword (string, word)
 	}
     }
 
-  *word = (char *) malloc (length + 1);
+  *word = malloc (length + 1);
 
   dst = *word;
   src = word_start;
@@ -1230,7 +1231,7 @@ lookup_word (word)
 }
 
 static void
-perform ()
+perform (void)
 {
   tos = stack;
 
@@ -1267,14 +1268,14 @@ dict_type *
 newentry (word)
      char *word;
 {
-  dict_type *new_d = (dict_type *) malloc (sizeof (dict_type));
-  new_d->word = word;
-  new_d->next = root;
-  root = new_d;
-  new_d->code = (stinst_type *) malloc (sizeof (stinst_type));
-  new_d->code_length = 1;
-  new_d->code_end = 0;
-  return new_d;
+  dict_type *new = (dict_type *) malloc (sizeof (dict_type));
+  new->word = word;
+  new->next = root;
+  root = new;
+  new->code = (stinst_type *) malloc (sizeof (stinst_type));
+  new->code_length = 1;
+  new->code_end = 0;
+  return new;
 }
 
 unsigned int
@@ -1299,19 +1300,19 @@ add_intrinsic (name, func)
      char *name;
      void (*func) ();
 {
-  dict_type *new_d = newentry (name);
-  add_to_definition (new_d, func);
-  add_to_definition (new_d, 0);
+  dict_type *new = newentry (name);
+  add_to_definition (new, func);
+  add_to_definition (new, 0);
 }
 
 void
 add_var (name)
      char *name;
 {
-  dict_type *new_d = newentry (name);
-  add_to_definition (new_d, push_number);
-  add_to_definition (new_d, (stinst_type) (&(new_d->var)));
-  add_to_definition (new_d, 0);
+  dict_type *new = newentry (name);
+  add_to_definition (new, push_number);
+  add_to_definition (new, (stinst_type) (&(new->var)));
+  add_to_definition (new, 0);
 }
 
 void
@@ -1381,7 +1382,7 @@ compile (string)
 }
 
 static void
-bang ()
+bang (void)
 {
   *(long *) ((isp[0])) = isp[-1];
   isp -= 2;
@@ -1389,22 +1390,19 @@ bang ()
   pc++;
 }
 
-static void
-atsign ()
+WORD (atsign)
 {
   isp[0] = *(long *) (isp[0]);
   pc++;
 }
 
-static void
-hello ()
+WORD (hello)
 {
   printf ("hello\n");
   pc++;
 }
 
-static void
-stdout_ ()
+WORD (stdout_)
 {
   isp++;
   icheck_range ();
@@ -1412,8 +1410,7 @@ stdout_ ()
   pc++;
 }
 
-static void
-stderr_ ()
+WORD (stderr_)
 {
   isp++;
   icheck_range ();
@@ -1421,8 +1418,7 @@ stderr_ ()
   pc++;
 }
 
-static void
-print ()
+WORD (print)
 {
   if (*isp == 1)
     write_buffer (tos, stdout);
@@ -1456,7 +1452,7 @@ read_in (str, file)
 }
 
 static void
-usage ()
+usage (void)
 {
   fprintf (stderr, "usage: -[d|i|g] <file >file\n");
   exit (33);
@@ -1563,7 +1559,7 @@ main (ac, av)
   write_buffer (stack + 0, stdout);
   if (tos != stack)
     {
-      fprintf (stderr, "finishing with current stack level %ld\n",
+      fprintf (stderr, "finishing with current stack level %d\n",
 	       tos - stack);
       return 1;
     }

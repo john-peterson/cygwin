@@ -1,28 +1,26 @@
 /* BFD back-end for Motorola 68000 COFF binaries.
-   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1999,
-   2000, 2001, 2002, 2003, 2005, 2007, 2008, 2012
+   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1999, 2000
    Free Software Foundation, Inc.
    Written by Cygnus Support.
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "coff/m68k.h"
 #include "coff/internal.h"
@@ -60,22 +58,27 @@
 #define RELOC_SPECIAL_FN 0
 #else
 static bfd_reloc_status_type m68kcoff_common_addend_special_fn
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
-
+  PARAMS ((bfd *, arelent *, asymbol *, PTR, asection *, bfd *, char **));
+static reloc_howto_type *m68kcoff_common_addend_rtype_to_howto
+  PARAMS ((bfd *, asection *, struct internal_reloc *,
+	   struct coff_link_hash_entry *, struct internal_syment *,
+	   bfd_vma *));
 #define RELOC_SPECIAL_FN m68kcoff_common_addend_special_fn
 #endif
 
-static bfd_boolean m68k_coff_is_local_label_name (bfd *, const char *);
+static boolean m68k_coff_is_local_label_name PARAMS ((bfd *, const char *));
 
 /* On the delta, a symbol starting with L% is local.  We won't see
    such a symbol on other platforms, so it should be safe to always
    consider it local here.  */
 
-static bfd_boolean
-m68k_coff_is_local_label_name (bfd *abfd, const char *name)
+static boolean
+m68k_coff_is_local_label_name (abfd, name)
+     bfd *abfd;
+     const char *name;
 {
   if (name[0] == 'L' && name[1] == '%')
-    return TRUE;
+    return true;
 
   return _bfd_coff_is_local_label_name (abfd, name);
 }
@@ -86,7 +89,6 @@ m68k_coff_is_local_label_name (bfd *abfd, const char *name)
 #define m68k_rtype2howto	_bfd_m68kcoff_rtype2howto
 #define m68k_howto2rtype	_bfd_m68kcoff_howto2rtype
 #define m68k_reloc_type_lookup	_bfd_m68kcoff_reloc_type_lookup
-#define m68k_reloc_name_lookup _bfd_m68kcoff_reloc_name_lookup
 #endif
 
 #ifdef ONLY_DECLARE_RELOCS
@@ -96,15 +98,15 @@ extern reloc_howto_type m68kcoff_howto_table[];
 static
 #endif
 reloc_howto_type m68kcoff_howto_table[] =
-  {
-    HOWTO (R_RELBYTE,	       0,  0,  	8,  FALSE, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "8",	TRUE, 0x000000ff,0x000000ff, FALSE),
-    HOWTO (R_RELWORD,	       0,  1, 	16, FALSE, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "16",	TRUE, 0x0000ffff,0x0000ffff, FALSE),
-    HOWTO (R_RELLONG,	       0,  2, 	32, FALSE, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "32",	TRUE, 0xffffffff,0xffffffff, FALSE),
-    HOWTO (R_PCRBYTE,	       0,  0, 	8,  TRUE,  0, complain_overflow_signed,   RELOC_SPECIAL_FN, "DISP8",    TRUE, 0x000000ff,0x000000ff, FALSE),
-    HOWTO (R_PCRWORD,	       0,  1, 	16, TRUE,  0, complain_overflow_signed,   RELOC_SPECIAL_FN, "DISP16",   TRUE, 0x0000ffff,0x0000ffff, FALSE),
-    HOWTO (R_PCRLONG,	       0,  2, 	32, TRUE,  0, complain_overflow_signed,   RELOC_SPECIAL_FN, "DISP32",   TRUE, 0xffffffff,0xffffffff, FALSE),
-    HOWTO (R_RELLONG_NEG,      0, -2, 	32, FALSE, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "-32",	TRUE, 0xffffffff,0xffffffff, FALSE),
-  };
+{
+  HOWTO(R_RELBYTE,	       0,  0,  	8,  false, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "8",	true, 0x000000ff,0x000000ff, false),
+  HOWTO(R_RELWORD,	       0,  1, 	16, false, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "16",	true, 0x0000ffff,0x0000ffff, false),
+  HOWTO(R_RELLONG,	       0,  2, 	32, false, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "32",	true, 0xffffffff,0xffffffff, false),
+  HOWTO(R_PCRBYTE,	       0,  0, 	8,  true,  0, complain_overflow_signed, RELOC_SPECIAL_FN, "DISP8",    true, 0x000000ff,0x000000ff, false),
+  HOWTO(R_PCRWORD,	       0,  1, 	16, true,  0, complain_overflow_signed, RELOC_SPECIAL_FN, "DISP16",   true, 0x0000ffff,0x0000ffff, false),
+  HOWTO(R_PCRLONG,	       0,  2, 	32, true,  0, complain_overflow_signed, RELOC_SPECIAL_FN, "DISP32",   true, 0xffffffff,0xffffffff, false),
+  HOWTO(R_RELLONG_NEG,	       0,  -2, 	32, false, 0, complain_overflow_bitfield, RELOC_SPECIAL_FN, "-32",	true, 0xffffffff,0xffffffff, false),
+};
 #endif /* not ONLY_DECLARE_RELOCS */
 
 #ifndef BADMAG
@@ -115,66 +117,66 @@ reloc_howto_type m68kcoff_howto_table[] =
 /* Turn a howto into a reloc number */
 
 #ifdef ONLY_DECLARE_RELOCS
-extern void m68k_rtype2howto (arelent *internal, int relocentry);
-extern int m68k_howto2rtype (reloc_howto_type *);
-extern reloc_howto_type * m68k_reloc_type_lookup
-  (bfd *, bfd_reloc_code_real_type);
-extern reloc_howto_type * m68k_reloc_name_lookup (bfd *, const char *);
+extern void m68k_rtype2howto PARAMS ((arelent *internal, int relocentry));
+extern int m68k_howto2rtype PARAMS ((reloc_howto_type *));
+extern reloc_howto_type *m68k_reloc_type_lookup
+  PARAMS ((bfd *, bfd_reloc_code_real_type));
 #else
-
 #ifdef STATIC_RELOCS
-#define STAT_REL static
-#else
-#define STAT_REL
+static
 #endif
-
-STAT_REL void m68k_rtype2howto (arelent *, int);
-STAT_REL int  m68k_howto2rtype (reloc_howto_type *);
-STAT_REL reloc_howto_type * m68k_reloc_type_lookup (bfd *, bfd_reloc_code_real_type);
-STAT_REL reloc_howto_type * m68k_reloc_name_lookup (bfd *, const char *);
-
-STAT_REL void
-m68k_rtype2howto (arelent *internal, int relocentry)
+void
+m68k_rtype2howto(internal, relocentry)
+     arelent *internal;
+     int relocentry;
 {
   switch (relocentry)
-    {
-    case R_RELBYTE:	internal->howto = m68kcoff_howto_table + 0; break;
-    case R_RELWORD:	internal->howto = m68kcoff_howto_table + 1; break;
-    case R_RELLONG:	internal->howto = m68kcoff_howto_table + 2; break;
-    case R_PCRBYTE:	internal->howto = m68kcoff_howto_table + 3; break;
-    case R_PCRWORD:	internal->howto = m68kcoff_howto_table + 4; break;
-    case R_PCRLONG:	internal->howto = m68kcoff_howto_table + 5; break;
-    case R_RELLONG_NEG:	internal->howto = m68kcoff_howto_table + 6; break;
-    }
+  {
+   case R_RELBYTE:	internal->howto = m68kcoff_howto_table + 0; break;
+   case R_RELWORD:	internal->howto = m68kcoff_howto_table + 1; break;
+   case R_RELLONG:	internal->howto = m68kcoff_howto_table + 2; break;
+   case R_PCRBYTE:	internal->howto = m68kcoff_howto_table + 3; break;
+   case R_PCRWORD:	internal->howto = m68kcoff_howto_table + 4; break;
+   case R_PCRLONG:	internal->howto = m68kcoff_howto_table + 5; break;
+   case R_RELLONG_NEG:	internal->howto = m68kcoff_howto_table + 6; break;
+  }
 }
 
-STAT_REL int
-m68k_howto2rtype (reloc_howto_type * internal)
+#ifdef STATIC_RELOCS
+static
+#endif
+int
+m68k_howto2rtype (internal)
+     reloc_howto_type *internal;
 {
   if (internal->pc_relative)
+  {
+    switch (internal->bitsize)
     {
-      switch (internal->bitsize)
-	{
-	case 32: return R_PCRLONG;
-	case 16: return R_PCRWORD;
-	case 8: return R_PCRBYTE;
-	}
+     case 32: return R_PCRLONG;
+     case 16: return R_PCRWORD;
+     case 8: return R_PCRBYTE;
     }
+  }
   else
-    {
-      switch (internal->bitsize)
-	{
-	case 32: return R_RELLONG;
-	case 16: return R_RELWORD;
-	case 8: return R_RELBYTE;
-	}
-    }
+  {
+    switch (internal->bitsize)
+     {
+      case 32: return R_RELLONG;
+      case 16: return R_RELWORD;
+      case 8: return R_RELBYTE;
+     }
+  }
   return R_RELLONG;
 }
 
-STAT_REL reloc_howto_type *
-m68k_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			bfd_reloc_code_real_type code)
+#ifdef STATIC_RELOCS
+static
+#endif
+reloc_howto_type *
+m68k_reloc_type_lookup (abfd, code)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     bfd_reloc_code_real_type code;
 {
   switch (code)
     {
@@ -191,22 +193,6 @@ m68k_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
   /*NOTREACHED*/
 }
 
-STAT_REL reloc_howto_type *
-m68k_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-		        const char *r_name)
-{
-  unsigned int i;
-
-  for (i = 0;
-       i < sizeof (m68kcoff_howto_table) / sizeof (m68kcoff_howto_table[0]);
-       i++)
-    if (m68kcoff_howto_table[i].name != NULL
-	&& strcasecmp (m68kcoff_howto_table[i].name, r_name) == 0)
-      return &m68kcoff_howto_table[i];
-
-  return NULL;
-}
-
 #endif /* not ONLY_DECLARE_RELOCS */
 
 #define RTYPE2HOWTO(internal, relocentry) \
@@ -216,30 +202,34 @@ m68k_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
   external.r_type = m68k_howto2rtype (internal)
 
 #define coff_bfd_reloc_type_lookup m68k_reloc_type_lookup
-#define coff_bfd_reloc_name_lookup m68k_reloc_name_lookup
 
 #ifndef COFF_COMMON_ADDEND
 #ifndef coff_rtype_to_howto
 
 #define coff_rtype_to_howto m68kcoff_rtype_to_howto
 
+static reloc_howto_type *m68kcoff_rtype_to_howto
+  PARAMS ((bfd *, asection *, struct internal_reloc *,
+	   struct coff_link_hash_entry *, struct internal_syment *,
+	   bfd_vma *));
+
 static reloc_howto_type *
-m68kcoff_rtype_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
-			 asection *sec,
-			 struct internal_reloc *rel,
-			 struct coff_link_hash_entry *h ATTRIBUTE_UNUSED,
-			 struct internal_syment *sym ATTRIBUTE_UNUSED,
-			 bfd_vma *addendp)
+m68kcoff_rtype_to_howto (abfd, sec, rel, h, sym, addendp)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     asection *sec;
+     struct internal_reloc *rel;
+     struct coff_link_hash_entry *h ATTRIBUTE_UNUSED;
+     struct internal_syment *sym ATTRIBUTE_UNUSED;
+     bfd_vma *addendp;
 {
   arelent relent;
   reloc_howto_type *howto;
 
-  relent.howto = NULL;
   RTYPE2HOWTO (&relent, rel);
 
   howto = relent.howto;
 
-  if (howto != NULL && howto->pc_relative)
+  if (howto->pc_relative)
     *addendp += sec->vma;
 
   return howto;
@@ -255,19 +245,21 @@ m68kcoff_rtype_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
    symbol is the value itself plus any desired offset.  (taken from
    work done by Ian Taylor, Cygnus Support, for I386 COFF).  */
 
-/* If we are producing relocatable output, we need to do some
+/* If we are producing relocateable output, we need to do some
    adjustments to the object file that are not done by the
    bfd_perform_relocation function.  This function is called by every
    reloc type to make any required adjustments.  */
 
 static bfd_reloc_status_type
-m68kcoff_common_addend_special_fn (bfd *abfd,
-				   arelent *reloc_entry,
-				   asymbol *symbol,
-				   void * data,
-				   asection *input_section ATTRIBUTE_UNUSED,
-				   bfd *output_bfd,
-				   char **error_message ATTRIBUTE_UNUSED)
+m68kcoff_common_addend_special_fn (abfd, reloc_entry, symbol, data,
+				   input_section, output_bfd, error_message)
+     bfd *abfd;
+     arelent *reloc_entry;
+     asymbol *symbol;
+     PTR data;
+     asection *input_section ATTRIBUTE_UNUSED;
+     bfd *output_bfd;
+     char **error_message ATTRIBUTE_UNUSED;
 {
   symvalue diff;
 
@@ -293,7 +285,7 @@ m68kcoff_common_addend_special_fn (bfd *abfd,
     {
       /* For some reason bfd_perform_relocation always effectively
 	 ignores the addend for a COFF target when producing
-	 relocatable output.  This seems to be always wrong for 386
+	 relocateable output.  This seems to be always wrong for 386
 	 COFF, so we handle the addend here instead.  */
       diff = reloc_entry->addend;
     }
@@ -320,7 +312,7 @@ m68kcoff_common_addend_special_fn (bfd *abfd,
 	  {
 	    short x = bfd_get_16 (abfd, addr);
 	    DOIT (x);
-	    bfd_put_16 (abfd, (bfd_vma) x, addr);
+	    bfd_put_16 (abfd, x, addr);
 	  }
 	  break;
 
@@ -328,7 +320,7 @@ m68kcoff_common_addend_special_fn (bfd *abfd,
 	  {
 	    long x = bfd_get_32 (abfd, addr);
 	    DOIT (x);
-	    bfd_put_32 (abfd, (bfd_vma) x, addr);
+	    bfd_put_32 (abfd, x, addr);
 	  }
 	  break;
 
@@ -382,17 +374,17 @@ m68kcoff_common_addend_special_fn (bfd *abfd,
    adjust common symbols.  */
 
 static reloc_howto_type *
-m68kcoff_common_addend_rtype_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
-				       asection *sec,
-				       struct internal_reloc *rel,
-				       struct coff_link_hash_entry *h,
-				       struct internal_syment *sym,
-				       bfd_vma *addendp)
+m68kcoff_common_addend_rtype_to_howto (abfd, sec, rel, h, sym, addendp)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     asection *sec;
+     struct internal_reloc *rel;
+     struct coff_link_hash_entry *h;
+     struct internal_syment *sym;
+     bfd_vma *addendp;
 {
   arelent relent;
   reloc_howto_type *howto;
 
-  relent.howto = NULL;
   RTYPE2HOWTO (&relent, rel);
 
   howto = relent.howto;
@@ -412,7 +404,7 @@ m68kcoff_common_addend_rtype_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
     }
 
   /* If the output symbol is common (in which case this must be a
-     relocatable link), we need to add in the final size of the
+     relocateable link), we need to add in the final size of the
      common symbol.  */
   if (h != NULL && h->root.type == bfd_link_hash_common)
     *addendp += h->root.u.c.size;
@@ -434,37 +426,36 @@ m68kcoff_common_addend_rtype_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
    after the add_symbols entry point has been called for all the
    objects, and before the final_link entry point is called.  */
 
-bfd_boolean
-bfd_m68k_coff_create_embedded_relocs (bfd *abfd,
-				      struct bfd_link_info *info,
-				      asection *datasec,
-				      asection *relsec,
-				      char **errmsg)
+boolean
+bfd_m68k_coff_create_embedded_relocs (abfd, info, datasec, relsec, errmsg)
+     bfd *abfd;
+     struct bfd_link_info *info;
+     asection *datasec;
+     asection *relsec;
+     char **errmsg;
 {
   char *extsyms;
   bfd_size_type symesz;
   struct internal_reloc *irel, *irelend;
   bfd_byte *p;
-  bfd_size_type amt;
 
-  BFD_ASSERT (! info->relocatable);
+  BFD_ASSERT (! info->relocateable);
 
   *errmsg = NULL;
 
   if (datasec->reloc_count == 0)
-    return TRUE;
+    return true;
 
   extsyms = obj_coff_external_syms (abfd);
   symesz = bfd_coff_symesz (abfd);
 
-  irel = _bfd_coff_read_internal_relocs (abfd, datasec, TRUE, NULL, FALSE,
+  irel = _bfd_coff_read_internal_relocs (abfd, datasec, true, NULL, false,
 					 NULL);
   irelend = irel + datasec->reloc_count;
 
-  amt = (bfd_size_type) datasec->reloc_count * 12;
-  relsec->contents = (bfd_byte *) bfd_alloc (abfd, amt);
+  relsec->contents = (bfd_byte *) bfd_alloc (abfd, datasec->reloc_count * 12);
   if (relsec->contents == NULL)
-    return FALSE;
+    return false;
 
   p = relsec->contents;
 
@@ -483,7 +474,7 @@ bfd_m68k_coff_create_embedded_relocs (bfd *abfd,
 	{
 	  *errmsg = _("unsupported reloc type");
 	  bfd_set_error (bfd_error_bad_value);
-	  return FALSE;
+	  return false;
 	}
 
       if (irel->r_symndx == -1)
@@ -512,20 +503,16 @@ bfd_m68k_coff_create_embedded_relocs (bfd *abfd,
 		  (irel->r_vaddr - datasec->vma + datasec->output_offset), p);
       memset (p + 4, 0, 8);
       if (targetsec != NULL)
-	strncpy ((char *) p + 4, targetsec->output_section->name, 8);
+	strncpy (p + 4, targetsec->output_section->name, 8);
     }
 
-  return TRUE;
+  return true;
 }
 #endif /* neither ONLY_DECLARE_RELOCS not STATIC_RELOCS  */
 
 #define coff_bfd_is_local_label_name m68k_coff_is_local_label_name
 
 #define coff_relocate_section _bfd_coff_generic_relocate_section
-
-#ifndef bfd_pe_print_pdata
-#define bfd_pe_print_pdata	NULL
-#endif
 
 #include "coffcode.h"
 
@@ -538,7 +525,7 @@ bfd_m68k_coff_create_embedded_relocs (bfd *abfd,
 #endif
 
 #ifdef NAMES_HAVE_UNDERSCORE
-CREATE_BIG_COFF_TARGET_VEC (TARGET_SYM, TARGET_NAME, D_PAGED, 0, '_', NULL, COFF_SWAP_TABLE)
+CREATE_BIG_COFF_TARGET_VEC (TARGET_SYM, TARGET_NAME, D_PAGED, 0, '_', NULL)
 #else
-CREATE_BIG_COFF_TARGET_VEC (TARGET_SYM, TARGET_NAME, D_PAGED, 0, 0, NULL, COFF_SWAP_TABLE)
+CREATE_BIG_COFF_TARGET_VEC (TARGET_SYM, TARGET_NAME, D_PAGED, 0, 0, NULL)
 #endif

@@ -1,35 +1,35 @@
 /* BFD back-end for Mach3/532 a.out-ish binaries.
-   Copyright 1990, 1991, 1992, 1994, 1995, 2000, 2001, 2002, 2005, 2007, 2009
+   Copyright 1990, 1991, 1992, 1994, 1995, 2000, 2001
    Free Software Foundation, Inc.
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* Written by Ian Dall
-              19-Apr-94
-
-   Formerly part of aout-pc532-mach.c. Split out to allow more
-   flexibility with multiple formats.  */
-
+ *            19-Apr-94
+ *
+ * Formerly part of aout-pc532-mach.c. Split out to allow more
+ * flexibility with multiple formats.
+ *
+ */
 /* This architecture has N_TXTOFF and N_TXTADDR defined as if
-   N_HEADER_IN_TEXT, but the a_text entry (text size) does not include the
-   space for the header. So we have N_HEADER_IN_TEXT defined to
-   1 and specially define our own N_TXTSIZE.  */
+ * N_HEADER_IN_TEXT, but the a_text entry (text size) does not include the
+ * space for the header. So we have N_HEADER_IN_TEXT defined to
+ * 1 and specially define our own N_TXTSIZE
+ */
 
 #define N_HEADER_IN_TEXT(x) 1
 #define N_TXTSIZE(x) ((x).a_text)
@@ -46,24 +46,24 @@
 
 #define	SEGMENT_SIZE	TARGET_PAGE_SIZE
 
+#define N_SHARED_LIB(x) 0
 #define SEGMENT_SIZE TARGET_PAGE_SIZE
 #define DEFAULT_ARCH bfd_arch_ns32k
 
-/* Do not "beautify" the CONCAT* macro args.  Traditional C will not
-   remove whitespace added here, and thus will fail to concatenate
-   the tokens.  */
-#define MY(OP) CONCAT2 (pc532machaout_,OP)
+#define MY(OP) CAT(pc532machaout_,OP)
 
 /* Must be the same as aout-ns32k.c */
-#define NAME(x,y) CONCAT3 (ns32kaout,_32_,y)
+#define NAME(x,y) CAT3(ns32kaout,_32_,y)
 
 #define TARGETNAME "a.out-pc532-mach"
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libaout.h"
 #include "libbfd.h"
 #include "aout/aout64.h"
+
+/* We can`t use the MYNS macro here for cpp reasons too subtle for me -- IWD */
 
 #define MY_bfd_reloc_type_lookup ns32kaout_bfd_reloc_type_lookup
 
@@ -75,11 +75,19 @@
 
 #define MY_exec_header_not_counted 1
 
-reloc_howto_type *ns32kaout_bfd_reloc_type_lookup
-  (bfd *abfd, bfd_reloc_code_real_type code);
+#define MYNSX(OP) CAT(ns32kaout_,OP)
+reloc_howto_type *
+MYNSX(bfd_reloc_type_lookup)
+  PARAMS((bfd *abfd AND
+	  bfd_reloc_code_real_type code));
 
-static bfd_boolean
-MY(write_object_contents) (bfd *abfd)
+boolean
+MYNSX(write_object_contents)
+  PARAMS((bfd *abfd));
+
+static boolean
+MY(write_object_contents) (abfd)
+bfd *abfd;
 {
   struct external_exec exec_bytes;
   struct internal_exec *execp = exec_hdr (abfd);
@@ -101,7 +109,7 @@ MY(write_object_contents) (bfd *abfd)
 
   WRITE_HEADERS(abfd, execp);
 
-  return TRUE;
+  return true;
 }
 
 #define MY_write_object_contents MY(write_object_contents)

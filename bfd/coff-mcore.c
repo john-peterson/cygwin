@@ -1,26 +1,25 @@
 /* BFD back-end for Motorola MCore COFF/PE
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   Copyright 1999, 2000, 2001 Free Software Foundation, Inc.
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, 51 Franklin Street - Fifth Floor,
-   Boston, MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, 59 Temple Place - Suite 330,
+Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "coff/mcore.h"
 #include "coff/internal.h"
@@ -38,11 +37,21 @@
 
 /* This file is compiled more than once, but we only compile the
    final_link routine once.  */
-extern bfd_boolean mcore_bfd_coff_final_link
-  (bfd *, struct bfd_link_info *);
-static bfd_reloc_status_type mcore_coff_unsupported_reloc
-  (bfd *, arelent *, asymbol *, void *, asection *, bfd *, char **);
+extern boolean mcore_bfd_coff_final_link
+  PARAMS ((bfd *, struct bfd_link_info *));
 
+static struct bfd_link_hash_table * coff_mcore_link_hash_table_create
+  PARAMS ((bfd *));
+static bfd_reloc_status_type        mcore_coff_unsupported_reloc
+  PARAMS ((bfd *, arelent *, asymbol *, PTR, asection *, bfd *, char **));
+static boolean                      coff_mcore_relocate_section
+  PARAMS ((bfd *, struct bfd_link_info *, bfd *, asection *, bfd_byte *,
+	   struct internal_reloc *, struct internal_syment *, asection **));
+static reloc_howto_type *           mcore_coff_reloc_type_lookup
+  PARAMS ((bfd *, bfd_reloc_code_real_type));
+static reloc_howto_type *           coff_mcore_rtype_to_howto
+  PARAMS ((bfd *, asection *, struct internal_reloc *,
+	   struct coff_link_hash_entry *, struct internal_syment *, bfd_vma *));
 
 /* The NT loader points the toc register to &toc + 32768, in order to
    use the complete range of a 16-bit displacement. We have to adjust
@@ -64,29 +73,29 @@ static reloc_howto_type mcore_coff_howto_table[] =
 	 0,	                 /* rightshift */
 	 0,	                 /* size (0 = byte, 1 = short, 2 = long) */
 	 0,	                 /* bitsize */
-	 FALSE,	                 /* pc_relative */
+	 false,	                 /* pc_relative */
 	 0,	                 /* bitpos */
 	 complain_overflow_dont, /* dont complain_on_overflow */
 	 NULL,		         /* special_function */
 	 "ABSOLUTE",             /* name */
-	 FALSE,	                 /* partial_inplace */
+	 false,	                 /* partial_inplace */
 	 0x00,	 	         /* src_mask */
 	 0x00,        		 /* dst_mask */
-	 FALSE),                 /* pcrel_offset */
+	 false),                 /* pcrel_offset */
 
   HOWTO (IMAGE_REL_MCORE_ADDR32,/* type */
 	 0,	                /* rightshift */
 	 2,	                /* size (0 = byte, 1 = short, 2 = long) */
 	 32,	                /* bitsize */
-	 FALSE,	                /* pc_relative */
+	 false,	                /* pc_relative */
 	 0,	                /* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 NULL,		        /* special_function */
 	 "ADDR32",              /* name */
-	 TRUE,	                /* partial_inplace */
+	 true,	                /* partial_inplace */
 	 0xffffffff,            /* src_mask */
 	 0xffffffff,            /* dst_mask */
-	 FALSE),                /* pcrel_offset */
+	 false),                /* pcrel_offset */
 
   /* 8 bits + 2 zero bits; jmpi/jsri/lrw instructions.
      Should not appear in object files.  */
@@ -94,15 +103,15 @@ static reloc_howto_type mcore_coff_howto_table[] =
 	 2,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 8,			/* bitsize */
-	 TRUE,			/* pc_relative */
+	 true,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 mcore_coff_unsupported_reloc, /* special_function */
 	 "IMM8BY4",             /* name */
-	 FALSE,			/* partial_inplace */
+	 false,			/* partial_inplace */
 	 0,			/* src_mask */
 	 0,			/* dst_mask */
-	 TRUE),			/* pcrel_offset */
+	 true),			/* pcrel_offset */
 
   /* bsr/bt/bf/br instructions; 11 bits + 1 zero bit
      Span 2k instructions == 4k bytes.
@@ -111,45 +120,45 @@ static reloc_howto_type mcore_coff_howto_table[] =
 	 1,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 11,			/* bitsize */
-	 TRUE,			/* pc_relative */
+	 true,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 NULL,	                /* special_function */
 	 "IMM11BY2",            /* name */
-	 FALSE,			/* partial_inplace */
+	 false,			/* partial_inplace */
 	 0x0,			/* src_mask */
 	 0x7ff,			/* dst_mask */
-	 TRUE),			/* pcrel_offset */
+	 true),			/* pcrel_offset */
 
   /* 4 bits + 1 zero bit; 'loopt' instruction only; unsupported.  */
   HOWTO (IMAGE_REL_MCORE_PCREL_IMM4BY2,	/* type */
 	 1,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 4,			/* bitsize */
-	 TRUE,			/* pc_relative */
+	 true,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 mcore_coff_unsupported_reloc, /* special_function */
 	 "IMM4BY2",              /* name */
-	 FALSE,			/* partial_inplace */
+	 false,			/* partial_inplace */
 	 0,			/* src_mask */
 	 0,			/* dst_mask */
-	 TRUE),			/* pcrel_offset */
+	 true),			/* pcrel_offset */
 
   /* 32-bit pc-relative. Eventually this will help support PIC code.  */
   HOWTO (IMAGE_REL_MCORE_PCREL_32,/* type */
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 TRUE,			/* pc_relative */
+	 true,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_bitfield, /* complain_on_overflow */
 	 NULL,	                /* special_function */
 	 "PCREL_32",	        /* name */
-	 FALSE,			/* partial_inplace */
+	 false,			/* partial_inplace */
 	 0x0,			/* src_mask */
 	 0xffffffff,		/* dst_mask */
-	 TRUE),			/* pcrel_offset */
+	 true),			/* pcrel_offset */
 
   /* Like PCREL_IMM11BY2, this relocation indicates that there is a
      'jsri' at the specified address. There is a separate relocation
@@ -162,29 +171,29 @@ static reloc_howto_type mcore_coff_howto_table[] =
 	 1,			/* rightshift */
 	 1,			/* size (0 = byte, 1 = short, 2 = long) */
 	 11,			/* bitsize */
-	 TRUE,			/* pc_relative */
+	 true,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 NULL,	                /* special_function */
 	 "JSR_IMM11BY2",        /* name */
-	 FALSE,			/* partial_inplace */
+	 false,			/* partial_inplace */
 	 0x0,			/* src_mask */
 	 0x7ff,			/* dst_mask */
-	 TRUE),			/* pcrel_offset */
+	 true),			/* pcrel_offset */
 
   HOWTO (IMAGE_REL_MCORE_RVA,   /* type */
 	 0,			/* rightshift */
 	 2,			/* size (0 = byte, 1 = short, 2 = long) */
 	 32,			/* bitsize */
-	 FALSE,			/* pc_relative */
+	 false,			/* pc_relative */
 	 0,			/* bitpos */
 	 complain_overflow_signed, /* complain_on_overflow */
 	 NULL,                  /* special_function */
 	 "MCORE_RVA",           /* name */
-	 TRUE,			/* partial_inplace */
+	 true,			/* partial_inplace */
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
-	 TRUE)			/* pcrel_offset */
+	 true)			/* pcrel_offset */
 };
 
 /* Extend the coff_link_hash_table structure with a few M*Core specific fields.
@@ -207,14 +216,40 @@ mcore_hash_table;
 #define coff_mcore_hash_table(info) \
   ((mcore_hash_table *) ((info)->hash))
 
+/* Create an MCore coff linker hash table.  */
+static struct bfd_link_hash_table *
+coff_mcore_link_hash_table_create (abfd)
+     bfd * abfd;
+{
+  mcore_hash_table * ret;
+
+  ret = ((mcore_hash_table *) bfd_alloc (abfd, sizeof (* ret)));
+  if (ret == (mcore_hash_table *) NULL)
+    return NULL;
+
+  if (! _bfd_coff_link_hash_table_init
+      (& ret->root, abfd, _bfd_coff_link_hash_newfunc))
+    {
+      bfd_release (abfd, ret);
+      return (struct bfd_link_hash_table *) NULL;
+    }
+
+  ret->bfd_of_toc_owner = NULL;
+  ret->global_toc_size  = 0;
+  ret->import_table_size = 0;
+  ret->first_thunk_address = 0;
+  ret->thunk_size = 0;
+
+  return & ret->root.root;
+}
 
 /* Add an entry to the base file.  */
-
-static bfd_boolean
-mcore_emit_base_file_entry (struct bfd_link_info *info,
-			    bfd *output_bfd,
-			    asection *input_section,
-			    bfd_vma reloc_offset)
+static void
+mcore_emit_base_file_entry (info, output_bfd, input_section, reloc_offset)
+      struct bfd_link_info * info;
+      bfd *                  output_bfd;
+      asection *             input_section;
+      bfd_vma                reloc_offset;
 {
   bfd_vma addr = reloc_offset
                  - input_section->vma
@@ -224,26 +259,24 @@ mcore_emit_base_file_entry (struct bfd_link_info *info,
   if (coff_data (output_bfd)->pe)
      addr -= pe_data (output_bfd)->pe_opthdr.ImageBase;
 
-  if (fwrite (&addr, sizeof (addr), 1, (FILE *) info->base_file) == 1)
-    return TRUE;
-
-  bfd_set_error (bfd_error_system_call);
-  return FALSE;
+  fwrite (&addr, 1, sizeof (addr), (FILE *) info->base_file);
 }
 
 static bfd_reloc_status_type
-mcore_coff_unsupported_reloc (bfd * abfd,
-			      arelent * reloc_entry,
-			      asymbol * symbol ATTRIBUTE_UNUSED,
-			      void * data ATTRIBUTE_UNUSED,
-			      asection * input_section ATTRIBUTE_UNUSED,
-			      bfd * output_bfd ATTRIBUTE_UNUSED,
-			      char ** error_message ATTRIBUTE_UNUSED)
+mcore_coff_unsupported_reloc (abfd, reloc_entry, symbol, data, input_section,
+			   output_bfd, error_message)
+     bfd * abfd;
+     arelent * reloc_entry;
+     asymbol * symbol ATTRIBUTE_UNUSED;
+     PTR data ATTRIBUTE_UNUSED;
+     asection * input_section ATTRIBUTE_UNUSED;
+     bfd * output_bfd ATTRIBUTE_UNUSED;
+     char ** error_message ATTRIBUTE_UNUSED;
 {
   BFD_ASSERT (reloc_entry->howto != (reloc_howto_type *)0);
 
-  _bfd_error_handler (_("%B: Relocation %s (%d) is not currently supported.\n"),
-		      abfd,
+  _bfd_error_handler (_("%s: Relocation %s (%d) is not currently supported.\n"),
+		      bfd_get_filename (abfd),
 		      reloc_entry->howto->name,
 		      reloc_entry->howto->type);
 
@@ -255,8 +288,9 @@ mcore_coff_unsupported_reloc (bfd * abfd,
  case bfd_rtype: return & mcore_coff_howto_table [mcore_rtype]
 
 static reloc_howto_type *
-mcore_coff_reloc_type_lookup (bfd * abfd ATTRIBUTE_UNUSED,
-			      bfd_reloc_code_real_type code)
+mcore_coff_reloc_type_lookup (abfd, code)
+     bfd * abfd ATTRIBUTE_UNUSED;
+     bfd_reloc_code_real_type code;
 {
   switch (code)
     {
@@ -272,35 +306,20 @@ mcore_coff_reloc_type_lookup (bfd * abfd ATTRIBUTE_UNUSED,
     }
   /*NOTREACHED*/
 }
+
 #undef HOW2MAP
-
-static reloc_howto_type *
-mcore_coff_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
-			      const char *r_name)
-{
-  unsigned int i;
-
-  for (i = 0;
-       i < (sizeof (mcore_coff_howto_table)
-	    / sizeof (mcore_coff_howto_table[0]));
-       i++)
-    if (mcore_coff_howto_table[i].name != NULL
-	&& strcasecmp (mcore_coff_howto_table[i].name, r_name) == 0)
-      return &mcore_coff_howto_table[i];
-
-  return NULL;
-}
 
 #define RTYPE2HOWTO(cache_ptr, dst) \
   (cache_ptr)->howto = mcore_coff_howto_table + (dst)->r_type;
 
 static reloc_howto_type *
-coff_mcore_rtype_to_howto (bfd * abfd ATTRIBUTE_UNUSED,
-			   asection * sec,
-			   struct internal_reloc * rel,
-			   struct coff_link_hash_entry * h ATTRIBUTE_UNUSED,
-			   struct internal_syment * sym,
-			   bfd_vma * addendp)
+coff_mcore_rtype_to_howto (abfd, sec, rel, h, sym, addendp)
+     bfd * abfd ATTRIBUTE_UNUSED;
+     asection * sec;
+     struct internal_reloc * rel;
+     struct coff_link_hash_entry * h ATTRIBUTE_UNUSED;
+     struct internal_syment * sym;
+     bfd_vma * addendp;
 {
   reloc_howto_type * howto;
 
@@ -331,48 +350,56 @@ coff_mcore_rtype_to_howto (bfd * abfd ATTRIBUTE_UNUSED,
   return howto;
 }
 
-/* Return TRUE if this relocation should appear in the output .reloc section.
+/* Return true if this relocation should appear in the output .reloc section.
    This function is referenced in pe_mkobject in peicode.h.  */
-
-static bfd_boolean
-in_reloc_p (bfd * abfd ATTRIBUTE_UNUSED, reloc_howto_type * howto)
+static boolean
+in_reloc_p (abfd, howto)
+     bfd * abfd ATTRIBUTE_UNUSED;
+     reloc_howto_type * howto;
 {
   return ! howto->pc_relative && howto->type != IMAGE_REL_MCORE_RVA;
 }
 
 /* The reloc processing routine for the optimized COFF linker.  */
-static bfd_boolean
-coff_mcore_relocate_section (bfd * output_bfd,
-			     struct bfd_link_info * info,
-			     bfd * input_bfd,
-			     asection * input_section,
-			     bfd_byte * contents,
-			     struct internal_reloc * relocs,
-			     struct internal_syment * syms,
-			     asection ** sections)
+static boolean
+coff_mcore_relocate_section (output_bfd, info, input_bfd, input_section,
+			   contents, relocs, syms, sections)
+     bfd * output_bfd;
+     struct bfd_link_info * info;
+     bfd * input_bfd;
+     asection * input_section;
+     bfd_byte * contents;
+     struct internal_reloc * relocs;
+     struct internal_syment * syms;
+     asection ** sections;
 {
   struct internal_reloc * rel;
   struct internal_reloc * relend;
+  boolean hihalf;
+  bfd_vma hihalf_val;
 
-  /* If we are performing a relocatable link, we don't need to do a
+  /* If we are performing a relocateable link, we don't need to do a
      thing.  The caller will take care of adjusting the reloc
      addresses and symbol indices.  */
-  if (info->relocatable)
-    return TRUE;
+  if (info->relocateable)
+    return true;
 
-  /* Check if we have the same endianness */
+  /* Check if we have the same endianess */
   if (   input_bfd->xvec->byteorder != output_bfd->xvec->byteorder
       && output_bfd->xvec->byteorder != BFD_ENDIAN_UNKNOWN)
     {
       (*_bfd_error_handler)
-	(_("%B: compiled for a %s system and target is %s.\n"),
-	 input_bfd,
-         bfd_big_endian (input_bfd) ? _("big endian") : _("little endian"),
-         bfd_big_endian (output_bfd) ? _("big endian") : _("little endian"));
+	(_("%s: compiled for a %s endian system and target is %s endian.\n"),
+	 bfd_get_filename (input_bfd),
+         bfd_big_endian (input_bfd) ? "big" : "little",
+         bfd_big_endian (output_bfd) ? "big" : "little");
 
       bfd_set_error (bfd_error_wrong_format);
-      return FALSE;
+      return false;
     }
+
+  hihalf = false;
+  hihalf_val = 0;
 
   rel = relocs;
   relend = rel + input_section->reloc_count;
@@ -410,7 +437,7 @@ coff_mcore_relocate_section (bfd * output_bfd,
       howto = bfd_coff_rtype_to_howto (input_bfd, input_section, rel, h,
 				       sym, & addend);
       if (howto == NULL)
-	return FALSE;
+	return false;
 
       val = 0;
 
@@ -456,8 +483,8 @@ coff_mcore_relocate_section (bfd * output_bfd,
 	    {
 	      if (! ((*info->callbacks->undefined_symbol)
 		     (info, h->root.root.string, input_bfd, input_section,
-		      rel->r_vaddr - input_section->vma, TRUE)))
-		return FALSE;
+		      rel->r_vaddr - input_section->vma, true)))
+		return false;
 	    }
 
 	  my_name = h->root.root.string;
@@ -469,18 +496,21 @@ coff_mcore_relocate_section (bfd * output_bfd,
       switch (r_type)
 	{
 	default:
-	  _bfd_error_handler (_("%B: unsupported relocation type 0x%02x"),
-			      input_bfd, r_type);
+	  _bfd_error_handler (_("%s: unsupported relocation type 0x%02x"),
+			      bfd_get_filename (input_bfd), r_type);
 	  bfd_set_error (bfd_error_bad_value);
-	  return FALSE;
+	  return false;
 
 	case IMAGE_REL_MCORE_ABSOLUTE:
-	  _bfd_error_handler
-	    (_("Warning: unsupported reloc %s <file %B, section %A>\n"
-	       "sym %ld (%s), r_vaddr %ld (%lx)"),
-	     input_bfd, input_section, howto->name,
-	     rel->r_symndx, my_name, (long) rel->r_vaddr,
-	     (unsigned long) rel->r_vaddr);
+	  fprintf (stderr,
+		   _("Warning: unsupported reloc %s <file %s, section %s>\n"),
+		   howto->name,
+		   bfd_get_filename (input_bfd),
+		   input_section->name);
+
+	  fprintf (stderr,"sym %ld (%s), r_vaddr %ld (%lx)\n",
+		   rel->r_symndx, my_name, (long) rel->r_vaddr,
+		   (unsigned long) rel->r_vaddr);
 	  break;
 
 	case IMAGE_REL_MCORE_PCREL_IMM8BY4:
@@ -501,13 +531,12 @@ coff_mcore_relocate_section (bfd * output_bfd,
 	  break;
 	}
 
-      /* Emit a reloc if the backend thinks it needs it.  */
-      if (info->base_file
-	  && sym
-	  && pe_data (output_bfd)->in_reloc_p (output_bfd, howto)
-	  && !mcore_emit_base_file_entry (info, output_bfd, input_section,
-					  rel->r_vaddr))
-	return FALSE;
+      if (info->base_file)
+	{
+	  /* Emit a reloc if the backend thinks it needs it.  */
+	  if (sym && pe_data (output_bfd)->in_reloc_p (output_bfd, howto))
+            mcore_emit_base_file_entry (info, output_bfd, input_section, rel->r_vaddr);
+	}
 
       switch (rstat)
 	{
@@ -519,14 +548,14 @@ coff_mcore_relocate_section (bfd * output_bfd,
 
 	case bfd_reloc_overflow:
 	  if (! ((*info->callbacks->reloc_overflow)
-		 (info, (h ? &h->root : NULL), my_name, howto->name,
+		 (info, my_name, howto->name,
 		  (bfd_vma) 0, input_bfd,
 		  input_section, rel->r_vaddr - input_section->vma)))
-	    return FALSE;
+	    return false;
 	}
     }
 
-  return TRUE;
+  return true;
 }
 
 /* Tailor coffcode.h -- macro heaven.  */
@@ -534,28 +563,22 @@ coff_mcore_relocate_section (bfd * output_bfd,
 /* We use the special COFF backend linker, with our own special touch.  */
 
 #define coff_bfd_reloc_type_lookup   mcore_coff_reloc_type_lookup
-#define coff_bfd_reloc_name_lookup mcore_coff_reloc_name_lookup
 #define coff_relocate_section        coff_mcore_relocate_section
 #define coff_rtype_to_howto          coff_mcore_rtype_to_howto
 
 #define SELECT_RELOC(internal, howto) {internal.r_type = howto->type;}
 
-/* Make sure that the 'r_offset' field is copied properly
-   so that identical binaries will compare the same.  */
-#define SWAP_IN_RELOC_OFFSET         H_GET_32
-#define SWAP_OUT_RELOC_OFFSET        H_PUT_32
-
 #define COFF_PAGE_SIZE               0x1000
 
 #include "coffcode.h"
 
-/* Forward declaration to initialise alternative_target field.  */
+/* Forward declaration to initialise alterbative_target field.  */
 extern const bfd_target TARGET_LITTLE_SYM;
 
 /* The transfer vectors that lead the outside world to all of the above.  */
 CREATE_BIG_COFF_TARGET_VEC (TARGET_BIG_SYM, TARGET_BIG_NAME, D_PAGED,
 			    (SEC_CODE | SEC_DATA | SEC_DEBUGGING | SEC_READONLY | SEC_LINK_ONCE | SEC_LINK_DUPLICATES),
-			    0, & TARGET_LITTLE_SYM, COFF_SWAP_TABLE)
+			    0, & TARGET_LITTLE_SYM)
 CREATE_LITTLE_COFF_TARGET_VEC (TARGET_LITTLE_SYM, TARGET_LITTLE_NAME, D_PAGED,
 			       (SEC_CODE | SEC_DATA | SEC_DEBUGGING | SEC_READONLY | SEC_LINK_ONCE | SEC_LINK_DUPLICATES),
-			       0, & TARGET_BIG_SYM, COFF_SWAP_TABLE)
+			       0, & TARGET_BIG_SYM)

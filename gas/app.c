@@ -1,32 +1,33 @@
 /* This is the Assembler Pre-Processor
    Copyright 1987, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2005, 2006, 2007, 2008, 2009, 2010, 2012
+   1999, 2000
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
-   GAS is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   GAS is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
-/* Modified by Allen Wirfs-Brock, Instantiations Inc 2/90.  */
-/* App, the assembler pre-processor.  This pre-processor strips out
-   excess spaces, turns single-quoted characters into a decimal
-   constant, and turns the # in # <number> <filename> <garbage> into a
-   .linefile.  This needs better error-handling.  */
+/* Modified by Allen Wirfs-Brock, Instantiations Inc 2/90 */
+/* App, the assembler pre-processor.  This pre-processor strips out excess
+   spaces, turns single-quoted characters into a decimal constant, and turns
+   # <number> <filename> <garbage> into a .line <number>\n.file <filename>
+   pair.  This needs better error-handling.  */
 
-#include "as.h"
+#include <stdio.h>
+#include "as.h"			/* For BAD_CASE() only */
 
 #if (__STDC__ != 1)
 #ifndef const
@@ -34,22 +35,18 @@
 #endif
 #endif
 
-#ifdef H_TICK_HEX
-int enable_h_tick_hex = 0;
-#endif
-
 #ifdef TC_M68K
 /* Whether we are scrubbing in m68k MRI mode.  This is different from
    flag_m68k_mri, because the two flags will be affected by the .mri
    pseudo-op at different times.  */
 static int scrub_m68k_mri;
+#else
+#define scrub_m68k_mri 0
+#endif
 
 /* The pseudo-op which switches in and out of MRI mode.  See the
    comment in do_scrub_chars.  */
 static const char mri_pseudo[] = ".mri 0";
-#else
-#define scrub_m68k_mri 0
-#endif
 
 #if defined TC_ARM && defined OBJ_ELF
 /* The pseudo-op for which we need to special-case `@' characters.
@@ -81,26 +78,22 @@ static const char symbol_chars[] =
 #ifdef DOUBLEBAR_PARALLEL
 #define LEX_IS_DOUBLEBAR_1ST		13
 #endif
-#define LEX_IS_PARALLEL_SEPARATOR	14
-#ifdef H_TICK_HEX
-#define LEX_IS_H			15
-#endif
 #define IS_SYMBOL_COMPONENT(c)		(lex[c] == LEX_IS_SYMBOL_COMPONENT)
 #define IS_WHITESPACE(c)		(lex[c] == LEX_IS_WHITESPACE)
 #define IS_LINE_SEPARATOR(c)		(lex[c] == LEX_IS_LINE_SEPARATOR)
-#define IS_PARALLEL_SEPARATOR(c)	(lex[c] == LEX_IS_PARALLEL_SEPARATOR)
 #define IS_COMMENT(c)			(lex[c] == LEX_IS_COMMENT_START)
 #define IS_LINE_COMMENT(c)		(lex[c] == LEX_IS_LINE_COMMENT_START)
 #define	IS_NEWLINE(c)			(lex[c] == LEX_IS_NEWLINE)
 
-static int process_escape (int);
+static int process_escape PARAMS ((int));
 
 /* FIXME-soon: The entire lexer/parser thingy should be
    built statically at compile time rather than dynamically
    each and every time the assembler is run.  xoxorich.  */
 
 void
-do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
+do_scrub_begin (m68k_mri)
+     int m68k_mri ATTRIBUTE_UNUSED;
 {
   const char *p;
   int c;
@@ -120,7 +113,7 @@ do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
       lex['"'] = LEX_IS_STRINGQUOTE;
 
 #if ! defined (TC_HPPA) && ! defined (TC_I370)
-      /* I370 uses single-quotes to delimit integer, float constants.  */
+      /* I370 uses single-quotes to delimit integer, float constants */
       lex['\''] = LEX_IS_ONECHAR_QUOTE;
 #endif
 
@@ -135,7 +128,9 @@ do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
   /* Note that these override the previous defaults, e.g. if ';' is a
      comment char, then it isn't a line separator.  */
   for (p = symbol_chars; *p; ++p)
-    lex[(unsigned char) *p] = LEX_IS_SYMBOL_COMPONENT;
+    {
+      lex[(unsigned char) *p] = LEX_IS_SYMBOL_COMPONENT;
+    }				/* declare symbol characters */
 
   for (c = 128; c < 256; ++c)
     lex[c] = LEX_IS_SYMBOL_COMPONENT;
@@ -155,25 +150,26 @@ do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
 #define tc_comment_chars comment_chars
 #endif
   for (p = tc_comment_chars; *p; p++)
-    lex[(unsigned char) *p] = LEX_IS_COMMENT_START;
+    {
+      lex[(unsigned char) *p] = LEX_IS_COMMENT_START;
+    }				/* declare comment chars */
 
   for (p = line_comment_chars; *p; p++)
-    lex[(unsigned char) *p] = LEX_IS_LINE_COMMENT_START;
+    {
+      lex[(unsigned char) *p] = LEX_IS_LINE_COMMENT_START;
+    }				/* declare line comment chars */
 
   for (p = line_separator_chars; *p; p++)
-    lex[(unsigned char) *p] = LEX_IS_LINE_SEPARATOR;
-
-#ifdef tc_parallel_separator_chars
-  /* This macro permits the processor to specify all characters which
-     separate parallel insns on the same line.  */
-  for (p = tc_parallel_separator_chars; *p; p++)
-    lex[(unsigned char) *p] = LEX_IS_PARALLEL_SEPARATOR;
-#endif
+    {
+      lex[(unsigned char) *p] = LEX_IS_LINE_SEPARATOR;
+    }				/* declare line separators */
 
   /* Only allow slash-star comments if slash is not in use.
      FIXME: This isn't right.  We should always permit them.  */
   if (lex['/'] == 0)
-    lex['/'] = LEX_IS_TWOCHAR_COMMENT_1ST;
+    {
+      lex['/'] = LEX_IS_TWOCHAR_COMMENT_1ST;
+    }
 
 #ifdef TC_M68K
   if (m68k_mri)
@@ -182,7 +178,7 @@ do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
       lex[';'] = LEX_IS_COMMENT_START;
       lex['*'] = LEX_IS_LINE_COMMENT_START;
       /* The MRI documentation says '!' is LEX_IS_COMMENT_START, but
-	 then it can't be used in an expression.  */
+         then it can't be used in an expression.  */
       lex['!'] = LEX_IS_LINE_COMMENT_START;
     }
 #endif
@@ -194,27 +190,19 @@ do_scrub_begin (int m68k_mri ATTRIBUTE_UNUSED)
   lex['|'] = LEX_IS_DOUBLEBAR_1ST;
 #endif
 #ifdef TC_D30V
-  /* Must do this is we want VLIW instruction with "->" or "<-".  */
+  /* must do this is we want VLIW instruction with "->" or "<-" */
   lex['-'] = LEX_IS_SYMBOL_COMPONENT;
 #endif
+}				/* do_scrub_begin() */
 
-#ifdef H_TICK_HEX
-  if (enable_h_tick_hex)
-    {
-      lex['h'] = LEX_IS_H;
-      lex['H'] = LEX_IS_H;
-    }
-#endif
-}
-
-/* Saved state of the scrubber.  */
+/* Saved state of the scrubber */
 static int state;
 static int old_state;
 static char *out_string;
 static char out_buf[20];
 static int add_newlines;
 static char *saved_input;
-static size_t saved_input_len;
+static int saved_input_len;
 static char input_buffer[32 * 1024];
 static const char *mri_state;
 static char mri_last_ch;
@@ -224,15 +212,14 @@ static char mri_last_ch;
    state at the time .include is interpreted is completely unrelated.
    That's why we have to save it all.  */
 
-struct app_save
-{
+struct app_save {
   int          state;
   int          old_state;
   char *       out_string;
   char         out_buf[sizeof (out_buf)];
   int          add_newlines;
   char *       saved_input;
-  size_t       saved_input_len;
+  int          saved_input_len;
 #ifdef TC_M68K
   int          scrub_m68k_mri;
 #endif
@@ -244,7 +231,7 @@ struct app_save
 };
 
 char *
-app_push (void)
+app_push ()
 {
   register struct app_save *saved;
 
@@ -258,7 +245,7 @@ app_push (void)
     saved->saved_input = NULL;
   else
     {
-      saved->saved_input = (char *) xmalloc (saved_input_len);
+      saved->saved_input = xmalloc (saved_input_len);
       memcpy (saved->saved_input, saved_input, saved_input_len);
       saved->saved_input_len = saved_input_len;
     }
@@ -275,13 +262,13 @@ app_push (void)
 
   state = 0;
   saved_input = NULL;
-  add_newlines = 0;
 
   return (char *) saved;
 }
 
 void
-app_pop (char *arg)
+app_pop (arg)
+     char *arg;
 {
   register struct app_save *saved = (struct app_save *) arg;
 
@@ -295,7 +282,7 @@ app_pop (char *arg)
     saved_input = NULL;
   else
     {
-      gas_assert (saved->saved_input_len <= sizeof (input_buffer));
+      assert (saved->saved_input_len <= (int) (sizeof input_buffer));
       memcpy (input_buffer, saved->saved_input, saved->saved_input_len);
       saved_input = input_buffer;
       saved_input_len = saved->saved_input_len;
@@ -311,13 +298,13 @@ app_pop (char *arg)
 #endif
 
   free (arg);
-}
+}				/* app_pop() */
 
 /* @@ This assumes that \n &c are the same on host and target.  This is not
    necessarily true.  */
-
 static int
-process_escape (int ch)
+process_escape (ch)
+     int ch;
 {
   switch (ch)
     {
@@ -351,56 +338,45 @@ process_escape (int ch)
    machine, and saves its state so that it may return at any point.
    This is the way the old code used to work.  */
 
-size_t
-do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
+int
+do_scrub_chars (get, tostart, tolen)
+     int (*get) PARAMS ((char *, int));
+     char *tostart;
+     int tolen;
 {
   char *to = tostart;
   char *toend = tostart + tolen;
   char *from;
   char *fromend;
-  size_t fromlen;
+  int fromlen;
   register int ch, ch2 = 0;
-  /* Character that started the string we're working on.  */
-  static char quotechar;
 
   /*State 0: beginning of normal line
 	  1: After first whitespace on line (flush more white)
 	  2: After first non-white (opcode) on line (keep 1white)
 	  3: after second white on line (into operands) (flush white)
-	  4: after putting out a .linefile, put out digits
+	  4: after putting out a .line, put out digits
 	  5: parsing a string, then go to old-state
 	  6: putting out \ escape in a "d string.
-	  7: no longer used
-	  8: no longer used
+	  7: After putting out a .appfile, put out string.
+	  8: After putting out a .appfile string, flush until newline.
 	  9: After seeing symbol char in state 3 (keep 1white after symchar)
 	 10: After seeing whitespace in state 9 (keep white before symchar)
 	 11: After seeing a symbol character in state 0 (eg a label definition)
 	 -1: output string in out_string and go to the state in old_state
 	 -2: flush text until a '*' '/' is seen, then go to state old_state
 #ifdef TC_V850
-	 12: After seeing a dash, looking for a second dash as a start
-	     of comment.
+         12: After seeing a dash, looking for a second dash as a start of comment.
 #endif
 #ifdef DOUBLEBAR_PARALLEL
-	 13: After seeing a vertical bar, looking for a second
-	     vertical bar as a parallel expression separator.
-#endif
-#ifdef TC_PREDICATE_START_CHAR
-	 14: After seeing a predicate start character at state 0, looking
-	     for a predicate end character as predicate.
-	 15: After seeing a predicate start character at state 1, looking
-	     for a predicate end character as predicate.
-#endif
-#ifdef TC_Z80
-	 16: After seeing an 'a' or an 'A' at the start of a symbol
-	 17: After seeing an 'f' or an 'F' in state 16
+	 13: After seeing a vertical bar, looking for a second vertical bar as a parallel expression seperator.
 #endif
 	  */
 
   /* I added states 9 and 10 because the MIPS ECOFF assembler uses
      constructs like ``.loc 1 20''.  This was turning into ``.loc
      120''.  States 9 and 10 ensure that a space is never dropped in
-     between characters which could appear in an identifier.  Ian
+     between characters which could appear in a identifier.  Ian
      Taylor, ian@cygnus.com.
 
      I added state 11 so that something like "Lfoo add %r25,%r26,%r27" works
@@ -437,13 +413,13 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
      I don't want to make such a significant change to the assembler's
      memory usage.  */
 
-#define PUT(pch)				\
-  do						\
-    {						\
-      *to++ = (pch);				\
-      if (to >= toend)				\
-	goto tofull;				\
-    }						\
+#define PUT(pch)			\
+  do					\
+    {					\
+      *to++ = (pch);			\
+      if (to >= toend)			\
+        goto tofull;			\
+    }					\
   while (0)
 
   if (saved_input != NULL)
@@ -463,8 +439,8 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
   while (1)
     {
       /* The cases in this switch end with continue, in order to
-	 branch back to the top of this while loop and generate the
-	 next output character in the appropriate state.  */
+         branch back to the top of this while loop and generate the
+         next output character in the appropriate state.  */
       switch (state)
 	{
 	case -1:
@@ -526,10 +502,14 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		ch = GET ();
 	      if (ch == '"')
 		{
-		  quotechar = ch;
-		  state = 5;
-		  old_state = 3;
-		  PUT (ch);
+		  UNGET (ch);
+		  if (scrub_m68k_mri)
+		    out_string = "\n\tappfile ";
+		  else
+		    out_string = "\n\t.appfile ";
+		  old_state = 7;
+		  state = -1;
+		  PUT (*out_string++);
 		}
 	      else
 		{
@@ -543,18 +523,21 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 
 	case 5:
 	  /* We are going to copy everything up to a quote character,
-	     with special handling for a backslash.  We try to
-	     optimize the copying in the simple case without using the
-	     GET and PUT macros.  */
+             with special handling for a backslash.  We try to
+             optimize the copying in the simple case without using the
+             GET and PUT macros.  */
 	  {
 	    char *s;
-	    ptrdiff_t len;
+	    int len;
 
 	    for (s = from; s < fromend; s++)
 	      {
 		ch = *s;
+		/* This condition must be changed if the type of any
+                   other character can be LEX_IS_STRINGQUOTE.  */
 		if (ch == '\\'
-		    || ch == quotechar
+		    || ch == '"'
+		    || ch == '\''
 		    || ch == '\n')
 		  break;
 	      }
@@ -566,26 +549,18 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		memcpy (to, from, len);
 		to += len;
 		from += len;
-		if (to >= toend)
-		  goto tofull;
 	      }
 	  }
 
 	  ch = GET ();
 	  if (ch == EOF)
 	    {
-	      /* This buffer is here specifically so
-		 that the UNGET below will work.  */
-	      static char one_char_buf[1];
-
-	      as_warn (_("end of file in string; '%c' inserted"), quotechar);
+	      as_warn (_("end of file in string: inserted '\"'"));
 	      state = old_state;
-	      from = fromend = one_char_buf + 1;
-	      fromlen = 1;
 	      UNGET ('\n');
-	      PUT (quotechar);
+	      PUT ('"');
 	    }
-	  else if (ch == quotechar)
+	  else if (lex[ch] == LEX_IS_STRINGQUOTE)
 	    {
 	      state = old_state;
 	      PUT (ch);
@@ -600,7 +575,8 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  else if (scrub_m68k_mri && ch == '\n')
 	    {
 	      /* Just quietly terminate the string.  This permits lines like
-		   bne	label	loop if we haven't reach end yet.  */
+		   bne	label	loop if we haven't reach end yet
+		 */
 	      state = old_state;
 	      UNGET (ch);
 	      PUT ('\'');
@@ -624,11 +600,6 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      PUT ('\\');
 	      continue;
 
-	    case EOF:
-	      as_warn (_("end of file in string; '%c' inserted"), quotechar);
-	      PUT (quotechar);
-	      continue;
-
 	    case '"':
 	    case '\\':
 	    case 'b':
@@ -648,93 +619,48 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	    case '6':
 	    case '7':
 	      break;
-
+#if defined(IGNORE_NONSTANDARD_ESCAPES) | defined(ONLY_STANDARD_ESCAPES)
 	    default:
-#ifdef ONLY_STANDARD_ESCAPES
-	      as_warn (_("unknown escape '\\%c' in string; ignored"), ch);
-#endif
+	      as_warn (_("Unknown escape '\\%c' in string: Ignored"), ch);
 	      break;
+#else  /* ONLY_STANDARD_ESCAPES */
+	    default:
+	      /* Accept \x as x for any x */
+	      break;
+#endif /* ONLY_STANDARD_ESCAPES */
+
+	    case EOF:
+	      as_warn (_("End of file in string: '\"' inserted"));
+	      PUT ('"');
+	      continue;
 	    }
 	  PUT (ch);
 	  continue;
 
-#ifdef DOUBLEBAR_PARALLEL
-	case 13:
+	case 7:
 	  ch = GET ();
-	  if (ch != '|')
-	    abort ();
-
-	  /* Reset back to state 1 and pretend that we are parsing a
-	     line from just after the first white space.  */
-	  state = 1;
-	  PUT ('|');
-#ifdef TC_TIC6X
-	  /* "||^" is used for SPMASKed instructions.  */
-	  ch = GET ();
+	  state = 5;
+	  old_state = 8;
 	  if (ch == EOF)
 	    goto fromeof;
-	  else if (ch == '^')
-	    PUT ('^');
-	  else
-	    UNGET (ch);
-#endif
+	  PUT (ch);
 	  continue;
-#endif
-#ifdef TC_Z80
-	case 16:
-	  /* We have seen an 'a' at the start of a symbol, look for an 'f'.  */
-	  ch = GET ();
-	  if (ch == 'f' || ch == 'F')
-	    {
-	      state = 17;
-	      PUT (ch);
-	    }
-	  else
-	    {
-	      state = 9;
-	      break;
-	    }
-	case 17:
-	  /* We have seen "af" at the start of a symbol,
-	     a ' here is a part of that symbol.  */
-	  ch = GET ();
-	  state = 9;
-	  if (ch == '\'')
-	    /* Change to avoid warning about unclosed string.  */
-	    PUT ('`');
-	  else if (ch != EOF)
-	    UNGET (ch);
-	  break;
-#endif
+
+	case 8:
+	  do
+	    ch = GET ();
+	  while (ch != '\n' && ch != EOF);
+	  if (ch == EOF)
+	    goto fromeof;
+	  state = 0;
+	  PUT (ch);
+	  continue;
 	}
 
-      /* OK, we are somewhere in states 0 through 4 or 9 through 11.  */
+      /* OK, we are somewhere in states 0 through 4 or 9 through 11 */
 
       /* flushchar: */
       ch = GET ();
-
-#ifdef TC_PREDICATE_START_CHAR
-      if (ch == TC_PREDICATE_START_CHAR && (state == 0 || state == 1))
-	{
-	  state += 14;
-	  PUT (ch);
-	  continue;
-	}
-      else if (state == 14 || state == 15)
-	{
-	  if (ch == TC_PREDICATE_END_CHAR)
-	    {
-	      state -= 14;
-	      PUT (ch);
-	      ch = GET ();
-	    }
-	  else
-	    {
-	      PUT (ch);
-	      continue;
-	    }
-	}
-#endif
 
     recycle:
 
@@ -769,9 +695,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 
 #ifdef TC_M68K
       /* We want to have pseudo-ops which control whether we are in
-	 MRI mode or not.  Unfortunately, since m68k MRI mode affects
-	 the scrubber, that means that we need a special purpose
-	 recognizer here.  */
+         MRI mode or not.  Unfortunately, since m68k MRI mode affects
+         the scrubber, that means that we need a special purpose
+         recognizer here.  */
       if (mri_state == NULL)
 	{
 	  if ((state == 0 || state == 1)
@@ -808,14 +734,14 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  else
 	    {
 	      /* We've read the entire pseudo-op.  mips_last_ch is
-		 either '0' or '1' indicating whether to enter or
-		 leave MRI mode.  */
+                 either '0' or '1' indicating whether to enter or
+                 leave MRI mode.  */
 	      do_scrub_begin (mri_last_ch == '1');
 	      mri_state = NULL;
 
 	      /* We continue handling the character as usual.  The
-		 main gas reader must also handle the .mri pseudo-op
-		 to control expression parsing and the like.  */
+                 main gas reader must also handle the .mri pseudo-op
+                 to control expression parsing and the like.  */
 	    }
 	}
 #endif
@@ -856,10 +782,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  if (lex[ch] == LEX_IS_COLON)
 	    {
 	      /* Only keep this white if there's no white *after* the
-		 colon.  */
+                 colon.  */
 	      ch2 = GET ();
-	      if (ch2 != EOF)
-		UNGET (ch2);
+	      UNGET (ch2);
 	      if (!IS_WHITESPACE (ch2))
 		{
 		  state = 9;
@@ -871,8 +796,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 #endif
 	  if (IS_COMMENT (ch)
 	      || ch == '/'
-	      || IS_LINE_SEPARATOR (ch)
-	      || IS_PARALLEL_SEPARATOR (ch))
+	      || IS_LINE_SEPARATOR (ch))
 	    {
 	      if (scrub_m68k_mri)
 		{
@@ -900,6 +824,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 
 	  switch (state)
 	    {
+	    case 0:
+	      state++;
+	      goto recycle;	/* Punted leading sp */
 	    case 1:
 	      /* We can arrive here if we leave a leading whitespace
 		 character at the beginning of a line.  */
@@ -916,11 +843,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      PUT (' ');
 	      break;
 	    case 3:
-#ifndef TC_KEEP_OPERAND_SPACES
-	      /* For TI C6X, we keep these spaces as they may separate
-		 functional unit specifiers from operands.  */
 	      if (scrub_m68k_mri)
-#endif
 		{
 		  /* In MRI mode, we keep these spaces.  */
 		  UNGET (ch);
@@ -930,9 +853,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      goto recycle;	/* Sp in operands */
 	    case 9:
 	    case 10:
-#ifndef TC_KEEP_OPERAND_SPACES
 	      if (scrub_m68k_mri)
-#endif
 		{
 		  /* In MRI mode, we keep these spaces.  */
 		  state = 3;
@@ -948,9 +869,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      else
 		{
 		  /* We know that ch is not ':', since we tested that
-		     case above.  Therefore this is not a label, so it
-		     must be the opcode, and we've just seen the
-		     whitespace after it.  */
+                     case above.  Therefore this is not a label, so it
+                     must be the opcode, and we've just seen the
+                     whitespace after it.  */
 		  state = 3;
 		}
 	      UNGET (ch);
@@ -982,7 +903,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		    break;
 
 		  /* This UNGET will ensure that we count newlines
-		     correctly.  */
+                     correctly.  */
 		  UNGET (ch2);
 		}
 
@@ -1018,16 +939,15 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  break;
 
 	case LEX_IS_STRINGQUOTE:
-	  quotechar = ch;
 	  if (state == 10)
 	    {
-	      /* Preserve the whitespace in foo "bar".  */
+	      /* Preserve the whitespace in foo "bar" */
 	      UNGET (ch);
 	      state = 3;
 	      PUT (' ');
 
 	      /* PUT didn't jump out.  We could just break, but we
-		 know what will happen, so optimize a bit.  */
+                 know what will happen, so optimize a bit.  */
 	      ch = GET ();
 	      old_state = 3;
 	    }
@@ -1041,19 +961,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 
 #ifndef IEEE_STYLE
 	case LEX_IS_ONECHAR_QUOTE:
-#ifdef H_TICK_HEX
-	  if (state == 9 && enable_h_tick_hex)
-	    {
-	      char c;
-
-	      c = GET ();
-	      as_warn ("'%c found after symbol", c);
-	      UNGET (c);
-	    }
-#endif
 	  if (state == 10)
 	    {
-	      /* Preserve the whitespace in foo 'b'.  */
+	      /* Preserve the whitespace in foo 'b' */
 	      UNGET (ch);
 	      state = 3;
 	      PUT (' ');
@@ -1082,7 +992,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  if ((ch = GET ()) != '\'')
 	    {
 #ifdef REQUIRE_CHAR_CLOSE_QUOTE
-	      as_warn (_("missing close quote; (assumed)"));
+	      as_warn (_("Missing close quote: (assumed)"));
 #else
 	      if (ch != EOF)
 		UNGET (ch);
@@ -1129,18 +1039,12 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  PUT (ch);
 	  break;
 
-	case LEX_IS_PARALLEL_SEPARATOR:
-	  state = 1;
-	  PUT (ch);
-	  break;
-
 #ifdef TC_V850
 	case LEX_IS_DOUBLEDASH_1ST:
 	  ch2 = GET ();
 	  if (ch2 != '-')
 	    {
-	      if (ch2 != EOF)
-		UNGET (ch2);
+	      UNGET (ch2);
 	      goto de_fault;
 	    }
 	  /* Read and skip to end of line.  */
@@ -1149,10 +1053,10 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      ch = GET ();
 	    }
 	  while (ch != EOF && ch != '\n');
-
 	  if (ch == EOF)
-	    as_warn (_("end of file in comment; newline inserted"));
-
+	    {
+	      as_warn (_("end of file in comment; newline inserted"));
+	    }
 	  state = 0;
 	  PUT ('\n');
 	  break;
@@ -1160,15 +1064,15 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 #ifdef DOUBLEBAR_PARALLEL
 	case LEX_IS_DOUBLEBAR_1ST:
 	  ch2 = GET ();
-	  if (ch2 != EOF)
-	    UNGET (ch2);
 	  if (ch2 != '|')
-	    goto de_fault;
-
-	  /* Handle '||' in two states as invoking PUT twice might
-	     result in the first one jumping out of this loop.  We'd
-	     then lose track of the state and one '|' char.  */
-	  state = 13;
+	    {
+	      UNGET (ch2);
+	      goto de_fault;
+	    }
+	  /* Reset back to state 1 and pretend that we are parsing a line from
+	     just after the first white space.  */
+	  state = 1;
+	  PUT ('|');
 	  PUT ('|');
 	  break;
 #endif
@@ -1190,7 +1094,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		{
 		  UNGET (ch2);
 		}
-	    }
+	    } /* bad hack */
 
 	  if (state == 0 || state == 1)	/* Only comment at start of line.  */
 	    {
@@ -1203,21 +1107,19 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		  ch = GET ();
 		}
 	      while (ch != EOF && IS_WHITESPACE (ch));
-
 	      if (ch == EOF)
 		{
 		  as_warn (_("end of file in comment; newline inserted"));
 		  PUT ('\n');
 		  break;
 		}
-
 	      if (ch < '0' || ch > '9' || state != 0 || startch != '#')
 		{
 		  /* Not a cpp line.  */
 		  while (ch != EOF && !IS_NEWLINE (ch))
 		    ch = GET ();
 		  if (ch == EOF)
-		    as_warn (_("end of file in comment; newline inserted"));
+		    as_warn (_("EOF in Comment: Newline inserted"));
 		  state = 0;
 		  PUT ('\n');
 		  break;
@@ -1227,9 +1129,9 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      old_state = 4;
 	      state = -1;
 	      if (scrub_m68k_mri)
-		out_string = "\tlinefile ";
+		out_string = "\tappline ";
 	      else
-		out_string = "\t.linefile ";
+		out_string = "\t.appline ";
 	      PUT (*out_string++);
 	      break;
 	    }
@@ -1272,15 +1174,6 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  if ((symver_state != NULL) && (*symver_state == 0))
 	    goto de_fault;
 #endif
-
-#ifdef TC_ARM
-	  /* For the ARM, care is needed not to damage occurrences of \@
-	     by stripping the @ onwards.  Yuck.  */
-	  if (to > tostart && *(to - 1) == '\\')
-	    /* Do not treat the @ as a start-of-comment.  */
-	    goto de_fault;
-#endif
-
 #ifdef WARN_COMMENTS
 	  if (!found_comment)
 	    as_where (&found_comment_file, &found_comment);
@@ -1296,26 +1189,6 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  PUT ('\n');
 	  break;
 
-#ifdef H_TICK_HEX
-	case LEX_IS_H:
-	  /* Look for strings like H'[0-9A-Fa-f] and if found, replace
-	     the H' with 0x to make them gas-style hex characters.  */
-	  if (enable_h_tick_hex)
-	    {
-	      char quot;
-
-	      quot = GET ();
-	      if (quot == '\'')
-		{
-		  UNGET ('x');
-		  ch = '0';
-		}
-	      else
-		UNGET (quot);
-	    }
-	  /* FALL THROUGH */
-#endif
-
 	case LEX_IS_SYMBOL_COMPONENT:
 	  if (state == 10)
 	    {
@@ -1328,36 +1201,11 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      break;
 	    }
 
-#ifdef TC_Z80
-	  /* "af'" is a symbol containing '\''.  */
-	  if (state == 3 && (ch == 'a' || ch == 'A'))
-	    {
-	      state = 16;
-	      PUT (ch);
-	      ch = GET ();
-	      if (ch == 'f' || ch == 'F')
-		{
-		  state = 17;
-		  PUT (ch);
-		  break;
-		}
-	      else
-		{
-		  state = 9;
-		  if (ch == EOF || !IS_SYMBOL_COMPONENT (ch))
-		    {
-		      if (ch != EOF)
-			UNGET (ch);
-		      break;
-		    }
-		}
-	    }
-#endif
 	  if (state == 3)
 	    state = 9;
 
 	  /* This is a common case.  Quickly copy CH and all the
-	     following symbol component or normal characters.  */
+             following symbol component or normal characters.  */
 	  if (to + 1 < toend
 	      && mri_state == NULL
 #if defined TC_ARM && defined OBJ_ELF
@@ -1366,7 +1214,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	      )
 	    {
 	      char *s;
-	      ptrdiff_t len;
+	      int len;
 
 	      for (s = from; s < fromend; s++)
 		{
@@ -1378,25 +1226,38 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		      && type != LEX_IS_SYMBOL_COMPONENT)
 		    break;
 		}
-
 	      if (s > from)
-		/* Handle the last character normally, for
-		   simplicity.  */
-		--s;
-
+		{
+		  /* Handle the last character normally, for
+                     simplicity.  */
+		  --s;
+		}
 	      len = s - from;
-
 	      if (len > (toend - to) - 1)
 		len = (toend - to) - 1;
-
 	      if (len > 0)
 		{
 		  PUT (ch);
-		  memcpy (to, from, len);
-		  to += len;
-		  from += len;
-		  if (to >= toend)
-		    goto tofull;
+		  if (len > 8)
+		    {
+		      memcpy (to, from, len);
+		      to += len;
+		      from += len;
+		    }
+		  else
+		    {
+		      switch (len)
+			{
+			case 8: *to++ = *from++;
+			case 7: *to++ = *from++;
+			case 6: *to++ = *from++;
+			case 5: *to++ = *from++;
+			case 4: *to++ = *from++;
+			case 3: *to++ = *from++;
+			case 2: *to++ = *from++;
+			case 1: *to++ = *from++;
+			}
+		    }
 		  ch = GET ();
 		}
 	    }
@@ -1407,15 +1268,15 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 	  /* Some relatively `normal' character.  */
 	  if (state == 0)
 	    {
-	      state = 11;	/* Now seeing label definition.  */
+	      state = 11;	/* Now seeing label definition */
 	    }
 	  else if (state == 1)
 	    {
-	      state = 2;	/* Ditto.  */
+	      state = 2;	/* Ditto */
 	    }
 	  else if (state == 9)
 	    {
-	      if (!IS_SYMBOL_COMPONENT (ch))
+	      if (lex[ch] != LEX_IS_SYMBOL_COMPONENT)
 		state = 3;
 	    }
 	  else if (state == 10)
@@ -1434,15 +1295,7 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 		     the space.  We don't have enough information to
 		     make the right choice, so here we are making the
 		     choice which is more likely to be correct.  */
-		  if (to + 1 >= toend)
-		    {
-		      /* If we're near the end of the buffer, save the
-		         character for the next time round.  Otherwise
-		         we'll lose our state.  */
-		      UNGET (ch);
-		      goto tofull;
-		    }
-		  *to++ = ' ';
+		  PUT (' ');
 		}
 
 	      state = 3;
@@ -1471,3 +1324,5 @@ do_scrub_chars (size_t (*get) (char *, size_t), char *tostart, size_t tolen)
 
   return to - tostart;
 }
+
+/* end of app.c */

@@ -1,13 +1,13 @@
 /* ns32k.c  -- Assemble on the National Semiconductor 32k series
    Copyright 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2005, 2006, 2007, 2008, 2009
+   2001
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -17,10 +17,13 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 /*#define SHOW_NUM 1*//* Uncomment for debugging.  */
+
+#include <stdio.h>
+#include <ctype.h>
 
 #include "as.h"
 #include "opcode/ns32k.h"
@@ -36,17 +39,17 @@
                                    encountered.  */
 
 #define IIF(ptr,a1,c1,e1,g1,i1,k1,m1,o1,q1,s1,u1)	\
-    iif.iifP[ptr].type = a1;				\
-    iif.iifP[ptr].size = c1;				\
-    iif.iifP[ptr].object = e1;				\
-    iif.iifP[ptr].object_adjust = g1;			\
-    iif.iifP[ptr].pcrel = i1;				\
-    iif.iifP[ptr].pcrel_adjust = k1;			\
-    iif.iifP[ptr].im_disp = m1;				\
-    iif.iifP[ptr].relax_substate = o1;			\
-    iif.iifP[ptr].bit_fixP = q1;			\
-    iif.iifP[ptr].addr_mode = s1;			\
-    iif.iifP[ptr].bsr = u1;
+    iif.iifP[ptr].type= a1;				\
+    iif.iifP[ptr].size= c1;				\
+    iif.iifP[ptr].object= e1;				\
+    iif.iifP[ptr].object_adjust= g1;			\
+    iif.iifP[ptr].pcrel= i1;				\
+    iif.iifP[ptr].pcrel_adjust= k1;			\
+    iif.iifP[ptr].im_disp= m1;				\
+    iif.iifP[ptr].relax_substate= o1;			\
+    iif.iifP[ptr].bit_fixP= q1;				\
+    iif.iifP[ptr].addr_mode= s1;			\
+    iif.iifP[ptr].bsr= u1;
 
 #ifdef SEQUENT_COMPATABILITY
 #define LINE_COMMENT_CHARS "|"
@@ -61,28 +64,27 @@
 const char comment_chars[] = "#";
 const char line_comment_chars[] = LINE_COMMENT_CHARS;
 const char line_separator_chars[] = ";";
-static int default_disp_size = 4; /* Displacement size for external refs.  */
 
 #if !defined(ABSOLUTE_PREFIX) && !defined(IMMEDIATE_PREFIX)
-#define ABSOLUTE_PREFIX '@'	/* One or the other MUST be defined.  */
+#define ABSOLUTE_PREFIX '@'	/* One or the other MUST be defined */
 #endif
 
 struct addr_mode
-{
-  signed char mode;		/* Addressing mode of operand (0-31).  */
-  signed char scaled_mode;	/* Mode combined with scaled mode.  */
-  char scaled_reg;		/* Register used in scaled+1 (1-8).  */
-  char float_flag;		/* Set if R0..R7 was F0..F7 ie a
-				   floating-point-register.  */
-  char am_size;			/* Estimated max size of general addr-mode
-				   parts.  */
-  char im_disp;			/* If im_disp==1 we have a displacement.  */
-  char pcrel;			/* 1 if pcrel, this is really redundant info.  */
-  char disp_suffix[2];		/* Length of displacement(s), 0=undefined.  */
-  char *disp[2];		/* Pointer(s) at displacement(s)
-				   or immediates(s)     (ascii).  */
-  char index_byte;		/* Index byte.  */
-};
+  {
+    char mode;			/* addressing mode of operand (0-31) */
+    char scaled_mode;		/* mode combined with scaled mode */
+    char scaled_reg;		/* register used in scaled+1 (1-8) */
+    char float_flag;		/* set if R0..R7 was F0..F7 ie a
+				   floating-point-register */
+    char am_size;		/* estimated max size of general addr-mode
+				   parts */
+    char im_disp;		/* if im_disp==1 we have a displacement */
+    char pcrel;			/* 1 if pcrel, this is really redundant info */
+    char disp_suffix[2];	/* length of displacement(s), 0=undefined */
+    char *disp[2];		/* pointer(s) at displacement(s)
+				   or immediates(s)     (ascii) */
+    char index_byte;		/* index byte */
+  };
 typedef struct addr_mode addr_modeS;
 
 char *freeptr, *freeptr_static;	/* Points at some number of free bytes.  */
@@ -95,11 +97,11 @@ const char FLT_CHARS[] = "fd";	/* We don't want to support lowercase,
                                    do we?  */
 
 /* UPPERCASE denotes live names when an instruction is built, IIF is
-   used as an intermediate form to store the actual parts of the
-   instruction. A ns32k machine instruction can be divided into a
-   couple of sub PARTs. When an instruction is assembled the
-   appropriate PART get an assignment. When an IIF has been completed
-   it is converted to a FRAGment as specified in AS.H.  */
+ * used as an intermediate form to store the actual parts of the
+ * instruction. A ns32k machine instruction can be divided into a
+ * couple of sub PARTs. When an instruction is assembled the
+ * appropriate PART get an assignment. When an IIF has been completed
+ * it is converted to a FRAGment as specified in AS.H.  */
 
 /* Internal structs.  */
 struct ns32k_option
@@ -110,27 +112,28 @@ struct ns32k_option
 };
 
 typedef struct
-{
-  int type;			/* How to interpret object.  */
-  int size;			/* Estimated max size of object.  */
-  unsigned long object;		/* Binary data.  */
-  int object_adjust;		/* Number added to object.  */
-  int pcrel;			/* True if object is pcrel.  */
-  int pcrel_adjust;		/* Length in bytes from the instruction
-				   start to the	displacement.  */
-  int im_disp;			/* True if the object is a displacement.  */
-  relax_substateT relax_substate;/*Initial relaxsubstate.  */
-  bit_fixS *bit_fixP;		/* Pointer at bit_fix struct.  */
-  int addr_mode;		/* What addrmode do we associate with this
-				   iif-entry.  */
-  char bsr;			/* Sequent hack.  */
-} iif_entryT;			/* Internal Instruction Format.  */
+  {
+    int type;			/* how to interpret object */
+    int size;			/* Estimated max size of object */
+    unsigned long object;	/* binary data */
+    int object_adjust;		/* number added to object */
+    int pcrel;			/* True if object is pcrel */
+    int pcrel_adjust;		/* length in bytes from the
+					   instruction start to the
+					   displacement */
+    int im_disp;		/* True if the object is a displacement */
+    relax_substateT relax_substate;	/* Initial relaxsubstate */
+    bit_fixS *bit_fixP;		/* Pointer at bit_fix struct */
+    int addr_mode;		/* What addrmode do we associate with this
+				   iif-entry */
+    char bsr;			/* Sequent hack */
+  } iif_entryT;			/* Internal Instruction Format */
 
 struct int_ins_form
-{
-  int instr_size;		/* Max size of instruction in bytes.  */
-  iif_entryT iifP[IIF_ENTRIES + 1];
-};
+  {
+    int instr_size;		/* Max size of instruction in bytes.  */
+    iif_entryT iifP[IIF_ENTRIES + 1];
+  };
 
 struct int_ins_form iif;
 expressionS exprP;
@@ -174,7 +177,7 @@ char *input_line_pointer;
 
   	 3,	the entry is a pointer at a bignum struct
 
-   The low-order-byte corresponds to low physical memory.
+   The low-order-byte coresponds to low physical memory.
    Obviously a FRAGment must be created for each valid disp in PART whose
    datalength is undefined (to bad) .
    The case where just the expression is undefined is less severe and is
@@ -182,7 +185,7 @@ char *input_line_pointer;
    With this representation we simplify the assembly and separates the
    machine dependent/independent parts in a more clean way (said OE).  */
 
-struct ns32k_option opt1[] =		/* restore, exit.  */
+struct ns32k_option opt1[] =		/* restore, exit */
 {
   {"r0", 0x80, 0xff},
   {"r1", 0x40, 0xff},
@@ -194,7 +197,7 @@ struct ns32k_option opt1[] =		/* restore, exit.  */
   {"r7", 0x01, 0xff},
   {0, 0x00, 0xff}
 };
-struct ns32k_option opt2[] =		/* save, enter.  */
+struct ns32k_option opt2[] =		/* save, enter */
 {
   {"r0", 0x01, 0xff},
   {"r1", 0x02, 0xff},
@@ -206,7 +209,7 @@ struct ns32k_option opt2[] =		/* save, enter.  */
   {"r7", 0x80, 0xff},
   {0, 0x00, 0xff}
 };
-struct ns32k_option opt3[] =		/* setcfg.  */
+struct ns32k_option opt3[] =		/* setcfg */
 {
   {"c", 0x8, 0xff},
   {"m", 0x4, 0xff},
@@ -214,21 +217,21 @@ struct ns32k_option opt3[] =		/* setcfg.  */
   {"i", 0x1, 0xff},
   {0, 0x0, 0xff}
 };
-struct ns32k_option opt4[] =		/* cinv.  */
+struct ns32k_option opt4[] =		/* cinv */
 {
   {"a", 0x4, 0xff},
   {"i", 0x2, 0xff},
   {"d", 0x1, 0xff},
   {0, 0x0, 0xff}
 };
-struct ns32k_option opt5[] =		/* String inst.  */
+struct ns32k_option opt5[] =		/* string inst */
 {
   {"b", 0x2, 0xff},
   {"u", 0xc, 0xff},
   {"w", 0x4, 0xff},
   {0, 0x0, 0xff}
 };
-struct ns32k_option opt6[] =		/* Plain reg ext,cvtp etc.  */
+struct ns32k_option opt6[] =		/* plain reg ext,cvtp etc */
 {
   {"r0", 0x00, 0xff},
   {"r1", 0x01, 0xff},
@@ -245,7 +248,7 @@ struct ns32k_option opt6[] =		/* Plain reg ext,cvtp etc.  */
 #define NS32532
 #endif
 
-struct ns32k_option cpureg_532[] =	/* lpr spr.  */
+struct ns32k_option cpureg_532[] =	/* lpr spr */
 {
   {"us", 0x0, 0xff},
   {"dcr", 0x1, 0xff},
@@ -262,7 +265,7 @@ struct ns32k_option cpureg_532[] =	/* lpr spr.  */
   {"mod", 0xf, 0xff},
   {0, 0x00, 0xff}
 };
-struct ns32k_option mmureg_532[] =	/* lmr smr.  */
+struct ns32k_option mmureg_532[] =	/* lmr smr */
 {
   {"mcr", 0x9, 0xff},
   {"msr", 0xa, 0xff},
@@ -274,7 +277,7 @@ struct ns32k_option mmureg_532[] =	/* lmr smr.  */
   {0, 0x0, 0xff}
 };
 
-struct ns32k_option cpureg_032[] =	/* lpr spr.  */
+struct ns32k_option cpureg_032[] =	/* lpr spr */
 {
   {"upsr", 0x0, 0xff},
   {"fp", 0x8, 0xff},
@@ -285,7 +288,7 @@ struct ns32k_option cpureg_032[] =	/* lpr spr.  */
   {"mod", 0xf, 0xff},
   {0, 0x0, 0xff}
 };
-struct ns32k_option mmureg_032[] =	/* lmr smr.  */
+struct ns32k_option mmureg_032[] =	/* lmr smr */
 {
   {"bpr0", 0x0, 0xff},
   {"bpr1", 0x1, 0xff},
@@ -330,7 +333,7 @@ const pseudo_typeS md_pseudo_table[] =
 #define DOUBLE		2
 #define UNDEF           3
 /* Those limits are calculated from the displacement start in memory.
-   The ns32k uses the beginning of the instruction as displacement
+   The ns32k uses the begining of the instruction as displacement
    base.  This type of displacements could be handled here by moving
    the limit window up or down. I choose to use an internal
    displacement base-adjust as there are other routines that must
@@ -365,6 +368,10 @@ char disp_test[] =
 char disp_size[] =
 {4, 1, 2, 0, 4};
 
+static void evaluate_expr PARAMS ((expressionS * resultP, char *ptr));
+static void md_number_to_disp PARAMS ((char *buf, long val, int n));
+static void md_number_to_imm PARAMS ((char *buf, long val, int n));
+
 /* Parse a general operand into an addressingmode struct
 
    In:  pointer at operand in ascii form
@@ -373,28 +380,29 @@ char disp_size[] =
 
    Out: data in addr_mode struct.  */
 
-static int
-addr_mode (char *operand,
-	   addr_modeS *addrmodeP,
-	   int recursive_level)
+int
+addr_mode (operand, addr_modeP, recursive_level)
+     char *operand;
+     register addr_modeS *addr_modeP;
+     int recursive_level;
 {
-  char *str;
-  int i;
-  int strl;
-  int mode;
+  register char *str;
+  register int i;
+  register int strl;
+  register int mode;
   int j;
 
-  mode = DEFAULT;		/* Default.  */
-  addrmodeP->scaled_mode = 0;	/* Why not.  */
-  addrmodeP->scaled_reg = 0;	/* If 0, not scaled index.  */
-  addrmodeP->float_flag = 0;
-  addrmodeP->am_size = 0;
-  addrmodeP->im_disp = 0;
-  addrmodeP->pcrel = 0;	/* Not set in this function.  */
-  addrmodeP->disp_suffix[0] = 0;
-  addrmodeP->disp_suffix[1] = 0;
-  addrmodeP->disp[0] = NULL;
-  addrmodeP->disp[1] = NULL;
+  mode = DEFAULT;		/* default */
+  addr_modeP->scaled_mode = 0;	/* why not */
+  addr_modeP->scaled_reg = 0;	/* if 0, not scaled index */
+  addr_modeP->float_flag = 0;
+  addr_modeP->am_size = 0;
+  addr_modeP->im_disp = 0;
+  addr_modeP->pcrel = 0;	/* not set in this function */
+  addr_modeP->disp_suffix[0] = 0;
+  addr_modeP->disp_suffix[1] = 0;
+  addr_modeP->disp[0] = NULL;
+  addr_modeP->disp[1] = NULL;
   str = operand;
 
   if (str[0] == 0)
@@ -410,16 +418,16 @@ addr_mode (char *operand,
     case ABSOLUTE_PREFIX:
       if (str[strl - 1] == ']')
 	break;
-      addrmodeP->mode = 21;	/* absolute */
-      addrmodeP->disp[0] = str + 1;
+      addr_modeP->mode = 21;	/* absolute */
+      addr_modeP->disp[0] = str + 1;
       return -1;
 #endif
 #ifdef IMMEDIATE_PREFIX
     case IMMEDIATE_PREFIX:
       if (str[strl - 1] == ']')
 	break;
-      addrmodeP->mode = 20;	/* immediate */
-      addrmodeP->disp[0] = str + 1;
+      addr_modeP->mode = 20;	/* immediate */
+      addr_modeP->disp[0] = str + 1;
       return -1;
 #endif
     case '.':
@@ -431,12 +439,12 @@ addr_mode (char *operand,
 	    case '+':
 	      if (str[2] != '\000')
 		{
-		  addrmodeP->mode = 27;	/* pc-relative */
-		  addrmodeP->disp[0] = str + 2;
+		  addr_modeP->mode = 27;	/* pc-relativ */
+		  addr_modeP->disp[0] = str + 2;
 		  return -1;
 		}
 	    default:
-	      as_bad (_("Invalid syntax in PC-relative addressing mode"));
+	      as_warn (_("Invalid syntax in PC-relative addressing mode"));
 	      return 0;
 	    }
 	}
@@ -446,11 +454,11 @@ addr_mode (char *operand,
 	{
 	  if ((!strncmp (str, "ext(", 4)) && strl > 7)
 	    {				/* external */
-	      addrmodeP->disp[0] = str + 4;
+	      addr_modeP->disp[0] = str + 4;
 	      i = 0;
 	      j = 2;
 	      do
-		{			/* disp[0]'s termination point.  */
+		{			/* disp[0]'s termination point */
 		  j += 1;
 		  if (str[j] == '(')
 		    i++;
@@ -460,12 +468,12 @@ addr_mode (char *operand,
 	      while (j < strl && i != 0);
 	      if (i != 0 || !(str[j + 1] == '-' || str[j + 1] == '+'))
 		{
-		  as_bad (_("Invalid syntax in External addressing mode"));
+		  as_warn (_("Invalid syntax in External addressing mode"));
 		  return (0);
 		}
 	      str[j] = '\000';		/* null terminate disp[0] */
-	      addrmodeP->disp[1] = str + j + 2;
-	      addrmodeP->mode = 22;
+	      addr_modeP->disp[1] = str + j + 2;
+	      addr_modeP->mode = 22;
 	      return -1;
 	    }
 	}
@@ -483,12 +491,12 @@ addr_mode (char *operand,
       switch (str[0])
 	{
 	case 'f':
-	  addrmodeP->float_flag = 1;
+	  addr_modeP->float_flag = 1;
 	  /* Drop through.  */
 	case 'r':
 	  if (str[1] >= '0' && str[1] < '8')
 	    {
-	      addrmodeP->mode = str[1] - '0';
+	      addr_modeP->mode = str[1] - '0';
 	      return -1;
 	    }
 	  break;
@@ -500,7 +508,7 @@ addr_mode (char *operand,
     case 3:
       if (!strncmp (str, "tos", 3))
 	{
-	  addrmodeP->mode = 23;	/* TopOfStack */
+	  addr_modeP->mode = 23;	/* TopOfStack */
 	  return -1;
 	}
       break;
@@ -523,9 +531,8 @@ addr_mode (char *operand,
 		mode = 18;
 
 	      if (mode != DEFAULT)
-		{
-		  /* Memory relative.  */
-		  addrmodeP->mode = mode;
+		{			/* Memory relative.  */
+		  addr_modeP->mode = mode;
 		  j = strl - 5;		/* Temp for end of disp[0].  */
 		  i = 0;
 
@@ -541,12 +548,12 @@ addr_mode (char *operand,
 
 		  if (i != 0)
 		    {
-		      as_bad (_("Invalid syntax in Memory Relative addressing mode"));
+		      as_warn (_("Invalid syntax in Memory Relative addressing mode"));
 		      return (0);
 		    }
 
-		  addrmodeP->disp[1] = str;
-		  addrmodeP->disp[0] = str + strl + 1;
+		  addr_modeP->disp[1] = str;
+		  addr_modeP->disp[0] = str + strl + 1;
 		  str[j] = '\000';	/* Null terminate disp[0] .  */
 		  str[strl] = '\000';	/* Null terminate disp[1].  */
 
@@ -562,8 +569,8 @@ addr_mode (char *operand,
 		  && str[strl - 2] < '8'
 		  && str[strl - 4] == '(')
 		{
-		  addrmodeP->mode = str[strl - 2] - '0' + 8;
-		  addrmodeP->disp[0] = str;
+		  addr_modeP->mode = str[strl - 2] - '0' + 8;
+		  addr_modeP->disp[0] = str;
 		  str[strl - 4] = 0;
 		  return -1;		/* reg rel */
 		}
@@ -581,8 +588,8 @@ addr_mode (char *operand,
 
 	      if (mode != DEFAULT)
 		{
-		  addrmodeP->mode = mode;
-		  addrmodeP->disp[0] = str;
+		  addr_modeP->mode = mode;
+		  addr_modeP->disp[0] = str;
 		  str[strl - 4] = '\0';
 
 		  return -1;		/* Memory space.  */
@@ -608,90 +615,81 @@ addr_mode (char *operand,
 	      mode = 31;
 	      break;
 	    default:
-	      as_bad (_("Invalid scaled-indexed mode, use (b,w,d,q)"));
+	      as_warn (_("Invalid scaled-indexed mode, use (b,w,d,q)"));
 
 	      if (str[strl - 3] != ':' || str[strl - 6] != '['
 		  || str[strl - 5] == 'r' || str[strl - 4] < '0'
 		  || str[strl - 4] > '7')
-		as_bad (_("Syntax in scaled-indexed mode, use [Rn:m] where n=[0..7] m={b,w,d,q}"));
+		as_warn (_("Syntax in scaled-indexed mode, use [Rn:m] where n=[0..7] m={b,w,d,q}"));
 	    } /* Scaled index.  */
 
 	  if (recursive_level > 0)
 	    {
-	      as_bad (_("Scaled-indexed addressing mode combined with scaled-index"));
+	      as_warn (_("Scaled-indexed addressing mode combined with scaled-index"));
 	      return 0;
 	    }
 
-	  addrmodeP->am_size += 1;	/* scaled index byte.  */
-	  j = str[strl - 4] - '0';	/* store temporary.  */
-	  str[strl - 6] = '\000';	/* nullterminate for recursive call.  */
-	  i = addr_mode (str, addrmodeP, 1);
+	  addr_modeP->am_size += 1;	/* scaled index byte */
+	  j = str[strl - 4] - '0';	/* store temporary */
+	  str[strl - 6] = '\000';	/* nullterminate for recursive call */
+	  i = addr_mode (str, addr_modeP, 1);
 
-	  if (!i || addrmodeP->mode == 20)
+	  if (!i || addr_modeP->mode == 20)
 	    {
-	      as_bad (_("Invalid or illegal addressing mode combined with scaled-index"));
+	      as_warn (_("Invalid or illegal addressing mode combined with scaled-index"));
 	      return 0;
 	    }
 
-	  addrmodeP->scaled_mode = addrmodeP->mode;	/* Store the inferior mode.  */
-	  addrmodeP->mode = mode;
-	  addrmodeP->scaled_reg = j + 1;
+	  addr_modeP->scaled_mode = addr_modeP->mode;	/* Store the inferior mode.  */
+	  addr_modeP->mode = mode;
+	  addr_modeP->scaled_reg = j + 1;
 
 	  return -1;
 	}
     }
 
-  addrmodeP->mode = DEFAULT;	/* Default to whatever.  */
-  addrmodeP->disp[0] = str;
+  addr_modeP->mode = DEFAULT;	/* Default to whatever.  */
+  addr_modeP->disp[0] = str;
 
   return -1;
 }
 
-static void
-evaluate_expr (expressionS *resultP, char *ptr)
-{
-  char *tmp_line;
-
-  tmp_line = input_line_pointer;
-  input_line_pointer = ptr;
-  expression (resultP);
-  input_line_pointer = tmp_line;
-}
-
 /* ptr points at string addr_modeP points at struct with result This
    routine calls addr_mode to determine the general addr.mode of the
    operand. When this is ready it parses the displacements for size
    specifying suffixes and determines size of immediate mode via
    ns32k-opcode.  Also builds index bytes if needed.  */
 
-static int
-get_addr_mode (char *ptr, addr_modeS *addrmodeP)
+int
+get_addr_mode (ptr, addr_modeP)
+     char *ptr;
+     addr_modeS *addr_modeP;
 {
   int tmp;
 
-  addr_mode (ptr, addrmodeP, 0);
+  addr_mode (ptr, addr_modeP, 0);
 
-  if (addrmodeP->mode == DEFAULT || addrmodeP->scaled_mode == -1)
+  if (addr_modeP->mode == DEFAULT || addr_modeP->scaled_mode == -1)
     {
-      /* Resolve ambiguous operands, this shouldn't be necessary if
+      /* Resolve ambigious operands, this shouldn't be necessary if
 	 one uses standard NSC operand syntax. But the sequent
-	 compiler doesn't!!!  This finds a proper addressing mode
+	 compiler doesn't!!!  This finds a proper addressinging mode
 	 if it is implicitly stated. See ns32k-opcode.h.  */
       (void) evaluate_expr (&exprP, ptr); /* This call takes time Sigh!  */
 
-      if (addrmodeP->mode == DEFAULT)
+      if (addr_modeP->mode == DEFAULT)
 	{
 	  if (exprP.X_add_symbol || exprP.X_op_symbol)
-	    addrmodeP->mode = desc->default_model; /* We have a label.  */
+	    addr_modeP->mode = desc->default_model; /* We have a label.  */
 	  else
-	    addrmodeP->mode = desc->default_modec; /* We have a constant.  */
+	    addr_modeP->mode = desc->default_modec; /* We have a constant.  */
 	}
       else
 	{
 	  if (exprP.X_add_symbol || exprP.X_op_symbol)
-	    addrmodeP->scaled_mode = desc->default_model;
+	    addr_modeP->scaled_mode = desc->default_model;
 	  else
-	    addrmodeP->scaled_mode = desc->default_modec;
+	    addr_modeP->scaled_mode = desc->default_modec;
 	}
 
       /* Must put this mess down in addr_mode to handle the scaled
@@ -703,48 +701,46 @@ get_addr_mode (char *ptr, addr_modeS *addrmodeP)
      case.  Think it does so with local labels too, not optimum, pcrel
      is better.  When I have time I will make gas check this and
      select pcrel when possible Actually that is trivial.  */
-  if ((tmp = addrmodeP->scaled_reg))
+  if (tmp = addr_modeP->scaled_reg)
     {				/* Build indexbyte.  */
       tmp--;			/* Remember regnumber comes incremented for
 				   flagpurpose.  */
-      tmp |= addrmodeP->scaled_mode << 3;
-      addrmodeP->index_byte = (char) tmp;
-      addrmodeP->am_size += 1;
+      tmp |= addr_modeP->scaled_mode << 3;
+      addr_modeP->index_byte = (char) tmp;
+      addr_modeP->am_size += 1;
     }
 
-  gas_assert (addrmodeP->mode >= 0); 
-  if (disp_test[(unsigned int) addrmodeP->mode])
+  if (disp_test[addr_modeP->mode])
     {
-      char c;
-      char suffix;
-      char suffix_sub;
-      int i;
-      char *toP;
-      char *fromP;
+      register char c;
+      register char suffix;
+      register char suffix_sub;
+      register int i;
+      register char *toP;
+      register char *fromP;
 
       /* There was a displacement, probe for length  specifying suffix.  */
-      addrmodeP->pcrel = 0;
+      addr_modeP->pcrel = 0;
 
-      gas_assert (addrmodeP->mode >= 0);
-      if (disp_test[(unsigned int) addrmodeP->mode])
+      if (disp_test[addr_modeP->mode])
 	{
 	  /* There is a displacement.  */
-	  if (addrmodeP->mode == 27 || addrmodeP->scaled_mode == 27)
+	  if (addr_modeP->mode == 27 || addr_modeP->scaled_mode == 27)
 	    /* Do we have pcrel. mode.  */
-	    addrmodeP->pcrel = 1;
+	    addr_modeP->pcrel = 1;
 
-	  addrmodeP->im_disp = 1;
+	  addr_modeP->im_disp = 1;
 
 	  for (i = 0; i < 2; i++)
 	    {
 	      suffix_sub = suffix = 0;
 
-	      if ((toP = addrmodeP->disp[i]))
+	      if (toP = addr_modeP->disp[i])
 		{
 		  /* Suffix of expression, the largest size rules.  */
 		  fromP = toP;
 
-		  while ((c = *fromP++))
+		  while (c = *fromP++)
 		    {
 		      *toP++ = c;
 		      if (c == ':')
@@ -778,34 +774,35 @@ get_addr_mode (char *ptr, addr_modeS *addrmodeP)
 		    }
 
 		  *toP = '\0'; /* Terminate properly.  */
-		  addrmodeP->disp_suffix[i] = suffix;
-		  addrmodeP->am_size += suffix ? suffix : 4;
+		  addr_modeP->disp_suffix[i] = suffix;
+		  addr_modeP->am_size += suffix ? suffix : 4;
 		}
 	    }
 	}
     }
   else
     {
-      if (addrmodeP->mode == 20)
+      if (addr_modeP->mode == 20)
 	{
 	  /* Look in ns32k_opcode for size.  */
-	  addrmodeP->disp_suffix[0] = addrmodeP->am_size = desc->im_size;
-	  addrmodeP->im_disp = 0;
+	  addr_modeP->disp_suffix[0] = addr_modeP->am_size = desc->im_size;
+	  addr_modeP->im_disp = 0;
 	}
     }
 
-  return addrmodeP->mode;
+  return addr_modeP->mode;
 }
 
 /* Read an optionlist.  */
 
-static void
-optlist (char *str,			/* The string to extract options from.  */
-	 struct ns32k_option *optionP,	/* How to search the string.  */
-	 unsigned long *default_map)	/* Default pattern and output.  */
+void
+optlist (str, optionP, default_map)
+     char *str;			/* The string to extract options from.  */
+     struct ns32k_option *optionP;	/* How to search the string.  */
+     unsigned long *default_map;	/* Default pattern and output.  */
 {
-  int i, j, k, strlen1, strlen2;
-  char *patternP, *strP;
+  register int i, j, k, strlen1, strlen2;
+  register char *patternP, *strP;
 
   strlen1 = strlen (str);
 
@@ -841,12 +838,13 @@ optlist (char *str,			/* The string to extract options from.  */
    the instructions lmr, smr, lpr, spr return true if str is found in
    list.  */
 
-static int
-list_search (char *str,				/* The string to match.  */
-	     struct ns32k_option *optionP,	/* List to search.  */
-	     unsigned long *default_map)	/* Default pattern and output.  */
+int
+list_search (str, optionP, default_map)
+     char *str;				/* The string to match.  */
+     struct ns32k_option *optionP;	/* List to search.  */
+     unsigned long *default_map;	/* Default pattern and output.  */
 {
-  int i;
+  register int i;
 
   for (i = 0; optionP[i].pattern != 0; i++)
     {
@@ -860,57 +858,41 @@ list_search (char *str,				/* The string to match.  */
 	}
     }
 
-  as_bad (_("No such entry in list. (cpu/mmu register)"));
+  as_warn (_("No such entry in list. (cpu/mmu register)"));
   return 0;
 }
-
-/* Create a bit_fixS in obstack 'notes'.
-   This struct is used to profile the normal fix. If the bit_fixP is a
-   valid pointer (not NULL) the bit_fix data will be used to format
-   the fix.  */
 
-static bit_fixS *
-bit_fix_new (int size,		/* Length of bitfield.  */
-	     int offset,	/* Bit offset to bitfield.  */
-	     long min,		/* Signextended min for bitfield.  */
-	     long max,		/* Signextended max for bitfield.  */
-	     long add,		/* Add mask, used for huffman prefix.  */
-	     long base_type,	/* 0 or 1, if 1 it's exploded to opcode ptr.  */
-	     long base_adj)
+static void
+evaluate_expr (resultP, ptr)
+     expressionS *resultP;
+     char *ptr;
 {
-  bit_fixS *bit_fixP;
+  register char *tmp_line;
 
-  bit_fixP = obstack_alloc (&notes, sizeof (bit_fixS));
-
-  bit_fixP->fx_bit_size = size;
-  bit_fixP->fx_bit_offset = offset;
-  bit_fixP->fx_bit_base = base_type;
-  bit_fixP->fx_bit_base_adj = base_adj;
-  bit_fixP->fx_bit_max = max;
-  bit_fixP->fx_bit_min = min;
-  bit_fixP->fx_bit_add = add;
-
-  return bit_fixP;
+  tmp_line = input_line_pointer;
+  input_line_pointer = ptr;
+  expression (&exprP);
+  input_line_pointer = tmp_line;
 }
-
+
 /* Convert operands to iif-format and adds bitfields to the opcode.
    Operands are parsed in such an order that the opcode is updated from
    its most significant bit, that is when the operand need to alter the
    opcode.
-   Be careful not to put to objects in the same iif-slot.  */
+   Be carefull not to put to objects in the same iif-slot.  */
 
-static void
-encode_operand (int argc,
-		char **argv,
-		const char *operandsP,
-		const char *suffixP,
-		char im_size ATTRIBUTE_UNUSED,
-		char opcode_bit_ptr)
+void
+encode_operand (argc, argv, operandsP, suffixP, im_size, opcode_bit_ptr)
+     int argc;
+     char **argv;
+     char *operandsP;
+     char *suffixP;
+     char im_size;
+     char opcode_bit_ptr;
 {
-  int i, j;
+  register int i, j;
   char d;
-  int pcrel, b, loop, pcrel_adjust;
-  unsigned long tmp;
+  int pcrel, tmp, b, loop, pcrel_adjust;
 
   for (loop = 0; loop < argc; loop++)
     {
@@ -925,18 +907,18 @@ encode_operand (int argc,
 
       switch ((d = operandsP[(loop << 1) + 1]))
 	{
-	case 'f':		/* Operand of sfsr turns out to be a nasty
-				   specialcase.  */
+	case 'f':		/* operand of sfsr turns out to be a nasty
+				   specialcase */
 	  opcode_bit_ptr -= 5;
-	case 'Z':		/* Float not immediate.  */
-	case 'F':		/* 32 bit float	general form.  */
-	case 'L':		/* 64 bit float.  */
-	case 'I':		/* Integer not immediate.  */
-	case 'B':		/* Byte	 */
-	case 'W':		/* Word	 */
-	case 'D':		/* Double-word.  */
-	case 'A':		/* Double-word	gen-address-form ie no regs
-				   allowed.  */
+	case 'Z':		/* float not immediate */
+	case 'F':		/* 32 bit float	general form */
+	case 'L':		/* 64 bit float	*/
+	case 'I':		/* integer not immediate */
+	case 'B':		/* byte	 */
+	case 'W':		/* word	 */
+	case 'D':		/* double-word	*/
+	case 'A':		/* double-word	gen-address-form ie no regs
+				   allowed */
 	  get_addr_mode (argv[i], &addr_modeP);
 
 	  if ((addr_modeP.mode == 20) &&
@@ -980,23 +962,23 @@ encode_operand (int argc,
 	    }
 	  break;
 
-	case 'b':		/* Multiple instruction disp.  */
-	  freeptr++;		/* OVE:this is an useful hack.  */
-	  sprintf (freeptr, "((%s-1)*%d)", argv[i], desc->im_size);
+	case 'b':		/* multiple instruction disp */
+	  freeptr++;		/* OVE:this is an useful hack */
+	  sprintf (freeptr, "((%s-1)*%d)\000", argv[i], desc->im_size);
 	  argv[i] = freeptr;
-	  pcrel -= 1;		/* Make pcrel 0 in spite of what case 'p':
-				   wants.  */
+	  pcrel -= 1;		/* make pcrel 0 inspite of what case 'p':
+				   wants */
 	  /* fall thru */
-	case 'p':		/* Displacement - pc relative addressing.  */
+	case 'p':		/* displacement - pc relative addressing */
 	  pcrel += 1;
 	  /* fall thru */
-	case 'd':		/* Displacement.  */
+	case 'd':		/* displacement */
 	  iif.instr_size += suffixP[i] ? suffixP[i] : 4;
 	  IIF (12, 2, suffixP[i], (unsigned long) argv[i], 0,
 	       pcrel, pcrel_adjust, 1, IND (BRANCH, BYTE), NULL, -1, 0);
 	  break;
-	case 'H':		/* Sequent-hack: the linker wants a bit set
-				   when bsr.  */
+	case 'H':		/* sequent-hack: the linker wants a bit set
+				   when bsr */
 	  pcrel = 1;
 	  iif.instr_size += suffixP[i] ? suffixP[i] : 4;
 	  IIF (12, 2, suffixP[i], (unsigned long) argv[i], 0,
@@ -1007,68 +989,68 @@ encode_operand (int argc,
 	  IIF (11, 2, 42, (unsigned long) argv[i], 0, 0, 0, 0, 0,
 	       bit_fix_new (4, opcode_bit_ptr, -8, 7, 0, 1, 0), -1, 0);
 	  break;
-	case 'r':		/* Register number (3 bits).  */
+	case 'r':		/* register number (3 bits) */
 	  list_search (argv[i], opt6, &tmp);
 	  opcode_bit_ptr -= 3;
 	  iif.iifP[1].object |= tmp << opcode_bit_ptr;
 	  break;
-	case 'O':		/* Setcfg instruction optionslist.  */
+	case 'O':		/* setcfg instruction optionslist */
 	  optlist (argv[i], opt3, &tmp);
 	  opcode_bit_ptr -= 4;
 	  iif.iifP[1].object |= tmp << 15;
 	  break;
-	case 'C':		/* Cinv instruction optionslist.  */
+	case 'C':		/* cinv instruction optionslist */
 	  optlist (argv[i], opt4, &tmp);
 	  opcode_bit_ptr -= 4;
-	  iif.iifP[1].object |= tmp << 15; /* Insert the regtype in opcode.  */
+	  iif.iifP[1].object |= tmp << 15; /* insert the regtype in opcode */
 	  break;
-	case 'S':		/* String instruction options list.  */
+	case 'S':		/* stringinstruction optionslist */
 	  optlist (argv[i], opt5, &tmp);
 	  opcode_bit_ptr -= 4;
 	  iif.iifP[1].object |= tmp << 15;
 	  break;
 	case 'u':
-	case 'U':		/* Register list.  */
+	case 'U':		/* registerlist */
 	  IIF (10, 1, 1, 0, 0, 0, 0, 0, 0, NULL, -1, 0);
 	  switch (operandsP[(i << 1) + 1])
 	    {
-	    case 'u':		/* Restore, exit.  */
+	    case 'u':		/* restore, exit */
 	      optlist (argv[i], opt1, &iif.iifP[10].object);
 	      break;
-	    case 'U':		/* Save, enter.  */
+	    case 'U':		/* save,enter */
 	      optlist (argv[i], opt2, &iif.iifP[10].object);
 	      break;
 	    }
 	  iif.instr_size += 1;
 	  break;
-	case 'M':		/* MMU register.  */
+	case 'M':		/* mmu register */
 	  list_search (argv[i], mmureg, &tmp);
 	  opcode_bit_ptr -= 4;
 	  iif.iifP[1].object |= tmp << opcode_bit_ptr;
 	  break;
-	case 'P':		/* CPU register.  */
+	case 'P':		/* cpu register  */
 	  list_search (argv[i], cpureg, &tmp);
 	  opcode_bit_ptr -= 4;
 	  iif.iifP[1].object |= tmp << opcode_bit_ptr;
 	  break;
-	case 'g':		/* Inss exts.  */
-	  iif.instr_size += 1;	/* 1 byte is allocated after the opcode.  */
+	case 'g':		/* inss exts */
+	  iif.instr_size += 1;	/* 1 byte is allocated after the opcode */
 	  IIF (10, 2, 1,
-	       (unsigned long) argv[i],	/* i always 2 here.  */
+	       (unsigned long) argv[i],	/* i always 2 here */
 	       0, 0, 0, 0, 0,
-	       bit_fix_new (3, 5, 0, 7, 0, 0, 0), /* A bit_fix is targeted to
-						     the byte.  */
+	       bit_fix_new (3, 5, 0, 7, 0, 0, 0), /* a bit_fix is targeted to
+						     the byte */
 	       -1, 0);
 	  break;
 	case 'G':
 	  IIF (11, 2, 42,
-	       (unsigned long) argv[i],	/* i always 3 here.  */
+	       (unsigned long) argv[i],	/* i always 3 here */
 	       0, 0, 0, 0, 0,
 	       bit_fix_new (5, 0, 1, 32, -1, 0, -1), -1, 0);
 	  break;
 	case 'i':
 	  iif.instr_size += 1;
-	  b = 2 + i;		/* Put the extension byte after opcode.  */
+	  b = 2 + i;		/* put the extension byte after opcode */
 	  IIF (b, 2, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0);
 	  break;
 	default:
@@ -1081,17 +1063,17 @@ encode_operand (int argc,
    out: internal structure of instruction
    that has been prepared for direct conversion to fragment(s) and
    fixes in a systematical fashion
-   Return-value = recursive_level.  */
+   Return-value = recursive_level.    */
 /* Build iif of one assembly text line.  */
 
-static int
-parse (const char *line, int recursive_level)
+int
+parse (line, recursive_level)
+     char *line;
+     int recursive_level;
 {
-  const char *lineptr;
-  char c, suffix_separator;
-  int i;
-  unsigned int argc;
-  int arg_type;
+  register char *lineptr, c, suffix_separator;
+  register int i;
+  int argc, arg_type;
   char sqr, sep;
   char suffix[MAX_ARGS], *argv[MAX_ARGS];	/* No more than 4 operands.  */
 
@@ -1102,15 +1084,17 @@ parse (const char *line, int recursive_level)
 	continue;
 
       c = *lineptr;
-      *(char *) lineptr = '\0';
+      *lineptr = '\0';
 
       if (!(desc = (struct ns32k_opcode *) hash_find (inst_hash_handle, line)))
 	as_fatal (_("No such opcode"));
 
-      *(char *) lineptr = c;
+      *lineptr = c;
     }
   else
-    lineptr = line;
+    {
+      lineptr = line;
+    }
 
   argc = 0;
 
@@ -1145,7 +1129,7 @@ parse (const char *line, int recursive_level)
 		      break;
 		    }
 
-		  suffix[argc] = 0; /* 0 when no ':' is encountered.  */
+		  suffix[argc] = 0; /* 0 when no ':' is encountered */
 		  argv[argc] = freeptr;
 		  *freeptr = '\0';
 
@@ -1207,7 +1191,9 @@ parse (const char *line, int recursive_level)
 		  lineptr += 1;
 		}
 	      else
-		as_fatal (_("Too many operands passed to instruction"));
+		{
+		  as_fatal (_("Too many operands passed to instruction"));
+		}
 	    }
 	}
     }
@@ -1222,7 +1208,9 @@ parse (const char *line, int recursive_level)
 	    as_fatal (_("Wrong numbers of operands in default, check ns32k-opcodes.h"));
 	}
       else
-	as_fatal (_("Wrong number of operands"));
+	{
+	  as_fatal (_("Wrong number of operands"));
+	}
     }
 
   for (i = 0; i < IIF_ENTRIES; i++)
@@ -1235,18 +1223,324 @@ parse (const char *line, int recursive_level)
 
   /* This call encodes operands to iif format.  */
   if (argc)
-    encode_operand (argc, argv, &desc->operands[0],
-		    &suffix[0], desc->im_size, desc->opcode_size);
-
+    {
+      encode_operand (argc,
+		      argv,
+		      &desc->operands[0],
+		      &suffix[0],
+		      desc->im_size,
+		      desc->opcode_size);
+    }
   return recursive_level;
 }
 
-/* This functionality should really be in the bfd library.  */
+/* Convert iif to fragments.  From this point we start to dribble with
+   functions in other files than this one.(Except hash.c) So, if it's
+   possible to make an iif for an other CPU, you don't need to know
+   what frags, relax, obstacks, etc is in order to port this
+   assembler. You only need to know if it's possible to reduce your
+   cpu-instruction to iif-format (takes some work) and adopt the other
+   md_? parts according to given instructions Note that iif was
+   invented for the clean ns32k`s architecure.  */
 
+/* GAS for the ns32k has a problem. PC relative displacements are
+   relative to the address of the opcode, not the address of the
+   operand. We used to keep track of the offset between the operand
+   and the opcode in pcrel_adjust for each frag and each fix. However,
+   we get into trouble where there are two or more pc-relative
+   operands and the size of the first one can't be determined. Then in
+   the relax phase, the size of the first operand will change and
+   pcrel_adjust will no longer be correct.  The current solution is
+   keep a pointer to the frag with the opcode in it and the offset in
+   that frag for each frag and each fix. Then, when needed, we can
+   always figure out how far it is between the opcode and the pcrel
+   object.  See also md_pcrel_adjust and md_fix_pcrel_adjust.  For
+   objects not part of an instruction, the pointer to the opcode frag
+   is always zero.  */
+
+void
+convert_iif ()
+{
+  int i;
+  bit_fixS *j;
+  fragS *inst_frag;
+  unsigned int inst_offset;
+  char *inst_opcode;
+  char *memP;
+  int l;
+  int k;
+  char type;
+  char size = 0;
+  int size_so_far;
+
+  memP = frag_more (0);
+  inst_opcode = memP;
+  inst_offset = (memP - frag_now->fr_literal);
+  inst_frag = frag_now;
+
+  for (i = 0; i < IIF_ENTRIES; i++)
+    {
+      if (type = iif.iifP[i].type)
+	{
+	  /* The object exist, so handle it.  */
+	  switch (size = iif.iifP[i].size)
+	    {
+	    case 42:
+	      size = 0;
+	      /* It's a bitfix that operates on an existing object.  */
+	      if (iif.iifP[i].bit_fixP->fx_bit_base)
+		/* Expand fx_bit_base to point at opcode.  */
+		iif.iifP[i].bit_fixP->fx_bit_base = (long) inst_opcode;
+	      /* Fall through.  */
+
+	    case 8:		/* bignum or doublefloat */
+	    case 1:
+	    case 2:
+	    case 3:
+	    case 4:
+	      /* The final size in objectmemory is known.  */
+	      memP = frag_more(size);
+	      j = iif.iifP[i].bit_fixP;
+
+	      switch (type)
+		{
+		case 1:	/* The object is pure binary.  */
+		  if (j || iif.iifP[i].pcrel)
+		    {
+		      fix_new_ns32k (frag_now,
+				     (long) (memP - frag_now->fr_literal),
+				     size,
+				     0,
+				     iif.iifP[i].object,
+				     iif.iifP[i].pcrel,
+				     iif.iifP[i].im_disp,
+				     j,
+				     iif.iifP[i].bsr,	/* sequent hack */
+				     inst_frag, inst_offset);
+		    }
+		  else
+		    {
+		      /* Good, just put them bytes out.  */
+		      switch (iif.iifP[i].im_disp)
+			{
+			case 0:
+			  md_number_to_chars (memP, iif.iifP[i].object, size);
+			  break;
+			case 1:
+			  md_number_to_disp (memP, iif.iifP[i].object, size);
+			  break;
+			default:
+			  as_fatal (_("iif convert internal pcrel/binary"));
+			}
+		    }
+		  break;
+
+		case 2:
+		  /* The object is a pointer at an expression, so
+                     unpack it, note that bignums may result from the
+                     expression.  */
+		  evaluate_expr (&exprP, (char *) iif.iifP[i].object);
+		  if (exprP.X_op == O_big || size == 8)
+		    {
+		      if ((k = exprP.X_add_number) > 0)
+			{
+			  /* We have a bignum ie a quad. This can only
+                             happens in a long suffixed instruction.  */
+			  if (k * 2 > size)
+			    as_warn (_("Bignum too big for long"));
+
+			  if (k == 3)
+			    memP += 2;
+
+			  for (l = 0; k > 0; k--, l += 2)
+			    {
+			      md_number_to_chars (memP + l,
+						  generic_bignum[l >> 1],
+						  sizeof (LITTLENUM_TYPE));
+			    }
+			}
+		      else
+			{
+			  /* flonum.  */
+			  LITTLENUM_TYPE words[4];
+
+			  switch (size)
+			    {
+			    case 4:
+			      gen_to_words (words, 2, 8);
+			      md_number_to_imm (memP, (long) words[0],
+						sizeof (LITTLENUM_TYPE));
+			      md_number_to_imm (memP + sizeof (LITTLENUM_TYPE),
+						(long) words[1],
+						sizeof (LITTLENUM_TYPE));
+			      break;
+			    case 8:
+			      gen_to_words (words, 4, 11);
+			      md_number_to_imm (memP, (long) words[0],
+						sizeof (LITTLENUM_TYPE));
+			      md_number_to_imm (memP + sizeof (LITTLENUM_TYPE),
+						(long) words[1],
+						sizeof (LITTLENUM_TYPE));
+			      md_number_to_imm ((memP + 2
+						 * sizeof (LITTLENUM_TYPE)),
+						(long) words[2],
+						sizeof (LITTLENUM_TYPE));
+			      md_number_to_imm ((memP + 3
+						 * sizeof (LITTLENUM_TYPE)),
+						(long) words[3],
+						sizeof (LITTLENUM_TYPE));
+			      break;
+			    }
+			}
+		      break;
+		    }
+		  if (j ||
+		      exprP.X_add_symbol ||
+		      exprP.X_op_symbol ||
+		      iif.iifP[i].pcrel)
+		    {
+		      /* The expression was undefined due to an
+                         undefined label. Create a fix so we can fix
+                         the object later.  */
+		      exprP.X_add_number += iif.iifP[i].object_adjust;
+		      fix_new_ns32k_exp (frag_now,
+					 (long) (memP - frag_now->fr_literal),
+					 size,
+					 &exprP,
+					 iif.iifP[i].pcrel,
+					 iif.iifP[i].im_disp,
+					 j,
+					 iif.iifP[i].bsr,
+					 inst_frag, inst_offset);
+		    }
+		  else
+		    {
+		      /* Good, just put them bytes out.  */
+		      switch (iif.iifP[i].im_disp)
+			{
+			case 0:
+			  md_number_to_imm (memP, exprP.X_add_number, size);
+			  break;
+			case 1:
+			  md_number_to_disp (memP, exprP.X_add_number, size);
+			  break;
+			default:
+			  as_fatal (_("iif convert internal pcrel/pointer"));
+			}
+		    }
+		  break;
+		default:
+		  as_fatal (_("Internal logic error in iif.iifP[n].type"));
+		}
+	      break;
+
+	    case 0:
+	      /* Too bad, the object may be undefined as far as its
+		 final nsize in object memory is concerned.  The size
+		 of the object in objectmemory is not explicitly
+		 given.  If the object is defined its length can be
+		 determined and a fix can replace the frag.  */
+	      {
+		evaluate_expr (&exprP, (char *) iif.iifP[i].object);
+
+		if ((exprP.X_add_symbol || exprP.X_op_symbol) &&
+		    !iif.iifP[i].pcrel)
+		  {
+		    /* Size is unknown until link time so have to
+                       allow 4 bytes.  */
+		    size = 4;
+		    memP = frag_more(size);
+		    fix_new_ns32k_exp (frag_now,
+				       (long) (memP - frag_now->fr_literal),
+				       size,
+				       &exprP,
+				       0, /* never iif.iifP[i].pcrel, */
+				       1, /* always iif.iifP[i].im_disp */
+				       (bit_fixS *) 0, 0,
+				       inst_frag,
+				       inst_offset);
+		    break;		/* exit this absolute hack */
+		  }
+
+		if (exprP.X_add_symbol || exprP.X_op_symbol)
+		  {
+		    /* Frag it.  */
+		    if (exprP.X_op_symbol)
+		      {
+			/* We cant relax this case.  */
+			as_fatal (_("Can't relax difference"));
+		      }
+		    else
+		      {
+			/* Size is not important.  This gets fixed by
+			   relax, but we assume 0 in what follows.  */
+			memP = frag_more(4); /* Max size.  */
+			size = 0;
+
+			{
+			  fragS *old_frag = frag_now;
+			  frag_variant (rs_machine_dependent,
+					4, /* Max size.  */
+					0, /* Size.  */
+					IND (BRANCH, UNDEF), /* Expecting
+                                                                the worst.  */
+					exprP.X_add_symbol,
+					exprP.X_add_number,
+					inst_opcode);
+			  frag_opcode_frag (old_frag) = inst_frag;
+			  frag_opcode_offset (old_frag) = inst_offset;
+			  frag_bsr (old_frag) = iif.iifP[i].bsr;
+			}
+		      }
+		  }
+		else
+		  {
+		    /* This duplicates code in md_number_to_disp.  */
+		    if (-64 <= exprP.X_add_number && exprP.X_add_number <= 63)
+		      {
+			size = 1;
+		      }
+		    else
+		      {
+			if (-8192 <= exprP.X_add_number
+			    && exprP.X_add_number <= 8191)
+			  {
+			    size = 2;
+			  }
+			else
+			  {
+			    if (-0x20000000 <= exprP.X_add_number
+				&& exprP.X_add_number<=0x1fffffff)
+			      {
+				size = 4;
+			      }
+			    else
+			      {
+				as_warn (_("Displacement to large for :d"));
+				size = 4;
+			      }
+			  }
+		      }
+
+		    memP = frag_more (size);
+		    md_number_to_disp (memP, exprP.X_add_number, size);
+		  }
+	      }
+	      break;
+
+	    default:
+	      as_fatal (_("Internal logic error in iif.iifP[].type"));
+	    }
+	}
+    }
+}
+
+#ifdef BFD_ASSEMBLER
+/* This functionality should really be in the bfd library.  */
 static bfd_reloc_code_real_type
 reloc (int size, int pcrel, int type)
 {
-  int length, rel_index;
+  int length, index;
   bfd_reloc_code_real_type relocs[] =
   {
     BFD_RELOC_NS32K_IMM_8,
@@ -1289,10 +1583,10 @@ reloc (int size, int pcrel, int type)
       break;
     }
 
-  rel_index = length + 3 * pcrel + 6 * type;
+  index = length + 3 * pcrel + 6 * type;
 
-  if (rel_index >= 0 && (unsigned int) rel_index < sizeof (relocs) / sizeof (relocs[0]))
-    return relocs[rel_index];
+  if (index >= 0 && index < sizeof (relocs) / sizeof (relocs[0]))
+    return relocs[index];
 
   if (pcrel)
     as_bad (_("Can not do %d byte pc-relative relocation for storage type %d"),
@@ -1304,69 +1598,94 @@ reloc (int size, int pcrel, int type)
   return BFD_RELOC_NONE;
 
 }
+#endif
 
-static void
-fix_new_ns32k (fragS *frag,		/* Which frag? */
-	       int where,		/* Where in that frag? */
-	       int size,		/* 1, 2  or 4 usually.  */
-	       symbolS *add_symbol,	/* X_add_symbol.  */
-	       long offset,		/* X_add_number.  */
-	       int pcrel,		/* True if PC-relative relocation.  */
-	       char im_disp,		/* True if the value to write is a
-					   displacement.  */
-	       bit_fixS *bit_fixP,	/* Pointer at struct of bit_fix's, ignored if
-					   NULL.  */
-	       char bsr,		/* Sequent-linker-hack: 1 when relocobject is
-					   a bsr.  */
-	       fragS *opcode_frag,
-	       unsigned int opcode_offset)
+void
+md_assemble (line)
+     char *line;
 {
-  fixS *fixP = fix_new (frag, where, size, add_symbol,
-			offset, pcrel,
-			bit_fixP ? NO_RELOC : reloc (size, pcrel, im_disp)
-			);
-
-  fix_opcode_frag (fixP) = opcode_frag;
-  fix_opcode_offset (fixP) = opcode_offset;
-  fix_im_disp (fixP) = im_disp;
-  fix_bsr (fixP) = bsr;
-  fix_bit_fixP (fixP) = bit_fixP;
-  /* We have a MD overflow check for displacements.  */
-  fixP->fx_no_overflow = (im_disp != 0);
+  freeptr = freeptr_static;
+  parse (line, 0);		/* Explode line to more fix form in iif.  */
+  convert_iif ();		/* Convert iif to frags, fix's etc.  */
+#ifdef SHOW_NUM
+  printf (" \t\t\t%s\n", line);
+#endif
 }
 
-static void
-fix_new_ns32k_exp (fragS *frag,		/* Which frag? */
-		   int where,		/* Where in that frag? */
-		   int size,		/* 1, 2  or 4 usually.  */
-		   expressionS *exp,	/* Expression.  */
-		   int pcrel,		/* True if PC-relative relocation.  */
-		   char im_disp,	/* True if the value to write is a
-					   displacement.  */
-		   bit_fixS *bit_fixP,	/* Pointer at struct of bit_fix's, ignored if
-					   NULL.  */
-		   char bsr,		/* Sequent-linker-hack: 1 when relocobject is
-					   a bsr.  */
-		   fragS *opcode_frag,
-		   unsigned int opcode_offset)
+void
+md_begin ()
 {
-  fixS *fixP = fix_new_exp (frag, where, size, exp, pcrel,
-			    bit_fixP ? NO_RELOC : reloc (size, pcrel, im_disp)
-			    );
+  /* Build a hashtable of the instructions.  */
+  const struct ns32k_opcode *ptr;
+  const char *stat;
+  inst_hash_handle = hash_new ();
 
-  fix_opcode_frag (fixP) = opcode_frag;
-  fix_opcode_offset (fixP) = opcode_offset;
-  fix_im_disp (fixP) = im_disp;
-  fix_bsr (fixP) = bsr;
-  fix_bit_fixP (fixP) = bit_fixP;
-  /* We have a MD overflow check for displacements.  */
-  fixP->fx_no_overflow = (im_disp != 0);
+  for (ptr = ns32k_opcodes; ptr < endop; ptr++)
+    {
+      if ((stat = hash_insert (inst_hash_handle, ptr->name, (char *) ptr)))
+	/* Fatal.  */
+	as_fatal (_("Can't hash %s: %s"), ptr->name, stat);
+    }
+
+  /* Some private space please!  */
+  freeptr_static = (char *) malloc (PRIVATE_SIZE);
 }
 
+/* Must be equal to MAX_PRECISON in atof-ieee.c.  */
+#define MAX_LITTLENUMS 6
+
+/* Turn the string pointed to by litP into a floating point constant
+   of type TYPE, and emit the appropriate bytes.  The number of
+   LITTLENUMS emitted is stored in *SIZEP.  An error message is
+   returned, or NULL on OK.  */
+
+char *
+md_atof (type, litP, sizeP)
+     char type;
+     char *litP;
+     int *sizeP;
+{
+  int prec;
+  LITTLENUM_TYPE words[MAX_LITTLENUMS];
+  LITTLENUM_TYPE *wordP;
+  char *t;
+
+  switch (type)
+    {
+    case 'f':
+      prec = 2;
+      break;
+
+    case 'd':
+      prec = 4;
+      break;
+    default:
+      *sizeP = 0;
+      return _("Bad call to MD_ATOF()");
+    }
+
+  t = atof_ieee (input_line_pointer, type, words);
+  if (t)
+    input_line_pointer = t;
+
+  *sizeP = prec * sizeof (LITTLENUM_TYPE);
+
+  for (wordP = words + prec; prec--;)
+    {
+      md_number_to_chars (litP, (long) (*--wordP), sizeof (LITTLENUM_TYPE));
+      litP += sizeof (LITTLENUM_TYPE);
+    }
+
+  return 0;
+}
+
 /* Convert number to chars in correct order.  */
 
 void
-md_number_to_chars (char *buf, valueT value, int nbytes)
+md_number_to_chars (buf, value, nbytes)
+     char *buf;
+     valueT value;
+     int nbytes;
 {
   number_to_chars_littleendian (buf, value, nbytes);
 }
@@ -1384,23 +1703,25 @@ md_number_to_chars (char *buf, valueT value, int nbytes)
    This must be taken care of and we do it here!  */
 
 static void
-md_number_to_disp (char *buf, long val, int n)
+md_number_to_disp (buf, val, n)
+     char *buf;
+     long val;
+     char n;
 {
   switch (n)
     {
     case 1:
       if (val < -64 || val > 63)
-	as_bad (_("value of %ld out of byte displacement range."), val);
+	as_warn (_("Byte displacement out of range.  line number not valid"));
       val &= 0x7f;
 #ifdef SHOW_NUM
       printf ("%x ", val & 0xff);
 #endif
       *buf++ = val;
       break;
-
     case 2:
       if (val < -8192 || val > 8191)
-	as_bad (_("value of %ld out of word displacement range."), val);
+	as_warn (_("Word displacement out of range.  line number not valid"));
       val &= 0x3fff;
       val |= 0x8000;
 #ifdef SHOW_NUM
@@ -1412,10 +1733,9 @@ md_number_to_disp (char *buf, long val, int n)
 #endif
       *buf++ = val;
       break;
-
     case 4:
       if (val < -0x20000000 || val >= 0x20000000)
-	as_bad (_("value of %ld out of double word displacement range."), val);
+	as_warn (_("Double word displacement out of range"));
       val |= 0xc0000000;
 #ifdef SHOW_NUM
       printf ("%x ", val >> 24 & 0xff);
@@ -1434,15 +1754,17 @@ md_number_to_disp (char *buf, long val, int n)
 #endif
       *buf++ = val;
       break;
-
     default:
-      as_fatal (_("Internal logic error.  line %d, file \"%s\""),
+      as_fatal (_("Internal logic error.  line %s, file \"%s\""),
 		__LINE__, __FILE__);
     }
 }
 
 static void
-md_number_to_imm (char *buf, long val, int n)
+md_number_to_imm (buf, val, n)
+     char *buf;
+     long val;
+     char n;
 {
   switch (n)
     {
@@ -1452,7 +1774,6 @@ md_number_to_imm (char *buf, long val, int n)
 #endif
       *buf++ = val;
       break;
-
     case 2:
 #ifdef SHOW_NUM
       printf ("%x ", val >> 8 & 0xff);
@@ -1463,7 +1784,6 @@ md_number_to_imm (char *buf, long val, int n)
 #endif
       *buf++ = val;
       break;
-
     case 4:
 #ifdef SHOW_NUM
       printf ("%x ", val >> 24 & 0xff);
@@ -1482,9 +1802,8 @@ md_number_to_imm (char *buf, long val, int n)
 #endif
       *buf++ = val;
       break;
-
     default:
-      as_fatal (_("Internal logic error. line %d, file \"%s\""),
+      as_fatal (_("Internal logic error. line %s, file \"%s\""),
 		__LINE__, __FILE__);
     }
 }
@@ -1522,17 +1841,19 @@ static unsigned long r_mask[] =
    and a general version. (My advice: use the general version!).  */
 
 static void
-md_number_to_field (char *buf, long val, bit_fixS *field_ptr)
+md_number_to_field (buf, val, field_ptr)
+     register char *buf;
+     register long val;
+     register bit_fixS *field_ptr;
 {
-  unsigned long object;
-  unsigned long mask;
-  /* Define ENDIAN on a ns32k machine.  */
+  register unsigned long object;
+  register unsigned long mask;
+  /* define ENDIAN on a ns32k machine */
 #ifdef ENDIAN
-  unsigned long *mem_ptr;
+  register unsigned long *mem_ptr;
 #else
-  char *mem_ptr;
+  register char *mem_ptr;
 #endif
-
   if (field_ptr->fx_bit_min <= val && val <= field_ptr->fx_bit_max)
     {
 #ifdef ENDIAN
@@ -1555,7 +1876,7 @@ md_number_to_field (char *buf, long val, bit_fixS *field_ptr)
 #ifdef ENDIAN
       /* We have a nice ns32k machine with lowbyte at low-physical mem.  */
       object = *mem_ptr;	/* get some bytes */
-#else /* OVE Goof! the machine is a m68k or dito.  */
+#else /* OVE Goof! the machine is a m68k or dito */
       /* That takes more byte fiddling.  */
       object = 0;
       object |= mem_ptr[3] & 0xff;
@@ -1585,347 +1906,14 @@ md_number_to_field (char *buf, long val, bit_fixS *field_ptr)
 #endif
     }
   else
-    as_bad (_("Bit field out of range"));
-}
-
-/* Convert iif to fragments.  From this point we start to dribble with
-   functions in other files than this one.(Except hash.c) So, if it's
-   possible to make an iif for an other CPU, you don't need to know
-   what frags, relax, obstacks, etc is in order to port this
-   assembler. You only need to know if it's possible to reduce your
-   cpu-instruction to iif-format (takes some work) and adopt the other
-   md_? parts according to given instructions Note that iif was
-   invented for the clean ns32k`s architecture.  */
-
-/* GAS for the ns32k has a problem. PC relative displacements are
-   relative to the address of the opcode, not the address of the
-   operand. We used to keep track of the offset between the operand
-   and the opcode in pcrel_adjust for each frag and each fix. However,
-   we get into trouble where there are two or more pc-relative
-   operands and the size of the first one can't be determined. Then in
-   the relax phase, the size of the first operand will change and
-   pcrel_adjust will no longer be correct.  The current solution is
-   keep a pointer to the frag with the opcode in it and the offset in
-   that frag for each frag and each fix. Then, when needed, we can
-   always figure out how far it is between the opcode and the pcrel
-   object.  See also md_pcrel_adjust and md_fix_pcrel_adjust.  For
-   objects not part of an instruction, the pointer to the opcode frag
-   is always zero.  */
-
-static void
-convert_iif (void)
-{
-  int i;
-  bit_fixS *j;
-  fragS *inst_frag;
-  unsigned int inst_offset;
-  char *inst_opcode;
-  char *memP;
-  int l;
-  int k;
-  char type;
-  char size = 0;
-
-  frag_grow (iif.instr_size);	/* This is important.  */
-  memP = frag_more (0);
-  inst_opcode = memP;
-  inst_offset = (memP - frag_now->fr_literal);
-  inst_frag = frag_now;
-
-  for (i = 0; i < IIF_ENTRIES; i++)
     {
-      if ((type = iif.iifP[i].type))
-	{
-	  /* The object exist, so handle it.  */
-	  switch (size = iif.iifP[i].size)
-	    {
-	    case 42:
-	      size = 0;
-	      /* It's a bitfix that operates on an existing object.  */
-	      if (iif.iifP[i].bit_fixP->fx_bit_base)
-		/* Expand fx_bit_base to point at opcode.  */
-		iif.iifP[i].bit_fixP->fx_bit_base = (long) inst_opcode;
-	      /* Fall through.  */
-
-	    case 8:		/* bignum or doublefloat.  */
-	    case 1:
-	    case 2:
-	    case 3:
-	    case 4:
-	      /* The final size in objectmemory is known.  */
-	      memP = frag_more (size);
-	      j = iif.iifP[i].bit_fixP;
-
-	      switch (type)
-		{
-		case 1:	/* The object is pure binary.  */
-		  if (j)
-		    md_number_to_field (memP, exprP.X_add_number, j);
-
-		  else if (iif.iifP[i].pcrel)
-		    fix_new_ns32k (frag_now,
-				   (long) (memP - frag_now->fr_literal),
-				   size,
-				   0,
-				   iif.iifP[i].object,
-				   iif.iifP[i].pcrel,
-				   iif.iifP[i].im_disp,
-				   0,
-				   iif.iifP[i].bsr,	/* Sequent hack.  */
-				   inst_frag, inst_offset);
-		  else
-		    {
-		      /* Good, just put them bytes out.  */
-		      switch (iif.iifP[i].im_disp)
-			{
-			case 0:
-			  md_number_to_chars (memP, iif.iifP[i].object, size);
-			  break;
-			case 1:
-			  md_number_to_disp (memP, iif.iifP[i].object, size);
-			  break;
-			default:
-			  as_fatal (_("iif convert internal pcrel/binary"));
-			}
-		    }
-		  break;
-
-		case 2:
-		  /* The object is a pointer at an expression, so
-                     unpack it, note that bignums may result from the
-                     expression.  */
-		  evaluate_expr (&exprP, (char *) iif.iifP[i].object);
-		  if (exprP.X_op == O_big || size == 8)
-		    {
-		      if ((k = exprP.X_add_number) > 0)
-			{
-			  /* We have a bignum ie a quad. This can only
-                             happens in a long suffixed instruction.  */
-			  if (k * 2 > size)
-			    as_bad (_("Bignum too big for long"));
-
-			  if (k == 3)
-			    memP += 2;
-
-			  for (l = 0; k > 0; k--, l += 2)
-			    md_number_to_chars (memP + l,
-						generic_bignum[l >> 1],
-						sizeof (LITTLENUM_TYPE));
-			}
-		      else
-			{
-			  /* flonum.  */
-			  LITTLENUM_TYPE words[4];
-
-			  switch (size)
-			    {
-			    case 4:
-			      gen_to_words (words, 2, 8);
-			      md_number_to_imm (memP, (long) words[0],
-						sizeof (LITTLENUM_TYPE));
-			      md_number_to_imm (memP + sizeof (LITTLENUM_TYPE),
-						(long) words[1],
-						sizeof (LITTLENUM_TYPE));
-			      break;
-			    case 8:
-			      gen_to_words (words, 4, 11);
-			      md_number_to_imm (memP, (long) words[0],
-						sizeof (LITTLENUM_TYPE));
-			      md_number_to_imm (memP + sizeof (LITTLENUM_TYPE),
-						(long) words[1],
-						sizeof (LITTLENUM_TYPE));
-			      md_number_to_imm ((memP + 2
-						 * sizeof (LITTLENUM_TYPE)),
-						(long) words[2],
-						sizeof (LITTLENUM_TYPE));
-			      md_number_to_imm ((memP + 3
-						 * sizeof (LITTLENUM_TYPE)),
-						(long) words[3],
-						sizeof (LITTLENUM_TYPE));
-			      break;
-			    }
-			}
-		      break;
-		    }
-		  if (exprP.X_add_symbol ||
-		      exprP.X_op_symbol ||
-		      iif.iifP[i].pcrel)
-		    {
-		      /* The expression was undefined due to an
-                         undefined label. Create a fix so we can fix
-                         the object later.  */
-		      exprP.X_add_number += iif.iifP[i].object_adjust;
-		      fix_new_ns32k_exp (frag_now,
-					 (long) (memP - frag_now->fr_literal),
-					 size,
-					 &exprP,
-					 iif.iifP[i].pcrel,
-					 iif.iifP[i].im_disp,
-					 j,
-					 iif.iifP[i].bsr,
-					 inst_frag, inst_offset);
-		    }
-		  else if (j)
-		    md_number_to_field (memP, exprP.X_add_number, j);
-		  else
-		    {
-		      /* Good, just put them bytes out.  */
-		      switch (iif.iifP[i].im_disp)
-			{
-			case 0:
-			  md_number_to_imm (memP, exprP.X_add_number, size);
-			  break;
-			case 1:
-			  md_number_to_disp (memP, exprP.X_add_number, size);
-			  break;
-			default:
-			  as_fatal (_("iif convert internal pcrel/pointer"));
-			}
-		    }
-		  break;
-		default:
-		  as_fatal (_("Internal logic error in iif.iifP[n].type"));
-		}
-	      break;
-
-	    case 0:
-	      /* Too bad, the object may be undefined as far as its
-		 final nsize in object memory is concerned.  The size
-		 of the object in objectmemory is not explicitly
-		 given.  If the object is defined its length can be
-		 determined and a fix can replace the frag.  */
-	      {
-		evaluate_expr (&exprP, (char *) iif.iifP[i].object);
-
-		if ((exprP.X_add_symbol || exprP.X_op_symbol) &&
-		    !iif.iifP[i].pcrel)
-		  {
-		    /* Size is unknown until link time so have to default.  */
-		    size = default_disp_size; /* Normally 4 bytes.  */
-		    memP = frag_more (size);
-		    fix_new_ns32k_exp (frag_now,
-				       (long) (memP - frag_now->fr_literal),
-				       size,
-				       &exprP,
-				       0, /* never iif.iifP[i].pcrel, */
-				       1, /* always iif.iifP[i].im_disp */
-				       (bit_fixS *) 0, 0,
-				       inst_frag,
-				       inst_offset);
-		    break;		/* Exit this absolute hack.  */
-		  }
-
-		if (exprP.X_add_symbol || exprP.X_op_symbol)
-		  {
-		    /* Frag it.  */
-		    if (exprP.X_op_symbol)
-		      /* We cant relax this case.  */
-		      as_fatal (_("Can't relax difference"));
-		    else
-		      {
-			/* Size is not important.  This gets fixed by
-			   relax, but we assume 0 in what follows.  */
-			memP = frag_more (4); /* Max size.  */
-			size = 0;
-
-			{
-			  fragS *old_frag = frag_now;
-			  frag_variant (rs_machine_dependent,
-					4, /* Max size.  */
-					0, /* Size.  */
-					IND (BRANCH, UNDEF), /* Expecting
-                                                                the worst.  */
-					exprP.X_add_symbol,
-					exprP.X_add_number,
-					inst_opcode);
-			  frag_opcode_frag (old_frag) = inst_frag;
-			  frag_opcode_offset (old_frag) = inst_offset;
-			  frag_bsr (old_frag) = iif.iifP[i].bsr;
-			}
-		      }
-		  }
-		else
-		  {
-		    /* This duplicates code in md_number_to_disp.  */
-		    if (-64 <= exprP.X_add_number && exprP.X_add_number <= 63)
-		      size = 1;
-		    else
-		      {
-			if (-8192 <= exprP.X_add_number
-			    && exprP.X_add_number <= 8191)
-			  size = 2;
-			else
-			  {
-			    if (-0x20000000 <= exprP.X_add_number
-				&& exprP.X_add_number<=0x1fffffff)
-			      size = 4;
-			    else
-			      {
-				as_bad (_("Displacement too large for :d"));
-				size = 4;
-			      }
-			  }
-		      }
-
-		    memP = frag_more (size);
-		    md_number_to_disp (memP, exprP.X_add_number, size);
-		  }
-	      }
-	      break;
-
-	    default:
-	      as_fatal (_("Internal logic error in iif.iifP[].type"));
-	    }
-	}
+      as_warn (_("Bit field out of range"));
     }
 }
-
-void
-md_assemble (char *line)
-{
-  freeptr = freeptr_static;
-  parse (line, 0);		/* Explode line to more fix form in iif.  */
-  convert_iif ();		/* Convert iif to frags, fix's etc.  */
-#ifdef SHOW_NUM
-  printf (" \t\t\t%s\n", line);
-#endif
-}
 
-void
-md_begin (void)
-{
-  /* Build a hashtable of the instructions.  */
-  const struct ns32k_opcode *ptr;
-  const char *status;
-  const struct ns32k_opcode *endop;
-
-  inst_hash_handle = hash_new ();
-
-  endop = ns32k_opcodes + sizeof (ns32k_opcodes) / sizeof (ns32k_opcodes[0]);
-  for (ptr = ns32k_opcodes; ptr < endop; ptr++)
-    {
-      if ((status = hash_insert (inst_hash_handle, ptr->name, (char *) ptr)))
-	/* Fatal.  */
-	as_fatal (_("Can't hash %s: %s"), ptr->name, status);
-    }
-
-  /* Some private space please!  */
-  freeptr_static = (char *) malloc (PRIVATE_SIZE);
-}
-
-/* Turn the string pointed to by litP into a floating point constant
-   of type TYPE, and emit the appropriate bytes.  The number of
-   LITTLENUMS emitted is stored in *SIZEP.  An error message is
-   returned, or NULL on OK.  */
-
-char *
-md_atof (int type, char *litP, int *sizeP)
-{
-  return ieee_md_atof (type, litP, sizeP, FALSE);
-}
-
 int
-md_pcrel_adjust (fragS *fragP)
+md_pcrel_adjust (fragP)
+     fragS *fragP;
 {
   fragS *opcode_frag;
   addressT opcode_address;
@@ -1941,9 +1929,11 @@ md_pcrel_adjust (fragS *fragP)
   return fragP->fr_address + fragP->fr_fix - opcode_address;
 }
 
-static int
-md_fix_pcrel_adjust (fixS *fixP)
+int
+md_fix_pcrel_adjust (fixP)
+     fixS *fixP;
 {
+  fragS *fragP = fixP->fx_frag;
   fragS *opcode_frag;
   addressT opcode_address;
   unsigned int offset;
@@ -1965,53 +1955,79 @@ md_fix_pcrel_adjust (fixS *fixP)
    out separate functions for each kind of thing we could be fixing.
    They all get called from here.  */
 
+#ifdef BFD_ASSEMBLER
+int
+md_apply_fix (fixP, valp)
+     fixS *fixP;
+     valueT *valp;
+#else
 void
-md_apply_fix (fixS *fixP, valueT * valP, segT seg ATTRIBUTE_UNUSED)
+md_apply_fix (fixP, val)
+     fixS *fixP;
+     long val;
+#endif
 {
-  long val = * (long *) valP;
+#ifdef BFD_ASSEMBLER
+  long val = *valp;
+#endif
+  fragS *fragP = fixP->fx_frag;
+
   char *buf = fixP->fx_where + fixP->fx_frag->fr_literal;
 
   if (fix_bit_fixP (fixP))
-    /* Bitfields to fix, sigh.  */
-    md_number_to_field (buf, val, fix_bit_fixP (fixP));
-  else switch (fix_im_disp (fixP))
-    {
-    case 0:
-      /* Immediate field.  */
-      md_number_to_imm (buf, val, fixP->fx_size);
-      break;
-
-    case 1:
-      /* Displacement field.  */
-      /* Calculate offset.  */
-      md_number_to_disp (buf,
-			 (fixP->fx_pcrel ? val + md_fix_pcrel_adjust (fixP)
-			  : val), fixP->fx_size);
-      break;
-
-    case 2:
-      /* Pointer in a data object.  */
-      md_number_to_chars (buf, val, fixP->fx_size);
-      break;
+    {				/* Bitfields to fix, sigh.  */
+      md_number_to_field (buf, val, fix_bit_fixP (fixP));
     }
+  else
+    switch (fix_im_disp (fixP))
+      {
+      case 0:			/* Immediate field.  */
+	md_number_to_imm (buf, val, fixP->fx_size);
+	break;
 
-  if (fixP->fx_addsy == NULL && fixP->fx_pcrel == 0)
-    fixP->fx_done = 1;
+      case 1:			/* Displacement field.  */
+	/* Calculate offset */
+	{
+	  md_number_to_disp (buf,
+			     (fixP->fx_pcrel ? val + md_fix_pcrel_adjust (fixP)
+			      : val), fixP->fx_size);
+	}
+	break;
+
+      case 2:			/* Pointer in a data object.  */
+	md_number_to_chars (buf, val, fixP->fx_size);
+	break;
+      }
+#ifdef BSD_ASSEMBLER
+  return 1;
+#endif
 }
 
-/* Convert a relaxed displacement to ditto in final output.  */
+/* Convert a relaxed displacement to ditto in final output */
 
+#ifndef BFD_ASSEMBLER
 void
-md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
-		 segT sec ATTRIBUTE_UNUSED,
-		 fragS *fragP)
+md_convert_frag (headers, sec, fragP)
+     object_headers *headers;
+     segT sec;
+     register fragS *fragP;
+#else
+void
+md_convert_frag (abfd, sec, fragP)
+     bfd *abfd;
+     segT sec;
+     register fragS *fragP;
+#endif
 {
   long disp;
   long ext = 0;
+
   /* Address in gas core of the place to store the displacement.  */
-  char *buffer_address = fragP->fr_fix + fragP->fr_literal;
+  register char *buffer_address = fragP->fr_fix + fragP->fr_literal;
   /* Address in object code of the displacement.  */
   int object_address;
+
+  fragS *opcode_frag;
 
   switch (fragP->fr_subtype)
     {
@@ -2035,6 +2051,9 @@ md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
 
   /* The displacement of the address, from current location.  */
   disp = (S_GET_VALUE (fragP->fr_symbol) + fragP->fr_offset) - object_address;
+#ifdef BFD_ASSEMBLER
+  disp += symbol_get_frag (fragP->fr_symbol)->fr_address;
+#endif
   disp += md_pcrel_adjust (fragP);
 
   md_number_to_disp (buffer_address, (long) disp, (int) ext);
@@ -2046,13 +2065,25 @@ md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
    actually know it.  */
 
 int
-md_estimate_size_before_relax (fragS *fragP, segT segment)
+md_estimate_size_before_relax (fragP, segment)
+     register fragS *fragP;
+     segT segment;
 {
-  if (fragP->fr_subtype == IND (BRANCH, UNDEF))
+  int old_fix;
+
+  old_fix = fragP->fr_fix;
+
+  switch (fragP->fr_subtype)
     {
-      if (S_GET_SEGMENT (fragP->fr_symbol) != segment)
+    case IND (BRANCH, UNDEF):
+      if (S_GET_SEGMENT (fragP->fr_symbol) == segment)
 	{
-	  /* We don't relax symbols defined in another segment.  The
+	  /* The symbol has been assigned a value.  */
+	  fragP->fr_subtype = IND (BRANCH, BYTE);
+	}
+      else
+	{
+	  /* We don't relax symbols defined in an other segment the
 	     thing to do is to assume the object will occupy 4 bytes.  */
 	  fix_new_ns32k (fragP,
 			 (int) (fragP->fr_fix),
@@ -2062,35 +2093,36 @@ md_estimate_size_before_relax (fragS *fragP, segT segment)
 			 1,
 			 1,
 			 0,
-			 frag_bsr(fragP), /* Sequent hack.  */
+			 frag_bsr(fragP), /*sequent hack */
 			 frag_opcode_frag (fragP),
 			 frag_opcode_offset (fragP));
 	  fragP->fr_fix += 4;
+#if 0
+	  fragP->fr_opcode[1] = 0xff;
+#endif
 	  frag_wane (fragP);
-	  return 4;
+	  break;
 	}
-
-      /* Relaxable case.  Set up the initial guess for the variable
-	 part of the frag.  */
-      fragP->fr_subtype = IND (BRANCH, BYTE);
+    case IND (BRANCH, BYTE):
+      fragP->fr_var += 1;
+      break;
+    default:
+      break;
     }
 
-  if (fragP->fr_subtype >= sizeof (md_relax_table) / sizeof (md_relax_table[0]))
-    abort ();
-
-  /* Return the size of the variable part of the frag.  */
-  return md_relax_table[fragP->fr_subtype].rlx_length;
+  return fragP->fr_var + fragP->fr_fix - old_fix;
 }
 
 int md_short_jump_size = 3;
 int md_long_jump_size = 5;
+const int md_reloc_size = 8;	/* Size of relocation record.  */
 
 void
-md_create_short_jump (char *ptr,
-		      addressT from_addr,
-		      addressT to_addr,
-		      fragS *frag ATTRIBUTE_UNUSED,
-		      symbolS *to_symbol ATTRIBUTE_UNUSED)
+md_create_short_jump (ptr, from_addr, to_addr, frag, to_symbol)
+     char *ptr;
+     addressT from_addr, to_addr;
+     fragS *frag;
+     symbolS *to_symbol;
 {
   valueT offset;
 
@@ -2100,11 +2132,11 @@ md_create_short_jump (char *ptr,
 }
 
 void
-md_create_long_jump (char *ptr,
-		     addressT from_addr,
-		     addressT to_addr,
-		     fragS *frag ATTRIBUTE_UNUSED,
-		     symbolS *to_symbol ATTRIBUTE_UNUSED)
+md_create_long_jump (ptr, from_addr, to_addr, frag, to_symbol)
+     char *ptr;
+     addressT from_addr, to_addr;
+     fragS *frag;
+     symbolS *to_symbol;
 {
   valueT offset;
 
@@ -2113,19 +2145,19 @@ md_create_long_jump (char *ptr,
   md_number_to_disp (ptr + 1, (valueT) offset, 4);
 }
 
-const char *md_shortopts = "m:";
+CONST char *md_shortopts = "m:";
 
 struct option md_longopts[] =
 {
-#define OPTION_DISP_SIZE (OPTION_MD_BASE)
-  {"disp-size-default", required_argument , NULL, OPTION_DISP_SIZE},
   {NULL, no_argument, NULL, 0}
 };
 
 size_t md_longopts_size = sizeof (md_longopts);
 
 int
-md_parse_option (int c, char *arg)
+md_parse_option (c, arg)
+     int c;
+     char *arg;
 {
   switch (c)
     {
@@ -2142,24 +2174,10 @@ md_parse_option (int c, char *arg)
 	}
       else
 	{
-	  as_warn (_("invalid architecture option -m%s, ignored"), arg);
+	  as_bad (_("invalid architecture option -m%s"), arg);
 	  return 0;
 	}
       break;
-    case OPTION_DISP_SIZE:
-      {
-	int size = atoi(arg);
-	switch (size)
-	  {
-	  case 1: case 2: case 4:
-	    default_disp_size = size;
-	    break;
-	  default:
-	    as_warn (_("invalid default displacement size \"%s\". Defaulting to %d."),
-		     arg, default_disp_size);
-	  }
-	break;
-      }
 
     default:
       return 0;
@@ -2169,21 +2187,118 @@ md_parse_option (int c, char *arg)
 }
 
 void
-md_show_usage (FILE *stream)
+md_show_usage (stream)
+     FILE *stream;
 {
   fprintf (stream, _("\
 NS32K options:\n\
--m32032 | -m32532	select variant of NS32K architecture\n\
---disp-size-default=<1|2|4>\n"));
+-m32032 | -m32532	select variant of NS32K architecture\n"));
 }
 
+/* Create a bit_fixS in obstack 'notes'.
+   This struct is used to profile the normal fix. If the bit_fixP is a
+   valid pointer (not NULL) the bit_fix data will be used to format
+   the fix.  */
+
+bit_fixS *
+bit_fix_new (size, offset, min, max, add, base_type, base_adj)
+     char size;			/* Length of bitfield		*/
+     char offset;		/* Bit offset to bitfield	*/
+     long min;			/* Signextended min for bitfield */
+     long max;			/* Signextended max for bitfield */
+     long add;			/* Add mask, used for huffman prefix */
+     long base_type;		/* 0 or 1, if 1 it's exploded to opcode ptr */
+     long base_adj;
+{
+  register bit_fixS *bit_fixP;
+
+  bit_fixP = (bit_fixS *) obstack_alloc (&notes, sizeof (bit_fixS));
+
+  bit_fixP->fx_bit_size = size;
+  bit_fixP->fx_bit_offset = offset;
+  bit_fixP->fx_bit_base = base_type;
+  bit_fixP->fx_bit_base_adj = base_adj;
+  bit_fixP->fx_bit_max = max;
+  bit_fixP->fx_bit_min = min;
+  bit_fixP->fx_bit_add = add;
+
+  return (bit_fixP);
+}
+
+void
+fix_new_ns32k (frag, where, size, add_symbol, offset, pcrel,
+	       im_disp, bit_fixP, bsr, opcode_frag, opcode_offset)
+     fragS *frag;		/* Which frag? */
+     int where;			/* Where in that frag? */
+     int size;			/* 1, 2  or 4 usually.  */
+     symbolS *add_symbol;	/* X_add_symbol.  */
+     long offset;		/* X_add_number.  */
+     int pcrel;			/* TRUE if PC-relative relocation.  */
+     char im_disp;		/* true if the value to write is a
+				   displacement */
+     bit_fixS *bit_fixP;	/* pointer at struct of bit_fix's, ignored if
+				   NULL */
+     char bsr;			/* sequent-linker-hack: 1 when relocobject is
+				   a bsr */
+     fragS *opcode_frag;
+     unsigned int opcode_offset;
+{
+  fixS *fixP = fix_new (frag, where, size, add_symbol,
+			offset, pcrel,
+#ifdef BFD_ASSEMBLER
+			bit_fixP ? NO_RELOC : reloc (size, pcrel, im_disp)
+#else
+			NO_RELOC
+#endif
+			);
+
+  fix_opcode_frag (fixP) = opcode_frag;
+  fix_opcode_offset (fixP) = opcode_offset;
+  fix_im_disp (fixP) = im_disp;
+  fix_bsr (fixP) = bsr;
+  fix_bit_fixP (fixP) = bit_fixP;
+}
+
+void
+fix_new_ns32k_exp (frag, where, size, exp, pcrel,
+		   im_disp, bit_fixP, bsr, opcode_frag, opcode_offset)
+     fragS *frag;		/* Which frag? */
+     int where;			/* Where in that frag? */
+     int size;			/* 1, 2  or 4 usually.  */
+     expressionS *exp;		/* Expression.  */
+     int pcrel;			/* TRUE if PC-relative relocation.  */
+     char im_disp;		/* true if the value to write is a
+				   displacement */
+     bit_fixS *bit_fixP;	/* pointer at struct of bit_fix's, ignored if
+				   NULL */
+     char bsr;			/* sequent-linker-hack: 1 when relocobject is
+				   a bsr */
+     fragS *opcode_frag;
+     unsigned int opcode_offset;
+{
+  fixS *fixP = fix_new_exp (frag, where, size, exp, pcrel,
+#ifdef BFD_ASSEMBLER
+			    bit_fixP ? NO_RELOC : reloc (size, pcrel, im_disp)
+#else
+			    NO_RELOC
+#endif
+			    );
+
+  fix_opcode_frag (fixP) = opcode_frag;
+  fix_opcode_offset (fixP) = opcode_offset;
+  fix_im_disp (fixP) = im_disp;
+  fix_bsr (fixP) = bsr;
+  fix_bit_fixP (fixP) = bit_fixP;
+}
+
 /* This is TC_CONS_FIX_NEW, called by emit_expr in read.c.  */
 
 void
-cons_fix_new_ns32k (fragS *frag,	/* Which frag? */
-		    int where,		/* Where in that frag? */
-		    int size,		/* 1, 2  or 4 usually.  */
-		    expressionS *exp)	/* Expression.  */
+cons_fix_new_ns32k (frag, where, size, exp)
+     fragS *frag;		/* Which frag? */
+     int where;			/* Where in that frag? */
+     int size;			/* 1, 2  or 4 usually.  */
+     expressionS *exp;		/* Expression.  */
 {
   fix_new_ns32k_exp (frag, where, size, exp,
 		     0, 2, 0, 0, 0, 0);
@@ -2192,7 +2307,8 @@ cons_fix_new_ns32k (fragS *frag,	/* Which frag? */
 /* We have no need to default values of symbols.  */
 
 symbolS *
-md_undefined_symbol (char *name ATTRIBUTE_UNUSED)
+md_undefined_symbol (name)
+     char *name;
 {
   return 0;
 }
@@ -2200,7 +2316,9 @@ md_undefined_symbol (char *name ATTRIBUTE_UNUSED)
 /* Round up a section size to the appropriate boundary.  */
 
 valueT
-md_section_align (segT segment ATTRIBUTE_UNUSED, valueT size)
+md_section_align (segment, size)
+     segT segment;
+     valueT size;
 {
   return size;			/* Byte alignment is fine.  */
 }
@@ -2209,10 +2327,10 @@ md_section_align (segT segment ATTRIBUTE_UNUSED, valueT size)
    ns32k, they're relative to the start of the instruction.  */
 
 long
-md_pcrel_from (fixS *fixP)
+md_pcrel_from (fixP)
+     fixS *fixP;
 {
   long res;
-
   res = fixP->fx_where + fixP->fx_frag->fr_address;
 #ifdef SEQUENT_COMPATABILITY
   if (frag_bsr (fixP->fx_frag))
@@ -2221,16 +2339,20 @@ md_pcrel_from (fixS *fixP)
       return res;
 }
 
+#ifdef BFD_ASSEMBLER
+
 arelent *
-tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
+tc_gen_reloc (section, fixp)
+     asection *section;
+     fixS *fixp;
 {
   arelent *rel;
   bfd_reloc_code_real_type code;
 
   code = reloc (fixp->fx_size, fixp->fx_pcrel, fix_im_disp (fixp));
 
-  rel = xmalloc (sizeof (arelent));
-  rel->sym_ptr_ptr = xmalloc (sizeof (asymbol *));
+  rel = (arelent *) xmalloc (sizeof (arelent));
+  rel->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
   *rel->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
   rel->address = fixp->fx_frag->fr_address + fixp->fx_where;
   if (fixp->fx_pcrel)
@@ -2252,3 +2374,40 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
 
   return rel;
 }
+#else /* BFD_ASSEMBLER */
+
+#ifdef OBJ_AOUT
+void
+cons_fix_new_ns32k (where, fixP, segment_address_in_file)
+     char *where;
+     struct fix *fixP;
+     relax_addressT segment_address_in_file;
+{
+  /* In:  Length of relocation (or of address) in chars: 1, 2 or 4.
+     Out: GNU LD relocation length code: 0, 1, or 2.  */
+
+  static unsigned char nbytes_r_length[] = { 42, 0, 1, 42, 2 };
+  long r_symbolnum;
+
+  know (fixP->fx_addsy != NULL);
+
+  md_number_to_chars (where,
+       fixP->fx_frag->fr_address + fixP->fx_where - segment_address_in_file,
+		      4);
+
+  r_symbolnum = (S_IS_DEFINED (fixP->fx_addsy)
+		 ? S_GET_TYPE (fixP->fx_addsy)
+		 : fixP->fx_addsy->sy_number);
+
+  md_number_to_chars (where + 4,
+		      ((long) (r_symbolnum)
+		       | (long) (fixP->fx_pcrel << 24)
+		       | (long) (nbytes_r_length[fixP->fx_size] << 25)
+		       | (long) ((!S_IS_DEFINED (fixP->fx_addsy)) << 27)
+		       | (long) (fix_bsr (fixP) << 28)
+		       | (long) (fix_im_disp (fixP) << 29)),
+		      4);
+}
+
+#endif /* OBJ_AOUT */
+#endif /* BFD_ASSMEBLER */
