@@ -1,8 +1,7 @@
 #!/bin/sh
 # mkvers.sh - Make version information for cygwin DLL
 #
-#   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2010, 2012 Red Hat,
-#   Inc.
+#   Copyright 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 #
 # This file is part of Cygwin.
 #
@@ -15,23 +14,9 @@ exec 9> version.cc
 #
 # Arg 1 is the name of the version include file
 #
-incfile="$1"; shift
-rcfile="$1"; shift
-windres="$1"; shift
-iflags=
-# Find header file locations
-while [ -n "$*" ]; do
-    case "$1" in
-	-I*)
-	    iflags="$iflags $1"
-	    ;;
-	-idirafter)
-	    shift
-	    iflags="$iflags -I$1"
-	    ;;
-    esac
-    shift
-done
+incfile="$1"
+rcfile="$2"
+windres="$3"
 
 [ -r $incfile ] || {
     echo "**** Couldn't open file '$incfile'.  Aborting."
@@ -40,13 +25,36 @@ done
 #
 # Load the current date so we can work on individual fields
 #
-set -$- $(date +"%m %d %Y %H:%M")
-m=$1 d=$2 y=$3 hhmm=$4
+build_date=`date`
+set -$- $build_date
+#
+# Translate the month into a number
+#
+case "$2" in
+    Jan) m=01 ;;
+    Feb) m=02 ;;
+    Mar) m=03 ;;
+    Apr) m=04 ;;
+    May) m=05 ;;
+    Jun) m=06 ;;
+    Jul) m=07 ;;
+    Aug) m=08 ;;
+    Sep) m=09 ;;
+    Oct) m=10 ;;
+    Nov) m=11 ;;
+    Dec) m=12 ;;
+esac
+
+if [ "$3" -le 10 ]; then
+    d=0$3
+else
+    d=$3
+fi
+hhmm="`echo $4 | sed 's/:..$//'`"
 #
 # Set date into YYYY-MM-DD HH:MM:SS format
 #
-builddate="$y-$m-$d $hhmm"
-echo "$builddate"
+builddate="${6-$5}-$m-$d $hhmm"
 
 set -$- ''
 
@@ -76,7 +84,7 @@ fn=`basename $incfile`
 # if it exists, will contain the name of the sticky tag associated with
 # the current build.  Save that for output later.
 #
-cvs_tag="`sed -e '/dontuse/d' -e 's%^.\(.*\)%\1%' $dir/CVS/Tag 2>/dev/null`"
+cvs_tag="`sed 's%^.\(.*\)%\1%' $dir/CVS/Tag 2>/dev/null`"
 
 wv_cvs_tag="$cvs_tag"
 [ -n "$cvs_tag" ] && cvs_tag=" CVS tag"'
@@ -166,4 +174,4 @@ fi
 
 echo "Version $cygwin_ver"
 set -$- $builddate
-$windres $iflags --define CYGWIN_BUILD_DATE="$1" --define CYGWIN_BUILD_TIME="$2" --define CYGWIN_VERSION='"'"$cygwin_ver"'"' $rcfile winver.o
+$windres --include-dir $dir/../w32api/include --include-dir $dir/include --define CYGWIN_BUILD_DATE="$1" --define CYGWIN_BUILD_TIME="$2" --define CYGWIN_VERSION='"'"$cygwin_ver"'"' $rcfile winver.o
