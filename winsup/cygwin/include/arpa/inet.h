@@ -1,6 +1,6 @@
 /* arpa/inet.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2005 Red Hat, Inc.
+   Copyright 1997, 1998, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -26,8 +26,6 @@ struct in_addr inet_makeaddr (unsigned long , unsigned long);
 in_addr_t inet_netof (struct in_addr);
 in_addr_t inet_network (const char *);
 char *inet_ntoa (struct in_addr);
-int inet_pton (int, const char *, void *);
-const char *inet_ntop (int, const void *, char *, socklen_t);
 #endif
 
 #ifdef __cplusplus
