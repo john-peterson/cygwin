@@ -1,4 +1,4 @@
-# Host-dependent settings for FreeBSD/sparc64.
+# Target-dependent settings for FreeBSD/sparc64.
 #  Copyright 2002 Free Software Foundation, Inc.
 #  Contributed by David E. O'Brien <obrien@FreeBSD.org>.
 #
@@ -18,8 +18,6 @@
 #  along with this program; if not, write to the Free Software
 #  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-# Host: FreeBSD/sparc64
-NATDEPFILES= sparc-nat.o \
-	corelow.o fork-child.o infptrace.o inftarg.o \
-	solib.o solib-svr4.o solib-legacy.o
-NAT_FILE= nm-fbsd.h
+# Target: FreeBSD/sparc64
+TDEPFILES= sparc-tdep.o solib.o solib-svr4.o solib-legacy.o 
+TM_FILE= tm-fbsd.h
