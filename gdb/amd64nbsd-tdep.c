@@ -1,12 +1,12 @@
 /* Target-dependent code for NetBSD/amd64.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,50 +15,35 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "arch-utils.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "osabi.h"
-#include "symtab.h"
 
 #include "gdb_assert.h"
 
-#include "amd64-tdep.h"
 #include "nbsd-tdep.h"
-#include "solib-svr4.h"
+#include "x86-64-tdep.h"
 
 /* Support for signal handlers.  */
 
-/* Return whether THIS_FRAME corresponds to a NetBSD sigtramp
-   routine.  */
-
-static int
-amd64nbsd_sigtramp_p (struct frame_info *this_frame)
-{
-  CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
-
-  find_pc_partial_function (pc, &name, NULL, NULL);
-  return nbsd_pc_in_sigtramp (pc, name);
-}
-
-/* Assuming THIS_FRAME corresponds to a NetBSD sigtramp routine,
-   return the address of the associated mcontext structure.  */
+/* Assuming NEXT_FRAME is for a frame following a BSD sigtramp
+   routine, return the address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-amd64nbsd_mcontext_addr (struct frame_info *this_frame)
+amd64nbsd_sigcontext_addr (struct frame_info *next_frame)
 {
-  CORE_ADDR addr;
+  CORE_ADDR sp;
 
-  /* The register %r15 points at `struct ucontext' upon entry of a
+  /* The stack pointer points at `struct sigcontext' upon entry of a
      signal trampoline.  */
-  addr = get_frame_register_unsigned (this_frame, AMD64_R15_REGNUM);
-
-  /* The mcontext structure lives as offset 56 in `struct ucontext'.  */
-  return addr + 56;
+  sp = frame_unwind_register_unsigned (next_frame, X86_64_RSP_REGNUM);
+  return sp;
 }
 
 /* NetBSD 2.0 or later.  */
@@ -77,7 +62,7 @@ int amd64nbsd_r_reg_offset[] =
   0 * 8,			/* %rdi */
   12 * 8,			/* %rbp */
   24 * 8,			/* %rsp */
-  4 * 8,			/* %r8 ..  */
+  4 * 8,			/* %r8 .. */
   5 * 8,
   6 * 8,
   7 * 8,
@@ -87,8 +72,6 @@ int amd64nbsd_r_reg_offset[] =
   11 * 8,			/* ... %r15 */
   21 * 8,			/* %rip */
   23 * 8,			/* %eflags */
-  22 * 8,			/* %cs */
-  25 * 8,			/* %ss */
   18 * 8,			/* %ds */
   17 * 8,			/* %es */
   16 * 8,			/* %fs */
@@ -99,25 +82,36 @@ static void
 amd64nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+  int *sc_reg_offset;
+  int i;
 
   /* Initialize general-purpose register set details first.  */
   tdep->gregset_reg_offset = amd64nbsd_r_reg_offset;
   tdep->gregset_num_regs = ARRAY_SIZE (amd64nbsd_r_reg_offset);
   tdep->sizeof_gregset = 26 * 8;
 
-  amd64_init_abi (info, gdbarch);
+  x86_64_init_abi (info, gdbarch);
 
   tdep->jb_pc_offset = 7 * 8;
 
   /* NetBSD has its own convention for signal trampolines.  */
-  tdep->sigtramp_p = amd64nbsd_sigtramp_p;
-  tdep->sigcontext_addr = amd64nbsd_mcontext_addr;
-  tdep->sc_reg_offset = amd64nbsd_r_reg_offset;
-  tdep->sc_num_regs = ARRAY_SIZE (amd64nbsd_r_reg_offset);
+  set_gdbarch_pc_in_sigtramp (gdbarch, nbsd_pc_in_sigtramp);
 
-  /* NetBSD uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
+  /* Initialize the array with register offsets in `struct
+     sigcontext'.  This `struct sigcontext' has an sc_mcontext member
+     at offset 32, and in <machine/reg.h> we have an explicit comment
+     saying that `struct reg' is the same as mcontext.__gregs.  */
+  tdep->sc_num_regs = ARRAY_SIZE (amd64nbsd_r_reg_offset);
+  tdep->sc_reg_offset = XCALLOC (tdep->sc_num_regs, int);
+  for (i = 0; i < tdep->sc_num_regs; i++)
+    {
+      if (amd64nbsd_r_reg_offset[i] < 0)
+	tdep->sc_reg_offset[i] = -1;
+      else
+	tdep->sc_reg_offset[i] = 32 + amd64nbsd_r_reg_offset[i];
+    }
+
+  tdep->sigcontext_addr = amd64nbsd_sigcontext_addr;
 }
 
 
@@ -125,10 +119,10 @@ amd64nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 void _initialize_amd64nbsd_tdep (void);
 
 void
-_initialize_amd64nbsd_tdep (void)
+_initialize_amd64nbsd_ndep (void)
 {
   /* The NetBSD/amd64 native dependent code makes this assumption.  */
-  gdb_assert (ARRAY_SIZE (amd64nbsd_r_reg_offset) == AMD64_NUM_GREGS);
+  gdb_assert (ARRAY_SIZE (amd64nbsd_r_reg_offset) == X86_64_NUM_GREGS);
 
   gdbarch_register_osabi (bfd_arch_i386, bfd_mach_x86_64,
 			  GDB_OSABI_NETBSD_ELF, amd64nbsd_init_abi);
