@@ -1,41 +1,33 @@
-/* savestring.c - function version of savestring for backwards compatibility */
+/* savestring.c  */
 
-/* Copyright (C) 1998,2003 Free Software Foundation, Inc.
+/* Copyright (C) 1998 Free Software Foundation, Inc.
 
-   This file is part of the GNU Readline Library (Readline), a library
-   for reading lines of text with interactive input and history editing.      
+   This file is part of the GNU Readline Library, a library for
+   reading lines of text with interactive input and history editing.
 
-   Readline is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
+   The GNU Readline Library is free software; you can redistribute it
+   and/or modify it under the terms of the GNU General Public License
+   as published by the Free Software Foundation; either version 1, or
    (at your option) any later version.
 
-   Readline is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   The GNU Readline Library is distributed in the hope that it will be
+   useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+   of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with Readline.  If not, see <http://www.gnu.org/licenses/>.
-*/
+   The GNU General Public License is often shipped with GNU software, and
+   is generally kept in a file called COPYING or LICENSE.  If you do not
+   have a copy of the license, write to the Free Software Foundation,
+   675 Mass Ave, Cambridge, MA 02139, USA. */
 
-#define READLINE_LIBRARY
-
-#include <config.h>
-#ifdef HAVE_STRING_H
-#  include <string.h>
-#endif
-#include "xmalloc.h"
+extern char *strcpy ();
+extern char *xmalloc ();
 
 /* Backwards compatibility, now that savestring has been removed from
    all `public' readline header files. */
 char *
 savestring (s)
-     const char *s;
+     char *s;
 {
-  char *ret;
-
-  ret = (char *)xmalloc (strlen (s) + 1);
-  strcpy (ret, s);
-  return ret;
+  return ((char *)strcpy (xmalloc (1 + (int)strlen (s)), (s)));
 }
