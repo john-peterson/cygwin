@@ -1,33 +1,30 @@
 /* Disassemble SH64 instructions.
-   Copyright 2000, 2001, 2002, 2003, 2005, 2007, 2012
-   Free Software Foundation, Inc.
+   Copyright (C) 2000, 2001 Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
-
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include <stdio.h>
+
 #include "dis-asm.h"
+#include "sysdep.h"
 #include "sh64-opc.h"
 #include "libiberty.h"
+
 /* We need to refer to the ELF header structure.  */
 #include "elf-bfd.h"
 #include "elf/sh.h"
-#include "elf32-sh64.h"
 
 #define ELF_MODE32_CODE_LABEL_P(SYM) \
  (((elf_symbol_type *) (SYM))->internal_elf_sym.st_other & STO_SH5_ISA32)
@@ -51,16 +48,23 @@ struct sh64_disassemble_info
  };
 
 /* Each item in the table is a mask to indicate which bits to be set
-   to determine an instruction's operator.
+   to determine an instruction's operator. 
    The index is as same as the instruction in the opcode table.
    Note that some archs have this as a field in the opcode table.  */
 static unsigned long *shmedia_opcode_mask_table;
+
+static void initialize_shmedia_opcode_mask_table PARAMS ((void));
+static int print_insn_shmedia PARAMS ((bfd_vma, disassemble_info *));
+static const char *creg_name PARAMS ((int));
+static boolean init_sh64_disasm_info PARAMS ((struct disassemble_info *));
+static enum sh64_elf_cr_type sh64_get_contents_type_disasm
+  PARAMS ((bfd_vma, struct disassemble_info *));
 
 /* Initialize the SH64 opcode mask table for each instruction in SHmedia
    mode.  */
 
 static void
-initialize_shmedia_opcode_mask_table (void)
+initialize_shmedia_opcode_mask_table ()
 {
   int n_opc;
   int n;
@@ -82,7 +86,7 @@ initialize_shmedia_opcode_mask_table (void)
 	{
 	  int offset = shmedia_table[n].nibbles[i];
 	  int length;
-
+	  
 	  switch (shmedia_table[n].arg[i])
 	    {
 	    case A_GREG_M:
@@ -114,7 +118,7 @@ initialize_shmedia_opcode_mask_table (void)
 	      length = 3;
 	      break;
 
-	    case A_IMMM:
+	    case A_IMMM:	
 	      abort ();
 	      break;
 
@@ -158,16 +162,19 @@ initialize_shmedia_opcode_mask_table (void)
 
 /* Get a predefined control-register-name, or return NULL.  */
 
-static const char *
-creg_name (int cregno)
+const char *
+creg_name (cregno)
+     int cregno;
 {
   const shmedia_creg_info *cregp;
 
   /* If control register usage is common enough, change this to search a
      hash-table.  */
   for (cregp = shmedia_creg_table; cregp->name != NULL; cregp++)
-    if (cregp->cregno == cregno)
-      return cregp->name;
+    {
+      if (cregp->cregno == cregno)
+	return cregp->name;
+    }
 
   return NULL;
 }
@@ -175,10 +182,13 @@ creg_name (int cregno)
 /* Main function to disassemble SHmedia instructions.  */
 
 static int
-print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
+print_insn_shmedia (memaddr, info)
+     bfd_vma memaddr;
+     struct disassemble_info *info;
 {
   fprintf_ftype fprintf_fn = info->fprintf_func;
   void *stream = info->stream;
+
   unsigned char insn[4];
   unsigned long instruction;
   int status;
@@ -195,6 +205,8 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
      can get as .byte:s.  */
   if (status != 0)
     {
+      int i;
+
       for (i = 0; i < 3; i++)
 	{
 	  status = info->read_memory_func (memaddr + i, insn, 1, info);
@@ -225,7 +237,7 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
   /* FIXME: We should also check register number constraints.  */
   if (op->name == NULL)
     {
-      fprintf_fn (stream, ".long 0x%08lx", instruction);
+      fprintf_fn (stream, ".long 0x%08x", instruction);
       return 4;
     }
 
@@ -276,7 +288,6 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	case A_CREG_J:
 	  {
 	    const char *name;
-
 	    r = temp & 0x3f;
 
 	    name = creg_name (r);
@@ -313,7 +324,7 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	  imm = temp & 0x3f;
 	  if (imm & (unsigned long) 0x20)
 	    imm |= ~(unsigned long) 0x3f;
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	  /* A signed 6-bit number, multiplied by 32 when used.  */
@@ -321,7 +332,7 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	  imm = temp & 0x3f;
 	  if (imm & (unsigned long) 0x20)
 	    imm |= ~(unsigned long) 0x3f;
-	  fprintf_fn (stream, "%ld", imm * 32);
+	  fprintf_fn (stream, "%d", imm * 32);
 	  break;
 
 	  /* A signed 10-bit number, multiplied by 8 when used.  */
@@ -346,7 +357,7 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	  if (imm & (unsigned long) 0x200)
 	    imm |= ~(unsigned long) 0x3ff;
 	  imm <<= by_number;
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	  /* A signed 16-bit number.  */
@@ -354,7 +365,7 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	  imm = temp & 0xffff;
 	  if (imm & (unsigned long) 0x8000)
 	    imm |= ~((unsigned long) 0xffff);
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	  /* A PC-relative signed 16-bit number, multiplied by 4 when
@@ -371,19 +382,19 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
 	  /* An unsigned 5-bit number.  */
 	case A_IMMU5:
 	  imm = temp & 0x1f;
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	  /* An unsigned 6-bit number.  */
 	case A_IMMU6:
 	  imm = temp & 0x3f;
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	  /* An unsigned 16-bit number.  */
 	case A_IMMU16:
 	  imm = temp & 0xffff;
-	  fprintf_fn (stream, "%ld", imm);
+	  fprintf_fn (stream, "%d", imm);
 	  break;
 
 	default:
@@ -445,7 +456,9 @@ print_insn_shmedia (bfd_vma memaddr, struct disassemble_info *info)
    no section is available.  */
 
 static enum sh64_elf_cr_type
-sh64_get_contents_type_disasm (bfd_vma memaddr, struct disassemble_info *info)
+sh64_get_contents_type_disasm (memaddr, info)
+     bfd_vma memaddr;
+     struct disassemble_info *info;
 {
   struct sh64_disassemble_info *sh64_infop = info->private_data;
 
@@ -498,14 +511,15 @@ sh64_get_contents_type_disasm (bfd_vma memaddr, struct disassemble_info *info)
 
 /* Initialize static and dynamic disassembly state.  */
 
-static bfd_boolean
-init_sh64_disasm_info (struct disassemble_info *info)
+static boolean
+init_sh64_disasm_info (info)
+     struct disassemble_info *info;
 {
   struct sh64_disassemble_info *sh64_infop
     = calloc (sizeof (*sh64_infop), 1);
 
   if (sh64_infop == NULL)
-    return FALSE;
+    return false;
 
   info->private_data = sh64_infop;
 
@@ -515,15 +529,17 @@ init_sh64_disasm_info (struct disassemble_info *info)
   if (shmedia_opcode_mask_table == NULL)
     initialize_shmedia_opcode_mask_table ();
 
-  return TRUE;
+  return true;
 }
 
 /* Main entry to disassemble SHmedia instructions, given an endian set in
    INFO.  Note that the simulator uses this as the main entry and does not
    use any of the functions further below.  */
 
-int
-print_insn_sh64x_media (bfd_vma memaddr, struct disassemble_info *info)
+int 
+print_insn_sh64x_media (memaddr, info)
+     bfd_vma memaddr;
+     struct disassemble_info *info;
 {
   if (info->private_data == NULL && ! init_sh64_disasm_info (info))
     return -1;
@@ -538,8 +554,10 @@ print_insn_sh64x_media (bfd_vma memaddr, struct disassemble_info *info)
 /* Main entry to disassemble SHmedia insns.
    If we see an SHcompact instruction, return -2.  */
 
-int
-print_insn_sh64 (bfd_vma memaddr, struct disassemble_info *info)
+int 
+print_insn_sh64 (memaddr, info)
+     bfd_vma memaddr;
+     struct disassemble_info *info;
 {
   enum bfd_endian endian = info->endian;
   enum sh64_elf_cr_type cr_type;

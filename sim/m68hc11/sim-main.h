@@ -1,21 +1,22 @@
 /* sim-main.h -- Simulator for Motorola 68HC11 & 68HC12
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
-   Written by Stephane Carrez (stcarrez@nerim.fr)
+   Copyright (C) 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
+   Written by Stephane Carrez (stcarrez@worldnet.fr)
 
 This file is part of GDB, the GNU debugger.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #ifndef _SIM_MAIN_H
 #define _SIM_MAIN_H
@@ -78,8 +79,7 @@ enum cpu_type
 #define A_REGNUM        5
 #define B_REGNUM        6
 #define PSW_REGNUM 	7
-#define PAGE_REGNUM     8
-#define Z_REGNUM        9
+#define Z_REGNUM        8
 
 typedef struct m6811_regs {
     unsigned short      d;
@@ -88,7 +88,6 @@ typedef struct m6811_regs {
     unsigned short      sp;
     unsigned short      pc;
     unsigned char       ccr;
-  unsigned short      page;
 } m6811_regs;
 
 
@@ -107,8 +106,6 @@ extern void print_io_reg_desc (SIM_DESC sd, io_reg_desc *desc, int val,
 			       int mode);
 extern void print_io_byte (SIM_DESC sd, const char *name,
 			   io_reg_desc *desc, uint8 val, uint16 addr);
-extern void print_io_word (SIM_DESC sd, const char *name,
-			   io_reg_desc *desc, uint16 val, uint16 addr);
 
 
 /* List of special 68HC11&68HC12 instructions that are not handled by the
@@ -129,7 +126,6 @@ enum M6811_Special
   /* 68HC12 instructions.  */
   M6812_BGND,
   M6812_CALL,
-  M6812_CALL_INDIRECT,
   M6812_IDIVS,
   M6812_EDIV,
   M6812_EDIVS,
@@ -199,7 +195,6 @@ struct _sim_cpu {
 
   /* The mode in which the CPU is configured (MODA and MODB pins).  */
   unsigned int          cpu_mode;
-  const char*           cpu_start_mode;
 
   /* The cpu being configured.  */
   enum cpu_type         cpu_type;
@@ -209,14 +204,6 @@ struct _sim_cpu {
   uint8                 cpu_use_local_config;
   
   uint8                 ios[MAX_PORTS];
-
-  /* Memory bank parameters which describe how the memory bank window
-     is mapped in memory and how to convert it in virtual address.  */
-  uint16                bank_start;
-  uint16                bank_end;
-  address_word          bank_virtual;
-  unsigned              bank_shift;
-  
 
   struct hw            *hw_cpu;
 
@@ -245,7 +232,6 @@ struct _sim_cpu {
 #define cpu_get_sp(PROC)           ((PROC)->cpu_regs.sp)
 #define cpu_get_a(PROC)            ((PROC->cpu_regs.d >> 8) & 0x0FF)
 #define cpu_get_b(PROC)            ((PROC->cpu_regs.d) & 0x0FF)
-#define cpu_get_page(PROC)         ((PROC)->cpu_regs.page)
 
 /* 68HC12 specific and Motorola internal registers.  */
 #define cpu_get_tmp3(PROC)         (0)
@@ -254,11 +240,10 @@ struct _sim_cpu {
 #define cpu_set_d(PROC,VAL)        (((PROC)->cpu_regs.d) = (VAL))
 #define cpu_set_x(PROC,VAL)        (((PROC)->cpu_regs.ix) = (VAL))
 #define cpu_set_y(PROC,VAL)        (((PROC)->cpu_regs.iy) = (VAL))
-#define cpu_set_page(PROC,VAL)     (((PROC)->cpu_regs.page) = (VAL))
 
 /* 68HC12 specific and Motorola internal registers.  */
 #define cpu_set_tmp3(PROC,VAL)     (0)
-#define cpu_set_tmp2(PROC,VAL)     (void) (0)
+#define cpu_set_tmp2(PROC,VAL)     (0)
 
 #if 0
 /* This is a function in m68hc11_sim.c to keep track of the frame.  */
@@ -302,22 +287,11 @@ extern void cpu_memory_exception (struct _sim_cpu *proc,
                                   uint16 addr,
                                   const char *message);
 
-inline address_word
-phys_to_virt (sim_cpu *cpu, address_word addr)
-{
-  if (addr >= cpu->bank_start && addr < cpu->bank_end)
-    return ((address_word) (addr - cpu->bank_start)
-            + (((address_word) cpu->cpu_regs.page) << cpu->bank_shift)
-            + cpu->bank_virtual);
-  else
-    return (address_word) (addr);
-}
-
 inline uint8
 memory_read8 (sim_cpu *cpu, uint16 addr)
 {
   uint8 val;
-
+  
   if (sim_core_read_buffer (CPU_STATE (cpu), cpu, 0, &val, addr, 1) != 1)
     {
       cpu_memory_exception (cpu, SIM_SIGSEGV, addr,
@@ -340,7 +314,7 @@ inline uint16
 memory_read16 (sim_cpu *cpu, uint16 addr)
 {
   uint8 b[2];
-
+  
   if (sim_core_read_buffer (CPU_STATE (cpu), cpu, 0, b, addr, 2) != 2)
     {
       cpu_memory_exception (cpu, SIM_SIGSEGV, addr,
@@ -549,11 +523,6 @@ extern void cpu_info (SIM_DESC sd, sim_cpu *proc);
 
 extern int cpu_initialize (SIM_DESC sd, sim_cpu *cpu);
 
-/* Returns the address of a 68HC12 indexed operand.
-   Pre and post modifications are handled on the source register.  */
-extern uint16 cpu_get_indexed_operand_addr (sim_cpu* cpu, int restrict);
-
-extern void cpu_return (sim_cpu *cpu);
 extern void cpu_set_sp (sim_cpu *cpu, uint16 val);
 extern int cpu_reset (sim_cpu *cpu);
 extern int cpu_restart (sim_cpu *cpu);
@@ -591,9 +560,7 @@ extern void sim_set_profile (int n);
 extern void sim_set_profile_size (int n);
 extern void sim_board_reset (SIM_DESC sd);
 
-#define PRINT_TIME  0x01
-#define PRINT_CYCLE 0x02
-extern const char *cycle_to_string (sim_cpu *cpu, signed64 t, int flags);
+extern const char *cycle_to_string (sim_cpu *cpu, signed64 t);
 
 #endif
 

@@ -1,22 +1,22 @@
 /* Simulation code for the MIPS MDMX ASE.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
-   Contributed by Ed Satterthwaite and Chris Demetriou, of Broadcom
-   Corporation (SiByte).
+   Copyright (C) 2002 Free Software Foundation, Inc.
+   Contributed by Broadcom Corporation (SiByte).
 
 This file is part of GDB, the GNU debugger.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include <stdio.h>
 
@@ -25,11 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 /* Within mdmx.c we refer to the sim_cpu directly. */
 #define CPU cpu
 #define SD  (CPU_STATE(CPU))
-
-/* XXX FIXME: temporary hack while the impact of making unpredictable()
-   a "normal" (non-igen) function is evaluated.  */
-#undef Unpredictable
-#define Unpredictable() unpredictable_action (cpu, cia)
+#define	SD_ cpu, cia, -1
 
 /* MDMX Representations
 
@@ -878,7 +874,7 @@ mdmx_acc_op(sim_cpu *cpu,
 	  ob_vector_acc(ACC.ob, op1, ValueFPR(vt, fmt_mdmx), ob_acc[op]);
 	  break;
 	case sel_imm:
-	  ob_map_acc(ACC.ob, op1, vt, ob_acc[op]);
+	  ob_map_acc(ACC.ob, op1, op2, ob_acc[op]);
 	  break;
 	}
       break;

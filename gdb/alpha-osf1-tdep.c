@@ -1,11 +1,11 @@
 /* Target-dependent code for OSF/1 on Alpha.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,37 +14,41 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "value.h"
-#include "osabi.h"
-#include "gdb_string.h"
-#include "objfiles.h"
 
 #include "alpha-tdep.h"
 
-static int
-alpha_osf1_pc_in_sigtramp (struct gdbarch *gdbarch,
-			   CORE_ADDR pc, const char *func_name)
+/* Under OSF/1, the __sigtramp routine is frameless and has a frame
+   size of zero, but we are able to backtrace through it.  */
+static CORE_ADDR
+alpha_osf1_skip_sigtramp_frame (struct frame_info *frame, CORE_ADDR pc)
 {
-  return (func_name != NULL && strcmp ("__sigtramp", func_name) == 0);
+  char *name;
+
+  find_pc_partial_function (pc, &name, (CORE_ADDR *) NULL, (CORE_ADDR *) NULL);
+  if (PC_IN_SIGTRAMP (pc, name))
+    return frame->frame;
+  return 0;
+}
+
+static int
+alpha_osf1_pc_in_sigtramp (CORE_ADDR pc, char *func_name)
+{
+  return (func_name != NULL && STREQ ("__sigtramp", func_name));
 }
 
 static CORE_ADDR
-alpha_osf1_sigcontext_addr (struct frame_info *this_frame)
+alpha_osf1_sigcontext_addr (struct frame_info *frame)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  struct frame_info *next_frame = get_next_frame (this_frame);
-  struct frame_id next_id = null_frame_id;
-  
-  if (next_frame != NULL)
-    next_id = get_frame_id (next_frame);
-
-  return (read_memory_integer (next_id.stack_addr, 8, byte_order));
+  return (read_memory_integer (frame->next ? frame->next->frame
+					   : frame->frame, 8));
 }
 
 static void
@@ -53,27 +57,17 @@ alpha_osf1_init_abi (struct gdbarch_info info,
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
-  /* Hook into the MDEBUG frame unwinder.  */
-  alpha_mdebug_init_abi (info, gdbarch);
+  set_gdbarch_pc_in_sigtramp (gdbarch, alpha_osf1_pc_in_sigtramp);
 
-  /* The next/step support via procfs on OSF1 is broken when running
-     on multi-processor machines.  We need to use software single
-     stepping instead.  */
-  set_gdbarch_software_single_step (gdbarch, alpha_software_single_step);
-
+  tdep->skip_sigtramp_frame = alpha_osf1_skip_sigtramp_frame;
   tdep->sigcontext_addr = alpha_osf1_sigcontext_addr;
-  tdep->pc_in_sigtramp = alpha_osf1_pc_in_sigtramp;
 
   tdep->jb_pc = 2;
   tdep->jb_elt_size = 8;
 }
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_alpha_osf1_tdep;
-
 void
 _initialize_alpha_osf1_tdep (void)
 {
-  gdbarch_register_osabi (bfd_arch_alpha, 0, GDB_OSABI_OSF1,
-			  alpha_osf1_init_abi);
+  gdbarch_register_osabi (bfd_arch_alpha, GDB_OSABI_OSF1, alpha_osf1_init_abi);
 }
