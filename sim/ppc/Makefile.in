@@ -5,7 +5,7 @@
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
-#   the Free Software Foundation; either version 3 of the License, or
+#   the Free Software Foundation; either version 2 of the License, or
 #   (at your option) any later version.
 #
 #   This program is distributed in the hope that it will be useful,
@@ -14,7 +14,8 @@
 #   GNU General Public License for more details.
 #
 #   You should have received a copy of the GNU General Public License
-#   along with this program; if not, see <http://www.gnu.org/licenses/>.
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #
 
 default: all
@@ -33,7 +34,6 @@ bindir = @bindir@
 libdir = @libdir@
 tooldir = $(libdir)/$(target_alias)
 
-datarootdir = @datarootdir@
 datadir = @datadir@
 mandir = @mandir@
 man1dir = $(mandir)/man1
@@ -63,7 +63,6 @@ AR_FLAGS = rc
 CC = @CC@
 CFLAGS = @CFLAGS@
 CC_FOR_BUILD = @CC_FOR_BUILD@
-CFLAGS_FOR_BUILD = @CFLAGS_FOR_BUILD@
 BISON = bison
 MAKEINFO = makeinfo
 RANLIB = @RANLIB@
@@ -117,10 +116,9 @@ SIM_FPU_CFLAGS = @sim_fpu_cflags@
 
 STD_CFLAGS	= $(CFLAGS) $(INLINE_CFLAGS) $(CONFIG_CFLAGS) $(WARNING_CFLAGS) $(SIM_CFLAGS) $(HDEFINES) $(TDEFINES) $(INCLUDES) $(INTL_CFLAGS) $(SIM_FPU_CFLAGS)
 NOWARN_CFLAGS	= $(CFLAGS) $(INLINE_CFLAGS) $(CONFIG_CFLAGS) $(SIM_CFLAGS) $(HDEFINES) $(TDEFINES) $(INCLUDES)  $(SIM_FPU_CFLAGS)
-BUILD_CFLAGS	= $(CFLAGS_FOR_BUILD) $(INCLUDES) $(WARNING_CFLAGS)
+BUILD_CFLAGS	= -g -O $(INCLUDES) $(WARNING_CFLAGS)
 
 BUILD_LDFLAGS	=
-LIBS = @LIBS@
 
 CONFIG_FILE = @sim_config@
 IGEN_OPCODE_RULES = @sim_opcode@
@@ -149,16 +147,18 @@ MAKEOVERRIDES=
 
 LIB_INCLUDES	= -I$(srcdir)/../../include
 BFD_INCLUDES	= -I../../bfd -I$(srcdir)/../../bfd
-GDB_INCLUDES	= -I../../gdb -I$(srcdir)/../../gdb  -I$(srcdir)/../../gdb/config
+GDB_INCLUDES	= -I../../gdb -I$(srcdir)/../../gdb  -I$(srcdir)/../../gdb/config -I$(srcdir)/../../mmalloc
 
 INCLUDES	= -I. -I$(srcdir) $(LIB_INCLUDES) $(BFD_INCLUDES) $(GDB_INCLUDES)
 
 LIBIBERTY_LIB	= ../../libiberty/libiberty.a
 BFD_LIB		= ../../bfd/libbfd.a
 
-LIBINTL = @LIBINTL@
-LIBINTL_DEP = @LIBINTL_DEP@
-INTL_CFLAGS = @INCINTL@
+INTLLIBS = @INTLLIBS@
+INTLDEPS = @INTLDEPS@
+INTL_DIR = ../../intl
+INTL_SRC = $(srcdir)/$(INTL_DIR)
+INTL_CFLAGS = -I$(INTL_DIR) -I$(INTL_SRC)
 
 
 TARGETLIB	= libsim.a
@@ -172,9 +172,9 @@ all:	run $(TARGETLIB) $(GDB_OBJ)
 # Headers outside sim/ppc.
 ANSIDECL_H = $(srcroot)/include/ansidecl.h
 BFD_H = ../../bfd/bfd.h
+DEFS_H = $(srcroot)/gdb/defs.h
 GDB_CALLBACK_H = $(srcroot)/include/gdb/callback.h
 GDB_REMOTE_SIM_H = $(srcroot)/include/gdb/remote-sim.h
-GDB_SIM_PPC_H = $(srcroot)/include/gdb/sim-ppc.h
 COMMON_SIM_BASE_H = $(srcroot)/sim/common/sim-base.h
 COMMON_SIM_BASICS_H = $(srcroot)/sim/common/sim-basics.h
 COMMON_SIM_FPU_H = $(srcroot)/sim/common/sim-fpu.h
@@ -498,7 +498,6 @@ LIB_SRC = \
 
 MAIN_SRC = \
 	main.c \
-	gdb-sim.c \
 	sim_calls.c
 
 
@@ -535,13 +534,12 @@ LIB_OBJ = \
 	support.o \
 	@sim_fpu@ \
 	psim.o \
-	version.o \
 	$(PACKAGE_OBJ) \
 	$(HW_OBJ) \
 	options.o
 
 
-GDB_OBJ = gdb-sim.o sim_calls.o @sim_callback@
+GDB_OBJ = sim_calls.o @sim_callback@
 
 HW_SRC = @sim_hw_src@
 HW_OBJ = @sim_hw_obj@
@@ -550,8 +548,8 @@ PACKAGE_SRC = @sim_pk_src@
 PACKAGE_OBJ = @sim_pk_obj@
 
 
-psim: $(TARGETLIB) main.o $(LIBIBERTY_LIB) $(BFD_LIB) $(LIBS) $(LIBINTL_DEP)
-	$(CC) $(CFLAGS) $(SIM_CFLAGS) $(LDFLAGS) -o psim$(EXEEXT) main.o $(TARGETLIB) $(BFD_LIB) $(LIBINTL) $(LIBIBERTY_LIB) $(LIBS)
+psim: $(TARGETLIB) main.o $(LIBIBERTY_LIB) $(BFD_LIB) $(LIBS) $(INTLDEPS)
+	$(CC) $(CFLAGS) $(SIM_CFLAGS) $(LDFLAGS) -o psim$(EXEEXT) main.o $(TARGETLIB) $(BFD_LIB) $(INTLLIBS) $(LIBIBERTY_LIB) $(LIBS)
 
 run: psim
 	rm -f run$(EXEEXT)
@@ -561,13 +559,6 @@ $(TARGETLIB): tmp-igen tmp-dgen tmp-hw tmp-pk tmp-defines $(LIB_OBJ) $(GDB_OBJ)
 	rm -f $(TARGETLIB)
 	$(AR) $(AR_FLAGS) $(TARGETLIB) $(LIB_OBJ) $(GDB_OBJ)
 	$(RANLIB) $(TARGETLIB)
-
-version.c: Makefile ../../gdb/version.in
-	rm -f version.c-tmp version.c
-	echo '#include "version.h"' >> version.c-tmp
-	echo 'const char version[] = "'"`sed q ${srcdir}/../../gdb/version.in`"'";' >> version.c-tmp
-	mv version.c-tmp version.c
-version.o: version.c $(version_h)
 
 psim.o: psim.c $(CPU_H) $(IDECODE_H) $(OPTIONS_H) $(TREE_H) $(BFD_H)
 
@@ -608,8 +599,6 @@ events.o: events.c $(BASICS_H) $(EVENTS_H)
 
 sim_calls.o: sim_calls.c $(PSIM_H) $(OPTIONS_H) $(DEFS_H) $(BFD_H) $(GDB_CALLBACK_H) $(GDB_REMOTE_SIM_H)
 
-gdb-sim.o: gdb-sim.c $(PSIM_H)  $(OPTIONS_H) $(REGISTERS_H) $(GDB_REMOTE_SIM_H) $(GDB_SIM_PPC_H) $(SIM_CALLBACK_H)
-
 spreg.o: spreg.c $(BASICS_H) $(SPREG_H)
 
 main.o: main.c $(PSIM_H) $(OPTIONS_H) $(DEVICE_H) $(EVENTS_H) $(BFD_H) $(GDB_CALLBACK_H) $(GDB_REMOTE_SIM_H)
@@ -635,7 +624,7 @@ mon.o: mon.c $(BASICS_H) $(CPU_H) $(MON_H)
 # GDB after 4.16 expects the default_callback structure to be setup.
 # As a kludge, build the common stuff here for now.
 gentmap: ../common/gentmap.c Makefile targ-vals.def
-	$(CC_FOR_BUILD) $(BUILD_CFLAGS) -I. -I../common -I$(srcdir)/../common -o gentmap $< $(BUILD_LIBS)
+	$(CC_FOR_BUILD) $(BUILD_FLAGS) -I. -I../common -I$(srcdir)/../common -o gentmap $< $(BUILD_LIBS)
 
 targ-vals.def: $(srcdir)/../common/nltvals.def
 	rm -f targ-vals.def tmp-def
@@ -668,7 +657,6 @@ tconfig.h:
 options.o: options.c $(CPU_H) $(OPTIONS_H) $(DEFINES_H) $(BASICS_H) $(IDECODE_H) $(INLINE) $(LIB_SRC) $(BUILT_SRC) config.status Makefile
 	$(CC) -c $(STD_CFLAGS) '-DOPCODE_RULES="@sim_opcode@"' '-DIGEN_FLAGS="$(IGEN_FLAGS)"' '-DDGEN_FLAGS="$(DGEN_FLAGS)"' $<
 
-defines.h: tmp-defines; @true
 tmp-defines: config.h Makefile
 	sed -n -e '/^#define HAVE_/s/ 1$$/",/' -e '/^#define HAVE_/s//"HAVE_/p' < config.h > tmp-defines.h
 	$(SHELL) $(srcdir)/../../move-if-change tmp-defines.h defines.h
@@ -753,17 +741,17 @@ tmp-filter: filter.c $(MISC_H) misc.o
 
 ld-decode.o: ld-decode.c $(MISC_H) $(LF_H) $(TABLE_H) $(LD_DECODE_H)
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) -c $(srcdir)/ld-decode.c
-tmp-ld-decode: ld-decode.c misc.o lf.o table.o filter_host.o 
+tmp-ld-decode: ld-decode.o misc.o lf.o table.o filter_host.o 
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) $(BUILD_LDFLAGS) -o tmp-ld-decode -DMAIN $(srcdir)/ld-decode.c misc.o lf.o table.o filter_host.o $(BUILD_LIBS)
 
 ld-cache.o: ld-cache.c $(MISC_H) $(LF_H) $(TABLE_H) $(LD_CACHE_H)
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) -c $(srcdir)/ld-cache.c
-tmp-ld-cache: ld-cache.c misc.o lf.o table.o filter_host.o 
+tmp-ld-cache: ld-cache.o misc.o lf.o table.o filter_host.o 
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) $(BUILD_LDFLAGS) -o tmp-ld-cache -DMAIN $(srcdir)/ld-cache.c misc.o lf.o table.o filter_host.o $(BUILD_LIBS)
 
 ld-insn.o: ld-insn.c $(MISC_H) $(LF_H) $(TABLE_H) $(FILTER_H) $(LD_DECODE_H) $(LD_CACHE_H) $(LD_INSN_H) $(IGEN_H)
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) -c $(srcdir)/ld-insn.c
-tmp-ld-insn: ld-insn.c ld-cache.o misc.o lf.o table.o ld-decode.o filter_host.o filter.o
+tmp-ld-insn: ld-insn.o misc.o lf.o table.o ld-decode.o filter_host.o filter.o
 	$(CC_FOR_BUILD) $(BUILD_CFLAGS) $(BUILD_LDFLAGS) -o tmp-ld-insn -DMAIN $(srcdir)/ld-insn.c ld-cache.o misc.o lf.o table.o ld-decode.o filter_host.o filter.o $(BUILD_LIBS)
 
 gen-model.o: gen-model.c $(MISC_H) $(LF_H) $(TABLE_H) $(FILTER_H) $(LD_CACHE_H) $(LD_DECODE_H) $(LD_INSN_H) $(GEN_MODEL_H)
@@ -796,7 +784,6 @@ misc.o: misc.c $(CONFIG_H) $(MISC_H)
 
 
 # real hardware
-hw.c hw.h: tmp-hw; @true
 tmp-hw: Makefile $(HW_SRC) $(srcdir)/../../move-if-change
 	# The first for loop is to remove duplicates.
 	f=""; \
@@ -828,10 +815,8 @@ tmp-hw: Makefile $(HW_SRC) $(srcdir)/../../move-if-change
 	touch tmp-hw
 
 hw_cpu.o: hw_cpu.c $(DEVICE_TABLE_H) $(HW_CPU_H) $(INTERRUPTS_H) $(CPU_H)
-hw_com.o: hw_com.c $(DEVICE_TABLE_H)
 hw_core.o: hw_core.c $(DEVICE_TABLE_H) $(COREFILE_H)
 hw_disk.o: hw_disk.c $(DEVICE_TABLE_H) $(PK_H)
-hw_eeprom.o: hw_eeprom.c $(DEVICE_TABLE_H)
 hw_glue.o: hw_glue.c $(DEVICE_TABLE_H)
 hw_htab.o: hw_htab.c $(DEVICE_TABLE_H) $(BFD_H)
 hw_ide.o: hw_ide.c $(DEVICE_TABLE_H)
@@ -843,8 +828,6 @@ hw_opic.o: hw_opic.c $(DEVICE_TABLE_H)
 hw_pal.o: hw_pal.c $(DEVICE_TABLE_H) $(CPU_H)
 hw_phb.o: hw_phb.c $(DEVICE_TABLE_H) $(HW_PHB_H) $(COREFILE_H)
 hw_register.o: hw_register.c $(DEVICE_TABLE_H) $(PSIM_H)
-hw_sem.o: hw_sem.c $(DEVICE_TABLE_H) $(PSIM_H)
-hw_shm.o: hw_shm.c $(DEVICE_TABLE_H) $(PSIM_H)
 hw_trace.o: hw_trace.c $(DEVICE_TABLE_H)
 hw_vm.o: hw_vm.c $(DEVICE_TABLE_H) $(CPU_H)
 # ignore this line, it stops make from getting confused
@@ -852,7 +835,6 @@ hw_vm.o: hw_vm.c $(DEVICE_TABLE_H) $(CPU_H)
 
 
 # real packages
-pk.h: tmp-pk; @true
 tmp-pk: Makefile $(PACKAGE_SRC) $(srcdir)/../../move-if-change
 	# The first for loop is to remove duplicates.
 	f=""; \
