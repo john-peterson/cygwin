@@ -2,14 +2,13 @@
    of basic-block info to/from gmon.out; computing and formatting of
    basic-block related statistics.
 
-   Copyright 1999, 2000, 2001, 2002, 2004, 2005, 2007
-   Free Software Foundation, Inc.
+   Copyright (C) 2000  Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -19,28 +18,24 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
-#include "gprof.h"
-#include "libiberty.h"
-#include "filenames.h"
+#include <stdio.h>
 #include "basic_blocks.h"
 #include "corefile.h"
 #include "gmon_io.h"
 #include "gmon_out.h"
-#include "search_list.h"
+#include "gprof.h"
+#include "libiberty.h"
 #include "source.h"
-#include "symtab.h"
 #include "sym_ids.h"
-
-static int cmp_bb (const PTR, const PTR);
-static int cmp_ncalls (const PTR, const PTR);
-static void fskip_string (FILE *);
-static void annotate_with_count (char *, unsigned int, int, PTR);
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 
 /* Default option values:  */
-bfd_boolean bb_annotate_all_lines = FALSE;
+bool bb_annotate_all_lines = FALSE;
 unsigned long bb_min_calls = 1;
 int bb_table_length = 10;
 
@@ -54,7 +49,7 @@ static long num_lines_executed;
    number, and address (in that order).  */
 
 static int
-cmp_bb (const PTR lp, const PTR rp)
+DEFUN (cmp_bb, (lp, rp), const void *lp AND const void *rp)
 {
   int r;
   const Sym *left = *(const Sym **) lp;
@@ -62,8 +57,8 @@ cmp_bb (const PTR lp, const PTR rp)
 
   if (left->file && right->file)
     {
-      r = filename_cmp (left->file->name, right->file->name);
-
+      r = strcmp (left->file->name, right->file->name);
+      
       if (r)
 	return r;
 
@@ -83,7 +78,7 @@ cmp_bb (const PTR lp, const PTR rp)
 /* Helper for sorting.  Order basic blocks in decreasing number of
    calls, ties are broken in increasing order of line numbers.  */
 static int
-cmp_ncalls (const PTR lp, const PTR rp)
+DEFUN (cmp_ncalls, (lp, rp), const void *lp AND const void *rp)
 {
   const Sym *left = *(const Sym **) lp;
   const Sym *right = *(const Sym **) rp;
@@ -103,7 +98,7 @@ cmp_ncalls (const PTR lp, const PTR rp)
 
 /* Skip over variable length string.  */
 static void
-fskip_string (FILE *fp)
+DEFUN (fskip_string, (fp), FILE * fp)
 {
   int ch;
 
@@ -118,20 +113,21 @@ fskip_string (FILE *fp)
    of file IFP and is provided for formatting error-messages only.  */
 
 void
-bb_read_rec (FILE *ifp, const char *filename)
+DEFUN (bb_read_rec, (ifp, filename), FILE * ifp AND const char *filename)
 {
-  unsigned int nblocks, b;
-  bfd_vma addr, ncalls;
+  int nblocks, b;
+  bfd_vma addr;
+  unsigned long ncalls;
   Sym *sym;
 
-  if (gmon_io_read_32 (ifp, &nblocks))
+  if (fread (&nblocks, sizeof (nblocks), 1, ifp) != 1)
     {
-      fprintf (stderr, _("%s: %s: unexpected end of file\n"),
-	       whoami, filename);
+      fprintf (stderr, _("%s: %s: unexpected end of file\n"), whoami, filename);
       done (1);
     }
 
   nblocks = bfd_get_32 (core_bfd, (bfd_byte *) & nblocks);
+  
   if (gmon_file_version == 0)
     fskip_string (ifp);
 
@@ -140,7 +136,7 @@ bb_read_rec (FILE *ifp, const char *filename)
       if (gmon_file_version == 0)
 	{
 	  int line_num;
-
+	  
 	  /* Version 0 had lots of extra stuff that we don't
 	     care about anymore.  */
 	  if ((fread (&ncalls, sizeof (ncalls), 1, ifp) != 1)
@@ -153,17 +149,24 @@ bb_read_rec (FILE *ifp, const char *filename)
 	      done (1);
 	    }
 	}
-      else if (gmon_io_read_vma (ifp, &addr)
-	       || gmon_io_read_vma (ifp, &ncalls))
+      else
 	{
-	  perror (filename);
-	  done (1);
+	  if (fread (&addr, sizeof (addr), 1, ifp) != 1
+	      || fread (&ncalls, sizeof (ncalls), 1, ifp) != 1)
+	    {
+	      perror (filename);
+	      done (1);
+	    }
 	}
 
       /* Basic-block execution counts are meaningful only if we're
-	 profiling at the line-by-line level:  */
+         profiling at the line-by-line level:  */
       if (line_granularity)
 	{
+	  /* Convert from target to host endianness:  */
+	  addr = get_vma (core_bfd, (bfd_byte *) & addr);
+	  ncalls = bfd_get_32 (core_bfd, (bfd_byte *) &ncalls);
+
 	  sym = sym_lookup (&symtab, addr);
 
 	  if (sym)
@@ -173,7 +176,7 @@ bb_read_rec (FILE *ifp, const char *filename)
 	      DBG (BBDEBUG,
 		   printf ("[bb_read_rec] 0x%lx->0x%lx (%s:%d) cnt=%lu\n",
 			   (unsigned long) addr, (unsigned long) sym->addr,
-			   sym->name, sym->line_num, (unsigned long) ncalls));
+			   sym->name, sym->line_num, ncalls));
 
 	      for (i = 0; i < NBBS; i++)
 		{
@@ -188,7 +191,7 @@ bb_read_rec (FILE *ifp, const char *filename)
 	}
       else
 	{
-	  static bfd_boolean user_warned = FALSE;
+	  static bool user_warned = FALSE;
 
 	  if (!user_warned)
 	    {
@@ -206,9 +209,12 @@ bb_read_rec (FILE *ifp, const char *filename)
    is the name of OFP and is provided for producing error-messages
    only.  */
 void
-bb_write_blocks (FILE *ofp, const char *filename)
+DEFUN (bb_write_blocks, (ofp, filename), FILE * ofp AND const char *filename)
 {
-  unsigned int nblocks = 0;
+  const unsigned char tag = GMON_TAG_BB_COUNT;
+  int nblocks = 0;
+  bfd_vma addr;
+  unsigned long ncalls;
   Sym *sym;
   int i;
 
@@ -221,8 +227,9 @@ bb_write_blocks (FILE *ofp, const char *filename)
     }
 
   /* Write header:  */
-  if (gmon_io_write_8 (ofp, GMON_TAG_BB_COUNT)
-      || gmon_io_write_32 (ofp, nblocks))
+  bfd_put_32 (core_bfd, nblocks, (bfd_byte *) & nblocks);
+  if (fwrite (&tag, sizeof (tag), 1, ofp) != 1
+      || fwrite (&nblocks, sizeof (nblocks), 1, ofp) != 1)
     {
       perror (filename);
       done (1);
@@ -233,8 +240,11 @@ bb_write_blocks (FILE *ofp, const char *filename)
     {
       for (i = 0; i < NBBS && sym->bb_addr[i]; i++)
 	{
-	  if (gmon_io_write_vma (ofp, sym->bb_addr[i])
-	      || gmon_io_write_vma (ofp, (bfd_vma) sym->bb_calls[i]))
+	  put_vma (core_bfd, sym->bb_addr[i], (bfd_byte *) & addr);
+	  bfd_put_32 (core_bfd, sym->bb_calls[i], (bfd_byte *) & ncalls);
+
+	  if (fwrite (&addr, sizeof (addr), 1, ofp) != 1
+	      || fwrite (&ncalls, sizeof (ncalls), 1, ofp) != 1)
 	    {
 	      perror (filename);
 	      done (1);
@@ -245,14 +255,14 @@ bb_write_blocks (FILE *ofp, const char *filename)
 
 /* Output basic-block statistics in a format that is easily parseable.
    Current the format is:
-
-	<filename>:<line-number>: (<function-name>:<bb-addr): <ncalls>  */
+  
+        <filename>:<line-number>: (<function-name>:<bb-addr): <ncalls>  */
 
 void
-print_exec_counts ()
+DEFUN_VOID (print_exec_counts)
 {
   Sym **sorted_bbs, *sym;
-  unsigned int i, j, len;
+  int i, j, len;
 
   if (first_output)
     first_output = FALSE;
@@ -262,12 +272,12 @@ print_exec_counts ()
   /* Sort basic-blocks according to function name and line number:  */
   sorted_bbs = (Sym **) xmalloc (symtab.len * sizeof (sorted_bbs[0]));
   len = 0;
-
+  
   for (sym = symtab.base; sym < symtab.limit; ++sym)
     {
       /* Accept symbol if it's in the INCL_EXEC table
-	 or there is no INCL_EXEC table
-	 and it does not appear in the EXCL_EXEC table.  */
+         or there is no INCL_EXEC table
+         and it does not appear in the EXCL_EXEC table.  */
       if (sym_lookup (&syms[INCL_EXEC], sym->addr)
 	  || (syms[INCL_EXEC].len == 0
 	      && !sym_lookup (&syms[EXCL_EXEC], sym->addr)))
@@ -275,15 +285,13 @@ print_exec_counts ()
 	  sorted_bbs[len++] = sym;
 	}
     }
-
+  
   qsort (sorted_bbs, len, sizeof (sorted_bbs[0]), cmp_bb);
 
   /* Output basic-blocks:  */
 
   for (i = 0; i < len; ++i)
     {
-      sym = sorted_bbs [i];
-      
       if (sym->ncalls > 0 || ! ignore_zeros)
 	{
 	  /* FIXME: This only works if bfd_vma is unsigned long.  */
@@ -291,7 +299,7 @@ print_exec_counts ()
 		  sym->file ? sym->file->name : _("<unknown>"), sym->line_num,
 		  sym->name, (unsigned long) sym->addr, sym->ncalls);
 	}
-
+      
       for (j = 0; j < NBBS && sym->bb_addr[j]; j ++)
 	{
 	  if (sym->bb_calls[j] > 0 || ! ignore_zeros)
@@ -310,7 +318,7 @@ print_exec_counts ()
 /* Helper for bb_annotated_source: format annotation containing
    number of line executions.  Depends on being called on each
    line of a file in sequential order.
-
+  
    Global variable bb_annotate_all_lines enables execution count
    compression (counts are supressed if identical to the last one)
    and prints counts on all executed lines.  Otherwise, print
@@ -318,18 +326,19 @@ print_exec_counts ()
    that starts the basic-block.  */
 
 static void
-annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
+DEFUN (annotate_with_count, (buf, width, line_num, arg),
+       char *buf AND int width AND int line_num AND void *arg)
 {
-  Source_File *sf = (Source_File *) arg;
+  Source_File *sf = arg;
   Sym *b;
-  unsigned int i;
+  int i;
   static unsigned long last_count;
   unsigned long last_print = (unsigned long) -1;
 
   b = NULL;
-
+  
   if (line_num <= sf->num_lines)
-    b = (Sym *) sf->line[line_num - 1];
+    b = sf->line[line_num - 1];
 
   if (!b)
     {
@@ -343,7 +352,7 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
       char *p;
       unsigned long ncalls;
       int ncalls_set;
-      unsigned int len;
+      int len;
 
       ++num_executable_lines;
 
@@ -354,11 +363,11 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
       ncalls_set = 0;
 
       /* If this is a function entry point, label the line no matter what.
-	 Otherwise, we're in the middle of a function, so check to see
-	 if the first basic-block address is larger than the starting
-	 address of the line.  If so, then this line begins with a
-	 a portion of the previous basic-block, so print that prior
-	 execution count (if bb_annotate_all_lines is set).  */
+         Otherwise, we're in the middle of a function, so check to see
+         if the first basic-block address is larger than the starting
+         address of the line.  If so, then this line begins with a
+         a portion of the previous basic-block, so print that prior
+         execution count (if bb_annotate_all_lines is set).  */
       if (b->is_func)
 	{
 	  sprintf (p, "%lu", b->ncalls);
@@ -379,8 +388,8 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
 	}
 
       /* Loop through all of this line's basic-blocks.  For each one,
-	 update last_count, then compress sequential identical counts
-	 (if bb_annotate_all_lines) and print the execution count.  */
+         update last_count, then compress sequential identical counts
+         (if bb_annotate_all_lines) and print the execution count.  */
 
       for (i = 0; i < NBBS && b->bb_addr[i]; i++)
 	{
@@ -404,10 +413,10 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
 	}
 
       /* We're done.  If nothing has been printed on this line,
-	 print the last execution count (bb_annotate_all_lines),
-	 which could be from either a previous line (if there were
-	 no BBs on this line), or from this line (if all our BB
-	 counts were compressed out because they were identical).  */
+         print the last execution count (bb_annotate_all_lines),
+         which could be from either a previous line (if there were
+         no BBs on this line), or from this line (if all our BB
+         counts were compressed out because they were identical).  */
 
       if (bb_annotate_all_lines && p == tmpbuf)
 	{
@@ -419,7 +428,7 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
 
       if (! ncalls_set)
 	{
-	  unsigned int c;
+	  int c;
 
 	  for (c = 0; c < width; c++)
 	    buf[c] = ' ';
@@ -446,7 +455,7 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
 	}
       else
 	{
-	  unsigned int c;
+	  int c;
 
 	  strcpy (buf + width - len, tmpbuf);
 	  for (c = 0; c < width - len; ++c)
@@ -460,7 +469,7 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
    regarding that source file are printed.  */
 
 void
-print_annotated_source ()
+DEFUN_VOID (print_annotated_source)
 {
   Sym *sym, *line_stats, *new_line;
   Source_File *sf;
@@ -472,9 +481,9 @@ print_annotated_source ()
   for (sym = symtab.base; sym < symtab.limit; ++sym)
     {
       /* Accept symbol if it's file is known, its line number is
-	 bigger than anything we have seen for that file so far and
-	 if it's in the INCL_ANNO table or there is no INCL_ANNO
-	 table and it does not appear in the EXCL_ANNO table.  */
+         bigger than anything we have seen for that file so far and
+         if it's in the INCL_ANNO table or there is no INCL_ANNO
+         table and it does not appear in the EXCL_ANNO table.  */
       if (sym->file && sym->line_num > sym->file->num_lines
 	  && (sym_lookup (&syms[INCL_ANNO], sym->addr)
 	      || (syms[INCL_ANNO].len == 0
@@ -489,7 +498,7 @@ print_annotated_source ()
     {
       if (sf->num_lines > 0)
 	{
-	  sf->line = (void **) xmalloc (sf->num_lines * sizeof (sf->line[0]));
+	  sf->line = (void *) xmalloc (sf->num_lines * sizeof (sf->line[0]));
 	  memset (sf->line, 0, sf->num_lines * sizeof (sf->line[0]));
 	}
     }
@@ -503,8 +512,8 @@ print_annotated_source ()
 		  && !sym_lookup (&syms[EXCL_ANNO], sym->addr))))
 	{
 	  sym->file->ncalls += sym->ncalls;
-	  line_stats = (Sym *) sym->file->line[sym->line_num - 1];
-
+	  line_stats = sym->file->line[sym->line_num - 1];
+	  
 	  if (!line_stats)
 	    {
 	      /* Common case has at most one basic-block per source line:  */
@@ -534,7 +543,7 @@ print_annotated_source ()
 	continue;
 
       num_executable_lines = num_lines_executed = 0;
-
+      
       ofp = annotate_source (sf, 16, annotate_with_count, sf);
       if (!ofp)
 	continue;
@@ -547,14 +556,14 @@ print_annotated_source ()
 	  /* Abuse line arrays---it's not needed anymore:  */
 	  qsort (sf->line, sf->num_lines, sizeof (sf->line[0]), cmp_ncalls);
 	  table_len = bb_table_length;
-
+	  
 	  if (table_len > sf->num_lines)
 	    table_len = sf->num_lines;
-
+	  
 	  for (i = 0; i < table_len; ++i)
 	    {
-	      sym = (Sym *) sf->line[i];
-
+	      sym = sf->line[i];
+	      
 	      if (!sym || sym->ncalls == 0)
 		  break;
 
@@ -579,7 +588,7 @@ print_annotated_source ()
 	       num_executable_lines
 	       ? (double) sf->ncalls / (double) num_executable_lines
 	       : 0.0);
-
+      
       if (ofp != stdout)
 	fclose (ofp);
     }
