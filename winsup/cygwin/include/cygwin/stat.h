@@ -1,6 +1,6 @@
 /* cygwin/stat.h
 
-   Copyright 2002, 2007, 2010 Red Hat Inc.
+   Copyright 2002 Red Hat Inc.
    Written by Corinna Vinschen <corinna@vinschen.de>
 
 This file is part of Cygwin.
@@ -16,12 +16,12 @@ details. */
 extern "C" {
 #endif
 
-#if defined (__INSIDE_CYGWIN__) || defined (_COMPILING_NEWLIB)
+#ifdef __INSIDE_CYGWIN__
 struct __stat32
 {
-  __dev16_t	st_dev;
-  __ino32_t	st_ino;
-  mode_t	st_mode;
+  __dev16_t     st_dev;
+  ino_t         st_ino;
+  mode_t        st_mode;
   nlink_t       st_nlink;
   __uid16_t     st_uid;
   __gid16_t     st_gid;
@@ -38,7 +38,7 @@ struct __stat32
 struct __stat64
 {
   __dev32_t     st_dev;
-  __ino64_t     st_ino;
+  ino_t         st_ino;
   mode_t        st_mode;
   nlink_t       st_nlink;
   __uid32_t     st_uid;
@@ -50,7 +50,7 @@ struct __stat64
   timestruc_t   st_ctim;
   blksize_t     st_blksize;
   __blkcnt64_t  st_blocks;
-  timestruc_t   st_birthtim;
+  long          st_spare4[2];
 };
 
 extern int fstat64 (int fd, struct __stat64 *buf);
@@ -74,20 +74,12 @@ struct stat
   timestruc_t   st_ctim;
   blksize_t     st_blksize;
   blkcnt_t      st_blocks;
-  timestruc_t   st_birthtim;
+  long          st_spare4[2];
 };
 
 #define st_atime st_atim.tv_sec
 #define st_mtime st_mtim.tv_sec
 #define st_ctime st_ctim.tv_sec
-#define st_birthtime st_birthtim.tv_sec
-
-/* POSIX IPC objects are not implemented as distinct file types, so the
-   below macros have to return 0.  The expression is supposed to catch
-   illegal usage with non-stat parameters. */
-#define S_TYPEISMQ(buf)  ((void)(buf)->st_mode,0)
-#define S_TYPEISSEM(buf) ((void)(buf)->st_mode,0)
-#define S_TYPEISSHM(buf) ((void)(buf)->st_mode,0)
 
 #ifdef __cplusplus
 }
