@@ -1,21 +1,22 @@
 /* This file defines the interface between the simulator and gdb.
+   Copyright 1993, 1994, 1996, 1997, 1998, 2000
+   Free Software Foundation, Inc.
 
-   Copyright 1993-2013 Free Software Foundation, Inc.
+This file is part of GDB.
 
-   This file is part of GDB.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #if !defined (REMOTE_SIM_H)
 #define REMOTE_SIM_H 1
@@ -56,13 +57,16 @@ typedef enum {
 
 typedef enum {
   SIM_RC_FAIL = 0,
-  SIM_RC_OK = 1
+  SIM_RC_OK = 1,
+  SIM_RC_UNKNOWN_BREAKPOINT = 2,
+  SIM_RC_INSUFFICIENT_RESOURCES = 3,
+  SIM_RC_DUPLICATE_BREAKPOINT = 4
 } SIM_RC;
 
 
 /* The bfd struct, as an opaque type.  */
 
-struct bfd;
+struct _bfd;
 
 
 /* Main simulator entry points.  */
@@ -103,7 +107,7 @@ struct bfd;
    sim_create_inferior.  FIXME: What should the state of the simulator
    be? */
 
-SIM_DESC sim_open (SIM_OPEN_KIND kind, struct host_callback_struct *callback, struct bfd *abfd, char **argv);
+SIM_DESC sim_open PARAMS ((SIM_OPEN_KIND kind, struct host_callback_struct *callback, struct _bfd *abfd, char **argv));
 
 
 /* Destory a simulator instance.
@@ -114,7 +118,7 @@ SIM_DESC sim_open (SIM_OPEN_KIND kind, struct host_callback_struct *callback, st
    and mmap'd areas.  You cannot assume sim_kill has already been
    called. */
 
-void sim_close (SIM_DESC sd, int quitting);
+void sim_close PARAMS ((SIM_DESC sd, int quitting));
 
 
 /* Load program PROG into the simulators memory.
@@ -140,7 +144,7 @@ void sim_close (SIM_DESC sd, int quitting);
    Such manipulation should probably (?) occure in
    sim_create_inferior. */
 
-SIM_RC sim_load (SIM_DESC sd, char *prog, struct bfd *abfd, int from_tty);
+SIM_RC sim_load PARAMS ((SIM_DESC sd, char *prog, struct _bfd *abfd, int from_tty));
 
 
 /* Prepare to run the simulated program.
@@ -160,21 +164,21 @@ SIM_RC sim_load (SIM_DESC sd, char *prog, struct bfd *abfd, int from_tty);
    address space (according to the applicable ABI) and the program
    counter and stack pointer set accordingly. */
 
-SIM_RC sim_create_inferior (SIM_DESC sd, struct bfd *abfd, char **argv, char **env);
+SIM_RC sim_create_inferior PARAMS ((SIM_DESC sd, struct _bfd *abfd, char **argv, char **env));
 
 
 /* Fetch LENGTH bytes of the simulated program's memory.  Start fetch
    at virtual address MEM and store in BUF.  Result is number of bytes
    read, or zero if error.  */
 
-int sim_read (SIM_DESC sd, SIM_ADDR mem, unsigned char *buf, int length);
+int sim_read PARAMS ((SIM_DESC sd, SIM_ADDR mem, unsigned char *buf, int length));
 
 
 /* Store LENGTH bytes from BUF into the simulated program's
    memory. Store bytes starting at virtual address MEM. Result is
    number of bytes write, or zero if error.  */
 
-int sim_write (SIM_DESC sd, SIM_ADDR mem, const unsigned char *buf, int length);
+int sim_write PARAMS ((SIM_DESC sd, SIM_ADDR mem, unsigned char *buf, int length));
 
 
 /* Fetch register REGNO storing its raw (target endian) value in the
@@ -186,28 +190,26 @@ int sim_write (SIM_DESC sd, SIM_ADDR mem, const unsigned char *buf, int length);
    If LENGTH does not match the size of REGNO no data is transfered
    (the actual register size is still returned). */
 
-int sim_fetch_register (SIM_DESC sd, int regno, unsigned char *buf, int length);
+int sim_fetch_register PARAMS ((SIM_DESC sd, int regno, unsigned char *buf, int length));
 
 
 /* Store register REGNO from the raw (target endian) value in BUF.
+   Return the actual size of the register or zero if REGNO is not
+   applicable.
 
-   Return the actual size of the register, any size not equal to
-   LENGTH indicates the register was not updated correctly.
+   Legacy implementations ignore LENGTH and always return -1.
 
-   Return a LENGTH of -1 to indicate the register was not updated
-   and an error has occurred.
+   If LENGTH does not match the size of REGNO no data is transfered
+   (the actual register size is still returned). */
 
-   Return a LENGTH of 0 to indicate the register was not updated
-   but no error has occurred. */
-
-int sim_store_register (SIM_DESC sd, int regno, unsigned char *buf, int length);
+int sim_store_register PARAMS ((SIM_DESC sd, int regno, unsigned char *buf, int length));
 
 
 /* Print whatever statistics the simulator has collected.
 
    VERBOSE is currently unused and must always be zero.  */
 
-void sim_info (SIM_DESC sd, int verbose);
+void sim_info PARAMS ((SIM_DESC sd, int verbose));
 
 
 /* Run (or resume) the simulated program.
@@ -232,14 +234,14 @@ void sim_info (SIM_DESC sd, int verbose);
    continued.  A zero SIGRC value indicates that the program should
    continue as normal. */
 
-void sim_resume (SIM_DESC sd, int step, int siggnal);
+void sim_resume PARAMS ((SIM_DESC sd, int step, int siggnal));
 
 
 /* Asynchronous request to stop the simulation.
    A nonzero return indicates that the simulator is able to handle
    the request */
 
-int sim_stop (SIM_DESC sd);
+int sim_stop PARAMS ((SIM_DESC sd));
 
 
 /* Fetch the REASON why the program stopped.
@@ -266,19 +268,84 @@ int sim_stop (SIM_DESC sd);
 
 enum sim_stop { sim_running, sim_polling, sim_exited, sim_stopped, sim_signalled };
 
-void sim_stop_reason (SIM_DESC sd, enum sim_stop *reason, int *sigrc);
+void sim_stop_reason PARAMS ((SIM_DESC sd, enum sim_stop *reason, int *sigrc));
 
 
 /* Passthru for other commands that the simulator might support.
    Simulators should be prepared to deal with any combination of NULL
    or empty CMD. */
 
-void sim_do_command (SIM_DESC sd, char *cmd);
+void sim_do_command PARAMS ((SIM_DESC sd, char *cmd));
 
-/* Complete a command based on the available sim commands.  Returns an
-   array of possible matches.  */
+/* Call these functions to set and clear breakpoints at ADDR. */
 
-char **sim_complete_command (SIM_DESC sd, char *text, char *word);
+SIM_RC sim_set_breakpoint PARAMS ((SIM_DESC sd, SIM_ADDR addr));
+SIM_RC sim_clear_breakpoint PARAMS ((SIM_DESC sd, SIM_ADDR addr));
+SIM_RC sim_clear_all_breakpoints PARAMS ((SIM_DESC sd));
+
+/* These functions are used to enable and disable breakpoints. */
+
+SIM_RC sim_enable_breakpoint PARAMS ((SIM_DESC sd, SIM_ADDR addr));
+SIM_RC sim_disable_breakpoint PARAMS ((SIM_DESC sd, SIM_ADDR addr));
+SIM_RC sim_enable_all_breakpoints PARAMS ((SIM_DESC sd));
+SIM_RC sim_disable_all_breakpoints PARAMS ((SIM_DESC sd));
+
+
+/* Provide simulator with a default (global) host_callback_struct.
+   THIS PROCEDURE IS DEPRECIATED.
+   GDB and NRUN do not use this interface.
+   This procedure does not take a SIM_DESC argument as it is
+   used before sim_open. */
+
+void sim_set_callbacks PARAMS ((struct host_callback_struct *));
+
+
+/* Set the size of the simulator memory array.
+   THIS PROCEDURE IS DEPRECIATED.
+   GDB and NRUN do not use this interface.
+   This procedure does not take a SIM_DESC argument as it is
+   used before sim_open. */
+
+void sim_size PARAMS ((int i));
+
+
+/* Single-step simulator with tracing enabled.
+   THIS PROCEDURE IS DEPRECIATED.
+   THIS PROCEDURE IS EVEN MORE DEPRECATED THAN SIM_SET_TRACE
+   GDB and NRUN do not use this interface.
+   This procedure returns: ``0'' indicating that the simulator should
+   be continued using sim_trace() calls; ``1'' indicating that the
+   simulation has finished. */
+
+int sim_trace PARAMS ((SIM_DESC sd));
+
+
+/* Enable tracing.
+   THIS PROCEDURE IS DEPRECIATED.
+   GDB and NRUN do not use this interface.
+   This procedure returns: ``0'' indicating that the simulator should
+   be continued using sim_trace() calls; ``1'' indicating that the
+   simulation has finished. */
+
+void sim_set_trace PARAMS ((void));
+
+
+/* Configure the size of the profile buffer.
+   THIS PROCEDURE IS DEPRECIATED.
+   GDB and NRUN do not use this interface.
+   This procedure does not take a SIM_DESC argument as it is
+   used before sim_open. */
+
+void sim_set_profile_size PARAMS ((int n));
+
+
+/* Kill the running program.
+   THIS PROCEDURE IS DEPRECIATED.
+   GDB and NRUN do not use this interface.
+   This procedure will be replaced as part of the introduction of
+   multi-cpu simulators. */
+
+void sim_kill PARAMS ((SIM_DESC sd));
 
 #ifdef __cplusplus
 }

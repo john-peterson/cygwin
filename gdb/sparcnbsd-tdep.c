@@ -1,13 +1,12 @@
-/* Target-dependent code for NetBSD/sparc.
-
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+/* Target-dependent code for SPARC systems running NetBSD.
+   Copyright 2002 Free Software Foundation, Inc.
    Contributed by Wasabi Systems, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,307 +15,495 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
-#include "frame.h"
-#include "frame-unwind.h"
 #include "gdbcore.h"
-#include "gdbtypes.h"
-#include "osabi.h"
 #include "regcache.h"
-#include "regset.h"
-#include "solib-svr4.h"
-#include "symtab.h"
-#include "trad-frame.h"
+#include "target.h"
+#include "value.h"
+#include "osabi.h"
 
-#include "gdb_assert.h"
-#include "gdb_string.h"
-
-#include "sparc-tdep.h"
+#include "sparcnbsd-tdep.h"
 #include "nbsd-tdep.h"
 
-/* Macros to extract fields from SPARC instructions.  */
-#define X_RS1(i) (((i) >> 14) & 0x1f)
-#define X_RS2(i) ((i) & 0x1f)
-#define X_I(i) (((i) >> 13) & 1)
+#include "solib-svr4.h"
 
-const struct sparc_gregset sparc32nbsd_gregset =
+#define REG32_OFFSET_PSR	(0 * 4)
+#define REG32_OFFSET_PC		(1 * 4)
+#define REG32_OFFSET_NPC	(2 * 4)
+#define REG32_OFFSET_Y		(3 * 4)
+#define REG32_OFFSET_GLOBAL	(4 * 4)
+#define REG32_OFFSET_OUT	(12 * 4)
+
+#define REG64_OFFSET_TSTATE	(0 * 8)
+#define REG64_OFFSET_PC		(1 * 8)
+#define REG64_OFFSET_NPC	(2 * 8)
+#define REG64_OFFSET_Y		(3 * 8)
+#define REG64_OFFSET_GLOBAL	(4 * 8)
+#define REG64_OFFSET_OUT	(12 * 8)
+
+void
+sparcnbsd_supply_reg32 (char *regs, int regno)
 {
-  0 * 4,			/* %psr */
-  1 * 4,			/* %pc */
-  2 * 4,			/* %npc */
-  3 * 4,			/* %y */
-  -1,				/* %wim */
-  -1,				/* %tbr */
-  5 * 4,			/* %g1 */
-  -1				/* %l0 */
-};
+  int i;
 
-static void
-sparc32nbsd_supply_gregset (const struct regset *regset,
-			    struct regcache *regcache,
-			    int regnum, const void *gregs, size_t len)
-{
-  sparc32_supply_gregset (&sparc32nbsd_gregset, regcache, regnum, gregs);
+  if (regno == PS_REGNUM || regno == -1)
+    supply_register (PS_REGNUM, regs + REG32_OFFSET_PSR);
 
-  /* Traditional NetBSD core files don't use multiple register sets.
-     Instead, the general-purpose and floating-point registers are
-     lumped together in a single section.  */
-  if (len >= 212)
-    sparc32_supply_fpregset (&sparc32_bsd_fpregset, regcache, regnum,
-			     (const char *) gregs + 80);
-}
+  if (regno == PC_REGNUM || regno == -1)
+    supply_register (PC_REGNUM, regs + REG32_OFFSET_PC);
 
-static void
-sparc32nbsd_supply_fpregset (const struct regset *regset,
-			     struct regcache *regcache,
-			     int regnum, const void *fpregs, size_t len)
-{
-  sparc32_supply_fpregset (&sparc32_bsd_fpregset, regcache, regnum, fpregs);
-}
+  if (regno == NPC_REGNUM || regno == -1)
+    supply_register (NPC_REGNUM, regs + REG32_OFFSET_NPC);
 
-
-/* Signal trampolines.  */
+  if (regno == Y_REGNUM || regno == -1)
+    supply_register (Y_REGNUM, regs + REG32_OFFSET_Y);
 
-/* The following variables describe the location of an on-stack signal
-   trampoline.  The current values correspond to the memory layout for
-   NetBSD 1.3 and up.  These shouldn't be necessary for NetBSD 2.0 and
-   up, since NetBSD uses signal trampolines provided by libc now.  */
-
-static const CORE_ADDR sparc32nbsd_sigtramp_start = 0xeffffef0;
-static const CORE_ADDR sparc32nbsd_sigtramp_end = 0xeffffff0;
-
-static int
-sparc32nbsd_pc_in_sigtramp (CORE_ADDR pc, const char *name)
-{
-  if (pc >= sparc32nbsd_sigtramp_start && pc < sparc32nbsd_sigtramp_end)
-    return 1;
-
-  return nbsd_pc_in_sigtramp (pc, name);
-}
-
-struct trad_frame_saved_reg *
-sparc32nbsd_sigcontext_saved_regs (struct frame_info *this_frame)
-{
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  struct trad_frame_saved_reg *saved_regs;
-  CORE_ADDR addr, sigcontext_addr;
-  int regnum, delta;
-  ULONGEST psr;
-
-  saved_regs = trad_frame_alloc_saved_regs (this_frame);
-
-  /* We find the appropriate instance of `struct sigcontext' at a
-     fixed offset in the signal frame.  */
-  addr = get_frame_register_unsigned (this_frame, SPARC_FP_REGNUM);
-  sigcontext_addr = addr + 64 + 16;
-
-  /* The registers are saved in bits and pieces scattered all over the
-     place.  The code below records their location on the assumption
-     that the part of the signal trampoline that saves the state has
-     been executed.  */
-
-  saved_regs[SPARC_SP_REGNUM].addr = sigcontext_addr + 8;
-  saved_regs[SPARC32_PC_REGNUM].addr = sigcontext_addr + 12;
-  saved_regs[SPARC32_NPC_REGNUM].addr = sigcontext_addr + 16;
-  saved_regs[SPARC32_PSR_REGNUM].addr = sigcontext_addr + 20;
-  saved_regs[SPARC_G1_REGNUM].addr = sigcontext_addr + 24;
-  saved_regs[SPARC_O0_REGNUM].addr = sigcontext_addr + 28;
-
-  /* The remaining `global' registers and %y are saved in the `local'
-     registers.  */
-  delta = SPARC_L0_REGNUM - SPARC_G0_REGNUM;
-  for (regnum = SPARC_G2_REGNUM; regnum <= SPARC_G7_REGNUM; regnum++)
-    saved_regs[regnum].realreg = regnum + delta;
-  saved_regs[SPARC32_Y_REGNUM].realreg = SPARC_L1_REGNUM;
-
-  /* The remaining `out' registers can be found in the current frame's
-     `in' registers.  */
-  delta = SPARC_I0_REGNUM - SPARC_O0_REGNUM;
-  for (regnum = SPARC_O1_REGNUM; regnum <= SPARC_O5_REGNUM; regnum++)
-    saved_regs[regnum].realreg = regnum + delta;
-  saved_regs[SPARC_O7_REGNUM].realreg = SPARC_I7_REGNUM;
-
-  /* The `local' and `in' registers have been saved in the register
-     save area.  */
-  addr = saved_regs[SPARC_SP_REGNUM].addr;
-  addr = get_frame_memory_unsigned (this_frame, addr, 4);
-  for (regnum = SPARC_L0_REGNUM;
-       regnum <= SPARC_I7_REGNUM; regnum++, addr += 4)
-    saved_regs[regnum].addr = addr;
-
-  /* Handle StackGhost.  */
-  {
-    ULONGEST wcookie = sparc_fetch_wcookie (gdbarch);
-
-    if (wcookie != 0)
-      {
-	ULONGEST i7;
-
-	addr = saved_regs[SPARC_I7_REGNUM].addr;
-	i7 = get_frame_memory_unsigned (this_frame, addr, 4);
-	trad_frame_set_value (saved_regs, SPARC_I7_REGNUM, i7 ^ wcookie);
-      }
-  }
-
-  /* The floating-point registers are only saved if the EF bit in %prs
-     has been set.  */
-
-#define PSR_EF	0x00001000
-
-  addr = saved_regs[SPARC32_PSR_REGNUM].addr;
-  psr = get_frame_memory_unsigned (this_frame, addr, 4);
-  if (psr & PSR_EF)
+  if ((regno >= G0_REGNUM && regno <= G7_REGNUM) || regno == -1)
     {
-      CORE_ADDR sp;
-
-      sp = get_frame_register_unsigned (this_frame, SPARC_SP_REGNUM);
-      saved_regs[SPARC32_FSR_REGNUM].addr = sp + 96;
-      for (regnum = SPARC_F0_REGNUM, addr = sp + 96 + 8;
-	   regnum <= SPARC_F31_REGNUM; regnum++, addr += 4)
-	saved_regs[regnum].addr = addr;
+      if (regno == G0_REGNUM || regno == -1)
+	supply_register (G0_REGNUM, NULL);	/* %g0 is always zero */
+      for (i = G1_REGNUM; i <= G7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    supply_register (i, regs + REG32_OFFSET_GLOBAL +
+	                     ((i - G0_REGNUM) * 4));
+	}
     }
 
-  return saved_regs;
-}
-
-static struct sparc_frame_cache *
-sparc32nbsd_sigcontext_frame_cache (struct frame_info *this_frame,
-				    void **this_cache)
-{
-  struct sparc_frame_cache *cache;
-  CORE_ADDR addr;
-
-  if (*this_cache)
-    return *this_cache;
-
-  cache = sparc_frame_cache (this_frame, this_cache);
-  gdb_assert (cache == *this_cache);
-
-  /* If we couldn't find the frame's function, we're probably dealing
-     with an on-stack signal trampoline.  */
-  if (cache->pc == 0)
+  if ((regno >= O0_REGNUM && regno <= O7_REGNUM) || regno == -1)
     {
-      cache->pc = sparc32nbsd_sigtramp_start;
-
-      /* Since we couldn't find the frame's function, the cache was
-         initialized under the assumption that we're frameless.  */
-      sparc_record_save_insn (cache);
-      addr = get_frame_register_unsigned (this_frame, SPARC_FP_REGNUM);
-      cache->base = addr;
+      for (i = O0_REGNUM; i <= O7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    supply_register (i, regs + REG32_OFFSET_OUT +
+			     ((i - O0_REGNUM) * 4));
+        }
     }
 
-  cache->saved_regs = sparc32nbsd_sigcontext_saved_regs (this_frame);
-
-  return cache;
-}
-
-static void
-sparc32nbsd_sigcontext_frame_this_id (struct frame_info *this_frame,
-				      void **this_cache,
-				      struct frame_id *this_id)
-{
-  struct sparc_frame_cache *cache =
-    sparc32nbsd_sigcontext_frame_cache (this_frame, this_cache);
-
-  (*this_id) = frame_id_build (cache->base, cache->pc);
-}
-
-static struct value *
-sparc32nbsd_sigcontext_frame_prev_register (struct frame_info *this_frame,
-					    void **this_cache, int regnum)
-{
-  struct sparc_frame_cache *cache =
-    sparc32nbsd_sigcontext_frame_cache (this_frame, this_cache);
-
-  return trad_frame_get_prev_register (this_frame, cache->saved_regs, regnum);
-}
-
-static int
-sparc32nbsd_sigcontext_frame_sniffer (const struct frame_unwind *self,
-				      struct frame_info *this_frame,
-				      void **this_cache)
-{
-  CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
-
-  find_pc_partial_function (pc, &name, NULL, NULL);
-  if (sparc32nbsd_pc_in_sigtramp (pc, name))
+  /* Inputs and Locals are stored onto the stack by by the kernel.  */
+  if ((regno >= L0_REGNUM && regno <= I7_REGNUM) || regno == -1)
     {
-      if (name == NULL || strncmp (name, "__sigtramp_sigcontext", 21))
-	return 1;
+      CORE_ADDR sp = read_register (SP_REGNUM);
+      char buf[4];
+
+      for (i = L0_REGNUM; i <= I7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    {
+              target_read_memory (sp + ((i - L0_REGNUM) * 4),
+                                  buf, sizeof (buf));
+	      supply_register (i, buf);
+	    }
+	}
     }
 
-  return 0;
-}
-
-static const struct frame_unwind sparc32nbsd_sigcontext_frame_unwind =
-{
-  SIGTRAMP_FRAME,
-  default_frame_unwind_stop_reason,
-  sparc32nbsd_sigcontext_frame_this_id,
-  sparc32nbsd_sigcontext_frame_prev_register,
-  NULL,
-  sparc32nbsd_sigcontext_frame_sniffer
-};
-
-/* Return the address of a system call's alternative return
-   address.  */
-
-CORE_ADDR
-sparcnbsd_step_trap (struct frame_info *frame, unsigned long insn)
-{
-  if ((X_I (insn) == 0 && X_RS1 (insn) == 0 && X_RS2 (insn) == 0)
-      || (X_I (insn) == 1 && X_RS1 (insn) == 0 && (insn & 0x7f) == 0))
-    {
-      /* "New" system call.  */
-      ULONGEST number = get_frame_register_unsigned (frame, SPARC_G1_REGNUM);
-
-      if (number & 0x400)
-	return get_frame_register_unsigned (frame, SPARC_G2_REGNUM);
-      if (number & 0x800)
-	return get_frame_register_unsigned (frame, SPARC_G7_REGNUM);
-    }
-
-  return 0;
-}
-
-
-static void
-sparc32nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
-  /* NetBSD doesn't support the 128-bit `long double' from the psABI.  */
-  set_gdbarch_long_double_bit (gdbarch, 64);
-  set_gdbarch_long_double_format (gdbarch, floatformats_ieee_double);
-
-  tdep->gregset = regset_alloc (gdbarch, sparc32nbsd_supply_gregset, NULL);
-  tdep->sizeof_gregset = 20 * 4;
-
-  tdep->fpregset = regset_alloc (gdbarch, sparc32nbsd_supply_fpregset, NULL);
-  tdep->sizeof_fpregset = 33 * 4;
-
-  /* Make sure we can single-step "new" syscalls.  */
-  tdep->step_trap = sparcnbsd_step_trap;
-
-  frame_unwind_append_unwinder (gdbarch, &sparc32nbsd_sigcontext_frame_unwind);
-}
-
-static void
-sparc32nbsd_aout_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
-{
-  sparc32nbsd_init_abi (info, gdbarch);
+  /* FIXME: If we don't set these valid, read_register_bytes() rereads
+     all the regs every time it is called!  */
+  if (regno == WIM_REGNUM || regno == -1)
+    supply_register (WIM_REGNUM, NULL);
+  if (regno == TBR_REGNUM || regno == -1)
+    supply_register (TBR_REGNUM, NULL);
+  if (regno == CPS_REGNUM || regno == -1)
+    supply_register (CPS_REGNUM, NULL);
 }
 
 void
-sparc32nbsd_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+sparcnbsd_supply_reg64 (char *regs, int regno)
 {
-  sparc32nbsd_init_abi (info, gdbarch);
+  int i;
+  char buf[8];
 
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+  if (regno == TSTATE_REGNUM || regno == -1)
+    supply_register (PS_REGNUM, regs + REG64_OFFSET_TSTATE);
+
+  if (regno == PC_REGNUM || regno == -1)
+    supply_register (PC_REGNUM, regs + REG64_OFFSET_PC);
+
+  if (regno == NPC_REGNUM || regno == -1)
+    supply_register (NPC_REGNUM, regs + REG64_OFFSET_NPC);
+
+  if (regno == Y_REGNUM || regno == -1)
+    {
+      memset (buf, 0, sizeof (buf));
+      memcpy (&buf[4], regs + REG64_OFFSET_Y, 4);
+      supply_register (Y_REGNUM, buf);
+    }
+
+  if ((regno >= G0_REGNUM && regno <= G7_REGNUM) || regno == -1)
+    {
+      if (regno == G0_REGNUM || regno == -1)
+	supply_register (G0_REGNUM, NULL);	/* %g0 is always zero */
+      for (i = G1_REGNUM; i <= G7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    supply_register (i, regs + REG64_OFFSET_GLOBAL +
+	                     ((i - G0_REGNUM) * 8));
+	}
+    }
+
+  if ((regno >= O0_REGNUM && regno <= O7_REGNUM) || regno == -1)
+    {
+      for (i = O0_REGNUM; i <= O7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    supply_register (i, regs + REG64_OFFSET_OUT +
+			     ((i - O0_REGNUM) * 8));
+        }
+    }
+
+  /* Inputs and Locals are stored onto the stack by by the kernel.  */
+  if ((regno >= L0_REGNUM && regno <= I7_REGNUM) || regno == -1)
+    {
+      CORE_ADDR sp = read_register (SP_REGNUM);
+      char buf[8];
+
+      if (sp & 1)
+	{
+	  /* Registers are 64-bit.  */
+	  sp += 2047;
+
+	  for (i = L0_REGNUM; i <= I7_REGNUM; i++)
+	    {
+	      if (regno == i || regno == -1)
+	        {
+                  target_read_memory (sp + ((i - L0_REGNUM) * 8),
+                                      buf, sizeof (buf));
+	          supply_register (i, buf);
+		}
+	    }
+	}
+      else
+	{
+	  /* Registers are 32-bit.  Toss any sign-extension of the stack
+	     pointer, clear out the top half of the temporary buffer, and
+	     put the register value in the bottom half.  */
+
+	  sp &= 0xffffffffUL;
+	  memset (buf, 0, sizeof (buf));
+	  for (i = L0_REGNUM; i <= I7_REGNUM; i++)
+	    {
+	      if (regno == i || regno == -1)
+		{
+		  target_read_memory (sp + ((i - L0_REGNUM) * 4),
+				      &buf[4], sizeof (buf));
+                  supply_register (i, buf);
+		}
+	    }
+	}
+    }
+
+  /* FIXME: If we don't set these valid, read_register_bytes() rereads
+     all the regs every time it is called!  */
+  if (regno == WIM_REGNUM || regno == -1)
+    supply_register (WIM_REGNUM, NULL);
+  if (regno == TBR_REGNUM || regno == -1)
+    supply_register (TBR_REGNUM, NULL);
+  if (regno == CPS_REGNUM || regno == -1)
+    supply_register (CPS_REGNUM, NULL);
+}
+
+void
+sparcnbsd_fill_reg32 (char *regs, int regno)
+{
+  int i;
+
+  if (regno == PS_REGNUM || regno == -1)
+    regcache_collect (PS_REGNUM, regs + REG32_OFFSET_PSR);
+
+  if (regno == PC_REGNUM || regno == -1)
+    regcache_collect (PC_REGNUM, regs + REG32_OFFSET_PC);
+
+  if (regno == NPC_REGNUM || regno == -1)
+    regcache_collect (NPC_REGNUM, regs + REG32_OFFSET_NPC);
+
+  if (regno == Y_REGNUM || regno == -1)
+    regcache_collect (Y_REGNUM, regs + REG32_OFFSET_Y);
+
+  if ((regno >= G0_REGNUM && regno <= G7_REGNUM) || regno == -1)
+    {
+      /* %g0 is always zero */
+      for (i = G1_REGNUM; i <= G7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    regcache_collect (i, regs + REG32_OFFSET_GLOBAL +
+	                      ((i - G0_REGNUM) * 4));
+	}
+    }
+
+  if ((regno >= O0_REGNUM && regno <= O7_REGNUM) || regno == -1)
+    {
+      for (i = O0_REGNUM; i <= O7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    regcache_collect (i, regs + REG32_OFFSET_OUT +
+			      ((i - O0_REGNUM) * 4));
+        }
+    }
+
+  /* Responsibility for the stack regs is pushed off onto the caller.  */
+}
+
+void
+sparcnbsd_fill_reg64 (char *regs, int regno)
+{
+  int i;
+
+  if (regno == TSTATE_REGNUM || regno == -1)
+    regcache_collect (TSTATE_REGNUM, regs + REG64_OFFSET_TSTATE);
+
+  if (regno == PC_REGNUM || regno == -1)
+    regcache_collect (PC_REGNUM, regs + REG64_OFFSET_PC);
+
+  if (regno == NPC_REGNUM || regno == -1)
+    regcache_collect (NPC_REGNUM, regs + REG64_OFFSET_NPC);
+
+  if (regno == Y_REGNUM || regno == -1)
+    regcache_collect (Y_REGNUM, regs + REG64_OFFSET_Y);
+
+  if ((regno >= G0_REGNUM && regno <= G7_REGNUM) || regno == -1)
+    {
+      /* %g0 is always zero */
+      for (i = G1_REGNUM; i <= G7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    regcache_collect (i, regs + REG64_OFFSET_GLOBAL +
+	                      ((i - G0_REGNUM) * 4));
+	}
+    }
+
+  if ((regno >= O0_REGNUM && regno <= O7_REGNUM) || regno == -1)
+    {
+      for (i = O0_REGNUM; i <= O7_REGNUM; i++)
+	{
+	  if (regno == i || regno == -1)
+	    regcache_collect (i, regs + REG64_OFFSET_OUT +
+			      ((i - O0_REGNUM) * 4));
+        }
+    }
+
+  /* Responsibility for the stack regs is pushed off onto the caller.  */
+}
+
+void
+sparcnbsd_supply_fpreg32 (char *fpregs, int regno)
+{
+  int i;
+
+  for (i = 0; i <= 31; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	supply_register (FP0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  if (regno == FPS_REGNUM || regno == -1)
+    supply_register (FPS_REGNUM, fpregs + (32 * 4));
+}
+
+void
+sparcnbsd_supply_fpreg64 (char *fpregs, int regno)
+{
+  int i;
+
+  for (i = 0; i <= 31; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	supply_register (FP0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  for (; i <= 47; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	supply_register (FP0_REGNUM + i, fpregs + (32 * 4) + (i * 8));
+    }
+
+  if (regno == FPS_REGNUM || regno == -1)
+    supply_register (FPS_REGNUM, fpregs + (32 * 4) + (16 * 8));
+
+  /* XXX %gsr */
+}
+
+void
+sparcnbsd_fill_fpreg32 (char *fpregs, int regno)
+{
+  int i;
+
+  for (i = 0; i <= 31; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	regcache_collect (FP0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  if (regno == FPS_REGNUM || regno == -1)
+    regcache_collect (FPS_REGNUM, fpregs + (32 * 4));
+}
+
+void
+sparcnbsd_fill_fpreg64 (char *fpregs, int regno)
+{
+  int i;
+
+  for (i = 0; i <= 31; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	regcache_collect (FP0_REGNUM + i, fpregs + (i * 4));
+    }
+
+  for (; i <= 47; i++)
+    {
+      if (regno == (FP0_REGNUM + i) || regno == -1)
+	regcache_collect (FP0_REGNUM + i, fpregs + (32 * 4) + (i * 8));
+    }
+
+  if (regno == FPS_REGNUM || regno == -1)
+    regcache_collect (FPS_REGNUM, fpregs + (32 * 4) + (16 * 8));
+
+  /* XXX %gsr */
+}
+
+/* Unlike other NetBSD implementations, the SPARC port historically used
+   .reg and .reg2 (see bfd/netbsd-core.c), and as such, we can share one
+   routine for a.out and ELF core files.  */
+static void
+fetch_core_registers (char *core_reg_sect, unsigned core_reg_size, int which,
+                      CORE_ADDR ignore)
+{
+  int reg_size, fpreg_size;
+
+  if (gdbarch_ptr_bit (current_gdbarch) == 32)
+    {
+      reg_size = (20 * 4);
+      fpreg_size = (33 * 4);
+    }
+  else
+    {
+      reg_size = (20 * 8);
+      fpreg_size = (64 * 4)
+        + 8  /* fsr */
+        + 4  /* gsr */
+        + 4; /* pad */
+    }
+
+  switch (which)
+    {
+    case 0:  /* Integer registers */
+      if (core_reg_size != reg_size)
+	warning ("Wrong size register set in core file.");
+      else if (gdbarch_ptr_bit (current_gdbarch) == 32)
+	sparcnbsd_supply_reg32 (core_reg_sect, -1);
+      else
+	sparcnbsd_supply_reg64 (core_reg_sect, -1);
+      break;
+
+    case 2:  /* Floating pointer registers */
+      if (core_reg_size != fpreg_size)
+	warning ("Wrong size FP register set in core file.");
+      else if (gdbarch_ptr_bit (current_gdbarch) == 32)
+	sparcnbsd_supply_fpreg32 (core_reg_sect, -1);
+      else
+	sparcnbsd_supply_fpreg64 (core_reg_sect, -1);
+      break;
+
+    default:
+      /* Don't know what kind of register request this is; just ignore it.  */
+      break;
+    }
+}
+
+static struct core_fns sparcnbsd_core_fns =
+{
+  bfd_target_unknown_flavour,		/* core_flavour */
+  default_check_format,			/* check_format */
+  default_core_sniffer,			/* core_sniffer */
+  fetch_core_registers,			/* core_read_registers */
+  NULL
+};
+
+static struct core_fns sparcnbsd_elfcore_fns =
+{
+  bfd_target_elf_flavour,		/* core_flavour */
+  default_check_format,			/* check_format */
+  default_core_sniffer,			/* core_sniffer */
+  fetch_core_registers,			/* core_read_registers */
+  NULL
+};
+
+/* FIXME: Need PC_IN_SIGTRAMP() support, but NetBSD/sparc signal trampolines
+   aren't easily identified.  */
+
+static int
+sparcnbsd_get_longjmp_target_32 (CORE_ADDR *pc)
+{
+  CORE_ADDR jb_addr;
+  char buf[4];
+
+  jb_addr = read_register (O0_REGNUM);
+
+  if (target_read_memory (jb_addr + 12, buf, sizeof (buf)))
+    return 0;
+
+  *pc = extract_address (buf, sizeof (buf));
+
+  return 1;
+}
+
+static int
+sparcnbsd_get_longjmp_target_64 (CORE_ADDR *pc)
+{
+  CORE_ADDR jb_addr;
+  char buf[8];
+
+  jb_addr = read_register (O0_REGNUM);
+
+  if (target_read_memory (jb_addr + 16, buf, sizeof (buf)))
+    return 0;
+
+  *pc = extract_address (buf, sizeof (buf));
+
+  return 1;
+}
+
+static int
+sparcnbsd_aout_in_solib_call_trampoline (CORE_ADDR pc, char *name)
+{
+  if (strcmp (name, "_DYNAMIC") == 0)
+    return 1;
+
+  return 0;
+}
+
+static void
+sparcnbsd_init_abi_common (struct gdbarch_info info,
+                           struct gdbarch *gdbarch)
+{
+  set_gdbarch_get_longjmp_target (gdbarch, gdbarch_ptr_bit (gdbarch) == 32 ?
+	                                   sparcnbsd_get_longjmp_target_32 :
+	                                   sparcnbsd_get_longjmp_target_64);
+}
+
+static void
+sparcnbsd_init_abi_aout (struct gdbarch_info info,
+                         struct gdbarch *gdbarch)
+{
+  sparcnbsd_init_abi_common (info, gdbarch);
+
+  set_gdbarch_in_solib_call_trampoline (gdbarch,
+                                     sparcnbsd_aout_in_solib_call_trampoline);
+}
+
+static void
+sparcnbsd_init_abi_elf (struct gdbarch_info info,
+                        struct gdbarch *gdbarch)
+{
+  sparcnbsd_init_abi_common (info, gdbarch);
+
+  set_solib_svr4_fetch_link_map_offsets (gdbarch,
+				         gdbarch_ptr_bit (gdbarch) == 32 ?
+                                nbsd_ilp32_solib_svr4_fetch_link_map_offsets :
+				nbsd_lp64_solib_svr4_fetch_link_map_offsets);
 }
 
 static enum gdb_osabi
@@ -328,44 +515,17 @@ sparcnbsd_aout_osabi_sniffer (bfd *abfd)
   return GDB_OSABI_UNKNOWN;
 }
 
-/* OpenBSD uses the traditional NetBSD core file format, even for
-   ports that use ELF.  Therefore, if the default OS ABI is OpenBSD
-   ELF, we return that instead of NetBSD a.out.  This is mainly for
-   the benfit of OpenBSD/sparc64, which inherits the sniffer below
-   since we include this file for an OpenBSD/sparc64 target.  For
-   OpenBSD/sparc, the NetBSD a.out OS ABI is probably similar enough
-   to both the OpenBSD a.out and the OpenBSD ELF OS ABI.  */
-#if defined (GDB_OSABI_DEFAULT) && (GDB_OSABI_DEFAULT == GDB_OSABI_OPENBSD_ELF)
-#define GDB_OSABI_NETBSD_CORE GDB_OSABI_OPENBSD_ELF
-#else
-#define GDB_OSABI_NETBSD_CORE GDB_OSABI_NETBSD_AOUT
-#endif
-
-static enum gdb_osabi
-sparcnbsd_core_osabi_sniffer (bfd *abfd)
-{
-  if (strcmp (bfd_get_target (abfd), "netbsd-core") == 0)
-    return GDB_OSABI_NETBSD_CORE;
-
-  return GDB_OSABI_UNKNOWN;
-}
-
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_sparcnbsd_tdep (void);
-
 void
-_initialize_sparcnbsd_tdep (void)
+_initialize_sparnbsd_tdep (void)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_sparc, bfd_target_aout_flavour,
 				  sparcnbsd_aout_osabi_sniffer);
 
-  /* BFD doesn't set a flavour for NetBSD style a.out core files.  */
-  gdbarch_register_osabi_sniffer (bfd_arch_sparc, bfd_target_unknown_flavour,
-                                  sparcnbsd_core_osabi_sniffer);
+  gdbarch_register_osabi (bfd_arch_sparc, GDB_OSABI_NETBSD_AOUT,
+			  sparcnbsd_init_abi_aout);
+  gdbarch_register_osabi (bfd_arch_sparc, GDB_OSABI_NETBSD_ELF,
+			  sparcnbsd_init_abi_elf);
 
-  gdbarch_register_osabi (bfd_arch_sparc, 0, GDB_OSABI_NETBSD_AOUT,
-			  sparc32nbsd_aout_init_abi);
-  gdbarch_register_osabi (bfd_arch_sparc, 0, GDB_OSABI_NETBSD_ELF,
-			  sparc32nbsd_elf_init_abi);
+  add_core_fns (&sparcnbsd_core_fns);
+  add_core_fns (&sparcnbsd_elfcore_fns);
 }

@@ -1,12 +1,11 @@
 /* Target-dependent code for i386 BSD's.
-
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright 2001, 2002 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,76 +14,203 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
-#include "arch-utils.h"
 #include "frame.h"
 #include "gdbcore.h"
 #include "regcache.h"
-#include "osabi.h"
-
-#include "gdb_string.h"
 
 #include "i386-tdep.h"
 
 /* Support for signal handlers.  */
 
-/* Assuming THIS_FRAME is for a BSD sigtramp routine, return the
-   address of the associated sigcontext structure.  */
+/* Return whether PC is in a BSD sigtramp routine.  */
+
+static int
+i386bsd_pc_in_sigtramp (CORE_ADDR pc, char *name)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (current_gdbarch);
+
+  return (pc >= tdep->sigtramp_start && pc < tdep->sigtramp_end);
+}
+
+/* Assuming FRAME is for a BSD sigtramp routine, return the address of
+   the associated sigcontext structure.  */
 
 static CORE_ADDR
-i386bsd_sigcontext_addr (struct frame_info *this_frame)
+i386bsd_sigcontext_addr (struct frame_info *frame)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  gdb_byte buf[4];
-  CORE_ADDR sp;
+  if (frame->next)
+    /* If this isn't the top frame, the next frame must be for the
+       signal handler itself.  A pointer to the sigcontext structure
+       is passed as the third argument to the signal handler.  */
+    return read_memory_unsigned_integer (frame->next->frame + 16, 4);
 
-  get_frame_register (this_frame, I386_ESP_REGNUM, buf);
-  sp = extract_unsigned_integer (buf, 4, byte_order);
+  /* This is the top frame.  We'll have to find the address of the
+     sigcontext structure by looking at the stack pointer.  */
+  return read_memory_unsigned_integer (read_register (SP_REGNUM) + 8, 4);
+}
 
-  return read_memory_unsigned_integer (sp + 8, 4, byte_order);
+/* Assuming FRAME is for a BSD sigtramp routine, return the saved
+   program counter.
+
+   Note: This function is used for Solaris 2 too, so don't make it
+   static.  */
+
+CORE_ADDR
+i386bsd_sigtramp_saved_pc (struct frame_info *frame)
+{
+  int sc_pc_offset = gdbarch_tdep (current_gdbarch)->sc_pc_offset;
+  CORE_ADDR addr;
+
+  addr = i386bsd_sigcontext_addr (frame);
+  return read_memory_unsigned_integer (addr + sc_pc_offset, 4);
+}
+
+/* Return the saved program counter for FRAME.  */
+
+static CORE_ADDR
+i386bsd_frame_saved_pc (struct frame_info *frame)
+{
+  if (frame->signal_handler_caller)
+    return i386bsd_sigtramp_saved_pc (frame);
+
+  return read_memory_unsigned_integer (frame->frame + 4, 4);
+}
+
+/* Return the start address of the sigtramp routine.  */
+
+CORE_ADDR
+i386bsd_sigtramp_start (CORE_ADDR pc)
+{
+  return gdbarch_tdep (current_gdbarch)->sigtramp_start;
+}
+
+/* Return the end address of the sigtramp routine.  */
+
+CORE_ADDR
+i386bsd_sigtramp_end (CORE_ADDR pc)
+{
+  return gdbarch_tdep (current_gdbarch)->sigtramp_end;
 }
 
-
-/* Support for shared libraries.  */
 
 /* Traditional BSD (4.3 BSD, still used for BSDI and 386BSD).  */
 
 /* From <machine/signal.h>.  */
-int i386bsd_sc_reg_offset[] =
-{
-  -1,				/* %eax */
-  -1,				/* %ecx */
-  -1,				/* %edx */
-  -1,				/* %ebx */
-  8 + 0 * 4,			/* %esp */
-  8 + 1 * 4,			/* %ebp */
-  -1,				/* %esi */
-  -1,				/* %edi */
-  8 + 3 * 4,			/* %eip */
-  8 + 4 * 4,			/* %eflags */
-  -1,				/* %cs */
-  -1,				/* %ss */
-  -1,				/* %ds */
-  -1,				/* %es */
-  -1,				/* %fs */
-  -1				/* %gs */
-};
+int i386bsd_sc_pc_offset = 20;
 
-void
+static void
 i386bsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
+  set_gdbarch_pc_in_sigtramp (gdbarch, i386bsd_pc_in_sigtramp);
+
   tdep->jb_pc_offset = 0;
 
+  tdep->sigtramp_saved_pc = i386bsd_sigtramp_saved_pc;
   tdep->sigtramp_start = 0xfdbfdfc0;
   tdep->sigtramp_end = 0xfdbfe000;
-  tdep->sigcontext_addr = i386bsd_sigcontext_addr;
-  tdep->sc_reg_offset = i386bsd_sc_reg_offset;
-  tdep->sc_num_regs = ARRAY_SIZE (i386bsd_sc_reg_offset);
+  tdep->sc_pc_offset = i386bsd_sc_pc_offset;
+}
+
+/* NetBSD 1.0 or later.  */
+
+/* From <machine/signal.h>.  */
+int i386nbsd_sc_pc_offset = 44;
+
+static void
+i386nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+
+  /* Obviously NetBSD is BSD-based.  */
+  i386bsd_init_abi (info, gdbarch);
+
+  /* NetBSD uses -freg-struct-return by default.  */
+  tdep->struct_return = reg_struct_return;
+
+  /* NetBSD uses a different memory layout.  */
+  tdep->sigtramp_start = 0xbfbfdf20;
+  tdep->sigtramp_end = 0xbfbfdff0;
+
+  /* NetBSD has a `struct sigcontext' that's different from the
+     origional 4.3 BSD.  */
+  tdep->sc_pc_offset = i386nbsd_sc_pc_offset;
+}
+
+/* NetBSD ELF.  */
+static void
+i386nbsdelf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+
+  /* It's still NetBSD.  */
+  i386nbsd_init_abi (info, gdbarch);
+
+  /* But ELF-based.  */
+  i386_elf_init_abi (info, gdbarch);
+
+  /* NetBSD ELF uses -fpcc-struct-return by default.  */
+  tdep->struct_return = pcc_struct_return;
+
+  /* We support the SSE registers on NetBSD ELF.  */
+  tdep->num_xmm_regs = I386_NUM_XREGS - 1;
+  set_gdbarch_num_regs (gdbarch, I386_NUM_GREGS + I386_NUM_FREGS
+			+ I386_NUM_XREGS);
+}
+
+/* FreeBSD 3.0-RELEASE or later.  */
+
+CORE_ADDR i386fbsd_sigtramp_start = 0xbfbfdf20;
+CORE_ADDR i386fbsd_sigtramp_end = 0xbfbfdff0;
+
+static void
+i386fbsdaout_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+
+  /* Obviously FreeBSD is BSD-based.  */
+  i386bsd_init_abi (info, gdbarch);
+
+  /* FreeBSD uses -freg-struct-return by default.  */
+  tdep->struct_return = reg_struct_return;
+
+  /* FreeBSD uses a different memory layout.  */
+  tdep->sigtramp_start = i386fbsd_sigtramp_start;
+  tdep->sigtramp_end = i386fbsd_sigtramp_end;
+}
+
+static void
+i386fbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+{
+  /* It's almost identical to FreeBSD a.out.  */
+  i386fbsdaout_init_abi (info, gdbarch);
+
+  /* Except that it uses ELF.  */
+  i386_elf_init_abi (info, gdbarch);
+}
+
+/* FreeBSD 4.0-RELEASE or later.  */
+
+/* From <machine/signal.h>.  */
+int i386fbsd4_sc_pc_offset = 76;
+
+static void
+i386fbsd4_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+
+  /* Inherit stuff from older releases.  We assume that FreeBSD
+     4.0-RELEASE always uses ELF.  */
+  i386fbsd_init_abi (info, gdbarch);
+
+  /* FreeBSD 4.0 introduced a new `struct sigcontext'.  */
+  tdep->sc_pc_offset = i386fbsd4_sc_pc_offset;
 }
 
 
@@ -100,15 +226,6 @@ i386bsd_aout_osabi_sniffer (bfd *abfd)
   return GDB_OSABI_UNKNOWN;
 }
 
-static enum gdb_osabi
-i386bsd_core_osabi_sniffer (bfd *abfd)
-{
-  if (strcmp (bfd_get_target (abfd), "netbsd-core") == 0)
-    return GDB_OSABI_NETBSD_AOUT;
-
-  return GDB_OSABI_UNKNOWN;
-}
-
 
 /* Provide a prototype to silence -Wmissing-prototypes.  */
 void _initialize_i386bsd_tdep (void);
@@ -119,7 +236,12 @@ _initialize_i386bsd_tdep (void)
   gdbarch_register_osabi_sniffer (bfd_arch_i386, bfd_target_aout_flavour,
 				  i386bsd_aout_osabi_sniffer);
 
-  /* BFD doesn't set a flavour for NetBSD style a.out core files.  */
-  gdbarch_register_osabi_sniffer (bfd_arch_i386, bfd_target_unknown_flavour,
-				  i386bsd_core_osabi_sniffer);
+  gdbarch_register_osabi (bfd_arch_i386, GDB_OSABI_NETBSD_AOUT,
+			  i386nbsd_init_abi);
+  gdbarch_register_osabi (bfd_arch_i386, GDB_OSABI_NETBSD_ELF,
+ 			  i386nbsdelf_init_abi);
+  gdbarch_register_osabi (bfd_arch_i386, GDB_OSABI_FREEBSD_AOUT,
+			  i386fbsdaout_init_abi);
+  gdbarch_register_osabi (bfd_arch_i386, GDB_OSABI_FREEBSD_ELF,
+			  i386fbsd4_init_abi);
 }
