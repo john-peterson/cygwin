@@ -1,6 +1,5 @@
-/* Target machine parameters for MIPS r4000
-   Copyright 1994, 1996, 1997, 1998, 2000 Free Software Foundation, Inc.
-   Contributed by Ian Lance Taylor (ian@cygnus.com)
+/* Macro definitions for ARM running under NetBSD.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,19 +18,9 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-/* Use eight byte registers.  */
-#define MIPS_REGSIZE 8
+#ifndef TM_NBSD_H
+#define TM_NBSD_H
 
-/* define 8 byte register type */
-#define MIPS_REGISTER_TYPE(N) \
-        (((N) >= FP0_REGNUM && (N) < FP0_REGNUM+32) ? builtin_type_double \
-	 : ((N) == 32 /*SR*/) ? builtin_type_uint32 \
-	 : ((N) >= 70 && (N) <= 89) ? builtin_type_uint32 \
-	 : builtin_type_long_long)
+#include "solib.h"
 
-/* Load double words in CALL_DUMMY.  */
-#define OP_LDFPR 065		/* ldc1 */
-#define OP_LDGPR 067		/* ld */
-
-/* Get the basic MIPS definitions.  */
-#include "mips/tm-mips.h"
+#endif /* TM_NBSD_H */
