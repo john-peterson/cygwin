@@ -1,388 +1,446 @@
-/* shm.cc: XSI IPC interface for Cygwin.
+/* shm.cc: Single unix specification IPC interface for Cygwin
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009 Red Hat, Inc.
+   Copyright 2001 Red Hat, Inc.
 
-This file is part of Cygwin.
+   Originally written by Robert Collins <robert.collins@hotmail.com>
 
-This software is a copyrighted work licensed under the terms of the
-Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
-details. */
+   This file is part of Cygwin.
+
+   This software is a copyrighted work licensed under the terms of the
+   Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
+   details. */
 
 #include "winsup.h"
-#include <sys/queue.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include "cygerrno.h"
 #include <unistd.h>
-
-#include "pinfo.h"
-#include "sigproc.h"
-
+#include "security.h"
+#include "fhandler.h"
+#include "dtable.h"
+#include "cygheap.h"
+#include <stdio.h>
+#include "thread.h"
+#include <sys/shm.h>
+#include "perprocess.h"
 #include "cygserver_shm.h"
-#include "cygtls.h"
-#include "sync.h"
-#include "ntdll.h"
 
-/*
- * client_request_shm Constructors
+// FIXME IS THIS CORRECT
+/* Implementation notes: We use two shared memory regions per key:
+ * One for the control structure, and one for the shared memory.
+ * While this has a higher overhead tham a single shared area,
+ * It allows more flexability. As the entire code is transparent to the user
+ * We can merge these in the future should it be needed.
  */
-
-client_request_shm::client_request_shm (int shmid,
-					const void *shmaddr,
-					int shmflg)
-  : client_request (CYGSERVER_REQUEST_SHM, &_parameters, sizeof (_parameters))
+extern "C" size_t
+getsystemallocgranularity ()
 {
-  _parameters.in.shmop = SHMOP_shmat;
-  ipc_set_proc_info (_parameters.in.ipcblk);
-
-  _parameters.in.atargs.shmid = shmid;
-  _parameters.in.atargs.shmaddr = shmaddr;
-  _parameters.in.atargs.shmflg = shmflg;
-
-  msglen (sizeof (_parameters.in));
+  SYSTEM_INFO sysinfo;
+  static size_t buffer_offset = 0;
+  if (buffer_offset)
+    return buffer_offset;
+  GetSystemInfo (&sysinfo);
+  buffer_offset = sysinfo.dwAllocationGranularity;
+  return buffer_offset;
 }
 
-client_request_shm::client_request_shm (int shmid,
-					int cmd,
-					struct shmid_ds *buf)
-  : client_request (CYGSERVER_REQUEST_SHM, &_parameters, sizeof (_parameters))
+static shmnode *shm_head = NULL;
+
+static shmnode *
+build_inprocess_shmds (HANDLE hfilemap, HANDLE hattachmap, key_t key,
+		       int shm_id)
 {
-  _parameters.in.shmop = SHMOP_shmctl;
-  ipc_set_proc_info (_parameters.in.ipcblk);
+  HANDLE filemap = hfilemap;
+  void *mapptr = MapViewOfFile (filemap, FILE_MAP_WRITE, 0, 0, 0);
 
-   _parameters.in.ctlargs.shmid = shmid;
-   _parameters.in.ctlargs.cmd = cmd;
-   _parameters.in.ctlargs.buf = buf;
+  if (!mapptr)
+    {
+      CloseHandle (hfilemap);
+      CloseHandle (hattachmap);
+      //FIXME: close filemap and free the mutex
+      /* we couldn't access the mapped area with the requested permissions */
+      set_errno (EACCES);
+      return NULL;
+    }
 
-  msglen (sizeof (_parameters.in));
+  /* Now get the user data */
+  HANDLE attachmap = hattachmap;
+  shmid_ds *shmtemp = new shmid_ds;
+  if (!shmtemp)
+    {
+      system_printf ("failed to malloc shm node\n");
+      set_errno (ENOMEM);
+      UnmapViewOfFile (mapptr);
+      CloseHandle (filemap);
+      CloseHandle (attachmap);
+      /* exit mutex */
+      return NULL;
+    }
+
+  /* get the system node data */
+  *shmtemp = *(shmid_ds *) mapptr;
+
+  /* process local data */
+  shmnode *tempnode = new shmnode;
+
+  tempnode->filemap = filemap;
+  tempnode->attachmap = attachmap;
+  shmtemp->mapptr = mapptr;
+
+  /* no need for InterlockedExchange here, we're serialised by the global mutex */
+  tempnode->shmds = shmtemp;
+  tempnode->shm_id = shm_id;
+  tempnode->key = key;
+  tempnode->next = shm_head;
+  tempnode->attachhead = NULL;
+  shm_head = tempnode;
+
+  /* FIXME: leave the system wide shm mutex */
+
+  return tempnode;
 }
-
-client_request_shm::client_request_shm (const void *shmaddr)
-  : client_request (CYGSERVER_REQUEST_SHM, &_parameters, sizeof (_parameters))
-{
-  _parameters.in.shmop = SHMOP_shmdt;
-  ipc_set_proc_info (_parameters.in.ipcblk);
-
-  _parameters.in.dtargs.shmaddr = shmaddr;
-
-  msglen (sizeof (_parameters.in));
-}
-
-client_request_shm::client_request_shm (key_t key,
-					size_t size,
-					int shmflg)
-  : client_request (CYGSERVER_REQUEST_SHM, &_parameters, sizeof (_parameters))
-{
-  _parameters.in.shmop = SHMOP_shmget;
-  ipc_set_proc_info (_parameters.in.ipcblk);
-
-  _parameters.in.getargs.key = key;
-  _parameters.in.getargs.size = size;
-  _parameters.in.getargs.shmflg = shmflg;
-
-  msglen (sizeof (_parameters.in));
-}
-
-client_request_shm::client_request_shm (proc *p1)
-  : client_request (CYGSERVER_REQUEST_SHM, &_parameters, sizeof (_parameters))
-{
-  _parameters.in.shmop = SHMOP_shmfork;
-  ipc_set_proc_info (_parameters.in.ipcblk);
-
-  _parameters.in.forkargs = *p1;
-}
-
-/* List of shmid's with file mapping HANDLE and size, returned by shmget. */
-struct shm_shmid_list {
-  SLIST_ENTRY (shm_shmid_list) ssh_next;
-  int shmid;
-  vm_object_t hdl;
-  size_t size;
-  int ref_count;
-};
-
-static SLIST_HEAD (, shm_shmid_list) ssh_list;
-
-/* List of attached mappings, as returned by shmat. */
-struct shm_attached_list {
-  SLIST_ENTRY (shm_attached_list) sph_next;
-  vm_object_t ptr;
-  shm_shmid_list *parent;
-  ULONG access;
-};
-
-static SLIST_HEAD (, shm_attached_list) sph_list;
-
-static NO_COPY muto shm_guard;
-#define SLIST_LOCK()	(shm_guard.init ("shm_guard")->acquire ())
-#define SLIST_UNLOCK()	(shm_guard.release ())
 
 int __stdcall
 fixup_shms_after_fork ()
 {
-  if (!SLIST_FIRST (&sph_list))
-    return 0;
-  pinfo p (myself->ppid);
-  proc parent = { myself->ppid, p->dwProcessId, p->uid, p->gid };
-
-  client_request_shm request (&parent);
-  if (request.make_request () == -1 || request.retval () == -1)
+  shmnode *tempnode = shm_head;
+  while (tempnode)
     {
-      syscall_printf ("-1 [%d] = fixup_shms_after_fork ()", request.error_code ());
-      set_errno (request.error_code ());
-      return 0;
-    }
-  shm_attached_list *sph_entry;
-  /* Reconstruct map from list... */
-  SLIST_FOREACH (sph_entry, &sph_list, sph_next)
-    {
-      NTSTATUS status;
-      vm_object_t ptr = sph_entry->ptr;
-      ULONG viewsize = sph_entry->parent->size;
-      status = NtMapViewOfSection (sph_entry->parent->hdl, NtCurrentProcess (),
-				   &ptr, 0, sph_entry->parent->size, NULL,
-				   &viewsize, ViewShare, 0, sph_entry->access);
-      if (!NT_SUCCESS (status) || ptr != sph_entry->ptr)
-	api_fatal ("fixup_shms_after_fork: NtMapViewOfSection (%p), status %p.  Terminating.",
-		   sph_entry->ptr, status);
+      void *newshmds =
+	MapViewOfFile (tempnode->filemap, FILE_MAP_WRITE, 0, 0, 0);
+      if (!newshmds)
+	{
+	  /* don't worry about handle cleanup, we're dying! */
+	  system_printf("failed to reattach to shm control file view %x\n",tempnode);
+	  return 1;
+	}
+      tempnode->shmds = (class shmid_ds *) newshmds;
+      tempnode->shmds->mapptr = newshmds;
+      _shmattach *attachnode = tempnode->attachhead;
+      while (attachnode)
+	{
+	  void *newdata = MapViewOfFileEx (tempnode->attachmap,
+					   (attachnode->shmflg & SHM_RDONLY) ?
+					   FILE_MAP_READ : FILE_MAP_WRITE, 0,
+					   0, 0, attachnode->data);
+	  if (newdata != attachnode->data)
+	    {
+	      /* don't worry about handle cleanup, we're dying! */
+		system_printf("failed to reattach to mapped file view %x\n",attachnode->data);
+	      return 1;
+	    }
+	  attachnode = attachnode->next;
+	}
+      tempnode = tempnode->next;
     }
   return 0;
 }
 
-/*
- * XSI shmaphore API.  These are exported by the DLL.
+/* this is ugly. Yes, I know that.
+ * FIXME: abstract the lookup functionality,
+ * So that it can be an array, list, whatever without us being worried
+ */
+
+/* FIXME: after fork, every memory area needs to have the attach count
+ * incremented and the mappings potentially reestablished, perhaps allowing
+ * inherit will work?!?
+ */
+
+/* FIXME: are inherited mapped IPC_PRIVATE id's shared between process's
+ * YES from linux.
  */
 
 extern "C" void *
 shmat (int shmid, const void *shmaddr, int shmflg)
 {
-  syscall_printf ("shmat (shmid = %d, shmaddr = %p, shmflg = 0x%x)",
-		  shmid, shmaddr, shmflg);
+  shmnode *tempnode = shm_head;
+  while (tempnode && tempnode->shm_id != shmid)
+    tempnode = tempnode->next;
 
-  SLIST_LOCK ();
-  shm_shmid_list *ssh_entry;
-  SLIST_FOREACH (ssh_entry, &ssh_list, ssh_next)
+  if (!tempnode)
     {
-      if (ssh_entry->shmid == shmid)
-	break;
-    }
-  if (!ssh_entry)
-    {
-      /* The shmid is unknown to this process so far.  Try to get it from
-	 the server if it exists.  Use special internal call to shmget,
-	 which interprets the key as a shmid and only returns a valid
-	 shmid if one exists.  Since shmctl inserts a new entry for this
-	 shmid into ssh_list automatically, we just have to go through
-	 that list again.  If that still fails, well, bad luck. */
-      if (shmid && shmget ((key_t) shmid, 0, IPC_KEY_IS_SHMID) != -1)
+      /* couldn't find a currently open shm control area for the key - probably because
+       * shmget hasn't been called. 
+       * Allocate a new control block - this has to be handled by the daemon */
+      client_request_shm_get *req =
+	new client_request_shm_get (shmid, GetCurrentProcessId ());
+
+      int rc;
+      if ((rc = cygserver_request (req)))
 	{
-	  SLIST_FOREACH (ssh_entry, &ssh_list, ssh_next)
-	    {
-	      if (ssh_entry->shmid == shmid)
-		break;
-	    }
-	}
-      if (!ssh_entry)
-	{
-	  /* Invalid shmid */
-	  set_errno (EINVAL);
-	  SLIST_UNLOCK ();
+	  delete req;
+	  set_errno (ENOSYS);	/* daemon communication failed */
 	  return (void *) -1;
 	}
-    }
-  /* Early increment ref counter.  This allows further actions to run with
-     unlocked lists, because shmdt or shmctl(IPC_RMID) won't delete this
-     ssh_entry. */
-  ++ssh_entry->ref_count;
-  SLIST_UNLOCK ();
 
-  vm_object_t attach_va = NULL;
+      if (req->header.error_code)	/* shm_get failed in the daemon */
+	{
+	  set_errno (req->header.error_code);
+	  delete req;
+	  return (void *) -1;
+	}
+
+      /* we've got the id, now we open the memory area ourselves.
+       * This tests security automagically
+       * FIXME: make this a method of shmnode ?
+       */
+      tempnode =
+	build_inprocess_shmds (req->parameters.out.filemap,
+			       req->parameters.out.attachmap,
+			       req->parameters.out.key,
+			       req->parameters.out.shm_id);
+      delete req;
+      if (!tempnode)
+	return (void *) -1;
+
+    }
+
+  class shmid_ds *shm = tempnode->shmds;
+
   if (shmaddr)
     {
-      if (shmflg & SHM_RND)
-	attach_va = (vm_object_t)((vm_offset_t)shmaddr & ~(SHMLBA-1));
-      else
-	attach_va = (vm_object_t)shmaddr;
-      /* Don't even bother to call anything if shmaddr is NULL or
-	 not aligned. */
-      if (!attach_va || (vm_offset_t)attach_va % SHMLBA)
-	{
-	  set_errno (EINVAL);
-	  --ssh_entry->ref_count;
-	  return (void *) -1;
-	}
-    }
-  /* Try allocating memory before calling cygserver. */
-  shm_attached_list *sph_entry = new (shm_attached_list);
-  if (!sph_entry)
-    {
-      set_errno (ENOMEM);
-      --ssh_entry->ref_count;
+      //FIXME: requested base address ?! (Don't forget to fix the fixup_after_fork too)
+      set_errno (EINVAL);
       return (void *) -1;
     }
-  NTSTATUS status;
-  vm_object_t ptr = NULL;
-  ULONG viewsize = ssh_entry->size;
-  ULONG access = (shmflg & SHM_RDONLY) ? PAGE_READONLY : PAGE_READWRITE;
-  status = NtMapViewOfSection (ssh_entry->hdl, NtCurrentProcess (), &ptr, 0,
-			       ssh_entry->size, NULL, &viewsize, ViewShare,
-			       MEM_TOP_DOWN, access);
-  if (!NT_SUCCESS (status))
+
+  void *rv = MapViewOfFile (tempnode->attachmap,
+			    (shmflg & SHM_RDONLY) ? FILE_MAP_READ :
+			    FILE_MAP_WRITE, 0, 0, 0);
+
+  if (!rv)
     {
-      __seterrno_from_nt_status (status);
-      delete sph_entry;
-      --ssh_entry->ref_count;
+      //FIXME: translate GetLastError()
+      set_errno (EACCES);
       return (void *) -1;
     }
-  /* Use returned ptr address as is, so it's stored using the exact value
-     in cygserver. */
-  client_request_shm request (shmid, ptr, shmflg & ~SHM_RND);
-  if (request.make_request () == -1 || request.ptrval () == NULL)
-    {
-      syscall_printf ("-1 [%d] = shmat ()", request.error_code ());
-      UnmapViewOfFile (ptr);
-      delete sph_entry;
-      set_errno (request.error_code ());
-      --ssh_entry->ref_count;
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return (void *) -1;
-    }
-  sph_entry->ptr = ptr;
-  sph_entry->parent = ssh_entry;
-  sph_entry->access = access;
-  SLIST_LOCK ();
-  SLIST_INSERT_HEAD (&sph_list, sph_entry, sph_next);
-  SLIST_UNLOCK ();
-  return ptr;
+
+  InterlockedIncrement (&shm->shm_nattch);
+  _shmattach *attachnode = new _shmattach;
+
+  attachnode->data = rv;
+  attachnode->shmflg = shmflg;
+  attachnode->next =
+    (_shmattach *) InterlockedExchangePointer (&tempnode->attachhead, attachnode);
+
+
+  return rv;
 }
 
+//FIXME: who is allowed to perform STAT? 
 extern "C" int
 shmctl (int shmid, int cmd, struct shmid_ds *buf)
 {
-  syscall_printf ("shmctl (shmid = %d, cmd = %d, buf = 0x%x)",
-		  shmid, cmd, buf);
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  client_request_shm request (shmid, cmd, buf);
-  if (request.make_request () == -1 || request.retval () == -1)
+  shmnode *tempnode = shm_head;
+  while (tempnode && tempnode->shm_id != shmid)
+    tempnode = tempnode->next;
+  if (!tempnode)
+  {
+    /* couldn't find a currently open shm control area for the key - probably because
+     * shmget hasn't been called.
+     * Allocate a new control block - this has to be handled by the daemon */
+    client_request_shm_get *req =
+      new client_request_shm_get (shmid, GetCurrentProcessId ());
+
+    int rc;
+    if ((rc = cygserver_request (req)))
+      {
+        delete req;
+        set_errno (ENOSYS);   /* daemon communication failed */
+        return -1;
+      }
+
+    if (req->header.error_code)       /* shm_get failed in the daemon */
+      {
+        set_errno (req->header.error_code);
+        delete req;
+        return -1;
+      }
+
+    /* we've got the id, now we open the memory area ourselves.
+     * This tests security automagically
+     * FIXME: make this a method of shmnode ?
+     */
+    tempnode =
+      build_inprocess_shmds (req->parameters.out.filemap,
+                             req->parameters.out.attachmap,
+                             req->parameters.out.key,
+                             req->parameters.out.shm_id);
+    delete req;
+    if (!tempnode)
+      return -1;
+  }
+  
+  switch (cmd)
     {
-      syscall_printf ("-1 [%d] = shmctl ()", request.error_code ());
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
+    case IPC_STAT:
+      buf->shm_perm = tempnode->shmds->shm_perm; 
+      buf->shm_segsz = tempnode->shmds->shm_segsz;
+      buf->shm_lpid = tempnode->shmds->shm_lpid;
+      buf->shm_cpid = tempnode->shmds->shm_cpid;
+      buf->shm_nattch = tempnode->shmds->shm_nattch;
+      buf->shm_atime = tempnode->shmds->shm_atime;
+      buf->shm_dtime = tempnode->shmds->shm_dtime;
+      buf->shm_ctime = tempnode->shmds->shm_ctime;
+      break;
+    case IPC_RMID:
+      {
+      /* TODO: check permissions. Or possibly, the daemon gets to be the only 
+       * one with write access to the memory area?
+       */
+      if (tempnode->shmds->shm_nattch)
+	system_printf ("call to shmctl with cmd= IPC_RMID when memory area still has"
+			" attachees\n");
+      /* how does this work? 
+	* we mark the ds area as "deleted", and the at and get calls all fail from now on
+	* on, when nattch becomes 0, the mapped data area is destroyed.
+        * and each process, as they touch this area detaches. eventually only the 
+ 	* daemon has an attach. The daemon gets asked to detach immediately.
+	*/
+#if 0
+      client_request_shm_get *req =
+	  new client_request_shm_get (SHM_DEL, shmid, GetCurrentProcessId ());
+    int rc;
+    if ((rc = cygserver_request (req)))
+      {
+        delete req;
+        set_errno (ENOSYS);   /* daemon communication failed */
+        return -1;
+      }
+
+    if (req->header.error_code)       /* shm_del failed in the daemon */
+      {
+        set_errno (req->header.error_code);
+        delete req;
+        return -1;
+      }
+
+     /* the daemon has deleted it's references */
+     /* now for us */
+#endif
+}
+      break;
+    case IPC_SET:
+    default:
+      set_errno (EINVAL);
       return -1;
     }
-  if (cmd == IPC_RMID)
-    {
-      /* Cleanup */
-      shm_shmid_list *ssh_entry, *ssh_next_entry;
-      SLIST_LOCK ();
-      SLIST_FOREACH_SAFE (ssh_entry, &ssh_list, ssh_next, ssh_next_entry)
-	{
-	  if (ssh_entry->shmid == shmid)
-	    {
-	      /* Remove this entry from the list and close the handle
-		 only if it's not in use anymore. */
-	      if (ssh_entry->ref_count <= 0)
-		{
-		  SLIST_REMOVE (&ssh_list, ssh_entry, shm_shmid_list, ssh_next);
-		  CloseHandle (ssh_entry->hdl);
-		  delete ssh_entry;
-		}
-	      break;
-	    }
-	}
-      SLIST_UNLOCK ();
-    }
-  return request.retval ();
+  return 0;
 }
 
-extern "C" int
-shmdt (const void *shmaddr)
-{
-  syscall_printf ("shmdt (shmaddr = %p)", shmaddr);
-  client_request_shm request (shmaddr);
-  if (request.make_request () == -1 || request.retval () == -1)
-    {
-      syscall_printf ("-1 [%d] = shmdt ()", request.error_code ());
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return -1;
-    }
-  shm_attached_list *sph_entry, *sph_next_entry;
-  /* Remove map from list... */
-  SLIST_LOCK ();
-  SLIST_FOREACH_SAFE (sph_entry, &sph_list, sph_next, sph_next_entry)
-    {
-      if (sph_entry->ptr == shmaddr)
-	{
-	  SLIST_REMOVE (&sph_list, sph_entry, shm_attached_list, sph_next);
-	  /* ...unmap view... */
-	  UnmapViewOfFile (sph_entry->ptr);
-	  /* ...and, if this was the last reference to this shared section... */
-	  shm_shmid_list *ssh_entry = sph_entry->parent;
-	  if (--ssh_entry->ref_count <= 0)
-	    {
-	      /* ...delete parent entry and close handle. */
-	      SLIST_REMOVE (&ssh_list, ssh_entry, shm_shmid_list, ssh_next);
-	      CloseHandle (ssh_entry->hdl);
-	      delete ssh_entry;
-	    }
-	  delete sph_entry;
-	  break;
-	}
-    }
-  SLIST_UNLOCK ();
-  return request.retval ();
-}
+/* FIXME: evaluate getuid() and getgid() against the requested mode. Then
+ * choose PAGE_READWRITE | PAGE_READONLY and FILE_MAP_WRITE  |  FILE_MAP_READ
+ * appropriately
+ */
 
+/* Test result from openbsd: shm ids are persistent cross process if a handle is left
+ * open. This could lead to resource starvation: we're not copying that behaviour 
+ * unless we have to. (It will involve acygwin1.dll gloal shared list :[ ).
+ */
+/* FIXME: shmid should be a verifyable object
+ */
+
+/* FIXME: on NT we should check everything against the SD. On 95 we just emulate.
+ */
 extern "C" int
 shmget (key_t key, size_t size, int shmflg)
 {
-  syscall_printf ("shmget (key = %U, size = %d, shmflg = 0x%x)",
-		  key, size, shmflg);
-  /* Try allocating memory before calling cygserver. */
-  shm_shmid_list *ssh_new_entry = new (shm_shmid_list);
-  if (!ssh_new_entry)
+  DWORD sd_size = 4096;
+  char sd_buf[4096];
+  PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR) sd_buf;
+  /* create a sd for our open requests based on shmflag & 0x01ff */
+  psd = alloc_sd (getuid (), getgid (), cygheap->user.logsrv (),
+		  shmflg & 0x01ff, psd, &sd_size);
+
+  if (key == (key_t) - 1)
     {
-      set_errno (ENOMEM);
+      set_errno (ENOENT);
       return -1;
     }
-  client_request_shm request (key, size, shmflg);
-  if (request.make_request () == -1 || request.retval () == -1)
+
+  /* FIXME: enter the checking for existing keys mutex. This mutex _must_ be system wide
+   * to prevent races on shmget.
+   */
+
+  /* walk the list of currently open keys and return the id if found
+   */
+  shmnode *tempnode = shm_head;
+  while (tempnode)
     {
-      syscall_printf ("-1 [%d] = shmget ()", request.error_code ());
-      delete ssh_new_entry;
-      set_errno (request.error_code ());
-      if (request.error_code () == ENOSYS)
-	raise (SIGSYS);
-      return -1;
-    }
-  int shmid = request.retval ();	/* Shared mem ID */
-  vm_object_t hdl = request.objval ();	/* HANDLE associated with it. */
-  shm_shmid_list *ssh_entry;
-  SLIST_LOCK ();
-  SLIST_FOREACH (ssh_entry, &ssh_list, ssh_next)
-    {
-      if (ssh_entry->shmid == shmid)
+      if (tempnode->key == key && key != IPC_PRIVATE)
 	{
-	  /* We already maintain an entry for this shmid.  That means,
-	     the hdl returned by cygserver is a superfluous duplicate
-	     of the original hdl maintained by cygserver.  We can safely
-	     delete it. */
-	  CloseHandle (hdl);
-	  delete ssh_new_entry;
-	  SLIST_UNLOCK ();
-	  return shmid;
+	  // FIXME: free the mutex
+	  if (size && tempnode->shmds->shm_segsz < size)
+	    {
+	      set_errno (EINVAL);
+	      return -1;
+	    }
+	  if ((shmflg & IPC_CREAT) && (shmflg & IPC_EXCL))
+	    {
+	      set_errno (EEXIST);
+	      // FIXME: free the mutex
+	      return -1;
+	    }
+	  // FIXME: do we need to other tests of the requested mode with the
+	  // tempnode->shmid mode ? testcase on unix needed.
+	  // FIXME do we need a security test? We are only examining the keys we already have open.
+	  // FIXME: what are the sec implications for fork () if we don't check here?
+	  return tempnode->shm_id;
 	}
+      tempnode = tempnode->next;
     }
-  /* We arrive here only if shmid is a new one for this process.  Add the
-     shmid and hdl value to the list. */
-  ssh_new_entry->shmid = shmid;
-  ssh_new_entry->hdl = hdl;
-  ssh_new_entry->size = size;
-  ssh_new_entry->ref_count = 0;
-  SLIST_INSERT_HEAD (&ssh_list, ssh_new_entry, ssh_next);
-  SLIST_UNLOCK ();
-  return shmid;
+  /* couldn't find a currently open shm control area for the key.
+   * Allocate a new control block - this has to be handled by the daemon */
+  client_request_shm_get *req =
+    new client_request_shm_get (key, size, shmflg, sd_buf,
+				GetCurrentProcessId ());
+
+  int rc;
+  if ((rc = cygserver_request (req)))
+    {
+      delete req;
+      set_errno (ENOSYS);	/* daemon communication failed */
+      return -1;
+    }
+
+  if (req->header.error_code)	/* shm_get failed in the daemon */
+    {
+      set_errno (req->header.error_code);
+      delete req;
+      return -1;
+    }
+
+  /* we've got the id, now we open the memory area ourselves.
+   * This tests security automagically
+   * FIXME: make this a method of shmnode ?
+   */
+  shmnode *shmtemp = build_inprocess_shmds (req->parameters.out.filemap,
+					    req->parameters.out.attachmap,
+					    key,
+					    req->parameters.out.shm_id);
+  delete req;
+  if (shmtemp)
+    return shmtemp->shm_id;
+  return -1;
+
+
+#if 0
+  /* fill out the node data */
+  shmtemp->shm_perm.cuid = getuid ();
+  shmtemp->shm_perm.uid = shmtemp->shm_perm.cuid;
+  shmtemp->shm_perm.cgid = getgid ();
+  shmtemp->shm_perm.gid = shmtemp->shm_perm.cgid;
+  shmtemp->shm_perm.mode = shmflg & 0x01ff;
+  shmtemp->shm_lpid = 0;
+  shmtemp->shm_nattch = 0;
+  shmtemp->shm_atime = 0;
+  shmtemp->shm_dtime = 0;
+  shmtemp->shm_ctime = time (NULL);
+  shmtemp->shm_segsz = size;
+  *(shmid_ds *) mapptr = *shmtemp;
+  shmtemp->filemap = filemap;
+  shmtemp->attachmap = attachmap;
+  shmtemp->mapptr = mapptr;
+
+#endif
 }

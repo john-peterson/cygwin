@@ -1,7 +1,6 @@
 /* tty.cc
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009,
-   2010, 2011 Red Hat, Inc.
+   Copyright 1997, 1998, 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,96 +9,151 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
+#include <errno.h>
 #include <unistd.h>
 #include <utmp.h>
+#include <wingdi.h>
+#include <winuser.h>
 #include <sys/cygwin.h>
 #include "cygerrno.h"
 #include "security.h"
-#include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
+#include "sync.h"
+#include "sigproc.h"
 #include "pinfo.h"
+#include <sys/socket.h>
+#include "cygwin/cygserver_transport.h"
+#include "cygwin/cygserver.h"
 #include "shared_info.h"
 
-HANDLE NO_COPY tty_list::mutex = NULL;
+extern fhandler_tty_master *tty_master;
 
-extern "C" int
-getpt (void)
-{
-  return open ("/dev/ptmx", O_RDWR | O_NOCTTY);
-}
-
-extern "C" int
-posix_openpt (int oflags)
-{
-  return open ("/dev/ptmx", oflags);
-}
-
-extern "C" int
+extern "C"
+int
 grantpt (int fd)
 {
-  cygheap_fdget cfd (fd);
-  return cfd < 0 ? -1 : 0;
+  return 0;
 }
 
-extern "C" int
+extern "C"
+int
 unlockpt (int fd)
 {
-  cygheap_fdget cfd (fd);
-  return cfd < 0 ? -1 : 0;
+  return 0;
 }
 
-extern "C" int
-revoke (char *ttyname)
-{
-  set_errno (ENOSYS);
-  return -1;
-}
-
-extern "C" int
+extern "C"
+int
 ttyslot (void)
 {
-  if (myself->ctty <= 0 || iscons_dev (myself->ctty))
+  if (NOTSTATE (myself, PID_USETTY))
     return -1;
-  return device::minor (myself->ctty);
+  return myself->ctty;
 }
 
 void __stdcall
-tty_list::init_session ()
+tty_init (void)
 {
-  char mutex_name[MAX_PATH];
-  char *name = shared_name (mutex_name, "tty_list::mutex", 0);
+  if (NOTSTATE (myself, PID_USETTY))
+    return;
+  if (myself->ctty == -1)
+    if (NOTSTATE (myself, PID_CYGPARENT))
+      myself->ctty = attach_tty (myself->ctty);
+    else
+      return;
+  if (myself->ctty == -1)
+    termios_printf ("Can't attach to tty");
+}
 
-  /* tty_list::mutex is used while searching for a tty slot */
-  if (!(mutex = CreateMutex (&sec_all_nih, FALSE, name)))
-    api_fatal ("can't create tty_list::mutex '%s', %E", name);
-  ProtectHandle (mutex);
+/* Create session's master tty */
+
+void __stdcall
+create_tty_master (int ttynum)
+{
+  tty_master = (fhandler_tty_master *) cygheap->fdtab.build_fhandler (-1, FH_TTYM,
+							     "/dev/ttym", ttynum);
+  if (tty_master->init (ttynum))
+    api_fatal ("Can't create master tty");
+  else
+    {
+      /* Log utmp entry */
+      struct utmp our_utmp;
+
+      bzero ((char *) &our_utmp, sizeof (utmp));
+      (void) time (&our_utmp.ut_time);
+      strncpy (our_utmp.ut_name, getlogin (), sizeof (our_utmp.ut_name));
+      cygwin_gethostname (our_utmp.ut_host, sizeof (our_utmp.ut_host));
+      __small_sprintf (our_utmp.ut_line, "tty%d", ttynum);
+      our_utmp.ut_type = USER_PROCESS;
+      myself->ctty = ttynum;
+      login (&our_utmp);
+    }
 }
 
 void __stdcall
-tty::init_session ()
+tty_terminate (void)
 {
-  if (!myself->cygstarted && NOTSTATE (myself, PID_CYGPARENT))
-    cygheap->fdtab.get_debugger_info ();
+  if (NOTSTATE (myself, PID_USETTY))
+    return;
+  cygwin_shared->tty.terminate ();
 }
 
 int __stdcall
-tty_list::attach (int n)
+attach_tty (int num)
 {
-  int res;
-  if (iscons_dev (n))
-    res = -1;
-  else if (n != -1)
-    res = connect (device::minor (n));
-  else
-    res = -1;
-  return res;
+  if (num != -1)
+    {
+      return cygwin_shared->tty.connect_tty (num);
+    }
+  if (NOTSTATE (myself, PID_USETTY))
+    return -1;
+  return cygwin_shared->tty.allocate_tty (1);
+}
+
+void
+tty_list::terminate (void)
+{
+  int ttynum = myself->ctty;
+
+  /* Keep master running till there are connected clients */
+  if (ttynum != -1 && ttys[ttynum].master_pid == GetCurrentProcessId ())
+    {
+      tty *t = ttys + ttynum;
+      CloseHandle (t->from_master);
+      CloseHandle (t->to_master);
+      /* Wait for children which rely on tty handling in this process to
+	 go away */
+      for (int i = 0; ; i++)
+	{
+	  if (!t->slave_alive ())
+	    break;
+	  if (i >= 100)
+	    {
+	      small_printf ("waiting for children using tty%d to terminate\n",
+			    ttynum);
+	      i = 0;
+	    }
+
+	  Sleep (200);
+	}
+
+      termios_printf ("tty %d master about to finish", ttynum);
+      ForceCloseHandle1 (t->to_slave, to_pty);
+      ForceCloseHandle1 (t->from_slave, from_pty);
+      CloseHandle (tty_master->inuse);
+      WaitForSingleObject (tty_master->hThread, INFINITE);
+      t->init ();
+
+      char buf[20];
+      __small_sprintf (buf, "tty%d", ttynum);
+      logout (buf);
+    }
 }
 
 int
-tty_list::connect (int ttynum)
+tty_list::connect_tty (int ttynum)
 {
   if (ttynum < 0 || ttynum >= NTTYS)
     {
@@ -108,8 +162,7 @@ tty_list::connect (int ttynum)
     }
   if (!ttys[ttynum].exists ())
     {
-      termios_printf ("pty %d was not allocated", ttynum);
-      set_errno (ENXIO);
+      termios_printf ("tty %d was not allocated", ttynum);
       return -1;
     }
 
@@ -117,138 +170,173 @@ tty_list::connect (int ttynum)
 }
 
 void
-tty_list::init ()
+tty_list::init (void)
 {
   for (int i = 0; i < NTTYS; i++)
     {
       ttys[i].init ();
-      ttys[i].setntty (DEV_PTYS_MAJOR, i);
+      ttys[i].setntty (i);
     }
 }
 
-/* Search for a free tty and allocate it.
+/* Search for tty class for our console. Allocate new tty if our process is
+   the only cygwin process in the current console.
    Return tty number or -1 if error.
+   If flag == 0, just find a free tty.
  */
 int
-tty_list::allocate (HANDLE& r, HANDLE& w)
+tty_list::allocate_tty (int with_console)
 {
-  lock_ttys here;
-  int freetty = -1;
+  HWND console;
 
-  tty *t = NULL;
-  for (int i = 0; i < NTTYS; i++)
-    if (ttys[i].not_allocated (r, w))
-      {
-	t = ttys + i;
-	t->init ();
-	t->setsid (-1);
-	freetty = i;
-	break;
-      }
+  /* FIXME: This whole function needs a protective mutex. */
 
-  if (freetty >= 0)
-    termios_printf ("pty%d allocated", freetty);
+  if (!with_console)
+    console = NULL;
   else
     {
-      system_printf ("No pty allocated");
-      r = w = NULL;
+      char *oldtitle = new char [TITLESIZE];
+
+      if (!oldtitle)
+	{
+	  termios_printf ("Can't *allocate console title buffer");
+	  return -1;
+	}
+      if (!GetConsoleTitle (oldtitle, TITLESIZE))
+	{
+	  termios_printf ("Can't read console title");
+	  return -1;
+	}
+
+      if (WaitForSingleObject (title_mutex, INFINITE) == WAIT_FAILED)
+	termios_printf ("WFSO for title_mutext %p failed, %E", title_mutex);
+
+      char buf[40];
+
+      __small_sprintf (buf, "cygwin.find.console.%d", myself->pid);
+      SetConsoleTitle (buf);
+      Sleep (40);
+      console = FindWindow (NULL, buf);
+      SetConsoleTitle (oldtitle);
+      Sleep (40);
+      ReleaseMutex (title_mutex);
+      if (console == NULL)
+	{
+	  termios_printf ("Can't find console window");
+	  return -1;
+	}
+    }
+  /* Is a tty allocated for console? */
+
+  int freetty = -1;
+  for (int i = 0; i < NTTYS; i++)
+    {
+      if (!ttys[i].exists ())
+	{
+	  if (freetty < 0)	/* Scanning? */
+	    freetty = i;	/* Yes. */
+	  if (!with_console)	/* Do we want to attach this to a console? */
+	    break;		/* No.  We've got one. */
+	}
+
+      if (with_console && ttys[i].gethwnd () == console)
+	{
+	  termios_printf ("console %x already associated with tty%d",
+		console, i);
+	  /* Is the master alive? */
+	  HANDLE hMaster;
+	  hMaster = OpenProcess (PROCESS_DUP_HANDLE, FALSE, ttys[i].master_pid);
+	  if (hMaster)
+	    {
+	      CloseHandle (hMaster);
+	      return i;
+	    }
+	  /* Master is dead */
+	  freetty = i;
+	  break;
+	}
     }
 
+  /* There is no tty allocated to console, allocate the first free found */
+  if (freetty == -1)
+    {
+      system_printf ("No free ttys available");
+      return -1;
+    }
+  tty *t = ttys + freetty;
+  t->init ();
+  t->setsid (-1);
+  t->setpgid (myself->pgid);
+  t->sethwnd (console);
+
+  if (with_console)
+    {
+      termios_printf ("console %x associated with tty%d", console, freetty);
+      create_tty_master (freetty);
+    }
+  else
+    termios_printf ("tty%d allocated", freetty);
   return freetty;
 }
 
-bool
-tty::not_allocated (HANDLE& r, HANDLE& w)
-{
-  /* Attempt to open the from-master side of the tty.  If it is accessible
-     then it exists although we may not have privileges to actually use it. */
-  char pipename[sizeof("ptyNNNN-from-master")];
-  __small_sprintf (pipename, "pty%d-from-master", get_unit ());
-  /* fhandler_pipe::create returns 0 when creation succeeds */
-  return fhandler_pipe::create (&sec_none, &r, &w,
-				fhandler_pty_common::pipesize, pipename,
-				0) == 0;
-}
-
-bool
-tty::exists ()
-{
-  HANDLE r, w;
-  bool res;
-  if (!not_allocated (r, w))
-    res = true;
-
-  else
-    {
-      /* Handles are left open when not_allocated finds a non-open "tty" */
-      CloseHandle (r);
-      CloseHandle (w);
-      res = false;
-    }
-  debug_printf ("exists %d", res);
-  return res;
-}
-
-bool
+BOOL
 tty::slave_alive ()
 {
+  return alive (TTY_SLAVE_ALIVE);
+}
+
+BOOL
+tty::master_alive ()
+{
+  return alive (TTY_MASTER_ALIVE);
+}
+
+BOOL
+tty::alive (const char *fmt)
+{
   HANDLE ev;
-  if ((ev = open_inuse (READ_CONTROL)))
+  char buf[sizeof (TTY_MASTER_ALIVE) + 16];
+
+  __small_sprintf (buf, fmt, ntty);
+  if ((ev = OpenEvent (EVENT_ALL_ACCESS, FALSE, buf)))
     CloseHandle (ev);
   return ev != NULL;
 }
 
 HANDLE
-tty::open_mutex (const char *mutex, ACCESS_MASK access)
-{
-  char buf[MAX_PATH];
-  shared_name (buf, mutex, get_unit ());
-  return OpenMutex (access, TRUE, buf);
-}
-
-HANDLE
-tty::open_inuse (ACCESS_MASK access)
-{
-  char buf[MAX_PATH];
-  shared_name (buf, TTY_SLAVE_ALIVE, get_unit ());
-  return OpenEvent (access, FALSE, buf);
-}
-
-HANDLE
-tty::create_inuse (PSECURITY_ATTRIBUTES sa)
+tty::create_inuse (const char *fmt)
 {
   HANDLE h;
-  char buf[MAX_PATH];
+  char buf[sizeof (TTY_MASTER_ALIVE) + 16];
 
-  shared_name (buf, TTY_SLAVE_ALIVE, get_unit ());
-  h = CreateEvent (sa, TRUE, FALSE, buf);
-  termios_printf ("%s %p", buf, h);
+  __small_sprintf (buf, fmt, ntty);
+  h = CreateEvent (&sec_all, TRUE, FALSE, buf);
+  termios_printf ("%s = %p", buf, h);
   if (!h)
     termios_printf ("couldn't open inuse event, %E", buf);
   return h;
 }
 
 void
-tty::init ()
+tty::init (void)
 {
   output_stopped = 0;
   setsid (0);
   pgid = 0;
-  was_opened = false;
-  master_pid = 0;
-  is_console = false;
+  hwnd = NULL;
+  to_slave = NULL;
+  from_slave = NULL;
+  was_opened = 0;
 }
 
 HANDLE
-tty::get_event (const char *fmt, PSECURITY_ATTRIBUTES sa, BOOL manual_reset)
+tty::get_event (const char *fmt, BOOL manual_reset)
 {
   HANDLE hev;
-  char buf[MAX_PATH];
+  char buf[40];
 
-  shared_name (buf, fmt, get_unit ());
-  if (!sa)
-    sa = &sec_all;
-  if (!(hev = CreateEvent (sa, manual_reset, FALSE, buf)))
+  __small_sprintf (buf, fmt, ntty);
+  if (!(hev = CreateEvent (&sec_all, manual_reset, FALSE, buf)))
     {
       termios_printf ("couldn't create %s", buf);
       set_errno (ENOENT);	/* FIXME this can't be the right errno */
@@ -259,25 +347,101 @@ tty::get_event (const char *fmt, PSECURITY_ATTRIBUTES sa, BOOL manual_reset)
   return hev;
 }
 
-lock_ttys::lock_ttys (DWORD howlong): release_me (true)
+int
+tty::make_pipes (fhandler_pty_master *ptym)
 {
-  if (WaitForSingleObject (tty_list::mutex, howlong) == WAIT_FAILED)
+  /* Create communication pipes */
+
+  /* FIXME: should this be sec_none_nih? */
+  if (CreatePipe (&from_master, &to_slave, &sec_all, 0) == FALSE)
     {
-      termios_printf ("WFSO for mutex %p failed, %E", tty_list::mutex);
-      release_me = false;
+      termios_printf ("can't create input pipe");
+      set_errno (ENOENT);
+      return FALSE;
     }
+
+  ProtectHandle1 (to_slave, to_pty);
+  if (CreatePipe (&from_slave, &to_master, &sec_all, 0) == FALSE)
+    {
+      termios_printf ("can't create output pipe");
+      set_errno (ENOENT);
+      return FALSE;
+    }
+  ProtectHandle1 (from_slave, from_pty);
+  termios_printf ("tty%d from_slave %p, to_slave %p", ntty, from_slave,
+		  to_slave);
+
+  DWORD pipe_mode = PIPE_NOWAIT;
+  if (!SetNamedPipeHandleState (to_slave, &pipe_mode, NULL, NULL))
+    termios_printf ("can't set to_slave to non-blocking mode");
+  ptym->set_io_handle (from_slave);
+  ptym->set_output_handle (to_slave);
+  return TRUE;
 }
 
-void
-lock_ttys::release ()
+BOOL
+tty::common_init (fhandler_pty_master *ptym)
 {
-  ReleaseMutex (tty_list::mutex);
-}
+  /* Set termios information.  Force initialization. */
+  ptym->tcinit (this, TRUE);
 
-const char *
-tty_min::ttyname ()
-{
-  device d;
-  d.parse (ntty);
-  return d.name;
+  if (!make_pipes (ptym))
+    return FALSE;
+  ptym->need_nl = 0;
+
+  /* Save our pid  */
+
+  master_pid = GetCurrentProcessId ();
+
+  /* Allow the others to open us (for handle duplication) */
+
+  if (wincap.has_security () && cygserver_running==CYGSERVER_OK &&
+      (SetKernelObjectSecurity (hMainProc, DACL_SECURITY_INFORMATION,
+			       get_null_sd ()) == FALSE))
+    small_printf ("Can't set process security, %E");
+
+  /* Create synchronisation events */
+
+  if (ptym->get_device () != FH_TTYM)
+    {
+      ptym->output_done_event = ptym->ioctl_done_event =
+      ptym->ioctl_request_event = NULL;
+    }
+  else
+    {
+      if (!(ptym->output_done_event = get_event (OUTPUT_DONE_EVENT)))
+	return FALSE;
+      if (!(ptym->ioctl_done_event = get_event (IOCTL_DONE_EVENT)))
+	return FALSE;
+      if (!(ptym->ioctl_request_event = get_event (IOCTL_REQUEST_EVENT)))
+	return FALSE;
+    }
+
+  if (!(ptym->input_available_event = get_event (INPUT_AVAILABLE_EVENT, TRUE)))
+    return FALSE;
+
+  char buf[40];
+  __small_sprintf (buf, OUTPUT_MUTEX, ntty);
+  if (!(ptym->output_mutex = CreateMutex (&sec_all, FALSE, buf)))
+    {
+      termios_printf ("can't create %s", buf);
+      set_errno (ENOENT);
+      return FALSE;
+    }
+
+  __small_sprintf (buf, INPUT_MUTEX, ntty);
+  if (!(ptym->input_mutex = CreateMutex (&sec_all, FALSE, buf)))
+    {
+      termios_printf ("can't create %s", buf);
+      set_errno (ENOENT);
+      return FALSE;
+    }
+
+  ProtectHandle1 (ptym->output_mutex, output_mutex);
+  ProtectHandle1 (ptym->input_mutex, input_mutex);
+  winsize.ws_col = 80;
+  winsize.ws_row = 25;
+
+  termios_printf ("tty%d opened", ntty);
+  return TRUE;
 }

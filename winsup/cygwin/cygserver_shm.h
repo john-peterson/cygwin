@@ -1,6 +1,7 @@
-/* cygserver_shm.h: Single unix specification IPC interface for Cygwin.
+/* cygserver_shm.h
 
-   Copyright 2001, 2002, 2003, 2005, 2008 Red Hat, Inc.
+   Copyright 2001 Red Hat Inc.
+   Written by Robert Collins <rbtcollins@hotmail.com>
 
 This file is part of Cygwin.
 
@@ -8,91 +9,72 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#ifndef __CYGSERVER_SHM_H__
-#define __CYGSERVER_SHM_H__
-
 #include <sys/types.h>
-#include <sys/sysproto.h>
-#ifndef _KERNEL
-#define _KERNEL 1
-#endif
-#include <cygwin/shm.h>
+#include <sys/socket.h>
+#include "cygwin/cygserver_transport.h"
+#include "cygwin/cygserver.h"
 
-#include "cygserver.h"
-#include "cygserver_ipc.h"
+#define SHM_CREATE 0
+#define SHM_REATTACH 1
 
-#ifndef __INSIDE_CYGWIN__
-class transport_layer_base;
-class process_cache;
-#endif
 
-class client_request_shm : public client_request
+class client_request_shm_get : public client_request
 {
-  friend class client_request;
-
-public:
-  enum shmop_t
-    {
-      SHMOP_shmat,
-      SHMOP_shmctl,
-      SHMOP_shmdt,
-      SHMOP_shmget,
-      SHMOP_shmfork	/* Called on fixup_after_fork */
-    };
-
-private:
-  union
-  {
-    struct
-    {
-      shmop_t shmop;
-      proc ipcblk;
-      struct shmat_args  atargs;
-      struct shmctl_args ctlargs;
-      struct shmdt_args  dtargs;
-      struct shmget_args getargs;
-      struct proc        forkargs;
-    } in;
-
-    struct {
-      union {
-	int ret;
-	vm_offset_t ptr;
-      };
-      vm_object_t obj;
-    } out;
-  } _parameters;
-
-#ifndef __INSIDE_CYGWIN__
-  client_request_shm ();
-  virtual void serve (transport_layer_base *, process_cache *);
-#endif
-
-public:
-
-#ifdef __INSIDE_CYGWIN__
-  client_request_shm (int, const void *, int);		// shmat
-  client_request_shm (int, int, struct shmid_ds *);	// shmctl
-  client_request_shm (const void *);			// shmdt
-  client_request_shm (key_t, size_t, int);		// shmget
-  client_request_shm (proc *);				// shmfork
-#endif
-
-  int retval () const { return msglen () ? _parameters.out.ret : -1; }
-  void *ptrval () const { return (void *)_parameters.out.ptr; }
-  vm_object_t objval () const { return _parameters.out.obj; }
+  public:
+  virtual void serve (transport_layer_base *conn);
+  client_request_shm_get::client_request_shm_get(key_t, size_t, int, char psdbuf[4096], pid_t);
+  client_request_shm_get::client_request_shm_get();
+  client_request_shm_get::client_request_shm_get(int,pid_t);
+  union {
+   struct {int type; pid_t pid; int shm_id; key_t key; size_t size; int shmflg; char sd_buf[4096];} in;
+   struct {int shm_id; HANDLE filemap; HANDLE attachmap; key_t key;} out;
+  } parameters;
 };
 
-#ifndef __INSIDE_CYGWIN__
-void shminit ();
-int shmunload ();
-void shmexit_myhook (struct vmspace *vm);
-int cygwin_shmfork_myhook (struct thread *, struct proc *);
+#if 0
+class _shmattach {
+public:
+  void *data;
+  class _shmattach *next;
+};
 
-int shmat (struct thread *, struct shmat_args *);
-int shmctl (struct thread *, struct shmctl_args *);
-int shmdt (struct thread *, struct shmdt_args *);
-int shmget (struct thread *, struct shmget_args *);
+class shmid_ds {
+public:
+  struct   ipc_perm shm_perm;
+  size_t   shm_segsz;
+  pid_t    shm_lpid;
+  pid_t    shm_cpid;
+  shmatt_t shm_nattch;
+  time_t   shm_atime;
+  time_t   shm_dtime;
+  time_t   shm_ctime;
+  HANDLE filemap;
+  HANDLE attachmap;
+  void *mapptr;
+  class _shmattach *attachhead;
+};
+
+class shmnode {
+public:
+  class shmid_ds * shmid;
+  class shmnode *next;
+  key_t key;
+};
+//....
+struct shmid_ds {
+  struct   ipc_perm shm_perm;
+  size_t   shm_segsz;
+  pid_t    shm_lpid;
+  pid_t    shm_cpid;
+  shmatt_t shm_nattch;
+  time_t   shm_atime;
+  time_t   shm_dtime;
+  time_t   shm_ctime;
+};
+
+void *shmat(int, const void *, int);
+int   shmctl(int, int, struct shmid_ds *);
+int   shmdt(const void *);
+int   shmget(key_t, size_t, int);
+
 #endif
-
-#endif /* __CYGSERVER_SHM_H__ */
