@@ -1,12 +1,12 @@
 /* Objective-C language support definitions for GDB, the GNU debugger.
 
-   Copyright (C) 1992-2013 Free Software Foundation, Inc.
+   Copyright 1992 Free Software Foundation, Inc.
 
    Contributed by Apple Computer, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,38 +15,41 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
-
-#if !defined(OBJC_LANG_H)
-#define OBJC_LANG_H
-
-#include "cp-support.h"		/* For VEC (const_char_ptr) */
-
-struct stoken;
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 struct value;
-struct block;
 
-extern CORE_ADDR lookup_objc_class     (struct gdbarch *gdbarch,
-					char *classname);
-extern CORE_ADDR lookup_child_selector (struct gdbarch *gdbarch,
-					char *methodname);
+extern int objc_parse (void);		/* Defined in c-exp.y */
 
-extern char *objc_demangle (const char *mangled, int options);
+extern void objc_error (char *);	/* Defined in c-exp.y */
 
-extern int find_objc_msgcall (CORE_ADDR pc, CORE_ADDR *new_pc);
+extern int c_val_print (struct type *, char *, int, 
+			CORE_ADDR, struct ui_file *, int,
+			int, int, enum val_prettyprint);
 
-extern char *find_imps (char *method, VEC (const_char_ptr) **symbol_names);
+extern int c_value_print (struct value *, struct ui_file *, 
+			  int, enum val_prettyprint);
 
-extern struct value *value_nsstring (struct gdbarch *gdbarch,
-				     char *ptr, int len);
+extern CORE_ADDR lookup_objc_class     (char *classname);
+extern int       lookup_child_selector (char *methodname);
 
-/* for parsing Objective C */
-extern void start_msglist (void);
-extern void add_msglist (struct stoken *str, int addcolon);
-extern int end_msglist (void);
+char *objc_demangle (const char *mangled);
 
-struct symbol *lookup_struct_typedef (char *name, const struct block *block,
-				      int noerr);
+int find_objc_msgcall (CORE_ADDR pc, CORE_ADDR *new_pc);
 
-#endif
+char *parse_selector (char *method, char **selector);
+
+char *parse_method (char *method, char *type, 
+		    char **class, char **category, 
+		    char **selector);
+
+void find_methods (struct symtab *symtab, char type, 
+		   const char *class, const char *category, 
+		   const char *selector, struct symbol **syms, 
+		   unsigned int *nsym, unsigned int *ndebug);
+
+char *find_imps (struct symtab *symtab, struct block *block,
+		 char *method, struct symbol **syms, 
+		 unsigned int *nsym, unsigned int *ndebug);
