@@ -1,167 +1,181 @@
-2013-01-25  Kai Tietz  <ktietz@redhat.com>
+2004-02-19  Nathan Sidwell  <nathan@codesourcery.com>
 
-	* deffilep.y (def_image_name): Adjust type of base-address
-	argument.
-	(%union): Add new type bfd_vma as vma.
-	(VMA):  New rule.
-	(opt_base): Use VMA instead of NUMBER rule to evaluate value.
-	(def_file_print): Use bfd's fprintf_vma to output base-address.
+	* ldlang.c (map_input_to_output_sections): Initialize sections
+	mentioned in a data statement expression.
+	(lang_do_assignments_1): Add data statement's expression's
+	section's vma.
 
-2013-01-24  Nick Clifton  <nickc@redhat.com>
+2004-02-18  Nathan Sidwell  <nathan@codesourcery.com>
 
-	* NEWS: Mention support for V850E3V5 architecture.
+	* ldgram.y (statement_anywhere): Add assert rule.
+	* ldlang.c (exp_init_os): Add assert case.
 
-2013-01-23  Martin Koegler  <martin.koegler@chello.at>
+2004-02-14  Andrew Cagney  <cagney@redhat.com>
 
-	PR ld/15041
-	* scripttempl/pep.sc (.pdata): Only accept .pdata sections.
-	(.xdata): Similarly.
-	(.debug_frame): Similarly.
+	* ldmain.c (remove_output): Call bfd_cache_close.
 
-2013-01-23  Georg-Johann Lay  <avr@gjlay.de>
+2004-02-14  Richard Sandiford  <rsandifo@redhat.com>
 
-	PR ld/15037
-	* scripttempl/avr.sc (.eeprom): Keep it.
+	* emulparams/elf32bmipn32-defs.sh (OTHER_SECTIONS): Discard
+	.MIPS.content* and .MIPS.events* sections.
 
-2013-01-23  Leif Ekblad  <leif@rdos.net>
+2004-02-09  Daniel Jacobowitz  <drow@mvista.com>
 
-	* Makefile.am (ALL_64_EMULATION_SOURCES): Add eelf64rdos.c.
-	(eelf64rdos.c): New rule.
-	* emulparams/elf64rdos.sh: New file.
-	* configure.tgt (x86_64-*-rdos*): Use above.
-	* Makefile.in: Regenerate.
+	* emulparams/armelf.sh, emulparams/armelf_linux.sh: Move
+	.note.gnu.arm.ident to after allocated sections.  Mark its
+	address as 0.
 
-2013-01-22  Roland McGrath  <mcgrathr@google.com>
+2004-02-09  Daniel Jacobowitz  <drow@mvista.com>
 
-	* emultempl/elf32.em (gld${EMULATION_NAME}_before_parse): Set
-	new_dtags to TRUE for *-*-nacl* targets.
+	* emulparams/armelf_linux.sh (COMMONPAGESIZE): Set to 4KB.
+	* emulparams/elf32bmip.sh (COMMONPAGESIZE): Likewise.
+	* emulparams/elf32bmipn32.sh (COMMONPAGESIZE): Likewise.
+	* emulparams/elf32btsmipn32.sh (COMMONPAGESIZE): Likewise.
+	* emulparams/shlelf_linux.sh (COMMONPAGESIZE): Likewise.
 
-2013-01-21  Mike Frysinger  <vapier@gentoo.org>
+2004-02-05  Nick Clifton  <nickc@redhat.com>
 
-	* emultempl/elf32.em (gld${EMULATION_NAME}_before_parse): Set
-	link_info.new_dtags to TRUE for linux/gnu targets.
-	* NEWS: Mention new dtags default.
+	* emultempl/pe.em (_after_open): Fix typo in previous delta.
 
-2013-01-19  H.J. Lu  <hongjiu.lu@intel.com>
+2004-02-04  Danny Smith  <dannysmith@users.sourceforge.net>
 
-	* Makefile.am (HOSTING_SCRT0): New.
+	* emultempl/pe.em (_after_open): Fix thinko in 2003-12-18 patch.
 
-	* configure.host (HOSTING_SCRT0): New.  Used for PIE.
+2004-01-28  Alan Modra  <amodra@bigpond.net.au>
 
-	* configure.in (HOSTING_SCRT0): New AC_SUBST.
+	* genscripts.sh: Fix typo.
 
-	* Makefile.in: Regenerated.
-	* configure: Likewise.
+	* genscripts.sh: Apply $LIBPATH_SUFFIX to $tool_lib and $libdir too.
 
-2013-01-18  Mike Frysinger  <vapier@gentoo.org>
+2004-01-24  Jakub Jelinek  <jakub@redhat.com>
 
-	* NEWS: Mention change in behavior with --enable-new-dtags.
-	* ld.texinfo (Options): Clarify --enable-new-dtags behavior.
+	* emulparams/elf64_ia64.sh: Put .rela.opd into
+	OTHER_GOT_RELOC_SECTIONS instead of OTHER_PLT_RELOC_SECTIONS.
 
-2013-01-14  Leif Ekblad <leif@rdos.net>
-	    Alan Modra  <amodra@gmail.com>
+2004-01-20  Danny Smith  <dannysmith@users.sourceforge.net>
 
-	* ld.texinfo (-Tldata-segment): Describe.
-	* ldlex.h (OPTION_TLDATA_SEGMENT): New enum value.
-	* lexsup.c (ld_options): Add -Tldata-segment.
-	(parse_args): Handle OPTION_TLDATA_SEGMENT.
-	* scripttempl/elf.sc: Support LARGE_DATA_ADDR.
+	* pe-dll.c (pe_create_import_fixup): Clear WP_TEXT flag.
+	* ld.texinfo (--omagic): Note that writable text section
+	does not conform to published PE-COFF specs.
+	(--enable-auto-import): Likewise.
 
-2013-01-10  H.J. Lu  <hongjiu.lu@intel.com>
+2004-01-15  Alan Modra  <amodra@bigpond.net.au>
 
-	* deffilep.y: Remove trailing white spaces.
-	* elf-hints-local.h: Likewise.
-	* ldexp.c: Likewise.
-	* ldlang.h: Likewise.
-	* ldmisc.c: Likewise.
-	* ldwrite.c: Likewise.
-	* pe-dll.c: Likewise.
-	* emulparams/criself.sh: Likewise.
-	* emulparams/crislinux.sh: Likewise.
-	* emulparams/elf32_tic6x_le.sh: Likewise.
-	* emulparams/elf32bmipn32-defs.sh: Likewise.
-	* emulparams/elf32mb_linux.sh: Likewise.
-	* emulparams/elf32mep.sh: Likewise.
-	* emulparams/elf32microblaze.sh: Likewise.
-	* emulparams/elf32ppc.sh: Likewise.
-	* emulparams/elf64_s390.sh: Likewise.
-	* emulparams/elf64alpha.sh: Likewise.
-	* emulparams/elf_s390.sh: Likewise.
-	* emulparams/elf_x86_64.sh: Likewise.
-	* emulparams/tic80coff.sh: Likewise.
-	* emultempl/aix.em: Likewise.
-	* emultempl/avrelf.em: Likewise.
-	* emultempl/cr16elf.em: Likewise.
-	* emultempl/pe.em: Likewise.
-	* emultempl/pep.em: Likewise.
-	* emultempl/spuelf.em: Likewise.
-	* emultempl/tic6xdsbt.em: Likewise.
+	* emulparams/elf32ppc.sh (COMMONPAGESIZE): Define.
 
-2013-01-10  Will Newton <will.newton@imgtec.com>
+2004-01-13  Nick Clifton  <nickc@redhat.com>
 
-	* Makefile.am: Add Meta.
-	* Makefile.in: Regenerate.
-	* configure.tgt: Add Meta.
-	* emulparams/elf32metag.sh: New file.
-	* emultempl/metagelf.em: New file.
+	* ldlang.c (lang_get_regions): Add extra parameter 'have_vma'
+	which if true will prevent the LMA region being used as a
+	replacement for a default VMA region.
+	(lang_leave_output_section_statement): Pass extra parameter.
+	(lang_leave_overlay): Likewise.
+	* ld.texinfo (Output Section LMA): Document that the LMA
+	region can be set to the VMA region if no VMA has been set.
+	* ldlang.h (struct lang_output_section_phdr_list): Create a
+	typedef for this type.  Minor formatting fixes.
 
-2013-01-09  Alan Modra  <amodra@gmail.com>
+2004-01-13  Nick Clifton  <nickc@redhat.com>
 
-	* emulparams/elf_x86_64.sh (LARGE_BSS_AFTER_BSS): Define.
-	* emulparams/elf32_x86_64.sh: Likewise.
-	* emulparams/elf_k1om.sh: Likewise.
-	* emulparams/elf_l1om.sh: Likewise.
-	* scripttempl/elf.sc (LARGE_BSS): Define rather than appending to
-	OTHER_BSS_SECTIONS.  Substitute in script.
+	* ldlang.c (lang_size_sections_1): If dot is advanced, then
+	assume that the section should be allocated.
 
-2013-01-08  Leif Ekblad  <leif@rdos.net>
+2004-01-13  Alan Modra  <amodra@bigpond.net.au>
 
-	* scripttempl/elf.sc (RODATA_ADDR): Typo fix.
+	* ldlang.c (IGNORE_SECTION): Don't ignore SEC_ALLOC && !SEC_LOAD
+	sections.  Do ignore SEC_NEVER_LOAD sections.
+	(lang_size_sections_1): Remove test made redundant with the above.
 
-2013-01-08  Alan Modra  <amodra@gmail.com>
+2004-01-09  Alan Modra  <amodra@bigpond.net.au>
 
-	* emultempl/elf32.em (gld${EMULATION_NAME}_check_ld_so_conf): Replace
-	"name" param with a bfd_link_needed_list pointer.  Update caller.
-	(gld${EMULATION_NAME}_check_ld_elf_hints): Likewise.
+	* emultempl/ppc64elf.em (ppc_before_allocation): Clear cached
+	program_header_size.
 
-2013-01-08  Alan Modra  <amodra@gmail.com>
+2004-01-06  Alexandre Oliva  <aoliva@redhat.com>
 
-	* Makefile.am (ALL_EMULATION_SOURCES): Correct eavrxmega entries.
-	* Makefile.in: Regenerate.
+	2003-11-28  Alexandre Oliva  <aoliva@redhat.com>
+	* emulparams/elf32frvfd.sh (EMBEDDED): Clear.
+	2003-11-05  Alexandre Oliva  <aoliva@redhat.com>
+	* emulparams/elf32frvfd.sh (STACK_ADDR): Unset.
+	(MAXPAGESIZE): Set to 64Kb.
+	(OTHER_READONLY_SECTIONS): Define __ROFIXUP_LIST__ and
+	__ROFIXUP_END__.  Don't map .rofixup.got any more.
+	* emulparams/elf32frv.sh (NOP): Set.
+	2003-10-31  Alexandre Oliva  <aoliva@redhat.com>
+	* configure.tgt: Add frv-*-*linux*.
+	2003-09-30  Alexandre Oliva  <aoliva@redhat.com>
+	* Makefile.am (ALL_EMULATIONS): Added eelf32frvfd.o.
+	(eelf32frvfd.c): New.
+	* configure.tgt <frv-*-*>: Added it to targ_extra_emuls.
+	* emulparams/elf32frv.sh: Reverted previous two patches.
+	* emulparams/elf32frvfd.sh: New.
+	* Makefile.in: Rebuilt.
+	2003-09-18  Alexandre Oliva  <aoliva@redhat.com>
+	* emulparams/elf32frv.sh (OTHER_READONLY_SECTIONS): Added
+	.rofixup.got to .rofixup.
+	2003-09-15  Alexandre Oliva  <aoliva@redhat.com>
+	* emulparams/elf32frv.sh (MAXPAGESIZE): Make it 256KiB, not 256B.
+	(TEMPLATE_NAME, GENERATE_SHLIB_SCRIPT): Set.
 
-2013-01-07  H.J. Lu  <hongjiu.lu@intel.com>
+2004-01-05  Jakub Jelinek  <jakub@redhat.com>
 
-	* lexsup.c (ld_options): Add fuse-ld= for GCC linker option
-	compatibility.
+	* emulparams/elf_s390.sh (NO_SMALL_DATA): Set to yes.
+	* emulparams/elf64_s390.sh (NO_SMALL_DATA): Set to yes.
 
-2013-01-07  Patrice Dumas  <pertusus@free.fr>
+2004-01-03  Alan Modra  <amodra@bigpond.net.au>
 
-	* ld.texinfo: Replace @ with @@ when it is part of the text.
-	Correct ordering of M68HC11 entry.
+	* ldexp.c (align_n): Make static.
+	* ldexp.h (align_n): Delete declaration.
+	* ldlang.h (lang_enter_output_section_statement): Remove
+	block_value param.
+	* ldlang.c (lang_enter_output_section_statement): Likewise.
+	(TO_ADDR, TO_SIZE): Define.
+	(opb_shift): New var.
+	(init_opb): New function.
+	(print_input_section): Call init_opb and use TO_ADDR.
+	(print_data_statement, print_reloc_statement): Likewise.
+	(print_padding_statement): Likewise.
+	(size_input_section): Use TO_SIZE and TO_ADDR, and global opb_shift.
+	(lang_check_section_addresses): Likewise.
+	(lang_size_sections_1): Likewise.
+	(lang_do_assignments_1): Likewise.
+	(lang_set_startof): Likewise.
+	(lang_one_common): Likewise.  Combine power_of_two and opb_shift align.
+	(lang_process): Call init_opb.
+	(lang_abs_symbol_at_end_of): Use TO_ADDR and global opb_shift.
+	(lang_enter_overlay_section): Adjust
+	lang_enter_output_section_statement call.
+	* ldgram.y: Likewise.
+	* mri.c (mri_draw_tree): Likewise.
+	* emultempl/elf32.em (gld${EMULATION_NAME}_place_orphan): Likewise.
+	* emultempl/mmo.em (mmo_place_orphan): Likewise.
+	* emultempl/pe.em (gld${EMULATION_NAME}_place_orphan): Likewise.
 
-2013-01-04  Juergen Urban <JuergenUrban@gmx.de>
+	* ldfile.c (ldfile_set_output_arch): Add defarch param.
+	* ldfile.h (ldfile_set_output_arch): Ditto.
+	* emultempl/aix.em (gld${EMULATION_NAME}_before_parse): Use
+	ldfile_set_output_arch.
+	* emultempl/beos.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/elf32.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/linux.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/mipsecoff.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/pe.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/sunos.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* ldgram.y: Adjust ldfile_set_output_arch call.
+	* emultempl/armcoff.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/armelf.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/armelf_oabi.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/generic.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/gld960c.em (gld960_set_output_arch): Ditto.
+	* emultempl/m68kcoff.em (gld${EMULATION_NAME}_before_parse): Ditto.
+	* emultempl/ticoff.em (gld${EMULATION_NAME}_before_parse): Ditto.
 
-	* configure.tgt: Support ELF files for Sony Playstation 2 (for
-	ps2dev and ps2sdk).
-	* emulparams/elf32lr5900n32.sh: Create linker script for Sony
-	Playstation 2 ELF files using MIPS ABI n32.
-	* emulparams/elf32lr5900.sh: Create linker script for Sony
-	Playstation 2 ELF files using MIPS ABI o32.
-	* Makefile.am: Add linker scripts for Sony Playstation 2 ELF
-	files.
+2004-01-02  Bernardo Innocenti  <bernie@develer.com>
 
-2013-01-02  H.J. Lu  <hongjiu.lu@intel.com>
+	* configure.tgt: Add m68k-uClinux target.
 
-	* ldver.c (ldversion): Update copyright year to 2013.
-
-For older changes see ChangeLog-2012
+For older changes see ChangeLog-0203
 
-Copyright (C) 2013 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
 mode: change-log
 left-margin: 8
