@@ -2,12 +2,11 @@
    customized in a target-specific file, and then this file included (see
    tic54x.h for an example).
    
-   Copyright 2000, 2001, 2002, 2003, 2005, 2008, 2009, 2010
-   Free Software Foundation, Inc.
+   Copyright 2001 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
    
    This program is distributed in the hope that it will be useful,
@@ -17,9 +16,7 @@
    
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #ifndef COFF_TI_H
 #define COFF_TI_H
 
@@ -60,14 +57,6 @@ struct external_filehdr
 #error "TICOFF_TARGET_ARCH needs to be defined for your CPU"
 #endif
 
-#ifndef TICOFF_TARGET_MACHINE_GET
-#define TICOFF_TARGET_MACHINE_GET(FLAGS) 0
-#endif
-
-#ifndef TICOFF_TARGET_MACHINE_SET
-#define TICOFF_TARGET_MACHINE_SET(FLAGSP, MACHINE)
-#endif
-
 /* Default to COFF2 for file output */
 #ifndef TICOFF_DEFAULT_MAGIC
 #define TICOFF_DEFAULT_MAGIC TICOFF2MAGIC
@@ -105,21 +94,19 @@ struct external_filehdr
 #define COFF_ADJUST_FILEHDR_IN_POST(abfd, src, dst) \
   do									\
     {									\
-      if (!COFF0_P (abfd))						\
-	((struct internal_filehdr *)(dst))->f_target_id =		\
-	  H_GET_16 (abfd, ((FILHDR *)(src))->f_target_id);		\
+      ((struct internal_filehdr *)(dst))->f_target_id =			\
+	H_GET_16 (abfd, ((FILHDR *)(src))->f_target_id);		\
     }									\
   while (0)
 #endif
 
 #ifndef COFF_ADJUST_FILEHDR_OUT_POST
 #define COFF_ADJUST_FILEHDR_OUT_POST(abfd, src, dst) \
-  do									 \
-    {									 \
-      if (!COFF0_P (abfd))						 \
-	H_PUT_16 (abfd, ((struct internal_filehdr *)(src))->f_target_id, \
-		 ((FILHDR *)(dst))->f_target_id);			 \
-    }									 \
+  do									\
+    {									\
+      H_PUT_16 (abfd, ((struct internal_filehdr *)(src))->f_target_id,	\
+	       ((FILHDR *)(dst))->f_target_id);				\
+    }									\
   while (0)
 #endif
 
@@ -218,98 +205,27 @@ struct external_scnhdr {
 
 /* COFF2 changes the offsets and sizes of these fields 
    Assume we're dealing with the COFF2 scnhdr structure, and adjust
-   accordingly.  Note: The GNU C versions of some of these macros
-   are necessary in order to avoid compile time warnings triggered
-   gcc's array bounds checking.  The PUT_SCNHDR_PAGE macro also has
-   the advantage on not evaluating LOC twice.  */
-
-#define GET_SCNHDR_NRELOC(ABFD, LOC) \
-  (COFF2_P (ABFD) ? H_GET_32 (ABFD, LOC) : H_GET_16 (ABFD, LOC))
-#define PUT_SCNHDR_NRELOC(ABFD, VAL, LOC) \
-  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, LOC) : H_PUT_16 (ABFD, VAL, LOC))
-#ifdef __GNUC__
-#define GET_SCNHDR_NLNNO(ABFD, LOC) \
-  ({ \
-    int nlnno;		\
-    char * ptr = (LOC); \
-    if (COFF2_P (ABFD)) \
-      nlnno = H_GET_32 (ABFD, ptr); \
-    else \
-      nlnno = H_GET_16 (ABFD, ptr - 2); \
-    nlnno; \
-  })
-#define PUT_SCNHDR_NLNNO(ABFD, VAL, LOC) \
-  do \
-    { \
-      char * ptr = (LOC); \
-      if (COFF2_P (ABFD)) \
-	H_PUT_32 (ABFD, VAL, ptr); \
-      else \
-	H_PUT_16 (ABFD, VAL, ptr - 2); \
-    } \
-  while (0)
-#define GET_SCNHDR_FLAGS(ABFD, LOC) \
-  ({ \
-    int flags; \
-    char * ptr = (LOC); \
-    if (COFF2_P (ABFD)) \
-      flags = H_GET_32 (ABFD, ptr); \
-    else \
-      flags = H_GET_16 (ABFD, ptr - 4); \
-    flags; \
-  })
-#define PUT_SCNHDR_FLAGS(ABFD, VAL, LOC) \
-  do \
-    { \
-      char * ptr = (LOC); \
-      if (COFF2_P (ABFD)) \
-	H_PUT_32 (ABFD, VAL, ptr); \
-      else \
-	H_PUT_16 (ABFD, VAL, ptr - 4); \
-    } \
-  while (0)
-#define GET_SCNHDR_PAGE(ABFD, LOC) \
-  ({ \
-    unsigned page; \
-    char * ptr = (LOC); \
-    if (COFF2_P (ABFD)) \
-      page = H_GET_16 (ABFD, ptr); \
-    else \
-      page = (unsigned) H_GET_8 (ABFD, ptr - 7); \
-    page; \
-  })
-/* On output, make sure that the "reserved" field is zero.  */
-#define PUT_SCNHDR_PAGE(ABFD, VAL, LOC) \
-  do \
-    { \
-      char * ptr = (LOC); \
-      if (COFF2_P (ABFD)) \
-	H_PUT_16 (ABFD, VAL, ptr); \
-      else \
-	{ \
-	  H_PUT_8 (ABFD, VAL, ptr - 7); \
-	  H_PUT_8 (ABFD, 0, ptr - 8); \
-	} \
-    } \
-  while (0)
-#else
-#define GET_SCNHDR_NLNNO(ABFD, LOC) \
-  (COFF2_P (ABFD) ? H_GET_32 (ABFD, LOC) : H_GET_16 (ABFD, (LOC) - 2))
-#define PUT_SCNHDR_NLNNO(ABFD, VAL, LOC) \
-  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, LOC) : H_PUT_16 (ABFD, VAL, (LOC) - 2))
-#define GET_SCNHDR_FLAGS(ABFD, LOC) \
-  (COFF2_P (ABFD) ? H_GET_32 (ABFD, LOC) : H_GET_16 (ABFD, (LOC) - 4))
-#define PUT_SCNHDR_FLAGS(ABFD, VAL, LOC) \
-  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, LOC) : H_PUT_16 (ABFD, VAL, (LOC) - 4))
-#define GET_SCNHDR_PAGE(ABFD, LOC) \
-  (COFF2_P (ABFD) ? H_GET_16 (ABFD, LOC) : (unsigned) H_GET_8 (ABFD, (LOC) - 7))
-/* On output, make sure that the "reserved" field is zero.  */
-#define PUT_SCNHDR_PAGE(ABFD, VAL, LOC) \
+   accordingly 
+ */
+#define GET_SCNHDR_NRELOC(ABFD, PTR) \
+  (COFF2_P (ABFD) ? H_GET_32 (ABFD, PTR) : H_GET_16 (ABFD, PTR))
+#define PUT_SCNHDR_NRELOC(ABFD, VAL, PTR) \
+  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, PTR) : H_PUT_16 (ABFD, VAL, PTR))
+#define GET_SCNHDR_NLNNO(ABFD, PTR) \
+  (COFF2_P (ABFD) ? H_GET_32 (ABFD, PTR) : H_GET_16 (ABFD, (PTR) -2))
+#define PUT_SCNHDR_NLNNO(ABFD, VAL, PTR) \
+  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, PTR) : H_PUT_16 (ABFD, VAL, (PTR) -2))
+#define GET_SCNHDR_FLAGS(ABFD, PTR) \
+  (COFF2_P (ABFD) ? H_GET_32 (ABFD, PTR) : H_GET_16 (ABFD, (PTR) -4))
+#define PUT_SCNHDR_FLAGS(ABFD, VAL, PTR) \
+  (COFF2_P (ABFD) ? H_PUT_32 (ABFD, VAL, PTR) : H_PUT_16 (ABFD, VAL, (PTR) -4))
+#define GET_SCNHDR_PAGE(ABFD, PTR) \
+  (COFF2_P (ABFD) ? H_GET_16 (ABFD, PTR) : (unsigned) H_GET_8 (ABFD, (PTR) -7))
+/* on output, make sure that the "reserved" field is zero */
+#define PUT_SCNHDR_PAGE(ABFD, VAL, PTR) \
   (COFF2_P (ABFD) \
-   ? H_PUT_16 (ABFD, VAL, LOC) \
-   : H_PUT_8 (ABFD, VAL, (LOC) - 7), H_PUT_8 (ABFD, 0, (LOC) - 8))
-#endif
-
+   ? H_PUT_16 (ABFD, VAL, PTR) \
+   : H_PUT_8 (ABFD, VAL, (PTR) -7), H_PUT_8 (ABFD, 0, (PTR) -8))
 
 /* TI COFF stores section size as number of bytes (address units, not octets),
    so adjust to be number of octets, which is what BFD expects */ 
@@ -325,15 +241,6 @@ struct external_scnhdr {
 	GET_SCNHDR_PAGE (ABFD, ((SCNHDR *)(EXT))->s_page);		\
     }									\
    while (0)
-
-/* The entire scnhdr may not be assigned.
-   Ensure that everything is initialized.  */
-#define COFF_ADJUST_SCNHDR_OUT_PRE(ABFD, INT, EXT)	\
-  do							\
-    {							\
-      memset((EXT), 0, sizeof (SCNHDR));		\
-    }							\
-  while (0)
 
 /* The line number and reloc overflow checking in coff_swap_scnhdr_out in
    coffswap.h doesn't use PUT_X for s_nlnno and s_nreloc.
@@ -478,10 +385,10 @@ union external_auxent {
 
 /* lnsz size is in bits in COFF file, in bytes in BFD */
 #define GET_LNSZ_SIZE(abfd, ext) \
- (H_GET_16 (abfd, ext->x_sym.x_misc.x_lnsz.x_size) / (in_class != C_FIELD ? 8 : 1))
+ (H_GET_16 (abfd, ext->x_sym.x_misc.x_lnsz.x_size) / (class != C_FIELD ? 8 : 1))
 
 #define PUT_LNSZ_SIZE(abfd, in, ext) \
-  H_PUT_16 (abfd, ((in_class != C_FIELD) ? (in) * 8 : (in)), \
+  H_PUT_16 (abfd, ((class != C_FIELD) ? (in) * 8 : (in)), \
 	   ext->x_sym.x_misc.x_lnsz.x_size)
  
 /* TI COFF stores offsets for MOS and MOU in bits; BFD expects bytes 

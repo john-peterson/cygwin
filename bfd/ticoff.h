@@ -1,10 +1,10 @@
-/* Copyright 2002, 2005, 2007, 2009 Free Software Foundation, Inc.
+/* Copyright 2002 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,58 +14,60 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #undef  F_LSYMS
 #define	F_LSYMS		F_LSYMS_TICOFF
 
-static bfd_boolean
-ticoff0_bad_format_hook (bfd * abfd,
-			 void * filehdr)
+static boolean
+ticoff0_bad_format_hook (abfd, filehdr)
+     bfd *abfd;
+     PTR filehdr;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
 
   if (COFF0_BADMAG (*internal_f))
-    return FALSE;
+    return false;
 
-  return TRUE;
+  return true;
 }
 
-static bfd_boolean
-ticoff1_bad_format_hook (bfd * abfd ATTRIBUTE_UNUSED,
-			 void * filehdr)
+static boolean
+ticoff1_bad_format_hook (abfd, filehdr)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     PTR filehdr;
 {
   struct internal_filehdr *internal_f = (struct internal_filehdr *) filehdr;
 
   if (COFF1_BADMAG (*internal_f))
-    return FALSE;
+    return false;
 
-  return TRUE;
+  return true;
 }
 
 /* Replace the stock _bfd_coff_is_local_label_name
    to recognize TI COFF local labels.  */
-static bfd_boolean
-ticoff_bfd_is_local_label_name (bfd *abfd ATTRIBUTE_UNUSED,
-				const char *name)
+static boolean 
+ticoff_bfd_is_local_label_name (abfd, name)
+  bfd *abfd ATTRIBUTE_UNUSED;
+  const char *name;
 {
   if (TICOFF_LOCAL_LABEL_P(name))
-    return TRUE;
-  return FALSE;
+    return true;
+  return false;
 }
 
 #define coff_bfd_is_local_label_name ticoff_bfd_is_local_label_name
 
-/* Customize coffcode.h; the default coff_ functions are set up to use COFF2;
+/* Customize coffcode.h; the default coff_ functions are set up to use COFF2; 
    coff_bad_format_hook uses BADMAG, so set that for COFF2.  The COFF1
    and COFF0 vectors use custom _bad_format_hook procs instead of setting
-   BADMAG.  */
+   BADMAG.  */ 
 #define BADMAG(x) COFF2_BADMAG(x)
 #include "coffcode.h"
 
 /* COFF0 differs in file/section header size and relocation entry size.  */
-static bfd_coff_backend_data ticoff0_swap_table =
+static const bfd_coff_backend_data ticoff0_swap_table = 
 {
   coff_SWAP_aux_in, coff_SWAP_sym_in, coff_SWAP_lineno_in,
   coff_SWAP_aux_out, coff_SWAP_sym_out,
@@ -74,11 +76,14 @@ static bfd_coff_backend_data ticoff0_swap_table =
   coff_SWAP_scnhdr_out,
   FILHSZ_V0, AOUTSZ, SCNHSZ_V01, SYMESZ, AUXESZ, RELSZ_V0, LINESZ, FILNMLEN,
 #ifdef COFF_LONG_FILENAMES
-  TRUE,
+  true,
 #else
-  FALSE,
+  false,
 #endif
-  COFF_DEFAULT_LONG_SECTION_NAMES,
+#ifdef COFF_LONG_SECTION_NAMES
+  true,
+#else
+  false,
 #endif
   COFF_DEFAULT_SECTION_ALIGNMENT_POWER,
   coff_SWAP_filehdr_in, coff_SWAP_aouthdr_in, coff_SWAP_scnhdr_in,
@@ -93,7 +98,7 @@ static bfd_coff_backend_data ticoff0_swap_table =
 };
 
 /* COFF1 differs in section header size.  */
-static bfd_coff_backend_data ticoff1_swap_table =
+static const bfd_coff_backend_data ticoff1_swap_table = 
 {
   coff_SWAP_aux_in, coff_SWAP_sym_in, coff_SWAP_lineno_in,
   coff_SWAP_aux_out, coff_SWAP_sym_out,
@@ -102,11 +107,15 @@ static bfd_coff_backend_data ticoff1_swap_table =
   coff_SWAP_scnhdr_out,
   FILHSZ, AOUTSZ, SCNHSZ_V01, SYMESZ, AUXESZ, RELSZ, LINESZ, FILNMLEN,
 #ifdef COFF_LONG_FILENAMES
-  TRUE,
+  true,
 #else
-  FALSE,
+  false,
 #endif
-  COFF_DEFAULT_LONG_SECTION_NAMES,
+#ifdef COFF_LONG_SECTION_NAMES
+  true,
+#else
+  false,
+#endif
   COFF_DEFAULT_SECTION_ALIGNMENT_POWER,
   coff_SWAP_filehdr_in, coff_SWAP_aouthdr_in, coff_SWAP_scnhdr_in,
   coff_SWAP_reloc_in, ticoff1_bad_format_hook, coff_set_arch_mach_hook,

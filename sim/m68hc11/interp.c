@@ -1,21 +1,22 @@
 /* interp.c -- Simulator for Motorola 68HC11/68HC12
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
    Written by Stephane Carrez (stcarrez@nerim.fr)
 
 This file is part of GDB, the GNU debugger.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sim-main.h"
 #include "sim-assert.h"
@@ -24,7 +25,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "hw-tree.h"
 #include "hw-device.h"
 #include "hw-ports.h"
-#include "elf32-m68hc1x.h"
 
 #ifndef MONITOR_BASE
 # define MONITOR_BASE (0x0C000)
@@ -194,17 +194,8 @@ sim_hw_configure (SIM_DESC sd)
 	  sim_do_commandf (sd, "memory region 0x000@%d,0x8000",
 			   M6811_RAM_LEVEL);
 	  sim_hw_parse (sd, "/m68hc11/reg 0x1000 0x03F");
-          if (cpu->bank_start < cpu->bank_end)
-            {
-              sim_do_commandf (sd, "memory region 0x%lx@%d,0x100000",
-                               cpu->bank_virtual, M6811_RAM_LEVEL);
-              sim_hw_parse (sd, "/m68hc11/use_bank 1");
-            }
 	}
-      if (cpu->cpu_start_mode)
-        {
-          sim_hw_parse (sd, "/m68hc11/mode %s", cpu->cpu_start_mode);
-        }
+
       if (hw_tree_find_property (device_tree, "/m68hc11/m68hc11sio/reg") == 0)
 	{
 	  sim_hw_parse (sd, "/m68hc11/m68hc11sio/reg 0x2b 0x5");
@@ -251,16 +242,14 @@ sim_hw_configure (SIM_DESC sd)
 	{
 	  /* Allocate core external memory.  */
 	  sim_do_commandf (sd, "memory region 0x%lx@%d,0x%lx",
-			   0x8000, M6811_RAM_LEVEL, 0x8000);
+			   0xC000, M6811_RAM_LEVEL, 0x4000);
 	  sim_do_commandf (sd, "memory region 0x000@%d,0x8000",
 			   M6811_RAM_LEVEL);
-          if (cpu->bank_start < cpu->bank_end)
-            {
-              sim_do_commandf (sd, "memory region 0x%lx@%d,0x100000",
-                               cpu->bank_virtual, M6811_RAM_LEVEL);
-              sim_hw_parse (sd, "/m68hc12/use_bank 1");
-            }
+	  sim_do_commandf (sd, "memory region 0x01000000@%d,0x100000",
+			   M6811_RAM_LEVEL);
+
 	  sim_hw_parse (sd, "/m68hc12/reg 0x0 0x3FF");
+	  sim_hw_parse (sd, "/m68hc12/use_bank 1");
 	}
 
       if (!hw_tree_find_property (device_tree, "/m68hc12/m68hc12sio@1/reg"))
@@ -305,77 +294,19 @@ sim_hw_configure (SIM_DESC sd)
   return 1;
 }
 
-/* Get the memory bank parameters by looking at the global symbols
-   defined by the linker.  */
 static int
-sim_get_bank_parameters (SIM_DESC sd, bfd* abfd)
+sim_prepare_for_program (SIM_DESC sd, struct _bfd* abfd)
 {
   sim_cpu *cpu;
-  long symsize;
-  long symbol_count, i;
-  unsigned size;
-  asymbol** asymbols;
-  asymbol** current;
 
   cpu = STATE_CPU (sd, 0);
 
-  symsize = bfd_get_symtab_upper_bound (abfd);
-  if (symsize < 0)
-    {
-      sim_io_eprintf (sd, "Cannot read symbols of program");
-      return 0;
-    }
-  asymbols = (asymbol **) xmalloc (symsize);
-  symbol_count = bfd_canonicalize_symtab (abfd, asymbols);
-  if (symbol_count < 0)
-    {
-      sim_io_eprintf (sd, "Cannot read symbols of program");
-      return 0;
-    }
-
-  size = 0;
-  for (i = 0, current = asymbols; i < symbol_count; i++, current++)
-    {
-      const char* name = bfd_asymbol_name (*current);
-
-      if (strcmp (name, BFD_M68HC11_BANK_START_NAME) == 0)
-        {
-          cpu->bank_start = bfd_asymbol_value (*current);
-        }
-      else if (strcmp (name, BFD_M68HC11_BANK_SIZE_NAME) == 0)
-        {
-          size = bfd_asymbol_value (*current);
-        }
-      else if (strcmp (name, BFD_M68HC11_BANK_VIRTUAL_NAME) == 0)
-        {
-          cpu->bank_virtual = bfd_asymbol_value (*current);
-        }
-    }
-  free (asymbols);
-
-  cpu->bank_end = cpu->bank_start + size;
-  cpu->bank_shift = 0;
-  for (; size > 1; size >>= 1)
-    cpu->bank_shift++;
-
-  return 0;
-}
-
-static int
-sim_prepare_for_program (SIM_DESC sd, bfd* abfd)
-{
-  sim_cpu *cpu;
-  int elf_flags = 0;
-
-  cpu = STATE_CPU (sd, 0);
+  if (!sim_hw_configure (sd))
+    return SIM_RC_FAIL;
 
   if (abfd != NULL)
     {
       asection *s;
-
-      if (bfd_get_flavour (abfd) == bfd_target_elf_flavour)
-        elf_flags = elf_elfheader (abfd)->e_flags;
-
       cpu->cpu_elf_start = bfd_get_start_address (abfd);
       /* See if any section sets the reset address */
       cpu->cpu_use_elf_start = 1;
@@ -385,7 +316,7 @@ sim_prepare_for_program (SIM_DESC sd, bfd* abfd)
             {
               bfd_size_type size;
 
-              size = bfd_get_section_size (s);
+              size = bfd_get_section_size_before_reloc (s);
               if (size > 0)
                 {
                   bfd_vma lma;
@@ -400,16 +331,7 @@ sim_prepare_for_program (SIM_DESC sd, bfd* abfd)
                 }
             }
         }
-
-      if (elf_flags & E_M68HC12_BANKS)
-        {
-          if (sim_get_bank_parameters (sd, abfd) != 0)
-            sim_io_eprintf (sd, "Memory bank parameters are not initialized\n");
-        }
     }
-
-  if (!sim_hw_configure (sd))
-    return SIM_RC_FAIL;
 
   /* reset all state information */
   sim_board_reset (sd);
@@ -419,7 +341,7 @@ sim_prepare_for_program (SIM_DESC sd, bfd* abfd)
 
 SIM_DESC
 sim_open (SIM_OPEN_KIND kind, host_callback *callback,
-          bfd *abfd, char **argv)
+          struct _bfd *abfd, char **argv)
 {
   SIM_DESC sd;
   sim_cpu *cpu;
@@ -476,11 +398,8 @@ sim_open (SIM_OPEN_KIND kind, host_callback *callback,
       free_state (sd);
       return 0;
     }
-  if (sim_prepare_for_program (sd, abfd) != SIM_RC_OK)
-    {
-      free_state (sd);
-      return 0;
-    }      
+
+  sim_hw_configure (sd);
 
   /* Fudge our descriptor.  */
   return sd;
@@ -567,7 +486,7 @@ sim_info (SIM_DESC sd, int verbose)
 }
 
 SIM_RC
-sim_create_inferior (SIM_DESC sd, struct bfd *abfd,
+sim_create_inferior (SIM_DESC sd, struct _bfd *abfd,
                      char **argv, char **env)
 {
   return sim_prepare_for_program (sd, abfd);
@@ -635,15 +554,8 @@ sim_fetch_register (SIM_DESC sd, int rn, unsigned char *memory, int length)
       val = 0;
       break;
     }
-  if (size == 1)
-    {
-      memory[0] = val;
-    }
-  else
-    {
-      memory[0] = val >> 8;
-      memory[1] = val & 0x0FF;
-    }
+  memory[0] = val >> 8;
+  memory[1] = val & 0x0FF;
   return size;
 }
 
@@ -708,6 +620,33 @@ void
 sim_size (int s)
 {
   ;
+}
+
+void
+sim_do_command (SIM_DESC sd, char *cmd)
+{
+  char *mm_cmd = "memory-map";
+  char *int_cmd = "interrupt";
+  sim_cpu *cpu;
+
+  cpu = STATE_CPU (sd, 0);
+  /* Commands available from GDB:   */
+  if (sim_args_command (sd, cmd) != SIM_RC_OK)
+    {
+      if (strncmp (cmd, "info", sizeof ("info") - 1) == 0)
+	sim_get_info (sd, &cmd[4]);
+      else if (strncmp (cmd, mm_cmd, strlen (mm_cmd) == 0))
+	sim_io_eprintf (sd,
+			"`memory-map' command replaced by `sim memory'\n");
+      else if (strncmp (cmd, int_cmd, strlen (int_cmd)) == 0)
+	sim_io_eprintf (sd, "`interrupt' command replaced by `sim watch'\n");
+      else
+	sim_io_eprintf (sd, "Unknown command `%s'\n", cmd);
+    }
+
+  /* If the architecture changed, re-configure.  */
+  if (STATE_ARCHITECTURE (sd) != cpu->cpu_configured_arch)
+    sim_hw_configure (sd);
 }
 
 /* Halt the simulator after just one instruction */
