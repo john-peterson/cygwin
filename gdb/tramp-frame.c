@@ -1,12 +1,12 @@
 /* Signal trampoline unwinder, for GDB the GNU Debugger.
 
-   Copyright (C) 2004-2013 Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,98 +15,45 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "tramp-frame.h"
+#include "trad-frame.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
 #include "symtab.h"
 #include "objfiles.h"
 #include "target.h"
-#include "trad-frame.h"
-#include "frame-base.h"
-#include "gdb_assert.h"
 
-struct frame_data
+struct trad_frame_data
 {
   const struct tramp_frame *tramp_frame;
 };
-
-struct tramp_frame_cache
-{
-  CORE_ADDR func;
-  const struct tramp_frame *tramp_frame;
-  struct trad_frame_cache *trad_cache;
-};
-
-static struct trad_frame_cache *
-tramp_frame_cache (struct frame_info *this_frame,
-		   void **this_cache)
-{
-  struct tramp_frame_cache *tramp_cache = (*this_cache);
-
-  if (tramp_cache->trad_cache == NULL)
-    {
-      tramp_cache->trad_cache = trad_frame_cache_zalloc (this_frame);
-      tramp_cache->tramp_frame->init (tramp_cache->tramp_frame,
-				      this_frame,
-				      tramp_cache->trad_cache,
-				      tramp_cache->func);
-    }
-  return tramp_cache->trad_cache;
-}
-
-static void
-tramp_frame_this_id (struct frame_info *this_frame,
-		     void **this_cache,
-		     struct frame_id *this_id)
-{
-  struct trad_frame_cache *trad_cache
-    = tramp_frame_cache (this_frame, this_cache);
-
-  trad_frame_get_id (trad_cache, this_id);
-}
-
-static struct value *
-tramp_frame_prev_register (struct frame_info *this_frame,
-			   void **this_cache,
-			   int prev_regnum)
-{
-  struct trad_frame_cache *trad_cache
-    = tramp_frame_cache (this_frame, this_cache);
-
-  return trad_frame_get_register (trad_cache, this_frame, prev_regnum);
-}
 
 static CORE_ADDR
-tramp_frame_start (const struct tramp_frame *tramp,
-		   struct frame_info *this_frame, CORE_ADDR pc)
+tramp_frame_start (CORE_ADDR pc, const struct tramp_frame *tramp)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int ti;
-
   /* Search through the trampoline for one that matches the
      instruction sequence around PC.  */
-  for (ti = 0; tramp->insn[ti].bytes != TRAMP_SENTINEL_INSN; ti++)
+  for (ti = 0; tramp->insn[ti] != 0; ti++)
     {
       CORE_ADDR func = pc - tramp->insn_size * ti;
       int i;
-
       for (i = 0; 1; i++)
 	{
-	  gdb_byte buf[sizeof (tramp->insn[0])];
-	  ULONGEST insn;
-
-	  if (tramp->insn[i].bytes == TRAMP_SENTINEL_INSN)
+	  bfd_byte buf[sizeof (LONGEST)];
+	  CORE_ADDR insn;
+	  if (tramp->insn[i] == 0)
 	    return func;
-	  if (!safe_frame_unwind_memory (this_frame,
-					 func + i * tramp->insn_size,
-					 buf, tramp->insn_size))
+	  if (target_read_memory (func + i * tramp->insn_size, buf,
+				  tramp->insn_size) != 0)
 	    break;
-	  insn = extract_unsigned_integer (buf, tramp->insn_size, byte_order);
-	  if (tramp->insn[i].bytes != (insn & tramp->insn[i].mask))
+	  insn = extract_unsigned_integer (buf, tramp->insn_size);
+	  if (tramp->insn[i] != insn)
 	    break;
 	}
     }
@@ -114,56 +61,51 @@ tramp_frame_start (const struct tramp_frame *tramp,
   return 0;
 }
 
-static int
-tramp_frame_sniffer (const struct frame_unwind *self,
-		     struct frame_info *this_frame,
-		     void **this_cache)
+static void
+tramp_frame_init (const struct trad_frame *self,
+		  struct frame_info *next_frame,
+		  struct trad_frame_cache *this_cache)
 {
-  const struct tramp_frame *tramp = self->unwind_data->tramp_frame;
-  CORE_ADDR pc = get_frame_pc (this_frame);
-  CORE_ADDR func;
-  struct tramp_frame_cache *tramp_cache;
+  CORE_ADDR pc = frame_pc_unwind (next_frame);
+  const struct tramp_frame *tramp = self->trad_data->tramp_frame;
+  tramp->init (tramp, next_frame, this_cache, tramp_frame_start (pc, tramp));
+}
 
-  /* tausq/2004-12-12: We used to assume if pc has a name or is in a valid 
-     section, then this is not a trampoline.  However, this assumption is
-     false on HPUX which has a signal trampoline that has a name; it can
-     also be false when using an alternative signal stack.  */
-  func = tramp_frame_start (tramp, this_frame, pc);
-  if (func == 0)
-    return 0;
-  tramp_cache = FRAME_OBSTACK_ZALLOC (struct tramp_frame_cache);
-  tramp_cache->func = func;
-  tramp_cache->tramp_frame = tramp;
-  (*this_cache) = tramp_cache;
-  return 1;
+static int
+tramp_frame_sniffer (const struct trad_frame *self,
+		     struct frame_info *next_frame)
+{
+  const struct tramp_frame *tramp = self->trad_data->tramp_frame;
+  CORE_ADDR pc = frame_pc_unwind (next_frame);
+  char *name;
+  /* If the function has a valid symbol name, it isn't a
+     trampoline.  */
+  find_pc_partial_function (pc, &name, NULL, NULL);
+  if (name != NULL)
+    return NULL;
+  /* If the function lives in a valid section (even without a starting
+     point) it isn't a trampoline.  */
+  if (find_pc_section (pc) != NULL)
+    return NULL;
+  /* The problem here is that this code, and tramp_frame_cache, both
+     end up doing a search to find the function start :-(.  */
+  return (tramp_frame_start (pc, tramp) != 0);
 }
 
 void
-tramp_frame_prepend_unwinder (struct gdbarch *gdbarch,
-			      const struct tramp_frame *tramp_frame)
+tramp_frame_append (struct gdbarch *gdbarch,
+		    const struct tramp_frame *tramp)
 {
-  struct frame_data *data;
-  struct frame_unwind *unwinder;
-  int i;
+  struct trad_frame_data *trad_data;
+  struct trad_frame *trad;
 
-  /* Check that the instruction sequence contains a sentinel.  */
-  for (i = 0; i < ARRAY_SIZE (tramp_frame->insn); i++)
-    {
-      if (tramp_frame->insn[i].bytes == TRAMP_SENTINEL_INSN)
-	break;
-    }
-  gdb_assert (i < ARRAY_SIZE (tramp_frame->insn));
-  gdb_assert (tramp_frame->insn_size <= sizeof (tramp_frame->insn[0].bytes));
+  trad_data = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct trad_frame_data);
+  trad = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct trad_frame);
 
-  data = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct frame_data);
-  unwinder = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct frame_unwind);
-
-  data->tramp_frame = tramp_frame;
-  unwinder->type = tramp_frame->frame_type;
-  unwinder->unwind_data = data;
-  unwinder->sniffer = tramp_frame_sniffer;
-  unwinder->stop_reason = default_frame_unwind_stop_reason;
-  unwinder->this_id = tramp_frame_this_id;
-  unwinder->prev_register = tramp_frame_prev_register;
-  frame_unwind_prepend_unwinder (gdbarch, unwinder);
+  trad_data->tramp_frame = tramp;
+  trad->type = SIGTRAMP_FRAME;
+  trad->trad_data = trad_data;
+  trad->sniffer = tramp_frame_sniffer;
+  trad->init = tramp_frame_init;
+  trad_frame_append (gdbarch, trad);
 }
