@@ -1,31 +1,24 @@
 /* An abstract string datatype.
-   Copyright (C) 1998, 1999, 2000, 2002, 2004, 2005, 2009
-   Free Software Foundation, Inc.
+   Copyright (C) 1998, 1999, 2000 Free Software Foundation, Inc.
    Contributed by Mark Mitchell (mark@markmitchell.com).
 
-This file is part of GCC.
+This file is part of GNU CC.
    
-GCC is free software; you can redistribute it and/or modify
+GNU CC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation; either version 2, or (at your option)
 any later version.
 
-GCC is distributed in the hope that it will be useful,
+GNU CC is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GCC; see the file COPYING.  If not, write to
-the Free Software Foundation, 51 Franklin Street - Fifth Floor,
-Boston, MA 02110-1301, USA.  */
+along with GNU CC; see the file COPYING.  If not, write to
+the Free Software Foundation, 59 Temple Place - Suite 330,
+Boston, MA 02111-1307, USA.  */
 
-#ifndef DYN_STRING_H
-#define DYN_STRING_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 typedef struct dyn_string
 {
@@ -47,27 +40,53 @@ typedef struct dyn_string
   (strcmp ((DS1)->s, (DS2)->s))
 
 
-extern int dyn_string_init (struct dyn_string *, int);
-extern dyn_string_t dyn_string_new (int);
-extern void dyn_string_delete (dyn_string_t);
-extern char *dyn_string_release (dyn_string_t);
-extern dyn_string_t dyn_string_resize (dyn_string_t, int);
-extern void dyn_string_clear (dyn_string_t);
-extern int dyn_string_copy (dyn_string_t, dyn_string_t);
-extern int dyn_string_copy_cstr (dyn_string_t, const char *);
-extern int dyn_string_prepend (dyn_string_t, dyn_string_t);
-extern int dyn_string_prepend_cstr (dyn_string_t, const char *);
-extern int dyn_string_insert (dyn_string_t, int, dyn_string_t);
-extern int dyn_string_insert_cstr (dyn_string_t, int, const char *);
-extern int dyn_string_insert_char (dyn_string_t, int, int);
-extern int dyn_string_append (dyn_string_t, dyn_string_t);
-extern int dyn_string_append_cstr (dyn_string_t, const char *);
-extern int dyn_string_append_char (dyn_string_t, int);
-extern int dyn_string_substring (dyn_string_t,  dyn_string_t, int, int);
-extern int dyn_string_eq (dyn_string_t, dyn_string_t);
+/* dyn_string functions are used in the demangling implementation
+   included in the G++ runtime library.  To prevent collisions with
+   names in user programs, the functions that are used in the
+   demangler are given implementation-reserved names.  */
 
-#ifdef __cplusplus
-}
-#endif
+#ifdef IN_LIBGCC2
 
-#endif /* !defined (DYN_STRING_H) */
+#define dyn_string_init                 __cxa_dyn_string_init
+#define dyn_string_new                  __cxa_dyn_string_new
+#define dyn_string_delete               __cxa_dyn_string_delete
+#define dyn_string_release              __cxa_dyn_string_release
+#define dyn_string_resize               __cxa_dyn_string_resize
+#define dyn_string_clear                __cxa_dyn_string_clear
+#define dyn_string_copy                 __cxa_dyn_string_copy
+#define dyn_string_copy_cstr            __cxa_dyn_string_copy_cstr
+#define dyn_string_prepend              __cxa_dyn_string_prepend
+#define dyn_string_prepend_cstr         __cxa_dyn_string_prepend_cstr
+#define dyn_string_insert               __cxa_dyn_string_insert
+#define dyn_string_insert_cstr          __cxa_dyn_string_insert_cstr
+#define dyn_string_insert_char          __cxa_dyn_string_insert_char
+#define dyn_string_append               __cxa_dyn_string_append
+#define dyn_string_append_cstr          __cxa_dyn_string_append_cstr
+#define dyn_string_append_char          __cxa_dyn_string_append_char
+#define dyn_string_substring            __cxa_dyn_string_substring
+#define dyn_string_eq                   __cxa_dyn_string_eq
+
+#endif /* IN_LIBGCC2 */
+
+
+extern int dyn_string_init              PARAMS ((struct dyn_string *, int));
+extern dyn_string_t dyn_string_new      PARAMS ((int));
+extern void dyn_string_delete           PARAMS ((dyn_string_t));
+extern char *dyn_string_release         PARAMS ((dyn_string_t));
+extern dyn_string_t dyn_string_resize   PARAMS ((dyn_string_t, int));
+extern void dyn_string_clear            PARAMS ((dyn_string_t));
+extern int dyn_string_copy              PARAMS ((dyn_string_t, dyn_string_t));
+extern int dyn_string_copy_cstr         PARAMS ((dyn_string_t, const char *));
+extern int dyn_string_prepend           PARAMS ((dyn_string_t, dyn_string_t));
+extern int dyn_string_prepend_cstr      PARAMS ((dyn_string_t, const char *));
+extern int dyn_string_insert            PARAMS ((dyn_string_t, int,
+						 dyn_string_t));
+extern int dyn_string_insert_cstr       PARAMS ((dyn_string_t, int,
+						 const char *));
+extern int dyn_string_insert_char       PARAMS ((dyn_string_t, int, int));
+extern int dyn_string_append            PARAMS ((dyn_string_t, dyn_string_t));
+extern int dyn_string_append_cstr       PARAMS ((dyn_string_t, const char *));
+extern int dyn_string_append_char       PARAMS ((dyn_string_t, int));
+extern int dyn_string_substring         PARAMS ((dyn_string_t, 
+						 dyn_string_t, int, int));
+extern int dyn_string_eq                PARAMS ((dyn_string_t, dyn_string_t));
