@@ -1,7 +1,5 @@
 /* Output generating routines for GDB CLI.
-
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
-
+   Copyright 1999-2000 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
 
@@ -9,7 +7,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -18,167 +16,190 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "ui-out.h"
 #include "cli-out.h"
-#include "gdb_string.h"
-#include "gdb_assert.h"
-#include "vec.h"
 
-typedef struct cli_ui_out_data cli_out_data;
+/* Convenience macro for allocting typesafe memory. */
 
+#ifndef XMALLOC
+#define XMALLOC(TYPE) (TYPE*) xmalloc (sizeof (TYPE))
+#endif
 
-/* Prototypes for local functions */
-
-static void cli_text (struct ui_out *uiout, const char *string);
-
-static void field_separator (void);
-
-static void out_field_fmt (struct ui_out *uiout, int fldno,
-			   const char *fldname,
-			   const char *format,...) ATTRIBUTE_PRINTF (4, 5);
+struct ui_out_data
+  {
+    struct ui_file *stream;
+  };
 
 /* These are the CLI output functions */
 
+static void cli_table_begin (struct ui_out *uiout, int nbrofcols, char *tblid);
+static void cli_table_body (struct ui_out *uiout);
+static void cli_table_end (struct ui_out *uiout);
+static void cli_table_header (struct ui_out *uiout, int width,
+			      enum ui_align alig, char *colhdr);
+static void cli_list_begin (struct ui_out *uiout, int list_flag, char *lstid);
+static void cli_list_end (struct ui_out *uiout, int list_flag);
+static void cli_field_int (struct ui_out *uiout, int fldno, int width,
+			   enum ui_align alig, char *fldname, int value);
+static void cli_field_skip (struct ui_out *uiout, int fldno, int width,
+			    enum ui_align alig, char *fldname);
+static void cli_field_string (struct ui_out *uiout, int fldno, int width,
+			   enum ui_align alig, char *fldname,
+			      const char *string);
+static void cli_field_fmt (struct ui_out *uiout, int fldno,
+			   int width, enum ui_align align,
+			   char *fldname, char *format, va_list args);
+static void cli_spaces (struct ui_out *uiout, int numspaces);
+static void cli_text (struct ui_out *uiout, char *string);
+static void cli_message (struct ui_out *uiout, int verbosity, char *format,
+			 va_list args);
+static void cli_wrap_hint (struct ui_out *uiout, char *identstring);
+static void cli_flush (struct ui_out *uiout);
+
+/* This is the CLI ui-out implementation functions vector */
+
+/* FIXME: This can be initialized dynamically after default is set to
+   handle initial output in main.c */
+
+static struct ui_out_impl cli_ui_out_impl =
+{
+  cli_table_begin,
+  cli_table_body,
+  cli_table_end,
+  cli_table_header,
+  cli_list_begin,
+  cli_list_end,
+  cli_field_int,
+  cli_field_skip,
+  cli_field_string,
+  cli_field_fmt,
+  cli_spaces,
+  cli_text,
+  cli_message,
+  cli_wrap_hint,
+  cli_flush
+};
+
+/* Prototypes for local functions */
+
+extern void _initialize_cli_out PARAMS ((void));
+
+static void field_separator (void);
+
+static void out_field_fmt (struct ui_out *uiout, int fldno, char *fldname,
+			   char *format,...);
+
+/* local variables */
+
+/* (none yet) */
+
 /* Mark beginning of a table */
 
-static void
-cli_table_begin (struct ui_out *uiout, int nbrofcols,
-		 int nr_rows,
-		 const char *tblid)
+void
+cli_table_begin (uiout, nbrofcols, tblid)
+     struct ui_out *uiout;
+     int nbrofcols;
+     char *tblid;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (nr_rows == 0)
-    data->suppress_output = 1;
-  else
-    /* Only the table suppresses the output and, fortunately, a table
-       is not a recursive data structure.  */
-    gdb_assert (data->suppress_output == 0);
 }
 
 /* Mark beginning of a table body */
 
-static void
-cli_table_body (struct ui_out *uiout)
+void
+cli_table_body (uiout)
+     struct ui_out *uiout;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
   /* first, close the table header line */
   cli_text (uiout, "\n");
 }
 
 /* Mark end of a table */
 
-static void
-cli_table_end (struct ui_out *uiout)
+void
+cli_table_end (uiout)
+     struct ui_out *uiout;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  data->suppress_output = 0;
 }
 
 /* Specify table header */
 
-static void
-cli_table_header (struct ui_out *uiout, int width, enum ui_align alignment,
-		  const char *col_name,
-		  const char *colhdr)
+void
+cli_table_header (uiout, width, alignment, colhdr)
+     struct ui_out *uiout;
+     int width;
+     int alignment;
+     char *colhdr;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
-
-  /* Always go through the function pointer (virtual function call).
-     We may have been extended.  */
-  uo_field_string (uiout, 0, width, alignment, 0, colhdr);
+  cli_field_string (uiout, 0, width, alignment, 0, colhdr);
 }
 
 /* Mark beginning of a list */
 
-static void
-cli_begin (struct ui_out *uiout,
-	   enum ui_out_type type,
-	   int level,
-	   const char *id)
+void
+cli_list_begin (uiout, list_flag, lstid)
+     struct ui_out *uiout;
+     int list_flag;
+     char *lstid;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
 }
 
 /* Mark end of a list */
 
-static void
-cli_end (struct ui_out *uiout,
-	 enum ui_out_type type,
-	 int level)
+void
+cli_list_end (uiout, list_flag)
+     struct ui_out *uiout;
+     int list_flag;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
 }
 
 /* output an int field */
 
-static void
-cli_field_int (struct ui_out *uiout, int fldno, int width,
-	       enum ui_align alignment,
-	       const char *fldname, int value)
+void
+cli_field_int (uiout, fldno, width, alignment, fldname, value)
+     struct ui_out *uiout;
+     int fldno;
+     int width;
+     int alignment;
+     char *fldname;
+     int value;
 {
-  char buffer[20];	/* FIXME: how many chars long a %d can become? */
-  cli_out_data *data = ui_out_data (uiout);
+  char buffer[20];		/* FIXME: how many chars long a %d can become? */
 
-  if (data->suppress_output)
-    return;
-  xsnprintf (buffer, sizeof (buffer), "%d", value);
-
-  /* Always go through the function pointer (virtual function call).
-     We may have been extended.  */
-  uo_field_string (uiout, fldno, width, alignment, fldname, buffer);
+  sprintf (buffer, "%d", value);
+  cli_field_string (uiout, fldno, width, alignment, fldname, buffer);
 }
 
 /* used to ommit a field */
 
-static void
-cli_field_skip (struct ui_out *uiout, int fldno, int width,
-		enum ui_align alignment,
-		const char *fldname)
+void
+cli_field_skip (uiout, fldno, width, alignment, fldname)
+     struct ui_out *uiout;
+     int fldno;
+     int width;
+     int alignment;
+     char *fldname;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
-
-  /* Always go through the function pointer (virtual function call).
-     We may have been extended.  */
-  uo_field_string (uiout, fldno, width, alignment, fldname, "");
+  cli_field_string (uiout, fldno, width, alignment, fldname, "");
 }
 
 /* other specific cli_field_* end up here so alignment and field
    separators are both handled by cli_field_string */
 
-static void
+void
 cli_field_string (struct ui_out *uiout,
 		  int fldno,
 		  int width,
-		  enum ui_align align,
-		  const char *fldname,
+		  int align,
+		  char *fldname,
 		  const char *string)
 {
   int before = 0;
   int after = 0;
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
 
   if ((align != ui_noalign) && string)
     {
@@ -214,198 +235,105 @@ cli_field_string (struct ui_out *uiout,
     field_separator ();
 }
 
-/* This is the only field function that does not align.  */
+/* This is the only field function that does not align */
 
-static void ATTRIBUTE_PRINTF (6, 0)
+void
 cli_field_fmt (struct ui_out *uiout, int fldno,
 	       int width, enum ui_align align,
-	       const char *fldname,
-	       const char *format,
-	       va_list args)
+	       char *fldname, char *format, va_list args)
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *stream;
-
-  if (data->suppress_output)
-    return;
-
-  stream = VEC_last (ui_filep, data->streams);
-  vfprintf_filtered (stream, format, args);
+  struct ui_out_data *data = ui_out_data (uiout);
+  vfprintf_filtered (data->stream, format, args);
 
   if (align != ui_noalign)
     field_separator ();
 }
 
-static void
-cli_spaces (struct ui_out *uiout, int numspaces)
+void
+cli_spaces (uiout, numspaces)
+     struct ui_out *uiout;
+     int numspaces;
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *stream;
-
-  if (data->suppress_output)
-    return;
-
-  stream = VEC_last (ui_filep, data->streams);
-  print_spaces_filtered (numspaces, stream);
+  struct ui_out_data *data = ui_out_data (uiout);
+  print_spaces_filtered (numspaces, data->stream);
 }
 
-static void
-cli_text (struct ui_out *uiout, const char *string)
+void
+cli_text (uiout, string)
+     struct ui_out *uiout;
+     char *string;
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *stream;
-
-  if (data->suppress_output)
-    return;
-
-  stream = VEC_last (ui_filep, data->streams);
-  fputs_filtered (string, stream);
+  struct ui_out_data *data = ui_out_data (uiout);
+  fputs_filtered (string, data->stream);
 }
 
-static void ATTRIBUTE_PRINTF (3, 0)
-cli_message (struct ui_out *uiout, int verbosity,
-	     const char *format, va_list args)
+void
+cli_message (struct ui_out *uiout, int verbosity, char *format, va_list args)
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
-
+  struct ui_out_data *data = ui_out_data (uiout);
   if (ui_out_get_verblvl (uiout) >= verbosity)
-    {
-      struct ui_file *stream = VEC_last (ui_filep, data->streams);
-
-      vfprintf_unfiltered (stream, format, args);
-    }
+    vfprintf_unfiltered (data->stream, format, args);
 }
 
-static void
-cli_wrap_hint (struct ui_out *uiout, char *identstring)
+void
+cli_wrap_hint (uiout, identstring)
+     struct ui_out *uiout;
+     char *identstring;
 {
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (data->suppress_output)
-    return;
   wrap_here (identstring);
 }
 
-static void
-cli_flush (struct ui_out *uiout)
+void
+cli_flush (uiout)
+     struct ui_out *uiout;
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *stream = VEC_last (ui_filep, data->streams);
-
-  gdb_flush (stream);
-}
-
-/* OUTSTREAM as non-NULL will push OUTSTREAM on the stack of output streams
-   and make it therefore active.  OUTSTREAM as NULL will pop the last pushed
-   output stream; it is an internal error if it does not exist.  */
-
-static int
-cli_redirect (struct ui_out *uiout, struct ui_file *outstream)
-{
-  cli_out_data *data = ui_out_data (uiout);
-
-  if (outstream != NULL)
-    VEC_safe_push (ui_filep, data->streams, outstream);
-  else
-    VEC_pop (ui_filep, data->streams);
-
-  return 0;
+  struct ui_out_data *data = ui_out_data (uiout);
+  gdb_flush (data->stream);
 }
 
 /* local functions */
 
 /* Like cli_field_fmt, but takes a variable number of args
-   and makes a va_list and does not insert a separator.  */
+   and makes a va_list and does not insert a separator */
 
 /* VARARGS */
 static void
-out_field_fmt (struct ui_out *uiout, int fldno,
-	       const char *fldname,
-	       const char *format,...)
+out_field_fmt (struct ui_out *uiout, int fldno, char *fldname,
+	       char *format,...)
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *stream = VEC_last (ui_filep, data->streams);
+  struct ui_out_data *data = ui_out_data (uiout);
   va_list args;
 
   va_start (args, format);
-  vfprintf_filtered (stream, format, args);
+  vfprintf_filtered (data->stream, format, args);
 
   va_end (args);
 }
 
-/* Access to ui_out format private members.  */
+/* access to ui_out format private members */
 
 static void
-field_separator (void)
+field_separator ()
 {
-  cli_out_data *data = ui_out_data (current_uiout);
-  struct ui_file *stream = VEC_last (ui_filep, data->streams);
-
-  fputc_filtered (' ', stream);
+  struct ui_out_data *data = ui_out_data (uiout);
+  fputc_filtered (' ', data->stream);
 }
 
-/* This is the CLI ui-out implementation functions vector */
-
-/* FIXME: This can be initialized dynamically after default is set to
-   handle initial output in main.c */
-
-struct ui_out_impl cli_ui_out_impl =
-{
-  cli_table_begin,
-  cli_table_body,
-  cli_table_end,
-  cli_table_header,
-  cli_begin,
-  cli_end,
-  cli_field_int,
-  cli_field_skip,
-  cli_field_string,
-  cli_field_fmt,
-  cli_spaces,
-  cli_text,
-  cli_message,
-  cli_wrap_hint,
-  cli_flush,
-  cli_redirect,
-  0, /* Does not need MI hacks (i.e. needs CLI hacks).  */
-};
-
-/* Constructor for a `cli_out_data' object.  */
-
-void
-cli_out_data_ctor (cli_out_data *self, struct ui_file *stream)
-{
-  gdb_assert (stream != NULL);
-
-  self->streams = NULL;
-  VEC_safe_push (ui_filep, self->streams, stream);
-
-  self->suppress_output = 0;
-}
-
-/* Initialize private members at startup.  */
+/* initalize private members at startup */
 
 struct ui_out *
 cli_out_new (struct ui_file *stream)
 {
   int flags = ui_source_list;
-  cli_out_data *data = XMALLOC (cli_out_data);
 
-  cli_out_data_ctor (data, stream);
+  struct ui_out_data *data = XMALLOC (struct ui_out_data);
+  data->stream = stream;
   return ui_out_new (&cli_ui_out_impl, data, flags);
 }
 
-struct ui_file *
-cli_out_set_stream (struct ui_out *uiout, struct ui_file *stream)
+/* standard gdb initialization hook */
+void
+_initialize_cli_out ()
 {
-  cli_out_data *data = ui_out_data (uiout);
-  struct ui_file *old;
-  
-  old = VEC_pop (ui_filep, data->streams);
-  VEC_quick_push (ui_filep, data->streams, stream);
-
-  return old;
+  /* nothing needs to be done */
 }
