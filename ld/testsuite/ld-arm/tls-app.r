@@ -1,10 +1,12 @@
 
-.*:     file format elf32-.*arm.*
+.*:     file format elf32-.*arm
 
 DYNAMIC RELOCATION RECORDS
 OFFSET   TYPE              VALUE 
-[0-9a-f]+ R_ARM_TLS_DTPMOD32  app_gd
-[0-9a-f]+ R_ARM_TLS_DTPOFF32  app_gd
-[0-9a-f]+ R_ARM_TLS_DTPMOD32  lib_gd
-[0-9a-f]+ R_ARM_TLS_DTPOFF32  lib_gd
-[0-9a-f]+ R_ARM_TLS_TPOFF32  app_ie
+00010334 R_ARM_TLS_DTPMOD32  app_gd
+00010338 R_ARM_TLS_DTPOFF32  app_gd
+0001033c R_ARM_TLS_DTPMOD32  lib_gd
+00010340 R_ARM_TLS_DTPOFF32  lib_gd
+00010344 R_ARM_TLS_TPOFF32  app_ie
+
+

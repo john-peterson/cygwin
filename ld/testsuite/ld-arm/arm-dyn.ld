@@ -68,9 +68,9 @@ SECTIONS
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) }
-  PROVIDE_HIDDEN (__exidx_start = .);
+   __exidx_start = .;
   .ARM.exidx   : { *(.ARM.exidx* .gnu.linkonce.armexidx.*) }
-  PROVIDE_HIDDEN (__exidx_end = .);
+   __exidx_end = .;
   .eh_frame_hdr : { *(.eh_frame_hdr) }
   .eh_frame       : ONLY_IF_RO { KEEP (*(.eh_frame)) }
   .gcc_except_table   : ONLY_IF_RO { KEEP (*(.gcc_except_table)) *(.gcc_except_table.*) }
@@ -138,7 +138,6 @@ SECTIONS
   .data1          : { *(.data1) }
   _edata = .;
   PROVIDE (edata = .);
-  . = .;
   __bss_start = .;
   __bss_start__ = .;
   .bss            :
@@ -188,6 +187,11 @@ SECTIONS
   .debug_funcnames 0 : { *(.debug_funcnames) }
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
+    .stack         0x80000 :
+  {
+    _stack = .;
+    *(.stack)
+  }
   .note.gnu.arm.ident 0 : { KEEP (*(.note.gnu.arm.ident)) }
   /DISCARD/ : { *(.note.GNU-stack) }
 }

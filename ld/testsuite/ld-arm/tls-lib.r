@@ -1,10 +1,10 @@
 
-.*:     file format elf32-.*arm.*
+.*:     file format elf32-.*arm
 
 DYNAMIC RELOCATION RECORDS
 OFFSET   TYPE              VALUE 
-.* R_ARM_TLS_DTPMOD32  \*ABS\*
-.* R_ARM_TLS_DTPMOD32  lib_gd
-.* R_ARM_TLS_DTPOFF32  lib_gd
+000083c4 R_ARM_TLS_DTPMOD32  \*ABS\*
+000083cc R_ARM_TLS_DTPMOD32  lib_gd
+000083d0 R_ARM_TLS_DTPOFF32  lib_gd
 
 
