@@ -1,4 +1,4 @@
-#as: --no-underscore --pic --em=criself
+#as: --no-underscore --pic
 #source: gotrel1.s
 #source: locref2.s
 #ld: -m crislinux
@@ -11,12 +11,13 @@
 
 SYMBOL TABLE:
 #...
-0+82088 l     O \.got	0+ _GLOBAL_OFFSET_TABLE_
 0+  w      \*UND\*	0+ expfn
 0+  w      \*UND\*	0+ expobj
+#...
+0+820a0 g     O \.got	0+ _GLOBAL_OFFSET_TABLE_
 #...
 Disassembly of section \.text:
 #...
 0+8007c <y>:
-   8007c:	6fae 78df f7ff  .*
-   80082:	6fbe 78df f7ff  .*
+   8007c:	6fae 60df f7ff  .*
+   80082:	6fbe 60df f7ff  .*
