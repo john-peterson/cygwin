@@ -41,16 +41,16 @@ TableOptionBdSet(clientData, interp, tkwin, value, widgRec, offset)
     ClientData clientData;		/* Type of struct being set. */
     Tcl_Interp *interp;			/* Used for reporting errors. */
     Tk_Window tkwin;			/* Window containing table widget. */
-    CONST84 char *value;			/* Value of option. */
+    char *value;			/* Value of option. */
     char *widgRec;			/* Pointer to record for item. */
     int offset;				/* Offset into item. */
 {
     char **borderStr;
     int *bordersPtr, *bdPtr;
-    int type	= PTR2INT(clientData);
+    int type	= (int) clientData;
     int result	= TCL_OK;
     int argc;
-    CONST84 char **argv;
+    char **argv;
 
 
     if ((type == BD_TABLE) && (value[0] == '\0')) {
@@ -137,7 +137,7 @@ TableOptionBdSet(clientData, interp, tkwin, value, widgRec, offset)
  *----------------------------------------------------------------------
  */
 
-CONST86 char *
+char *
 TableOptionBdGet(clientData, tkwin, widgRec, offset, freeProcPtr)
     ClientData clientData;		/* Type of struct being set. */
     Tk_Window tkwin;			/* Window containing canvas widget. */
@@ -147,7 +147,7 @@ TableOptionBdGet(clientData, tkwin, widgRec, offset, freeProcPtr)
 					 * information about how to reclaim
 					 * storage for return string. */
 {
-    register int type	= PTR2INT(clientData);
+    register int type	= (int) clientData;
 
     if (type == BD_TABLE) {
 	return ((TableTag *) (widgRec + offset))->borderStr;
@@ -183,7 +183,7 @@ TableTagConfigureBd(Table *tablePtr, TableTag *tagPtr,
 	char *oldValue, int nullOK)
 {
     int i, argc, result = TCL_OK;
-    CONST84 char **argv;
+    char **argv;
 
     /*
      * First check to see if the value really changed.
@@ -270,7 +270,7 @@ TableTagConfigureBd(Table *tablePtr, TableTag *tagPtr,
 
 int
 Cmd_OptionSet(ClientData clientData, Tcl_Interp *interp,
-	      Tk_Window unused, CONST84 char *value, char *widgRec, int offset)
+	      Tk_Window unused, char *value, char *widgRec, int offset)
 {
   Cmd_Struct *p = (Cmd_Struct *)clientData;
   int mode = Cmd_GetValue(p,value);
@@ -297,7 +297,7 @@ Cmd_OptionSet(ClientData clientData, Tcl_Interp *interp,
  *----------------------------------------------------------------------
  */
 
-CONST86 char *
+char *
 Cmd_OptionGet(ClientData clientData, Tk_Window unused,
 	      char *widgRec, int offset, Tcl_FreeProc **freeProcPtr)
 {
