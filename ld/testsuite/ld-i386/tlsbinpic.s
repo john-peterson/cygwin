@@ -1,7 +1,8 @@
 	/* Force .got aligned to 4K, so it very likely gets at 0x804a100
 	   (0x60 bytes .tdata and 0xa0 bytes .dynamic)  */
-	.section ".tdata", "awT", @progbits
+	.data
 	.balign	4096
+	.section ".tdata", "awT", @progbits
 	.globl sg1, sg2, sg3, sg4, sg5, sg6, sg7, sg8
 	.globl sh1, sh2, sh3, sh4, sh5, sh6, sh7, sh8
 	.hidden sh1, sh2, sh3, sh4, sh5, sh6, sh7, sh8
@@ -82,7 +83,7 @@ fn2:
 	call	___tls_get_addr@plt
 	nop;nop;nop;nop
 
-	/* LD -> LE */
+	/* LD */
 	leal	sl1@tlsldm(%ebx), %eax
 	call	___tls_get_addr@PLT
 	nop;nop
@@ -91,7 +92,7 @@ fn2:
 	leal	sl2@dtpoff(%eax), %ecx
 	nop;nop;nop;nop
 
-	/* LD -> LE against hidden variables */
+	/* LD against hidden variables */
 	leal	sh1@tlsldm(%ebx), %eax
 	call	___tls_get_addr@PLT
 	nop;nop
@@ -161,11 +162,6 @@ fn2:
 	nop;nop
 	movl	%gs:(%edx), %edx
 	nop;nop;nop;nop
-
-	/* GD -> IE because variable is not defined in executable */
-	leal	sG1@tlsgd(%ebx), %eax
-	call	___tls_get_addr@plt
-	nop;nop;nop;nop;nop
 
 	movl    -4(%ebp), %ebx
 	leave
