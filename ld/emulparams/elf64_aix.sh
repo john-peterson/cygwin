@@ -5,7 +5,7 @@ TEMPLATE_NAME=elf32
 OUTPUT_FORMAT="elf64-ia64-aix-little"
 ARCH=ia64
 MACHINE=
-MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
+MAXPAGESIZE=0x10000
 TEXT_START_ADDR="0x10000000"
 DATA_ADDR="ALIGN (0x10000000) + (. & (${MAXPAGESIZE} - 1))"
 GENERATE_SHLIB_SCRIPT=yes
@@ -18,4 +18,4 @@ OTHER_READONLY_SECTIONS="
   .opd          ${RELOCATING-0} : { *(.opd) }
   .IA_64.unwind_info ${RELOCATING-0} : { *(.IA_64.unwind_info*${RELOCATING+ .gnu.linkonce.ia64unwi.*}) }
   .IA_64.unwind ${RELOCATING-0} : { *(.IA_64.unwind*${RELOCATING+ .gnu.linkonce.ia64unw.*}) }"
-LIB_PATH="=/usr/lib/ia64l64:=/usr/lib:=/usr/local/lib"
+LIB_PATH=/usr/lib/ia64l64:/usr/lib:/usr/local/lib
