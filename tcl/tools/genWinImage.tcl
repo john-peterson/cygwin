@@ -155,3 +155,4 @@ proc genWinImage::generateInstallers {} {
 }
 
 genWinImage::init
+
