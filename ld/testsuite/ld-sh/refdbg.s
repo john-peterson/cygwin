@@ -8,5 +8,4 @@ _start:
 
 	.comm	foo,4,4
 	.section	.debug_info,"",@progbits
-	.long	0
 	.ualong	foo
