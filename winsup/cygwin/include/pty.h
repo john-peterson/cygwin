@@ -8,10 +8,8 @@
 extern "C" {
 #endif
 
-int _EXFUN(openpty ,(int *, int *, char *, const struct termios *,
-		     const struct winsize *));
-int _EXFUN(forkpty ,(int *, char *, const struct termios *,
-		     const struct winsize *));
+int _EXFUN(openpty ,(int *, int *, char *, struct termios *, struct winsize *));
+int _EXFUN(forkpty ,(int *, char *, struct termios *, struct winsize *));
 
 #ifdef __cplusplus
 }

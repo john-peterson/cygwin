@@ -1,6 +1,6 @@
 /* hires.h: Definitions for hires clock calculations
 
-   Copyright 2002, 2003, 2004, 2005, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -13,57 +13,44 @@ details. */
 
 #include <mmsystem.h>
 
-/* Conversions for per-process and per-thread clocks */
-#define PID_TO_CLOCKID(pid) (pid * 8 + CLOCK_PROCESS_CPUTIME_ID)
-#define CLOCKID_TO_PID(cid) ((cid - CLOCK_PROCESS_CPUTIME_ID) / 8)
-#define CLOCKID_IS_PROCESS(cid) ((cid % 8) == CLOCK_PROCESS_CPUTIME_ID)
-#define THREADID_TO_CLOCKID(tid) (tid * 8 + CLOCK_THREAD_CPUTIME_ID)
-#define CLOCKID_TO_THREADID(cid) ((cid - CLOCK_THREAD_CPUTIME_ID) / 8)
-#define CLOCKID_IS_THREAD(cid) ((cid % 8) == CLOCK_THREAD_CPUTIME_ID)
-
 /* Largest delay in ms for sleep and alarm calls.
    Allow actual delay to exceed requested delay by 10 s.
    Express as multiple of 1000 (i.e. seconds) + max resolution
    The tv_sec argument in timeval structures cannot exceed
    HIRES_DELAY_MAX / 1000 - 1, so that adding fractional part
    and rounding won't exceed HIRES_DELAY_MAX */
-#define HIRES_DELAY_MAX ((((UINT_MAX - 10000) / 1000) * 1000) + 10)
-
-/* 100ns difference between Windows and UNIX timebase. */
-#define FACTOR (0x19db1ded53e8000LL)
-/* # of 100ns intervals per second. */
-#define NSPERSEC 10000000LL
+#define HIRES_DELAY_MAX (((UINT_MAX - 10000) / 1000) * 1000) + 10
 
 class hires_base
 {
  protected:
   int inited;
  public:
-  void reset() {inited = false;}
+  virtual LONGLONG usecs (bool justdelta) {return 0LL;}
+  virtual ~hires_base () {}
 };
 
-class hires_ns : public hires_base
+class hires_us : hires_base
 {
+  LARGE_INTEGER primed_ft;
   LARGE_INTEGER primed_pc;
   double freq;
   void prime ();
  public:
-  LONGLONG nsecs ();
-  LONGLONG usecs () {return nsecs () / 1000LL;}
-  LONGLONG resolution();
+  LONGLONG usecs (bool justdelta);
 };
 
-class hires_ms : public hires_base
+class hires_ms : hires_base
 {
-  LONGLONG initime_ns;
-  LONGLONG timeGetTime_ns ();
-  void prime ();
+  DWORD initime_ms;
+  LARGE_INTEGER initime_us;
+  static UINT minperiod;
+  UINT prime ();
  public:
-  LONGLONG nsecs ();
-  LONGLONG usecs () {return nsecs () / 10LL;}
-  LONGLONG msecs () {return nsecs () / 10000LL;}
-  UINT resolution ();
-  LONGLONG uptime () {return (nsecs () - initime_ns) / 10000LL;}
+  LONGLONG usecs (bool justdelta);
+  UINT dmsecs () { return timeGetTime (); }
+  UINT resolution () { return minperiod ?: prime (); }
+
 };
 
 extern hires_ms gtod;
