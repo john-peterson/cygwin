@@ -13,9 +13,6 @@
  */
 
 #include "tclWinInt.h"
-#ifdef __CYGWIN__
-#include <sys/cygwin.h>
-#endif
 
 /*
  * The following data structures are used when loading the thunking 
@@ -39,23 +36,6 @@ typedef VOID (WINAPI UTUNREGISTER)(HANDLE hModule);
 
 static HINSTANCE hInstance;	/* HINSTANCE of this DLL. */
 static int platformId;		/* Running under NT, or 95/98? */
-
-#ifdef HAVE_NO_SEH
-/*
- * Unlike Borland and Microsoft, we don't register exception handlers by
- * pushing registration records onto the runtime stack. Instead, we register
- * them by creating an EXCEPTION_REGISTRATION within the activation record.
- */
-
-typedef struct EXCEPTION_REGISTRATION {
-    struct EXCEPTION_REGISTRATION *link;
-    EXCEPTION_DISPOSITION (*handler)(
-	    struct _EXCEPTION_RECORD*, void*, struct _CONTEXT*, void*);
-    void *ebp;
-    void *esp;
-    int status;
-} EXCEPTION_REGISTRATION;
-#endif
 
 /*
  * The following function tables are used to dispatch to either the
@@ -98,8 +78,6 @@ static TclWinProcs asciiProcs = {
 	    WCHAR *, TCHAR **)) SearchPathA,
     (BOOL (WINAPI *)(CONST TCHAR *)) SetCurrentDirectoryA,
     (BOOL (WINAPI *)(CONST TCHAR *, DWORD)) SetFileAttributesA,
-    NULL,
-    NULL,
 };
 
 static TclWinProcs unicodeProcs = {
@@ -137,8 +115,6 @@ static TclWinProcs unicodeProcs = {
 	    WCHAR *, TCHAR **)) SearchPathW,
     (BOOL (WINAPI *)(CONST TCHAR *)) SetCurrentDirectoryW,
     (BOOL (WINAPI *)(CONST TCHAR *, DWORD)) SetFileAttributesW,
-    NULL,
-    NULL,
 };
 
 TclWinProcs *tclWinProcs;
@@ -151,6 +127,14 @@ static Tcl_Encoding tclWinTCharEncoding;
 BOOL APIENTRY		DllMain(HINSTANCE hInst, DWORD reason, 
 				LPVOID reserved);
 
+/* CYGNUS LOCAL */
+#ifdef __CYGWIN__0
+/* CYGWIN requires an impure pointer variable, which must be
+   explicitly initialized when the DLL starts up.  */
+struct _reent *_impure_ptr;
+extern struct _reent __declspec(dllimport) reent_data;
+#endif
+/* END CYGNUS LOCAL */
 
 #ifdef __WIN32__
 #ifndef STATIC_BUILD
@@ -206,6 +190,14 @@ DllMain(hInst, reason, reserved)
     DWORD reason;		/* Reason this function is being called. */
     LPVOID reserved;		/* Not used. */
 {
+    /* CYGNUS LOCAL */
+#ifdef __CYGWIN__0
+    /* Cygwin requires the impure data pointer to be initialized
+       when the DLL starts up.  */
+    _impure_ptr = &reent_data;
+#endif
+    /* END CYGNUS LOCAL */
+
     switch (reason) {
     case DLL_PROCESS_ATTACH:
 	TclWinInit(hInst);
@@ -281,14 +273,6 @@ TclWinInit(hInst)
     if (platformId == VER_PLATFORM_WIN32s) {
 	panic("Win32s is not a supported platform");	
     }
-
-#ifdef __CYGWIN__
-    {
-      char cwd_posix[MAX_PATH], cwd_win32[MAX_PATH];
-      cygwin_conv_to_full_win32_path (getcwd (cwd_posix, MAX_PATH), cwd_win32);
-      SetCurrentDirectory (cwd_win32);
-    }
-#endif
 
     tclWinProcs = &asciiProcs;
 }
@@ -370,100 +354,24 @@ TclWinNoBackslash(
 int
 TclpCheckStackSpace()
 {
-
-#ifdef HAVE_NO_SEH
-    EXCEPTION_REGISTRATION registration;
-#endif
-    int retval = 0;
-
     /*
-     * We can recurse only if there is at least TCL_WIN_STACK_THRESHOLD bytes
-     * of stack space left. alloca() is cheap on windows; basically it just
-     * subtracts from the stack pointer causing the OS to throw an exception
-     * if the stack pointer is set below the bottom of the stack.
+     * We can recurse only if there is at least TCL_WIN_STACK_THRESHOLD
+     * bytes of stack space left.  alloca() is cheap on windows; basically
+     * it just subtracts from the stack pointer causing the OS to throw an
+     * exception if the stack pointer is set below the bottom of the stack.
      */
 
-#ifdef HAVE_NO_SEH
-    __asm__ __volatile__ (
-
-	/*
-	 * Construct an EXCEPTION_REGISTRATION to protect the call to __alloca
-	 */
-
-	"leal	%[registration], %%edx"		"\n\t"
-	"movl	%%fs:0,		%%eax"		"\n\t"
-	"movl	%%eax,		0x0(%%edx)"	"\n\t" /* link */
-	"leal	1f,		%%eax"		"\n\t"
-	"movl	%%eax,		0x4(%%edx)"	"\n\t" /* handler */
-	"movl	%%ebp,		0x8(%%edx)"	"\n\t" /* ebp */
-	"movl	%%esp,		0xc(%%edx)"	"\n\t" /* esp */
-	"movl	%[error],	0x10(%%edx)"	"\n\t" /* status */
-
-	/*
-	 * Link the EXCEPTION_REGISTRATION on the chain
-	 */
-
-	"movl	%%edx,		%%fs:0"		"\n\t"
-
-	/*
-	 * Attempt a call to __alloca, to determine whether there's sufficient
-	 * memory to be had.
-	 */
-
-	"movl	%[size],	%%eax"		"\n\t"
-	"pushl	%%eax"				"\n\t"
-	"call	__alloca"			"\n\t"
-
-	/*
-	 * Come here on a normal exit. Recover the EXCEPTION_REGISTRATION and
-	 * store a TCL_OK status
-	 */
-
-	"movl	%%fs:0,		%%edx"		"\n\t"
-	"movl	%[ok],		%%eax"		"\n\t"
-	"movl	%%eax,		0x10(%%edx)"	"\n\t"
-	"jmp	2f"				"\n"
-
-	/*
-	 * Come here on an exception. Get the EXCEPTION_REGISTRATION that we
-	 * previously put on the chain.
-	 */
-
-	"1:"					"\t"
-	"movl	%%fs:0,		%%edx"		"\n\t"
-	"movl	0x8(%%edx),	%%edx"		"\n\t"
-
-	/*
-	 * Come here however we exited. Restore context from the
-	 * EXCEPTION_REGISTRATION in case the stack is unbalanced.
-	 */
-
-	"2:"					"\t"
-	"movl	0xc(%%edx),	%%esp"		"\n\t"
-	"movl	0x8(%%edx),	%%ebp"		"\n\t"
-	"movl	0x0(%%edx),	%%eax"		"\n\t"
-	"movl	%%eax,		%%fs:0"		"\n\t"
-
-	:
-	/* No outputs */
-	:
-	[registration]	"m"	(registration),
-	[ok]		"i"	(TCL_OK),
-	[error]		"i"	(TCL_ERROR),
-	[size]		"i"	(TCL_WIN_STACK_THRESHOLD)
-	:
-	"%eax", "%ebx", "%ecx", "%edx", "%esi", "%edi", "memory"
-	);
-    retval = (registration.status == TCL_OK);
-
-#else /* !HAVE_NO_SEH */
+#ifndef __GNUC__
     __try {
 	alloca(TCL_WIN_STACK_THRESHOLD);
-	retval = 1;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-#endif /* HAVE_NO_SEH */
+	return 1;
+    /* CYGNUS LOCAL */
+    } __except (1) {}
+#else
+    return alloca(TCL_WIN_STACK_THRESHOLD) != NULL;
+#endif
 
-    return retval;
+    return 0;
 }
 
 
@@ -499,10 +407,6 @@ TclWinGetPlatform()
  *	tclWinProcs structure to dispatch to either the wide-character
  *	or multi-byte versions of the operating system calls, depending
  *	on whether Unicode is the system encoding.
- *	
- *	As well as this, we can also try to load in some additional
- *	procs which may/may not be present depending on the current
- *	Windows version (e.g. Win95 will not have the procs below).
  *
  * Results:
  *	None.
@@ -523,35 +427,9 @@ TclWinSetInterfaces(
     if (wide) {
 	tclWinProcs = &unicodeProcs;
 	tclWinTCharEncoding = Tcl_GetEncoding(NULL, "unicode");
-	if (tclWinProcs->getFileAttributesExProc == NULL) {
-	    HINSTANCE hInstance = LoadLibraryA("kernel32");
-	    if (hInstance != NULL) {
-	        tclWinProcs->getFileAttributesExProc = 
-		  (BOOL (WINAPI *)(CONST TCHAR *, GET_FILEEX_INFO_LEVELS, 
-		  LPVOID)) GetProcAddress(hInstance, "GetFileAttributesExW");
-		tclWinProcs->createHardLinkProc = 
-		  (BOOL (WINAPI *)(CONST TCHAR *, CONST TCHAR*, 
-		  LPSECURITY_ATTRIBUTES)) GetProcAddress(hInstance, 
-		  "CreateHardLinkW");
-		FreeLibrary(hInstance);
-	    }
-	}
     } else {
 	tclWinProcs = &asciiProcs;
 	tclWinTCharEncoding = NULL;
-	if (tclWinProcs->getFileAttributesExProc == NULL) {
-	    HINSTANCE hInstance = LoadLibraryA("kernel32");
-	    if (hInstance != NULL) {
-		tclWinProcs->getFileAttributesExProc = 
-		  (BOOL (WINAPI *)(CONST TCHAR *, GET_FILEEX_INFO_LEVELS, 
-		  LPVOID)) GetProcAddress(hInstance, "GetFileAttributesExA");
-		tclWinProcs->createHardLinkProc = 
-		  (BOOL (WINAPI *)(CONST TCHAR *, CONST TCHAR*, 
-		  LPSECURITY_ATTRIBUTES)) GetProcAddress(hInstance, 
-		  "CreateHardLinkA");
-		FreeLibrary(hInstance);
-	    }
-	}
     }
 }
 
@@ -633,3 +511,6 @@ Tcl_WinTCharToUtf(string, len, dsPtr)
     return Tcl_ExternalToUtfDString(tclWinTCharEncoding, 
 	    (CONST char *) string, len, dsPtr);
 }
+
+
+
