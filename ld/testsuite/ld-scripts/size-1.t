@@ -1,10 +1,15 @@
 SECTIONS
 {
-  . = 0x1000 + SIZEOF_HEADERS;
-  .text ALIGN (0x20) : { *(.text) }
-  .data 0x2000 : {
-    *(.data)
+  .text : { *(.text) }
+  .data : { *(.data) }
+  .bss : { *(.bss) }
+  .tdata : { *(.tdata) }
+  .tbss : { *(.tbss) }
+  .map : {
     LONG (SIZEOF (.text))
     LONG (SIZEOF (.data))
+    LONG (SIZEOF (.bss))
+    LONG (SIZEOF (.tdata))
+    LONG (SIZEOF (.tbss))
   }
 }
