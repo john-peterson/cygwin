@@ -1,12 +1,12 @@
 /* Traditional frame unwind support, for GDB the GNU Debugger.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,44 +15,17 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef TRAD_FRAME_H
 #define TRAD_FRAME_H
 
-#include "frame.h"		/* For "struct frame_id".  */
-
 struct frame_info;
-struct trad_frame_cache;
+struct trad_frame;
 
-/* A simple, or traditional frame cache.
-
-   The entire cache is populated in a single pass and then generic
-   routines are used to extract the various cache values.  */
-
-struct trad_frame_cache *trad_frame_cache_zalloc (struct frame_info *);
-
-/* This frame's ID.  */
-void trad_frame_set_id (struct trad_frame_cache *this_trad_cache,
-			struct frame_id this_id);
-void trad_frame_get_id (struct trad_frame_cache *this_trad_cache,
-			struct frame_id *this_id);
-void trad_frame_set_this_base (struct trad_frame_cache *this_trad_cache,
-			       CORE_ADDR this_base);
-CORE_ADDR trad_frame_get_this_base (struct trad_frame_cache *this_trad_cache);
-
-void trad_frame_set_reg_realreg (struct trad_frame_cache *this_trad_cache,
-				 int regnum, int realreg);
-void trad_frame_set_reg_unknown (struct trad_frame_cache *this_trad_cache,
-				 int regnum, CORE_ADDR addr);
-void trad_frame_set_reg_addr (struct trad_frame_cache *this_trad_cache,
-			      int regnum, CORE_ADDR addr);
-void trad_frame_set_reg_value (struct trad_frame_cache *this_cache,
-			       int regnum, LONGEST val);
-
-struct value *trad_frame_get_register (struct trad_frame_cache *this_trad_cache,
-				       struct frame_info *this_frame,
-				       int regnum);
+#include "frame.h"	/* For frame_id.  */
 
 /* A traditional saved regs table, indexed by REGNUM, encoding where
    the value of REGNUM for the previous frame can be found in this
@@ -86,31 +59,55 @@ struct trad_frame_saved_reg
   int realreg;
 };
 
-/* Encode REGNUM value in the trad-frame.  */
-void trad_frame_set_value (struct trad_frame_saved_reg this_saved_regs[],
-			   int regnum, LONGEST val);
+struct trad_frame_cache
+{
+  struct frame_id this_id;
+  CORE_ADDR this_base;
+  struct trad_frame_saved_reg *prev_regs;
+};
 
-/* Mark REGNUM as unknown.  */
-void trad_frame_set_unknown (struct trad_frame_saved_reg this_saved_regs[],
+/* Encode REGNUM's value in the trad-frame.  */
+void trad_frame_set_value (struct trad_frame_cache *this_cache,
+			   int regnum, LONGEST val);
+void trad_frame_set_addr (struct trad_frame_cache *this_cache,
+			  int regnum, CORE_ADDR addr);
+void trad_frame_set_realreg (struct trad_frame_cache *this_cache,
+			     int regnum, int realreg);
+void trad_frame_set_unknown (struct trad_frame_cache *this_cache,
 			     int regnum);
+
+/* Set the offset of a register, and then update all offsets.  Useful
+   when the offset of a register is known before its absolute
+   address.  */
+void trad_frame_set_offset (struct trad_frame_cache *this_cache,
+			    int regnum, LONGEST addr);
+void trad_frame_add_addr (struct trad_frame_cache *this_cache,
+			  int regnum, CORE_ADDR addr);
 
 /* Convenience functions, return non-zero if the register has been
    encoded as specified.  */
-int trad_frame_value_p (struct trad_frame_saved_reg this_saved_regs[],
+int trad_frame_value_p (struct trad_frame_cache *this_cache,
 			int regnum);
-int trad_frame_addr_p (struct trad_frame_saved_reg this_saved_regs[],
+int trad_frame_addr_p (struct trad_frame_cache *this_cache,
 		       int regnum);
-int trad_frame_realreg_p (struct trad_frame_saved_reg this_saved_regs[],
+int trad_frame_realreg_p (struct trad_frame_cache *this_cache,
 			  int regnum);
 
+typedef void (trad_frame_init_ftype) (const struct trad_frame *self,
+				      struct frame_info *next_frame,
+				      struct trad_frame_cache *this_cache);
+typedef int (trad_frame_sniffer_ftype) (const struct trad_frame *self,
+					struct frame_info *next_frame);
 
-/* Return a freshly allocated (and initialized) trad_frame array.  */
-struct trad_frame_saved_reg *trad_frame_alloc_saved_regs (struct frame_info *);
+struct trad_frame
+{
+  enum frame_type type;
+  trad_frame_sniffer_ftype *sniffer;
+  trad_frame_init_ftype *init;
+  const struct trad_frame_data *trad_data;
+};
 
-/* Given the trad_frame info, return the location of the specified
-   register.  */
-struct value *trad_frame_get_prev_register (struct frame_info *this_frame,
-					    struct trad_frame_saved_reg this_saved_regs[],
-					    int regnum);
+void trad_frame_append (struct gdbarch *gdbarch,
+			const struct trad_frame *trad_frame);
 
 #endif
