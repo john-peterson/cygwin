@@ -37,9 +37,7 @@
 #include "lwp-pool.h"
 #include "lwp-ctrl.h"
 
-#include "diagnostics.h"
-
-int debug_lwp_pool = 0;
+static int debug_lwp_pool = 1;
 
 
 /* THE LIFETIME OF A TRACED LWP
@@ -71,7 +69,8 @@ int debug_lwp_pool = 0;
 
    - While a traced LWP is stopped, we can read and write its
      registers and memory.  We can also send it signals; they become
-     pending on the LWP, and will be reported by waitpid.
+     pending on the LWP, and are not delivered or accepted until it is
+     continued.
 
    - A stopped LWP can be set running again in one of two ways:
 
@@ -79,11 +78,8 @@ int debug_lwp_pool = 0;
 
      + by sending it a SIGCONT.
 
-     The ptrace requests all let you specify a signal to be delivered
-     to the process.  This is the only way signals (other than
-     SIGKILL) ever get actually delivered: every other signal just
-     gets reported to the debugger via waitpid when delivery is
-     attempted.
+     The ptrace requests all let you specify a signal to be delivered to
+     the process.
 
      Sending a SIGCONT clears any pending SIGSTOPs; PTRACE_CONT and
      PTRACE_SINGLESTEP don't have that side effect.
@@ -116,12 +112,12 @@ int debug_lwp_pool = 0;
    - A traced LWP goes back and forth from running to stopped, until
      eventually it goes from running to exited or killed.
 
-   - Running->stopped transitions are always attempted signal
-     deliveries, yielding WIFSTOPPED wait statuses.
+   - Running->stopped transitions are always signal deliveries, yielding
+     WIFSTOPPED wait statuses.
 
    - Stopping->running transitions are generally due to ptrace
-     requests by the debugger.  (The debugger could use kill to send
-     SIGCONT, but that's messy.)
+     requests by the debugger.  (The debugger could send signals, but
+     that's messy.)
 
    - Running->exited transitions are due to, duh, the LWP exiting.
 
@@ -205,6 +201,15 @@ int debug_lwp_pool = 0;
      This never applies to DEAD LWPs; the wait status that announces a
      LWP's death is always the last for that LWP.
 
+     There's nothing wrong with having STOPPED, un-INTERESTING, and
+     STOP PENDING LWP's, but it turns out that we can always just
+     continue the thread and wait immediately for it, making such a
+     combination unnecessary.
+
+     We could do something similar and eliminate the RUNNING, STOP
+     PENDING state, but that state turns out to be handy for error
+     checking.
+
    We could certainly represent these with independent bits or
    bitfields, but not all combinations are possible.  So instead, we
    assign each possible combination a distinct enum value, to make it
@@ -243,19 +248,11 @@ enum lwp_state {
      stop with a boring WIFSTOPPED SIGSTOP status, but may report an
      interesting status first.
 
-     It's always safe to wait for an LWP in this state, so we do that
-     as soon as possible; there shouldn't be any LWPs in this state
-     between calls to public lwp_pool functions.  This is an
+     It's always safe to wait for a thread in this state, so we do
+     that as soon as possible; there shouldn't be any threads in this
+     state between calls to public lwp_pool functions.  This is an
      internal-use state.  */
   lwp_state_running_stop_pending,
-
-  /* STOPPED, STOP PENDING.  This LWP is stopped, and has no
-     interesting status to report, but still has a boring status on
-     the way.  After we report the status for a STOPPED, STOP PENDING,
-     and INTERESTING LWP, this is the state it enters.
-
-     See the note below on why this state is not avoidable.  */
-  lwp_state_stopped_stop_pending,
 
   /* STOPPED, STOP PENDING, and INTERESTING.  This LWP has stopped with
      an interesting wait status.  We're also expecting a boring wait
@@ -265,39 +262,23 @@ enum lwp_state {
 };
 
 
-/* Why we need lwp_state_stopped_stop_pending:
+/* The thread_db death state.  See the descriptions of the
+   lwp_pool_thread_db_* functions in lwp-pool.h.  */
+enum death_state {
 
-   I originally thought we could avoid having this state at all by
-   simply always continuing STOPPED, STOP PENDING, INTERESTING LWPs
-   in lwp_pool_waitpid as soon as we reported their wait status, and
-   then waiting for them immediately, making them either STOPPED and
-   un-INTERESTING, or STOPPED, STOP PENDING, and INTERESTING again.
+  /* We've received no indication that this thread will exit.  */
+  death_state_running,
 
-   But the user has the right to call lwp_pool_continue_lwp on any LWP
-   they've just gotten a wait status for --- and this simplification
-   interferes with that.  First, note that you mustn't call
-   continue_lwp on an interesting LWP: you might get yet another
-   interesting wait status, and we don't want to queue up multiple
-   interesting wait statuses per LWP --- the job is complex enough
-   already.  Then, note that the proposed simplification means that
-   lwp_pool_waitpid could return a status for some LWP, and have that
-   LWP still be interesting.  If that happens, then you've got an LWP
-   the user has the right to continue, but that can't actually be
-   continued.
+  /* We've received a TD_DEATH event for this thread, but it hasn't
+     completed its event notification yet.  */
+  death_state_event_received,
 
-   I first tried to deal with this by having lwp_pool_continue_lwp
-   simply do nothing if the user continues an interesting LWP.  After
-   all, it's already in the interesting queue, so lwp_pool_waitpid
-   will report it, and the user will be none the wiser.  But that's
-   wrong: the user can specify a signal to deliver when they continue
-   the LWP, and the only way signals are ever delivered to traced LWPs
-   is via ptrace continue and single-step requests.  You can't use
-   kill: that *generates* a signal, it doesn't *deliver* it.  You'd
-   just get the signal back again via waitpid.  So if we don't
-   actually continue the LWP with the user's signal, we've lost our
-   only chance to deliver it.
-
-   Clear as mud, no doubt.  I did my best.  */
+  /* We've received a TD_DEATH event for this thread, and it has
+     completed its event notification; when we continue it next, we
+     will delete it from the hash table and forget about it
+     entirely.  */
+  death_state_delete_when_continued
+};
 
 
 struct lwp
@@ -308,28 +289,21 @@ struct lwp
   /* The state this LWP is in.  */
   enum lwp_state state;
 
+  /* Its thread_db death notification state.  */
+  enum death_state death_state;
+
   /* If STATE is one of the lwp_state_*_interesting states, then this
      LWP is on the interesting LWP queue, headed by interesting_queue.
 
      If STATE is lwp_state_running_stop_pending, then this LWP is on
      the stopping LWP queue, stopping_queue.  (Note that
-     stopping_queue is local to lwp_pool_stop_all; no LWP should be in
-     that state by the time that function returns.  */
+     stopping_queue is local to lwp_pool_stop_all; no thread should be
+     in that state by the time that function returns.  */
   struct lwp *prev, *next;
 
   /* If STATE is one of the lwp_state_*_interesting states, then
      STATUS is the interesting wait status.  */
   int status;
-
-  /* Indicates the stepping status.  We must be prepared to step the
-     given lwp upon continue since it's possible to get thread notification
-     signals prior to a step actually occuring.  Receipt of a SIGTRAP is
-     sufficient to clear this flag.  */
-  int do_step;
-
-  /* Indicates whether the lwp should be considered when continuing or
-     stepping.  */
-  int disabled;
 };
  
   
@@ -363,11 +337,6 @@ struct lwp
 static size_t hash_size, hash_population;
 static struct lwp **hash;
 
-/* We put the address of empty_lwp_slot into the hash table to
-   represent deleted entries.  We do this so that we will not
-   perturb the hash table while iterating through it.  */
-static struct lwp empty_lwp_slot;
-
 /* The minimum size for the hash table.  Small for testing.  */
 enum { minimum_hash_size = 8 };
 
@@ -398,7 +367,7 @@ hash_empty_slot (pid_t pid)
 
   /* Since hash_next_slot will eventually visit every slot, and we
      know the table isn't full, this loop will terminate.  */
-  while (hash[slot] && hash[slot] != &empty_lwp_slot)
+  while (hash[slot])
     slot = hash_next_slot (slot, hash_size);
 
   return slot;
@@ -447,7 +416,7 @@ resize_hash (void)
 
   /* Re-insert all the old lwp's in the new table.  */
   for (i = 0; i < hash_size; i++)
-    if (hash[i] && hash[i] != &empty_lwp_slot)
+    if (hash[i])
       {
 	struct lwp *l = hash[i];
 	int new_slot = hash_slot (l->pid, new_hash_size);
@@ -473,7 +442,7 @@ resize_hash (void)
 /* Find an existing hash table entry for LWP.  If there is none,
    create one in state lwp_state_uninitialized.  */
 static struct lwp *
-hash_find_1 (pid_t lwp, int create_p)
+hash_find (pid_t lwp)
 {
   int slot;
   struct lwp *l;
@@ -492,19 +461,14 @@ hash_find_1 (pid_t lwp, int create_p)
     if (hash[slot]->pid == lwp)
       return hash[slot];
 
-  if (!create_p)
-    return NULL;
-
   /* There is no entry for this lwp.  Create one.  */
   l = malloc (sizeof (*l));
   l->pid = lwp;
   l->state = lwp_state_uninitialized;
+  l->death_state = 0;
   l->next = l->prev = NULL;
   l->status = 42;
-  l->do_step = 0;
-  l->disabled = 0;
 
-  slot = hash_empty_slot (lwp);
   hash[slot] = l;
   hash_population++;
 
@@ -515,17 +479,6 @@ hash_find_1 (pid_t lwp, int create_p)
   return l;
 }
 
-static struct lwp *
-hash_find (pid_t lwp)
-{
-  return hash_find_1 (lwp, 1);
-}
-
-static struct lwp *
-hash_find_no_create (pid_t lwp)
-{
-  return hash_find_1 (lwp, 0);
-}
 
 /* Remove the LWP L from the pool.  This does not free L itself.  */
 static void
@@ -546,7 +499,6 @@ hash_delete (struct lwp *l)
   /* There should be only one 'struct lwp' with a given PID.  */
   assert (hash[slot] == l);
 
-#if 0
   /* Deleting from this kind of hash table is interesting, because of
      the way we handle collisions.
 
@@ -599,21 +551,6 @@ hash_delete (struct lwp *l)
 	hash[slot] = NULL;
 	hash[hash_empty_slot (refugee->pid)] = refugee;
       }
-#else
-  /* The problem with the above (disabled) code above is that
-     we may perturb the order of the entries when we rehash.  This
-     is a serious problem when we're attempting to iterate through
-     the hash table at the same time.
-
-     The approach take here is to simply place the address of
-     `empty_lwp_slot' into the deleted slot.  This slot will
-     be reclaimed either when the hash table is resized or when
-     it is encountered on insertion by traversing the collision
-     chain.  */
-
-  hash[slot] = &empty_lwp_slot;
-  hash_population--;
-#endif
 }
 
 
@@ -721,7 +658,7 @@ hash_find_known (pid_t lwp)
    this queue.  If an LWP's state is lwp_state_dead_interesting, the
    LWP is not in the hash table any more.  */
 static struct lwp interesting_queue
-= { -1, 0, &interesting_queue, &interesting_queue, 42 };
+= { -1, 0, 0, &interesting_queue, &interesting_queue, 42 };
 
 
 static const char *
@@ -783,10 +720,7 @@ wait_flags_str (int flags)
   if (flags)
     sprintf (buf + strlen (buf), "0x%x", (unsigned) flags);
 
-  if (buf[0] == '\0')
-    return "0";
-  else
-    return buf;
+  return buf;
 }
 
 
@@ -807,8 +741,6 @@ lwp_state_str (enum lwp_state state)
       return "dead_interesting";
     case lwp_state_running_stop_pending:
       return "running_stop_pending";
-    case lwp_state_stopped_stop_pending:
-      return "stopped_stop_pending";
     case lwp_state_stopped_stop_pending_interesting:
       return "stopped_stop_pending_interesting";
     default:
@@ -822,33 +754,16 @@ lwp_state_str (enum lwp_state state)
 
 
 static void
-debug_report_state_change (struct gdbserv *serv,
-                           pid_t lwp,
+debug_report_state_change (pid_t lwp,
 			   enum lwp_state old,
 			   enum lwp_state new)
 {
   if (debug_lwp_pool && old != new)
-    {
-      fprintf (stderr,
-	       "%32s -- %5d -> %s",
-	       lwp_state_str (old), (int) lwp, lwp_state_str (new));
-      if (new == lwp_state_stopped)
-	fprintf (stderr, "    (at %#lx)", debug_get_pc (serv, lwp));
-      fprintf (stderr, "\n");
-    }
+    fprintf (stderr,
+	     "%32s -- %5d -> %-32s\n",
+	     lwp_state_str (old), (int) lwp, lwp_state_str (new));
 }
 
-/* Remove (dead) LWP from the hash table and put it on the `interesting'
-   queue.  */
-static void
-mark_lwp_as_dead_but_interesting (struct lwp *l)
-{
-  hash_delete (l);
-  l->state = lwp_state_dead_interesting;
-  if (l->next)
-    queue_delete (l);
-  queue_enqueue (&interesting_queue, l);
-}
 
 /* Wait for a status from the LWP L (or any LWP, if L is NULL),
    passing FLAGS to waitpid, and record the resulting wait status in
@@ -860,7 +775,7 @@ mark_lwp_as_dead_but_interesting (struct lwp *l)
 
    If waitpid returns an error, print a message to stderr.  */
 static int
-wait_and_handle (struct gdbserv *serv, struct lwp *l, int flags)
+wait_and_handle (struct lwp *l, int flags)
 {
   int status;
   pid_t new_pid; 
@@ -921,7 +836,15 @@ wait_and_handle (struct gdbserv *serv, struct lwp *l, int flags)
   l->status = status;
 
   if (WIFEXITED (status) || WIFSIGNALED (status))
-    mark_lwp_as_dead_but_interesting (l);
+    {
+      /* Remove dead LWP's from the hash table, and put them in the
+	 interesting queue.  */
+      hash_delete (l);
+      l->state = lwp_state_dead_interesting;
+      if (l->next)
+	queue_delete (l);
+      queue_enqueue (&interesting_queue, l);
+    }
   else
     {
       int stopsig;
@@ -929,12 +852,6 @@ wait_and_handle (struct gdbserv *serv, struct lwp *l, int flags)
       assert (WIFSTOPPED (status));
       
       stopsig = WSTOPSIG (status);
-
-      if (stopsig == SIGTRAP)
-	{
-	  /* No longer stepping once a SIGTRAP is received.  */
-	  l->do_step = 0;
-	}
 
       switch (l->state)
 	{
@@ -975,7 +892,7 @@ wait_and_handle (struct gdbserv *serv, struct lwp *l, int flags)
 	}
     }
 
-  debug_report_state_change (serv, l->pid, old_state, l->state);
+  debug_report_state_change (l->pid, old_state, l->state);
 
   return 1;
 }
@@ -996,16 +913,20 @@ wait_and_handle (struct gdbserv *serv, struct lwp *l, int flags)
      up multiple statuses per LWP (which we'd rather not implement if
      we can avoid it).
 
-   So, this function takes an LWP in lwp_state_running_stop_pending,
-   and puts that LWP in either lwp_state_stopped (no stop pending) or
-   some INTERESTING state.  It's really just wait_and_handle, with
-   some error checking wrapped around it.  */
+   By always waiting immediately, we avoid the need for a state like
+   lwp_state_stopped_stop_pending.
+
+   So, this function takes a thread in lwp_state_running_stop_pending,
+   and puts that thread in either lwp_state_stopped (no stop pending)
+   or some INTERESTING state.  It's really just
+   wait_and_handle, with some error checking wrapped around
+   it.  */
 static int
-check_stop_pending (struct gdbserv *serv, struct lwp *l)
+check_stop_pending (struct lwp *l)
 {
   assert (l->state == lwp_state_running_stop_pending);
 
-  wait_and_handle (serv, l, __WALL);
+  wait_and_handle (l, __WALL);
 
   switch (l->state)
     {
@@ -1013,30 +934,23 @@ check_stop_pending (struct gdbserv *serv, struct lwp *l)
       return 0;
 
     case lwp_state_stopped_stop_pending_interesting:
+    case lwp_state_stopped_interesting:
     case lwp_state_dead_interesting:
       return 1;
 
-    case lwp_state_stopped_interesting:
-      /* This state shouldn't happen: since there was a pending stop,
-         a single waitpid on that LWP should have either gotten the
-         SIGSTOP, yielding 'lwp_state_stopped', or something interesting,
-         yielding 'lwp_state_stopped_stop_pending_interesting'.  */
     default:
       fprintf (stderr,
 	       "ERROR: checking lwp %d for pending stop yielded "
 	       "bad state %s\n",
 	       (int) l->pid, lwp_state_str (l->state));
-      hash_delete (l);
-      if (l->next)
-	queue_delete (l);
-      free (l);
-      return 0;
+      abort ();
+      break;
     }
 }
 
 
 pid_t
-lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
+lwp_pool_waitpid (pid_t pid, int *stat_loc, int options)
 {
   struct lwp *l;
   enum lwp_state old_state;
@@ -1057,7 +971,7 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
 	 the interesting queue.  */
       while (! queue_non_empty (&interesting_queue))
 	{
-	  int result = wait_and_handle (serv, NULL, options | __WALL);
+	  int result = wait_and_handle (NULL, options | __WALL);
 
 	  if (result <= 0)
 	    return result;
@@ -1078,7 +992,7 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
       while (l->state == lwp_state_running
 	     || l->state == lwp_state_running_stop_pending)
 	{
-	  int result = wait_and_handle (serv, l, options | __WALL);
+	  int result = wait_and_handle (l, options | __WALL);
 
 	  if (result <= 0)
 	    return result;
@@ -1100,7 +1014,6 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
     case lwp_state_uninitialized:
     case lwp_state_running:
     case lwp_state_stopped:
-    case lwp_state_stopped_stop_pending:
     case lwp_state_running_stop_pending:
       /* These are uninteresting states.  The waiting code above
 	 should never have chosen an LWP in one of these states.  */
@@ -1115,7 +1028,7 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
 	 is not interesting any more.  */
       l->state = lwp_state_stopped;
       queue_delete (l);
-      debug_report_state_change (serv, l->pid, old_state, l->state);
+      debug_report_state_change (l->pid, old_state, l->state);
       break;
 
     case lwp_state_dead_interesting:
@@ -1131,10 +1044,23 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
 
     case lwp_state_stopped_stop_pending_interesting:
       /* We're about to report this LWP's status, making it
-	 uninteresting, but it's still got a stop pending.  */
+	 uninteresting, but it's still got a stop pending.  So a state
+	 like lwp_state_stopped_stop_pending would seem reasonable.
+
+	 However, this is the only place such a state would occur.  By
+	 removing the LWP from the interesting queue and continuing
+	 it, we can go directly from
+	 lwp_state_stopped_stop_pending_interesting to
+	 lwp_state_running_stop_pending.
+
+	 Since SIGSTOP cannot be blocked, caught, or ignored, we know
+	 continuing the LWP won't actually allow it to run anywhere;
+	 it just allows it to report another status.  */
       queue_delete (l);
-      l->state = lwp_state_stopped_stop_pending;
-      debug_report_state_change (serv, l->pid, old_state, l->state);
+      continue_lwp (l->pid, 0);
+      l->state = lwp_state_running_stop_pending;
+      debug_report_state_change (l->pid, old_state, l->state);
+      check_stop_pending (l);
       break;
 
     default:
@@ -1149,11 +1075,120 @@ lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options)
 
 
 
+/* libthread_db-based death handling, for NPTL.  */
+
+
+static const char *
+death_state_str (enum death_state d)
+{
+  switch (d)
+    {
+    case death_state_running: return "death_state_running";
+    case death_state_event_received: return "death_state_event_received";
+    case death_state_delete_when_continued: 
+      return "death_state_delete_when_continued";
+    default:
+      {
+	static char buf[100];
+	sprintf (buf, "%d (unrecognized death_state)", d);
+	return buf;
+      }
+    }
+}
+
+
+static void
+debug_report_death_state_change (pid_t lwp,
+				 enum death_state old,
+				 enum death_state new)
+{
+  if (debug_lwp_pool && old != new)
+    fprintf (stderr,
+	     "%32s -- %5d -> %-32s\n",
+	     death_state_str (old), (int) lwp, death_state_str (new));
+}
+
+
+void
+lwp_pool_thread_db_death_event (pid_t pid)
+{
+  struct lwp *l = hash_find_known (pid);
+  enum death_state old_state = l->death_state;
+
+  if (debug_lwp_pool)
+    fprintf (stderr, "lwp_pool_thread_db_death_event (%d)\n",
+	     (int) pid);
+
+  if (l->state == lwp_state_uninitialized)
+    {
+      /* hash_find_known has already complained about this; we just
+	 clean up.  */
+      hash_delete (l);
+      free (l);
+      return;
+    }
+
+  if (l->death_state == death_state_running)
+    l->death_state = death_state_event_received;
+
+  debug_report_death_state_change (pid, old_state, l->death_state);
+}
+
+
+void
+lwp_pool_thread_db_death_notified (pid_t pid)
+{
+  struct lwp *l = hash_find_known (pid);
+  enum death_state old_state = l->death_state;
+
+  if (debug_lwp_pool)
+    fprintf (stderr, "lwp_pool_thread_db_death_notified (%d)\n",
+	     (int) pid);
+
+  if (l->state == lwp_state_uninitialized)
+    {
+      /* hash_find_known has already complained about this; we just
+	 clean up.  */
+      hash_delete (l);
+      free (l);
+      return;
+    }
+
+  if (l->death_state == death_state_event_received)
+    l->death_state = death_state_delete_when_continued;
+
+  debug_report_death_state_change (pid, old_state, l->death_state);
+}
+
+
+/* Subroutine for the 'continue' functions.  If the LWP L should be
+   forgotten once continued, delete it from the hash table, and free
+   its storage; we'll get no further wait status from it to indicate
+   that it's gone.  */
+static void
+check_for_exiting_nptl_lwp (struct lwp *l)
+{
+  if (l->state == lwp_state_running
+      && l->death_state == death_state_delete_when_continued)
+    {
+      if (debug_lwp_pool)
+	fprintf (stderr,
+		 "lwp_pool: %s: NPTL LWP %d will disappear silently\n",
+		 __func__, l->pid);
+      assert (! l->next && ! l->prev);
+      hash_delete (l);
+      free (l);
+    }
+}
+
+
+
+
 /* Stopping and continuing.  */
 
 
 void
-lwp_pool_stop_all (struct gdbserv *serv)
+lwp_pool_stop_all (void)
 {
   int i;
 
@@ -1172,7 +1207,7 @@ lwp_pool_stop_all (struct gdbserv *serv)
     {
       struct lwp *l = hash[i];
 
-      if (l && l != &empty_lwp_slot)
+      if (l)
 	{
 	  enum lwp_state old_state = l->state;
 
@@ -1188,28 +1223,12 @@ lwp_pool_stop_all (struct gdbserv *serv)
 	    case lwp_state_running:
 	      /* A 'no such process' error here indicates an NPTL thread
 		 that has exited.  */
-	      if (kill_lwp (l->pid, SIGSTOP) < 0)
-		{
-		  /* Thread has exited.  See if a status is available.  */
-		  if (wait_and_handle (serv, l, WNOHANG) < 0)
-		    {
-		      /* Nope, it's truly gone without providing a status.
-		         Put it on the interesting queue so that GDB is
-			 notified that it's gone.  */
-		      l->status = 0;
-		      mark_lwp_as_dead_but_interesting (l);
-		    }
-		}
-	      else
-		{
-		  l->state = lwp_state_running_stop_pending;
-		  queue_enqueue (&stopping_queue, l);
-		}
-
+	      kill_lwp (l->pid, SIGSTOP);
+	      l->state = lwp_state_running_stop_pending;
+	      queue_enqueue (&stopping_queue, l);
 	      break;
 
 	    case lwp_state_stopped:
-            case lwp_state_stopped_stop_pending:
 	    case lwp_state_stopped_interesting:
 	    case lwp_state_dead_interesting:
 	    case lwp_state_stopped_stop_pending_interesting:
@@ -1217,7 +1236,7 @@ lwp_pool_stop_all (struct gdbserv *serv)
 	      break;
 
 	    case lwp_state_running_stop_pending:
-	      /* LWPs should never be in this state between calls to
+	      /* Threads should never be in this state between calls to
 		 public lwp_pool functions.  */
 	      assert (l->state != lwp_state_running_stop_pending);
 	      break;
@@ -1229,24 +1248,24 @@ lwp_pool_stop_all (struct gdbserv *serv)
 	      break;
 	    }
 
-	  debug_report_state_change (serv, l->pid, old_state, l->state);
+	  debug_report_state_change (l->pid, old_state, l->state);
 	}
     }
 
   /* Gather wait results until the stopping queue is empty.  */
   while (queue_non_empty (&stopping_queue))
-    if (wait_and_handle (serv, NULL, __WALL) < 0)
+    if (wait_and_handle (NULL, __WALL) < 0)
       {
 	fprintf (stderr, "ERROR: lwp_pool_stop_all wait failed: %s",
 		 strerror (errno));
 	return;
       }
 
-  /* Now all LWPs should be stopped or dead.  But let's check.  */
+  /* Now all threads should be stopped or dead.  But let's check.  */
   for (i = 0; i < hash_size; i++)
     {
       struct lwp *l = hash[i];
-      if (l && l != &empty_lwp_slot)
+      if (l)
 	switch (l->state)
 	  {
 	  case lwp_state_uninitialized:
@@ -1261,7 +1280,6 @@ lwp_pool_stop_all (struct gdbserv *serv)
 	    break;
 
 	  case lwp_state_stopped:
-          case lwp_state_stopped_stop_pending:
 	  case lwp_state_stopped_interesting:
 	  case lwp_state_dead_interesting:
 	  case lwp_state_stopped_stop_pending_interesting:
@@ -1277,21 +1295,9 @@ lwp_pool_stop_all (struct gdbserv *serv)
     }
 }
 
-int
-continue_or_step_lwp (struct gdbserv *serv, struct lwp *l, int sig)
-{
-  int status;
-  if (l->do_step)
-    status = singlestep_lwp (serv, l->pid, sig);
-  else
-    status = continue_lwp (l->pid, sig);
-
-  return status;
-}
-
 
 void
-lwp_pool_continue_all (struct gdbserv *serv)
+lwp_pool_continue_all (void)
 {
   int i;
 
@@ -1303,7 +1309,7 @@ lwp_pool_continue_all (struct gdbserv *serv)
     {
       struct lwp *l = hash[i];
 
-      if (l && l != &empty_lwp_slot && !l->disabled)
+      if (l)
 	{
 	  enum lwp_state old_state = l->state;
 
@@ -1321,7 +1327,7 @@ lwp_pool_continue_all (struct gdbserv *serv)
 	      break;
 
 	    case lwp_state_stopped:
-	      if (continue_or_step_lwp (serv, l, 0) == 0)
+	      if (continue_lwp (l->pid, 0) == 0)
 		l->state = lwp_state_running;
 	      break;
 
@@ -1333,27 +1339,11 @@ lwp_pool_continue_all (struct gdbserv *serv)
 	      break;
 
 	    case lwp_state_running_stop_pending:
-	      /* There shouldn't be any LWPs in this state at this
+	      /* There shouldn't be any threads in this state at this
 		 point.  We should be calling check_stop_pending or
 		 wait_and_handle as soon as we create them.  */
 	      assert (l->state != lwp_state_running_stop_pending);
 	      break;
-
-            case lwp_state_stopped_stop_pending:
-              /* Continue it, and then wait for the pending stop.
-                 Since SIGSTOP cannot be blocked, caught, or ignored,
-                 the wait will always return immediately; the LWP
-                 won't run amok.  */
-              if (continue_lwp (l->pid, 0) == 0)
-                {
-                  l->state = lwp_state_running_stop_pending;
-                  if (check_stop_pending (serv, l) == 0)
-                    {
-                      if (continue_or_step_lwp (serv, l, 0) == 0)
-                        l->state = lwp_state_running;
-                    }
-                }
-              break;
 
 	    default:
 	      fprintf (stderr, "ERROR: lwp %d in bad state: %s\n", 
@@ -1362,100 +1352,37 @@ lwp_pool_continue_all (struct gdbserv *serv)
 	      break;
 	    }
 
-	  debug_report_state_change (serv, l->pid, old_state, l->state);
+	  debug_report_state_change (l->pid, old_state, l->state);
+
+	  check_for_exiting_nptl_lwp (l);
 	}
     }
 }
 
 
 int
-lwp_pool_continue_lwp (struct gdbserv *serv, pid_t pid, int signal)
+lwp_pool_continue_lwp (pid_t pid, int signal)
 {
   struct lwp *l = hash_find_known (pid);
   enum lwp_state old_state = l->state;
-  int result = 0;
+  int result;
 
   if (debug_lwp_pool)
     fprintf (stderr, "lwp_pool_continue_lwp (%d, %d)\n",
 	     (int) pid, signal);
 
-  switch (l->state)
-    {
-    case lwp_state_uninitialized:
-      assert (l->state != lwp_state_uninitialized);
-      break;
+  /* We should only be continuing stopped threads, with no interesting
+     status to report.  And we should have cleaned up any pending
+     stops as soon as we created them.  */
+  assert (l->state == lwp_state_stopped);
+  result = continue_lwp (l->pid, signal);
+  if (result == 0)
+    l->state = lwp_state_running;
+  debug_report_state_change (l->pid, old_state, l->state);
 
-      /* We should only be continuing LWPs that have reported a
-         WIFSTOPPED status via lwp_pool_waitpid and have not been
-         continued or singlestepped since.  */
-    case lwp_state_running:
-    case lwp_state_stopped_interesting:
-    case lwp_state_dead_interesting:
-    case lwp_state_running_stop_pending:
-      fprintf (stderr, "ERROR: continuing LWP %d in unwaited state: %s\n",
-               (int) l->pid, lwp_state_str (l->state));
-      break;
-
-    case lwp_state_stopped_stop_pending_interesting:
-      if (debug_lwp_pool)
-	fprintf (stderr, "WARNING: continuing LWP %d in unwaited state: %s\n",
-		 (int) l->pid, lwp_state_str (l->state));
-      break;
-
-    case lwp_state_stopped:
-      result = continue_or_step_lwp (serv, l, signal);
-      if (result == 0)
-        l->state = lwp_state_running;
-      break;
-
-    case lwp_state_stopped_stop_pending:
-      /* Continue it, delivering the given signal, and then wait for
-         the pending stop.  Since SIGSTOP cannot be blocked, caught,
-         or ignored, the wait will always return immediately; the LWP
-         won't run amok.
-
-         We must deliver the signal with the first continue_lwp call;
-         if check_stop_pending says the LWP has a new interesting
-         status, then we'll never reach the second continue_lwp, and
-         we'll lose our chance to deliver the signal.  */
-      if (continue_lwp (l->pid, signal) == 0)
-        {
-          l->state = lwp_state_running_stop_pending;
-          if (check_stop_pending (serv, l) == 0)
-            {
-              if (continue_or_step_lwp (serv, l, 0) == 0)
-                l->state = lwp_state_running;
-            }
-        }
-      break;
-
-    default:
-      fprintf (stderr, "ERROR: lwp %d in bad state: %s\n", 
-               (int) l->pid, lwp_state_str (l->state));
-      abort ();
-      break;
-    }
-
-  debug_report_state_change (serv, l->pid, old_state, l->state);
+  check_for_exiting_nptl_lwp (l);
 
   return result;
-}
-
-
-/* Clear the `do_step' flags for all LWPs in the hash table.  */
-
-static void
-clear_all_do_step_flags (void)
-{
-  int i;
-
-  for (i = 0; i < hash_size; i++)
-    {
-      struct lwp *l = hash[i];
-
-      if (l && l != &empty_lwp_slot)
-	l->do_step = 0;
-    }
 }
 
 
@@ -1464,78 +1391,20 @@ lwp_pool_singlestep_lwp (struct gdbserv *serv, pid_t lwp, int signal)
 {
   struct lwp *l = hash_find_known (lwp);
   enum lwp_state old_state = l->state;
-  int result = 0;
+  int result;
 
   if (debug_lwp_pool)
     fprintf (stderr, "lwp_pool_singlestep_lwp (%p, %d, %d)\n",
 	     serv, (int) lwp, signal);
 
-  /* Neither GDB nor the software singlestep code contained in RDA
-     expect more than one LWP to be stepped simultaneously.  Clear the
-     `do_step' flag in all LWPs.  The flag for the LWP that we're about
-     to step will be set later on.  */
-  clear_all_do_step_flags ();
-
-  switch (l->state)
-    {
-    case lwp_state_uninitialized:
-      assert (l->state != lwp_state_uninitialized);
-      break;
-
-      /* We should only be stepping LWPs that have reported a
-         WIFSTOPPED status via lwp_pool_waitpid and have not been
-         continued or singlestepped since.  */
-    case lwp_state_running:
-    case lwp_state_stopped_interesting:
-    case lwp_state_dead_interesting:
-    case lwp_state_running_stop_pending:
-    case lwp_state_stopped_stop_pending_interesting:
-      fprintf (stderr, "ERROR: stepping LWP %d in unwaited state: %s\n",
-               (int) l->pid, lwp_state_str (l->state));
-      break;
-
-    case lwp_state_stopped:
-      result = singlestep_lwp (serv, l->pid, signal);
-      if (result == 0)
-	{
-	  l->state = lwp_state_running;
-	  l->do_step = 1;
-	}
-      break;
-
-    case lwp_state_stopped_stop_pending:
-      /* Continue it, delivering the given signal, and then wait for
-         the pending stop.  Since SIGSTOP cannot be blocked, caught,
-         or ignored, the wait will always return immediately; the LWP
-         won't run amok.
-
-         We must deliver the signal with the continue_lwp call; if
-         check_stop_pending says the LWP has a new interesting status,
-         then we'll never reach the singlestep_lwp, and we'll lose our
-         chance to deliver the signal at all.  */
-      if (continue_lwp (l->pid, signal) == 0)
-        {
-          l->state = lwp_state_running_stop_pending;
-          if (check_stop_pending (serv, l) == 0)
-            {
-              if (singlestep_lwp (serv, l->pid, 0) == 0)
-		{
-		  l->state = lwp_state_running;
-		  l->do_step = 1;
-		}
-            }
-        }
-      break;
-
-    default:
-      fprintf (stderr, "ERROR: lwp %d in bad state: %s\n", 
-               (int) l->pid, lwp_state_str (l->state));
-      abort ();
-      break;
-    }
-
-  debug_report_state_change (serv, l->pid, old_state, l->state);
-
+  /* We should only be single-stepping known, stopped threads, with no
+     interesting status to report.  And we should have cleaned up any
+     pending stops as soon as we created them.  */
+  assert (l->state == lwp_state_stopped);
+  result = singlestep_lwp (serv, l->pid, signal);
+  if (result == 0)
+    l->state = lwp_state_running;
+  debug_report_state_change (l->pid, old_state, l->state);
   return result;
 }
 
@@ -1560,7 +1429,7 @@ lwp_pool_new_stopped (pid_t pid)
 
 
 int
-lwp_pool_attach (struct gdbserv *serv, pid_t pid)
+lwp_pool_attach (pid_t pid)
 {
   /* Are we already managing this LWP?  */
   struct lwp *l = hash_find (pid);
@@ -1590,48 +1459,10 @@ lwp_pool_attach (struct gdbserv *serv, pid_t pid)
 	fprintf (stderr, "lwp_pool: %s: new LWP %d state %s\n",
 		 __func__, l->pid, lwp_state_str (l->state));
 
-      check_stop_pending (serv, l);
+      check_stop_pending (l);
 
       return 1;
     }
      
   return 0;
-}
-
-void
-lwp_pool_disable_lwp (pid_t pid)
-{
-  struct lwp *l = hash_find_no_create (pid);
-
-  if (l)
-    {
-      l->disabled = 1;
-
-      if (debug_lwp_pool)
-	fprintf (stderr, "lwp_pool_disable_lwp: disabling %d\n", pid);
-    }
-  else
-    {
-      if (debug_lwp_pool)
-	fprintf (stderr, "lwp_pool_disable_lwp: pid %d not in pool\n", pid);
-    }
-}
-
-void
-lwp_pool_enable_lwp (pid_t pid)
-{
-  struct lwp *l = hash_find_no_create (pid);
-
-  if (l)
-    {
-      l->disabled = 0;
-
-      if (debug_lwp_pool)
-	fprintf (stderr, "lwp_pool_enable_lwp: disabling %d\n", pid);
-    }
-  else
-    {
-      if (debug_lwp_pool)
-	fprintf (stderr, "lwp_pool_enable_lwp: pid %d not in pool\n", pid);
-    }
 }

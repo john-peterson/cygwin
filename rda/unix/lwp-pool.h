@@ -70,7 +70,7 @@ void lwp_pool_new_stopped (pid_t pid);
    lwp_pool_waitpid will report it, but the wait status caused by the
    attach is handled internally, and will not be reported via
    lwp_pool_waitpid.  */
-int lwp_pool_attach (struct gdbserv *serv, pid_t pid);
+int lwp_pool_attach (pid_t pid);
 
 
 /* Do we need a function for detaching from each LWP in the pool
@@ -86,7 +86,7 @@ int lwp_pool_attach (struct gdbserv *serv, pid_t pid);
 
    The only bit that may be set in OPTIONS is WNOHANG.  We need to
    monitor the status of all LWP's, so we add __WALL as appropriate.  */
-pid_t lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int options);
+pid_t lwp_pool_waitpid (pid_t pid, int *stat_loc, int options);
 
 
 /* Stop all running LWP's in the pool.  This function does not return
@@ -94,30 +94,80 @@ pid_t lwp_pool_waitpid (struct gdbserv *serv, pid_t pid, int *stat_loc, int opti
 
    The wait status caused by the stop is handled internally, and will
    not be reported by lwp_pool_waitpid.  */
-void lwp_pool_stop_all (struct gdbserv *serv);
+void lwp_pool_stop_all (void);
 
 
 /* Continue all stopped, uninteresting LWP's in the pool.
    If some of the LWP's have been resumed with lwp_pool_singlestep or
    lwp_pool_continue, those will be left to continue to run.  */
-void lwp_pool_continue_all (struct gdbserv *serv);
+void lwp_pool_continue_all (void);
 
 
-/* Continue PID.  If SIGNAL is non-zero, continue it with signal
+/* Continue LWP.  If SIGNAL is non-zero, continue it with signal
    SIGNAL.  Return zero on success, -1 on failure.  */
-int lwp_pool_continue_lwp (struct gdbserv *serv, pid_t pid, int signal);
+int lwp_pool_continue_lwp (pid_t pid, int signal);
 
 
-/* Continue PID in SERV for one instruction, delivering SIGNAL if it
+/* Continue LWP in SERV for one instruction, delivering SIGNAL if it
    is non-zero, and stop with SIGSTOP if/when that instruction has
-   been completed.  */
-int lwp_pool_singlestep_lwp (struct gdbserv *serv, pid_t pid, int signal);
+   been completed.
 
-/* Disable the LWP denoted by PID.  */
-void lwp_pool_disable_lwp (pid_t pid);
+   The SERV argument is there because singlestep_lwp requires it.
+   Inconsistency, bleah.  */
+int lwp_pool_singlestep_lwp (struct gdbserv *serv, pid_t lwp, int signal);
 
-/* Enable the LWP denoted by PID.  */
-void lwp_pool_enable_lwp (pid_t pid);
+
+/* Under NPTL, LWP's simply disappear, without becoming a zombie or
+   producing any wait status.  At the kernel level, we have no way of
+   knowing that the LWP's PID is now free and may be reused ---
+   perhaps by an entirely different program!  So we need to use the
+   death events from libthread_db to help us keep our LWP table clean.
+
+   There are two steps:
+
+   - first, the thread sends RDA a libthread_db TD_DEATH event,
+     indicating that it is about to exit.
+
+   - then, the thread takes some pre-negotiated action (hitting a
+     breakpoint; making a system call) to notify libthread_db that
+     there are events queued it should attend to.
+
+   What's tricky here is that the queueing of the event and the
+   notification are not synchronized.  So RDA could easily receive
+   TD_DEATH events for several threads when the first of those threads
+   performs its notification.  We need to continue to manage the LWPs
+   of the remaining threads whose death is foretold (are there any
+   named Santiago?) until they have completed their notifications.
+
+   (And since RDA consumes all the events each time a notification is
+   received, we should be prepared to receive notifications even when
+   the queue is empty.  But that's not our problem here.)
+
+   So the LWP pool code has the following two entry points:
+
+   - The first indicates that a TD_DEATH event has been received for a
+     given thread, and that once it has completed its notification, we
+     should expect to hear nothing from it again.
+
+   - The second indicates that some LWP, whether marked for death or
+     not, has completed its notification.
+
+   So when a thread completes its notification, *and* that thread has
+   been marked for death, we should drop it from the LWP pool.  */
+
+
+/* Indicate that LWP's death has been foretold by a TD_DEATH message
+   from libthread_db.  Once we are told that it has completed its
+   event notification by a call to lwp_pool_nptl_death_notified, we
+   will forget about LWP entirely.  */
+void lwp_pool_thread_db_death_event (pid_t lwp);
+
+
+/* Indicate that LWP has completed its event notification.  LWP must
+   be currently stopped.  If LWP's death has been fortold by a call to
+   lwp_pool_nptl_death_event, when LWP is continued, we will remove it
+   from the LWP pool and forget about it entirely.  */
+void lwp_pool_thread_db_death_notified (pid_t lwp);
 
 
 #endif /* RDA_UNIX_LWP_POOL_H */
