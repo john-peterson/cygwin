@@ -1,181 +1,143 @@
-2013-01-31  Tristan Gingold  <gingold@adacore.com>
+2004-03-12  Michal Ludvig  <mludvig@suse.cz>
 
-	* gas/ppc/test1xcoff32.d: Updated.
-	* gas/all/fwdexp.d: Adjusted for AIX.
+	* gas/i386/padlock.s, gas/i386/padlock.d: New tests for 
+	VIA PadLock instructions.
+	* gas/i386/i386.exp: Run padlock tests.
 
-2013-01-30  Yufeng Zhang  <yufeng.zhang@arm.com>
+2004-02-17  Petko Manolov  <petkan@nucleusys.com>
 
-	* gas/aarch64/alias.s: Add new tests.
-	* gas/aarch64/alias.d: Update.
-	* gas/aarch64/no-aliases.d: Update.
+	* gas/arm/maverick.c: DSPSC to/from opcode fixes.
+	* gas/arm/maverick.d: Likewise.
+	* gas/arm/maverick.s: Likewise.
 
-2013-01-30  Markos Chandras  <markos.chandras@imgtec.com>
+2004-02-09  Kaz Kojima  <kkojima@rr.iij4u.or.jp>
 
-	* gas/metag/metacore21-invalid.s: Add invalid SWAP testcases.
-	* gas/metag/metacore21-invalid.l: Add expected output for invalid
-	SWAP testcases.
+	* gas/sh/basic.exp: Don't do sh4a tests for sh5.
 
-2013-01-28  Alexis Deruelle  <alexis.deruelle@gmail.com>
+2004-02-06  Nathan Sidwell  <nathan@codesourcery.com>
 
-	PR gas/15069
-	* gas/tic6x/insns-c674x-pcrel.s: Add test of BNOP instruction
-	within header based fetch packet.
-	* gas/tic6x/insns-c674x-pcrel.d: Update expected disassembly.
+	* gas/macros/test2.s: Lowercase it.
 
-2013-01-24  Nick Clifton  <nickc@redhat.com>
+2004-02-02  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
 
-	* gas/elf/warn-2.s: Skip for all V850 variants.
+	* gas/mips/div.d: Update to accomodate changes in macro
+	expansions.
+	gas/mips/elf-rel-got-n32.d: Likewise.
+	gas/mips/elf-rel-got-n64.d: Likewise.
+	gas/mips/elf-rel-xgot-n32.d: Likewise.
+	gas/mips/elf-rel-xgot-n64.d: Likewise.
+	gas/mips/la-svr4pic.d: Likewise.
+	gas/mips/la-xgot.d: Likewise.
+	gas/mips/lca-svr4pic.d: Likewise.
+	gas/mips/lca-xgot.d: Likewise.
 
-2013-01-17  Yufeng Zhang  <yufeng.zhang@arm.com>
+2004-02-01  Kaz Kojima  <kkojima@rr.iij4u.or.jp>
 
-	* gas/aarch64/diagnostic.l: Update.
-	* gas/aarch64/movi.s: Add tests.
-	* gas/aarch64/movi.d: Update.
-	* gas/aarch64/programmer-friendly.s: Add comment.
+	* gas/sh/sh4a-fp.d: Fix opcode name fssra to fsrra.
+	* gas/sh/sh4a-fp.s: Likewise.
+	* gas/sh/err-sh4a-fp.s: Likewise.
 
-2013-01-16  H.J. Lu  <hongjiu.lu@intel.com>
+2004-01-24  Chris Demetriou  <cgd@broadcom.com>
 
-	* gas/i386/i386.exp: Run size-1, size-2, size-3, size-4,
-	x86-64-size-1, x86-64-size-2, x86-64-size-3, x86-64-size-4,
-	x86-64-size-5 and x86-64-size-inval-1.
+	* gas/mips/relax-swap1.s: Add extra space at end, so the
+	disassembly will consistently have "..." at its end.
+	* gas/mips/relax-swap2.s: Likewise.
+	* gas/mips/relax-swap1-mips2.d: Expect "..." at end of disassembly.
 
-	* gas/i386/size-1.d: New file.
-	* gas/i386/size-1.s: Likewise.
-	* gas/i386/size-2.d: Likewise.
-	* gas/i386/size-2.s: Likewise.
-	* gas/i386/size-3.d: Likewise.
-	* gas/i386/size-3.s: Likewise.
-	* gas/i386/size-4.d: Likewise.
-	* gas/i386/size-4.s: Likewise.
-	* gas/i386/x86-64-size-1.d: Likewise.
-	* gas/i386/x86-64-size-2.d: Likewise.
-	* gas/i386/x86-64-size-3.d: Likewise.
-	* gas/i386/x86-64-size-4.d: Likewise.
-	* gas/i386/x86-64-size-5.d: Likewise.
-	* gas/i386/x86-64-size-5.s: Likewise.
-	* gas/i386/x86-64-size-inval-1.l: Likewise.
-	* gas/i386/x86-64-size-inval-1.s: Likewise.
-	* gas/i386/ilp32/x86-64-size-1.d: Likewise.
-	* gas/i386/ilp32/x86-64-size-2.d: Likewise.
-	* gas/i386/ilp32/x86-64-size-3.d: Likewise.
-	* gas/i386/ilp32/x86-64-size-4.d: Likewise.
-	* gas/i386/ilp32/x86-64-size-5.d: Likewise.
+2004-01-23  Daniel Jacobowitz  <drow@mvista.com>
 
-2013-01-16  Alan Modra  <amodra@gmail.com>
+	* gas/arm/arm.exp: Add "undefined" test.
+	* gas/arm/undefined.s, gas/arm/undefined.l: New files.
 
-	* gas/ppc/htm.d: Ignore padding at end of section.
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
 
-2013-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+	* gas/mips/macro-warn-[1234].[sdl]: New tests.
+	* gas/mips/macro-warn-[12]-n32.[dl]: New tests.
+	* gas/mips/mips.exp: Run them.
 
-	PR gas/15019
-	* gas/i386/reloc32.s: Add tests for "xtrn@got -/+ 4".
-	* gas/i386/reloc64.s: Likewise.
-	* gas/i386/ilp32/reloc64.s: Likewise.
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
 
-	* gas/i386/reloc32.d: Updated.
-	* gas/i386/reloc64.d: Likewise.
-	* gas/i386/ilp32/reloc64.d: Likewise.
+	* gas/mips/elf-rel19.[sd]: New test.
+	* gas/mips/mips.exp: Run it.
 
-2013-01-15  Nick Clifton  <nickc@redhat.com>
+2004-01-11 Tom Rix   <tcrix@worldnet.att.net>
 
-	* gas/v850/basic.exp: Allow for variations in reloc names.
-	* gas/v850/split-lo16.d: Likewise.
+	* gas/m68hc11/movb.s: Add m68hc12 movb and movw dump test.
+	* gas/m68hc11/movb.d: Likewise.
+	* gas/m68hc11/m68hc11.exp: Likewise.  Add more movb failure tests.
 
-	* gas/v850/v850e1.s: Add more tests of the PREPARE insn.
-	* gas/v850/v850e1.d: Update expected disassembly.
+2004-01-19  Alan Modra  <amodra@bigpond.net.au>
 
-2013-01-14  Alan Modra  <amodra@gmail.com>
+	* gas/i386/katmai.d: Adjust for changed sib printing.
+	* gas/i386/prescott.d: Likewise.
+	* gas/i386/sse2.d: Likewise.
+	* gas/i386/ssemmx2.d: Likewise.
 
-	* gas/v850/basic.exp (reloc part 1): Pass -mgcc-abi to gas.
-	* gas/v850/split-lo16.d: Likewise.
+2004-01-16  Alexandre Oliva  <aoliva@redhat.com>
 
-2013-01-14  Will Newton <will.newton@imgtec.com>
+	* gas/mn10300/mov5.s: New.
+	* gas/mn10300/basic.exp (do_mov5): New.
 
-	* gas/metag/metadsp21.d: Fix expected MMOV disassembly.
+2004-01-14  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
 
-2013-01-14  Alan Modra  <amodra@gmail.com>
+	* gas/mips/relax-swap1-mips1.d: New test for branch relaxation
+	with swapping for MIPS1.
+	* gas/mips/relax-swap1-mips2.d: New test for branch relaxation
+	with swapping for MIPS2.
+	* gas/mips/relax-swap1.l: Stderr output for the new tests.
+	* gas/mips/relax-swap1.s: Source for the new tests.
+	* gas/mips/relax-swap2.d: New test for branch likely relaxation
+	with swapping.
+	* gas/mips/relax-swap2.l: Stderr output for the new test.
+	* gas/mips/relax-swap2.s: Source for the new test.
+	* gas/mips/mips.exp: Run the new tests.
 
-	* gas/ppc/htm.s: Use .text rather than .section ".text".
-	* gas/ppc/power8.s: Likewise.
-	* gas/ppc/htm.d: Don't match file format.
-	* gas/ppc/power8.d: Likewise.
+2004-01-13  Ian Lance Taylor  <ian@wasabisystems.com>
 
-2013-01-10  Peter Bergner <bergner@vnet.ibm.com>
+	* gas/mips/mips16-64.d: New test.
+	* gas/mips/mips.exp: Run it.
 
-	* gas/ppc/htm.d: New test.
-	* gas/ppc/htm.s: Likewise.
-	* gas/ppc/power8.d: Likewise.
-	* gas/ppc/power8.s: Likewise.
-	* gas/ppc/ppc.exp: Run them.
+2004-01-12  Richard Sandiford  <rsandifo@redhat.com>
 
-2013-01-10  Will Newton <will.newton@imgtec.com>
+	* gas/mips/elf-rel18.[sd]: New test.
+	* gas/mips/mips.exp: Run it.
 
-	* gas/metag/labelarithmetic.d: New file.
-	* gas/metag/labelarithmetic.s: New file.
-	* gas/metag/metacore12.d: New file.
-	* gas/metag/metacore12.s: New file.
-	* gas/metag/metacore21-invalid.l: New file.
-	* gas/metag/metacore21-invalid.s: New file.
-	* gas/metag/metacore21.d: New file.
-	* gas/metag/metacore21.s: New file.
-	* gas/metag/metacore21ext.d: New file.
-	* gas/metag/metacore21ext.s: New file.
-	* gas/metag/metadsp21-invalid.l: New file.
-	* gas/metag/metadsp21-invalid.s: New file.
-	* gas/metag/metadsp21.d: New file.
-	* gas/metag/metadsp21.s: New file.
-	* gas/metag/metadsp21ext.d: New file.
-	* gas/metag/metadsp21ext.s: New file.
-	* gas/metag/metafpu21.d: New file.
-	* gas/metag/metafpu21.s: New file.
-	* gas/metag/metafpu21ext.d: New file.
-	* gas/metag/metafpu21ext.s: New file.
-	* gas/metag/metag.exp: New file.
-	* gas/metag/tls.d: New file.
-	* gas/metag/tls.s: New file.
+2004-01-09  Paul Brook  <paul@codesourcery.com>
 
-2013-01-08  Yufeng Zhang  <yufeng.zhang@arm.com>
+	* gas/arm/vfp2.s, gas/arm/vfp2.d: New test.
+	* gas/arm/arm.exp: Add them.
 
-	* gas/aarch64/diagnostic.s: Add test.
-	* gas/aarch64/diagnostic.l: Update.
+2004-01-08  Ian Lance Taylor  <ian@wasabisystems.com>
 
-2013-01-07  Nick Clifton  <nickc@redhat.com>
+	* gas/mips/ldstla-n64.d: Pass -64 to assembler, not -n64.
+	* gas/mips/ldstla-n64-shared.d: Likewise.
 
-	PR gas/14887
-	* gas/arm/neon-ldst-es.s: Add more whitespace.
+2004-01-07  Nick Clifton  <nickc@redhat.com>
 
-2013-01-04  Juergen Urban <JuergenUrban@gmx.de>
+	* gas/cris/rd-dw2-1.d: Expect a pointer size from readelf.
 
-	* gas/mips/r5900-full.s: New test.
-	* gas/mips/r5900-full.d: Expected disassembly.
-	* gas/mips/r5900.s: New test.
-	* gas/mips/r5900.d: Expected disassembly.
-	* gas/mips/mips.exp: Run new tests.
+2004-01-06  Alexandre Oliva  <aoliva@redhat.com>
 
-2013-01-04  Yufeng Zhang  <yufeng.zhang@arm.com>
+	2003-11-05  Alexandre Oliva  <aoliva@redhat.com>
+	* lib/gas-defs.exp (is_elf_format): Match frv-uclinux.
+	2003-09-18  Alexandre Oliva  <aoliva@redhat.com>
+	* gas/frv/fdpic.s, gas/frv/fdpic.d: Renamed from ucpic*.
+	2003-09-15  Alexandre Oliva  <aoliva@redhat.com>
+	* gas/frv/ucpic.s, gas/frv/ucpic.d: Use gr15 as PIC register.  Use
+	gprel12 for rodata symbol and gotoff12 for sdata symbol.
+	2003-08-08  Alexandre Oliva  <aoliva@redhat.com>
+	* gas/frv/ucpic.d: Test gotoff and gotofffuncdesc.
+	2003-08-04  Alexandre Oliva  <aoliva@redhat.com>
+	* gas/frv/ucpic.d, gas/frv/ucpic.s: New.
+	* gas/frv/allinsns.exp: Run it.
 
-	* gas/aarch64/int-insns.d: Update.
-	* gas/aarch64/mov.d: Update.
-	* gas/aarch64/reloc-insn.d: Update.
+2004-01-02  Albert Bartoszko  <albar@nt.kegel.com.pl>
 
-2013-01-04  Yufeng Zhang  <yufeng.zhang@arm.com>
+	* gas/msp430/opcode.s: Add test for an 'add' instruction which
+	looks similar to an 'rla' instruction.
 
-	* gas/aarch64/system.d: Update.
-
-2013-01-02  Nick Clifton  <nickc@redhat.com>
-
-	PR gas/14987
-	* gas/arm/neon-ldst-es.s: Add whitespace test.
-	* gas/arm/neon-ldst-es.d: Update expected disassembly.
-
-For older changes see ChangeLog-2012
+For older changes see ChangeLog-9303
 
-Copyright (C) 2013 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
 mode: change-log
 left-margin: 8
