@@ -1,7 +1,6 @@
-/* Native-dependent code for NetBSD/sparc.
+/* Native-dependent definitions for NetBSD/sparc a.out.
 
-   Copyright 2002, 2003 Free Software Foundation, Inc.
-   Contributed by Wasabi Systems, Inc.
+   Copyright 1999, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,16 +19,12 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#include "defs.h"
+#ifndef NM_NBSDAOUT_H
+#define NM_NBSDAOUT_H
 
-#include "sparc-tdep.h"
-#include "sparc-nat.h"
+#include "sparc/nm-nbsd.h"
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_sparcnbsd_nat (void);
+/* Get generic NetBSD a.out native definitions.  */
+#include "config/nm-nbsdaout.h"
 
-void
-_initialize_sparcnbsd_nat (void)
-{
-  sparc_gregset = &sparc32nbsd_gregset;
-}
+#endif /* nm-nbsdaout.h */
