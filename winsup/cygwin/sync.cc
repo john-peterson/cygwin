@@ -4,8 +4,9 @@
    which is intended to operate similarly to a mutex but attempts to
    avoid making expensive calls to the kernel.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2008, 2009, 2010, 2011, 2012
-   Red Hat, Inc.
+   Copyright 2000, 2001 Red Hat, Inc.
+
+   Written by Christopher Faylor <cgf@cygnus.com>
 
 This file is part of Cygwin.
 
@@ -14,38 +15,33 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
+#include <stdlib.h>
+#include <time.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <stdlib.h>
 #include "sync.h"
-#include "thread.h"
-#include "cygtls.h"
+#include "security.h"
+
+muto NO_COPY muto_start;
 
 #undef WaitForSingleObject
-
-muto NO_COPY lock_process::locker;
-
-void
-muto::grab ()
-{
-  tls = &_my_tls;
-}
 
 /* Constructor */
 muto *
 muto::init (const char *s)
 {
-  char *already_exists = (char *) InterlockedExchangePointer (&name, s);
-  if (already_exists)
-    while (!bruteforce)
-      yield ();
-  else
+  waiters = -1;
+  /* Create event which is used in the fallback case when blocking is necessary */
+  if (!(bruteforce = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL)))
     {
-      waiters = -1;
-      /* Create event which is used in the fallback case when blocking is necessary */
-      bruteforce = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
-      if (!bruteforce)
-	  api_fatal ("couldn't allocate muto '%s', %E", s);
+      DWORD oerr = GetLastError ();
+      SetLastError (oerr);
+      return NULL;
     }
-
+  name = s;
+  next = muto_start.next;
+  muto_start.next = this;
   return this;
 }
 
@@ -74,45 +70,51 @@ muto::~muto ()
 int
 muto::acquire (DWORD ms)
 {
-  void *this_tls = &_my_tls;
+  DWORD this_tid = GetCurrentThreadId ();
 
-  if (tls != this_tls)
+  if (tid != this_tid)
     {
       /* Increment the waiters part of the class.  Need to do this first to
 	 avoid potential races. */
-      LONG was_waiting = ms ? InterlockedIncrement (&waiters) : 0;
+      LONG was_waiting = InterlockedIncrement (&waiters);
 
-      while (was_waiting || InterlockedExchange (&sync, 1) != 0)
-	switch (WaitForSingleObject (bruteforce, ms))
-	    {
-	    case WAIT_OBJECT_0:
-	      was_waiting = 0;
-	      break;
-	    default:
-	      return 0;	/* failed. */
-	    }
+      /* This is deceptively simple.  Basically, it allows multiple attempts to
+	 lock the same muto to succeed without attempting to manipulate sync.
+	 If the muto is already locked then this thread will wait for ms until
+	 it is signalled by muto::release.  Then it will attempt to grab the
+	 sync field.  If it succeeds, then this thread owns the muto.
 
-      /* Have to do it this way to avoid a race */
-      if (!ms)
-	InterlockedIncrement (&waiters);
-
-      tls = this_tls;	/* register this thread. */
+	 There is a pathological condition where a thread times out waiting for
+	 bruteforce but the release code triggers the bruteforce event.  In this
+	 case, it is possible for a thread which is going to wait for bruteforce
+	 to wake up immediately.  It will then attempt to grab sync but will fail
+	 and go back to waiting.  */
+      if (tid != this_tid && (was_waiting || InterlockedExchange (&sync, 1) != 0))
+	{
+	  switch (WaitForSingleObject (bruteforce, ms))
+	      {
+	      case WAIT_OBJECT_0:
+		goto gotit;
+		break;
+	      default:
+		InterlockedDecrement (&waiters);
+		return 0;	/* failed. */
+	      }
+	}
     }
 
+gotit:
+  tid = this_tid;	/* register this thread. */
   return ++visits;	/* Increment visit count. */
-}
-
-bool
-muto::acquired ()
-{
-  return tls == &_my_tls;
 }
 
 /* Return the muto lock.  Needs to be called once per every acquire. */
 int
-muto::release (_cygtls *this_tls)
+muto::release ()
 {
-  if (tls != this_tls || !visits)
+  DWORD this_tid = GetCurrentThreadId ();
+
+  if (tid != this_tid || !visits)
     {
       SetLastError (ERROR_NOT_OWNER);	/* Didn't have the lock. */
       return 0;	/* failed. */
@@ -121,24 +123,27 @@ muto::release (_cygtls *this_tls)
   /* FIXME: Need to check that other thread has not exited, too. */
   if (!--visits)
     {
-      tls = 0;		/* We were the last unlocker. */
-      InterlockedExchange (&sync, 0); /* Reset trigger. */
+      tid = 0;		/* We were the last unlocker. */
+      (void) InterlockedExchange (&sync, 0); /* Reset trigger. */
       /* This thread had incremented waiters but had never decremented it.
 	 Decrement it now.  If it is >= 0 then there are possibly other
-	 threads waiting for the lock, so trigger bruteforce.  */
+	 threads waiting for the lock, so trigger bruteforce. */
       if (InterlockedDecrement (&waiters) >= 0)
-	SetEvent (bruteforce); /* Wake up one of the waiting threads */
-      else if (*name == '!')
-	{
-	  CloseHandle (bruteforce);	/* If *name == '!' and there are no
-					   other waiters, then this is the
-					   last time this muto will ever be
-					   used, so close the handle. */
-#ifdef DEBUGGING
-	  bruteforce = NULL;
-#endif
-	}
+	(void) SetEvent (bruteforce); /* Wake up one of the waiting threads */
     }
 
   return 1;	/* success. */
+}
+
+/* Call only when we're exiting.  This is not thread safe. */
+void
+muto::reset ()
+{
+  visits = sync = tid = 0;
+  InterlockedExchange (&waiters, -1);
+  if (bruteforce)
+    {
+      CloseHandle (bruteforce);
+      bruteforce = CreateEvent (&sec_none_nih, FALSE, FALSE, name);
+    }
 }

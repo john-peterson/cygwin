@@ -1,7 +1,6 @@
 /* fhandler_termios.cc
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 1999, 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -11,179 +10,138 @@ details. */
 
 #include "winsup.h"
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include <ctype.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "security.h"
 #include "fhandler.h"
+#include "sync.h"
 #include "sigproc.h"
 #include "pinfo.h"
 #include "tty.h"
-#include "cygtls.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "child_info.h"
-#include "ntdll.h"
 
 /* Common functions shared by tty/console */
 
 void
-fhandler_termios::tcinit (bool is_pty_master)
+fhandler_termios::tcinit (tty_min *this_tc, int force)
 {
   /* Initial termios values */
 
-  if (is_pty_master || !tc ()->initialized ())
+  tc = this_tc;
+
+  if (force || !TTYISSETF (INITIALIZED))
     {
-      tc ()->ti.c_iflag = BRKINT | ICRNL | IXON;
-      tc ()->ti.c_oflag = OPOST | ONLCR;
-      tc ()->ti.c_cflag = B38400 | CS8 | CREAD;
-      tc ()->ti.c_lflag = ISIG | ICANON | ECHO | IEXTEN;
+      tc->ti.c_iflag = BRKINT | ICRNL | IXON;
+      tc->ti.c_oflag = OPOST | ONLCR;
+      tc->ti.c_cflag = B38400 | CS8 | CREAD;
+      tc->ti.c_lflag = ISIG | ICANON | ECHO | IEXTEN;
 
-      tc ()->ti.c_cc[VDISCARD]	= CFLUSH;
-      tc ()->ti.c_cc[VEOL]		= CEOL;
-      tc ()->ti.c_cc[VEOL2]	= CEOL2;
-      tc ()->ti.c_cc[VEOF]		= CEOF;
-      tc ()->ti.c_cc[VERASE]	= CERASE;
-      tc ()->ti.c_cc[VINTR]	= CINTR;
-      tc ()->ti.c_cc[VKILL]	= CKILL;
-      tc ()->ti.c_cc[VLNEXT]	= CLNEXT;
-      tc ()->ti.c_cc[VMIN]		= 1;
-      tc ()->ti.c_cc[VQUIT]	= CQUIT;
-      tc ()->ti.c_cc[VREPRINT]	= CRPRNT;
-      tc ()->ti.c_cc[VSTART]	= CSTART;
-      tc ()->ti.c_cc[VSTOP]	= CSTOP;
-      tc ()->ti.c_cc[VSUSP]	= CSUSP;
-      tc ()->ti.c_cc[VSWTC]	= CSWTCH;
-      tc ()->ti.c_cc[VTIME]	= 0;
-      tc ()->ti.c_cc[VWERASE]	= CWERASE;
+      tc->ti.c_cc[VDISCARD]	= CFLUSH;
+      tc->ti.c_cc[VEOL]		= CEOL;
+      tc->ti.c_cc[VEOL2]	= CEOL2;
+      tc->ti.c_cc[VEOF]		= CEOF;
+      tc->ti.c_cc[VERASE]	= CERASE;
+      tc->ti.c_cc[VINTR]	= CINTR;
+      tc->ti.c_cc[VKILL]	= CKILL;
+      tc->ti.c_cc[VLNEXT]	= CLNEXT;
+      tc->ti.c_cc[VMIN]		= 1;
+      tc->ti.c_cc[VQUIT]	= CQUIT;
+      tc->ti.c_cc[VREPRINT]	= CRPRNT;
+      tc->ti.c_cc[VSTART]	= CSTART;
+      tc->ti.c_cc[VSTOP]	= CSTOP;
+      tc->ti.c_cc[VSUSP]	= CSUSP;
+      tc->ti.c_cc[VSWTC]	= CSWTCH;
+      tc->ti.c_cc[VTIME]	= 0;
+      tc->ti.c_cc[VWERASE]	= CWERASE;
 
-      tc ()->ti.c_ispeed = tc ()->ti.c_ospeed = B38400;
-      tc ()->pgid = is_pty_master ? 0 : myself->pgid;
-      tc ()->initialized (true);
+      tc->ti.c_ispeed = tc->ti.c_ospeed = B38400;
+      tc->pgid = myself->pgid;
+      TTYSETF (INITIALIZED);
     }
 }
 
 int
 fhandler_termios::tcsetpgrp (const pid_t pgid)
 {
-  termios_printf ("%s, pgid %d, sid %d, tsid %d", tc ()->ttyname (), pgid,
-		    myself->sid, tc ()->getsid ());
-  if (myself->sid != tc ()->getsid ())
+  termios_printf ("tty %d pgid %d, sid %d, tsid %d", tc->ntty, pgid,
+		    myself->sid, tc->getsid ());
+  if (myself->sid != tc->getsid ())
     {
       set_errno (EPERM);
       return -1;
     }
-  int res;
-  while (1)
-    {
-      res = bg_check (-SIGTTOU);
-
-      switch (res)
-	{
-	case bg_ok:
-	  tc ()->setpgid (pgid);
-	  if (tc ()->is_console && (strace.active () || !being_debugged ()))
-	    tc ()->kill_pgrp (__SIGSETPGRP);
-	  res = 0;
-	  break;
-	case bg_signalled:
-	  if (_my_tls.call_signal_handler ())
-	    continue;
-	  set_errno (EINTR);
-	  /* fall through intentionally */
-	default:
-	  res = -1;
-	  break;
-	}
-      break;
-    }
-  return res;
+  tc->setpgid (pgid);
+  return 0;
 }
 
 int
 fhandler_termios::tcgetpgrp ()
 {
-  if (myself->ctty > 0 && myself->ctty == tc ()->ntty)
-    return tc ()->pgid;
-  set_errno (ENOTTY);
-  return -1;
-}
-
-int
-fhandler_pty_master::tcgetpgrp ()
-{
-  return tc ()->pgid;
-}
-
-static inline bool
-is_flush_sig (int sig)
-{
-  return sig == SIGINT || sig == SIGQUIT || sig == SIGTSTP;
+  return tc->pgid;
 }
 
 void
 tty_min::kill_pgrp (int sig)
 {
-  bool killself = false;
-  if (is_flush_sig (sig) && cygheap->ctty)
-    cygheap->ctty->sigflush ();
-  winpids pids ((DWORD) PID_MAP_RW);
-  siginfo_t si = {0};
-  si.si_signo = sig;
-  si.si_code = SI_KERNEL;
-
+  int killself = 0;
+  winpids pids;
   for (unsigned i = 0; i < pids.npids; i++)
     {
       _pinfo *p = pids[i];
-      if (!p->exists () || p->ctty != ntty || p->pgid != pgid)
+      if (!proc_exists (p) || p->ctty != ntty || p->pgid != pgid)
 	continue;
       if (p == myself)
-	killself = sig != __SIGSETPGRP;
+	killself++;
       else
-	sig_send (p, si);
+	(void) sig_send (p, sig);
     }
   if (killself)
-    sig_send (myself, si);
+    sig_send (myself, sig);
 }
-
-int
-tty_min::is_orphaned_process_group (int pgid)
+       
+void
+tty_min::set_ctty (int ttynum, int flags)
 {
-  /* An orphaned process group is a process group in which the parent
-     of every member is either itself a member of the group or is not
-     a member of the group's session. */
-  termios_printf ("checking pgid %d, my sid %d, my parent %d", pgid, myself->sid, myself->ppid);
-  winpids pids ((DWORD) 0);
-  for (unsigned i = 0; i < pids.npids; i++)
+  if ((myself->ctty < 0 || myself->ctty == ttynum) && !(flags & O_NOCTTY))
     {
-      _pinfo *p = pids[i];
-      termios_printf ("checking pid %d - has pgid %d\n", p->pid, p->pgid);
-      if (!p || !p->exists () || p->pgid != pgid)
-	continue;
-      pinfo ppid (p->ppid);
-      if (!ppid)
-	continue;
-      termios_printf ("ppid->pgid %d, ppid->sid %d", ppid->pgid, ppid->sid);
-      if (ppid->pgid != pgid && ppid->sid == myself->sid)
-	return 0;
+      myself->ctty = ttynum;
+      syscall_printf ("attached tty%d sid %d, pid %d, tty->pgid %d, tty->sid %d",
+		      ttynum, myself->sid, myself->pid, pgid, getsid ());
+
+      pinfo p (getsid ());
+      if (myself->sid == myself->pid &&
+	  (p == myself || !proc_exists (p)))
+	{
+	  paranoid_printf ("resetting tty%d sid.  Was %d, now %d.  pgid was %d, now %d.",
+			   ttynum, getsid(), myself->sid, getpgid (), myself->pgid);
+	  /* We are the session leader */
+	  setsid (myself->sid);
+	  setpgid (myself->pgid);
+	}
+      else
+	myself->sid = getsid ();
+      if (getpgid () == 0)
+	setpgid (myself->pgid);
     }
-  return 1;
 }
 
 bg_check_types
 fhandler_termios::bg_check (int sig)
 {
-  if (!myself->pgid || !tc () || tc ()->getpgid () == myself->pgid ||
-	myself->ctty != tc ()->ntty ||
-	((sig == SIGTTOU) && !(tc ()->ti.c_lflag & TOSTOP)))
+  if (!myself->pgid || tc->getpgid () == myself->pgid ||
+	myself->ctty != tc->ntty ||
+	((sig == SIGTTOU) && !(tc->ti.c_lflag & TOSTOP)))
     return bg_ok;
 
   if (sig < 0)
     sig = -sig;
 
-  termios_printf ("%s, bg I/O pgid %d, tpgid %d, myctty %s", tc ()->ttyname (),
-		  myself->pgid, tc ()->getpgid (), myctty ());
+  termios_printf("bg I/O pgid %d, tpgid %d, ctty %d",
+		    myself->pgid, tc->getpgid (), myself->ctty);
 
-  if (tc ()->getsid () == 0)
+  if (tc->getsid () == 0)
     {
       /* The pty has been closed by the master.  Return an EOF
 	 indication.  FIXME: There is nothing to stop somebody
@@ -193,35 +151,31 @@ fhandler_termios::bg_check (int sig)
       return bg_eof;
     }
 
+  /* If the process group is no more or if process is ignoring or blocks 'sig',
+     return with error */
+  int pgid_gone = !pid_exists (myself->pgid);
   int sigs_ignored =
-    ((void *) global_sigs[sig].sa_handler == (void *) SIG_IGN) ||
-    (_main_tls->sigmask & SIGTOMASK (sig));
+    ((void *) myself->getsig(sig).sa_handler == (void *) SIG_IGN) ||
+    (myself->getsigmask () & SIGTOMASK (sig));
 
-  /* If the process is ignoring SIGTT*, then background IO is OK.  If
-     the process is not ignoring SIGTT*, then the sig is to be sent to
-     all processes in the process group (unless the process group of the
-     process is orphaned, in which case we return EIO). */
-  if (sigs_ignored)
-    return bg_ok;   /* Just allow the IO */
-  else if (tc ()->is_orphaned_process_group (myself->pgid))
-    {
-      termios_printf ("process group is orphaned");
-      set_errno (EIO);   /* This is an IO error */
-      return bg_error;
-    }
+  if (pgid_gone)
+    goto setEIO;
+  else if (!sigs_ignored)
+    /* nothing */;
+  else if (sig == SIGTTOU)
+    return bg_ok;		/* Just allow the output */
   else
-    {
-      /* Don't raise a SIGTT* signal if we have already been
-	 interrupted by another signal. */
-      if (cygwait ((DWORD) 0) != WAIT_SIGNALED)
-	{
-	  siginfo_t si = {0};
-	  si.si_signo = sig;
-	  si.si_code = SI_KERNEL;
-	  kill_pgrp (myself->pgid, si);
-	}
-      return bg_signalled;
-    }
+    goto setEIO;	/* This is an output error */
+
+  /* Don't raise a SIGTT* signal if we have already been interrupted
+     by another signal. */
+  if (WaitForSingleObject (signal_arrived, 0) != WAIT_OBJECT_0)
+    _raise (sig);
+  return bg_signalled;
+
+setEIO:
+  set_errno (EIO);
+  return bg_error;
 }
 
 #define set_input_done(x) input_done = input_done || (x)
@@ -229,71 +183,31 @@ fhandler_termios::bg_check (int sig)
 inline void
 fhandler_termios::echo_erase (int force)
 {
-  if (force || tc ()->ti.c_lflag & ECHO)
+  if (force || tc->ti.c_lflag & ECHO)
     doecho ("\b \b", 3);
 }
 
-line_edit_status
-fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
+int
+fhandler_termios::line_edit (const char *rptr, int nread, int always_accept)
 {
-  line_edit_status ret = line_edit_ok;
   char c;
   int input_done = 0;
-  bool sawsig = false;
-  int iscanon = ti.c_lflag & ICANON;
+  bool sawsig = FALSE;
+  int iscanon = tc->ti.c_lflag & ICANON;
 
   while (nread-- > 0)
     {
       c = *rptr++;
 
-      paranoid_printf ("char %0c", c);
+      termios_printf ("char %c", c);
 
-      if (ti.c_iflag & ISTRIP)
-	c &= 0x7f;
-      if (ti.c_lflag & ISIG)
-	{
-	  int sig;
-	  if (CCEQ (ti.c_cc[VINTR], c))
-	    sig = SIGINT;
-	  else if (CCEQ (ti.c_cc[VQUIT], c))
-	    sig = SIGQUIT;
-	  else if (CCEQ (ti.c_cc[VSUSP], c))
-	    sig = SIGTSTP;
-	  else
-	    goto not_a_sig;
-
-	  termios_printf ("got interrupt %d, sending signal %d", c, sig);
-	  eat_readahead (-1);
-	  tc ()->kill_pgrp (sig);
-	  ti.c_lflag &= ~FLUSHO;
-	  sawsig = true;
-	  goto restart_output;
-	}
-    not_a_sig:
-      if (ti.c_iflag & IXON)
-	{
-	  if (CCEQ (ti.c_cc[VSTOP], c))
-	    {
-	      if (!tc ()->output_stopped)
-		tc ()->output_stopped = true;
-	      continue;
-	    }
-	  else if (CCEQ (ti.c_cc[VSTART], c))
-	    {
-    restart_output:
-	      tc ()->output_stopped = false;
-	      continue;
-	    }
-	  else if ((ti.c_iflag & IXANY) && tc ()->output_stopped)
-	    goto restart_output;
-	}
       /* Check for special chars */
 
       if (c == '\r')
 	{
-	  if (ti.c_iflag & IGNCR)
+	  if (tc->ti.c_iflag & IGNCR)
 	    continue;
-	  if (ti.c_iflag & ICRNL)
+	  if (tc->ti.c_iflag & ICRNL)
 	    {
 	      c = '\n';
 	      set_input_done (iscanon);
@@ -301,26 +215,69 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
 	}
       else if (c == '\n')
 	{
-	  if (ti.c_iflag & INLCR)
+	  if (tc->ti.c_iflag & INLCR)
 	    c = '\r';
 	  else
 	    set_input_done (iscanon);
 	}
-      if (iscanon && ti.c_lflag & IEXTEN && CCEQ (ti.c_cc[VDISCARD], c))
+
+      if (tc->ti.c_iflag & ISTRIP)
+	c &= 0x7f;
+      if (tc->ti.c_lflag & ISIG)
 	{
-	  ti.c_lflag ^= FLUSHO;
+	  int sig;
+	  if (c ==  tc->ti.c_cc[VINTR])
+	    sig = SIGINT;
+	  else if (c == tc->ti.c_cc[VQUIT])
+	    sig = SIGQUIT;
+	  else if (c == tc->ti.c_cc[VSUSP])
+	    sig = SIGTSTP;
+	  else
+	    goto not_a_sig;
+
+	  termios_printf ("got interrupt %d, sending signal %d", c, sig);
+	  eat_readahead (-1);
+	  tc->kill_pgrp (sig);
+	  tc->ti.c_lflag &= ~FLUSHO;
+	  sawsig = 1;
+	  goto restart_output;
+	}
+    not_a_sig:
+      if (tc->ti.c_iflag & IXON)
+	{
+	  if (c == tc->ti.c_cc[VSTOP])
+	    {
+	      if (!tc->output_stopped)
+		{
+		  tc->output_stopped = 1;
+		  acquire_output_mutex (INFINITE);
+		}
+	      continue;
+	    }
+	  else if (c == tc->ti.c_cc[VSTART])
+	    {
+    restart_output:
+	      tc->output_stopped = 0;
+	      release_output_mutex ();
+	      continue;
+	    }
+	  else if ((tc->ti.c_iflag & IXANY) && tc->output_stopped)
+	    goto restart_output;
+	}
+      if (tc->ti.c_lflag & IEXTEN && c == tc->ti.c_cc[VDISCARD])
+	{
+	  tc->ti.c_lflag ^= FLUSHO;
 	  continue;
 	}
-
       if (!iscanon)
 	/* nothing */;
-      else if (CCEQ (ti.c_cc[VERASE], c))
+      else if (c == tc->ti.c_cc[VERASE])
 	{
 	  if (eat_readahead (1))
 	    echo_erase ();
 	  continue;
 	}
-      else if (CCEQ (ti.c_cc[VWERASE], c))
+      else if (c == tc->ti.c_cc[VWERASE])
 	{
 	  int ch;
 	  do
@@ -331,118 +288,59 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
 	  while ((ch = peek_readahead (1)) >= 0 && !isspace (ch));
 	  continue;
 	}
-      else if (CCEQ (ti.c_cc[VKILL], c))
+      else if (c == tc->ti.c_cc[VKILL])
 	{
 	  int nchars = eat_readahead (-1);
-	  if (ti.c_lflag & ECHO)
+	  if (tc->ti.c_lflag & ECHO)
 	    while (nchars--)
 	      echo_erase (1);
 	  continue;
 	}
-      else if (CCEQ (ti.c_cc[VREPRINT], c))
+      else if (c == tc->ti.c_cc[VREPRINT])
 	{
-	  if (ti.c_lflag & ECHO)
+	  if (tc->ti.c_lflag & ECHO)
 	    {
 	      doecho ("\n\r", 2);
 	      doecho (rabuf, ralen);
 	    }
 	  continue;
 	}
-      else if (CCEQ (ti.c_cc[VEOF], c))
+      else if (c == tc->ti.c_cc[VEOF])
 	{
 	  termios_printf ("EOF");
-	  accept_input ();
-	  ret = line_edit_input_done;
+	  input_done = 1;
 	  continue;
 	}
-      else if (CCEQ (ti.c_cc[VEOL], c) ||
-	       CCEQ (ti.c_cc[VEOL2], c) ||
+      else if (c == tc->ti.c_cc[VEOL] ||
+	       c == tc->ti.c_cc[VEOL2] ||
 	       c == '\n')
 	{
 	  set_input_done (1);
 	  termios_printf ("EOL");
 	}
 
-      if (ti.c_iflag & IUCLC && isupper (c))
+      if (tc->ti.c_iflag & IUCLC && isupper (c))
 	c = cyg_tolower (c);
 
-      put_readahead (c);
-      if (ti.c_lflag & ECHO)
+      if (tc->ti.c_lflag & ECHO)
 	doecho (&c, 1);
-      if (!iscanon || input_done)
-	{
-	  int status = accept_input ();
-	  if (status != 1)
-	    {
-	      ret = status ? line_edit_error : line_edit_pipe_full;
-	      eat_readahead (1);
-	      break;
-	    }
-	  ret = line_edit_input_done;
-	  input_done = 0;
-	}
+      put_readahead (c);
     }
 
-  if (!iscanon && ralen > 0)
-    ret = line_edit_input_done;
+  if (!iscanon || always_accept)
+    set_input_done (ralen > 0);
 
   if (sawsig)
-    ret = line_edit_signalled;
+    input_done = -1;
+  else if (input_done)
+    (void) accept_input ();
 
-  return ret;
-}
-
-_off64_t
-fhandler_termios::lseek (_off64_t, int)
-{
-  set_errno (ESPIPE);
-  return -1;
+  return input_done;
 }
 
 void
-fhandler_termios::sigflush ()
+fhandler_termios::fixup_after_fork (HANDLE parent)
 {
-  /* FIXME: Checking get_ttyp() for NULL is not right since it should not
-     be NULL while this is alive.  However, we can conceivably close a
-     ctty while exiting and that will zero this. */
-  if ((!have_execed || have_execed_cygwin) && tc ()
-      && (tc ()->getpgid () == myself->pgid)
-      && !(tc ()->ti.c_lflag & NOFLSH))
-    tcflush (TCIFLUSH);
-}
-
-pid_t
-fhandler_termios::tcgetsid ()
-{
-  if (myself->ctty > 0 && myself->ctty == tc ()->ntty)
-    return tc ()->getsid ();
-  set_errno (ENOTTY);
-  return -1;
-}
-
-int
-fhandler_termios::ioctl (int cmd, void *varg)
-{
-  if (cmd != TIOCSCTTY)
-    return 1;		/* Not handled by this function */
-
-  int arg = (int) varg;
-
-  if (arg != 0 && arg != 1)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-
-  termios_printf ("myself->ctty %d, myself->sid %d, myself->pid %d, arg %d, tc()->getsid () %d\n",
-		  myself->ctty, myself->sid, myself->pid, arg, tc ()->getsid ());
-  if (myself->ctty > 0 || myself->sid != myself->pid || (!arg && tc ()->getsid () > 0))
-    {
-      set_errno (EPERM);
-      return -1;
-    }
-
-  myself->ctty = -1;
-  myself->set_ctty (this, 0);
-  return 0;
+  this->fhandler_base::fixup_after_fork (parent);
+  fork_fixup (parent, get_output_handle (), "output_handle");
 }

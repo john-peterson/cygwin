@@ -1,7 +1,6 @@
 /* tty.h: shared tty info for cygwin
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2006, 2009, 2010, 2011, 2012, 2013
-   Red Hat, Inc.
+   Copyright 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,48 +8,61 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#ifndef _TTY_H
-#define _TTY_H
+
 /* tty tables */
 
 #define INP_BUFFER_SIZE 256
 #define OUT_BUFFER_SIZE 256
-#define NTTYS		64
-#define real_tty_attached(p)	((p)->ctty > 0 && !iscons_dev ((p)->ctty))
+#define NTTYS		128
+#define real_tty_attached(p)	((p)->ctty >= 0 && (p)->ctty != TTY_CONSOLE)
 
 /* Input/Output/ioctl events */
 
-#define INPUT_AVAILABLE_EVENT	"cygtty.input.avail"
-#define OUTPUT_MUTEX		"cygtty.output.mutex"
-#define INPUT_MUTEX		"cygtty.input.mutex"
-#define TTY_SLAVE_ALIVE		"cygtty.slave_alive"
+#define OUTPUT_DONE_EVENT	"cygtty%d.output.done"
+#define IOCTL_REQUEST_EVENT	"cygtty%d.ioctl.request"
+#define IOCTL_DONE_EVENT	"cygtty%d.ioctl.done"
+#define RESTART_OUTPUT_EVENT	"cygtty%d.output.restart"
+#define INPUT_AVAILABLE_EVENT	"cygtty%d.input.avail"
+#define OUTPUT_MUTEX		"cygtty%d.output.mutex"
+#define INPUT_MUTEX		"cygtty%d.input.mutex"
+#define TTY_SLAVE_ALIVE		"cygtty%x.slave_alive"
+#define TTY_MASTER_ALIVE	"cygtty%x.master_alive"
 
 #include <sys/termios.h>
+
+enum
+{
+  TTY_INITIALIZED = 1,		/* Set if tty is initialized */
+  TTY_RSTCONS = 2		/* Set if console needs to be set to "non-cooked" */
+};
+
+#define TTYISSETF(x)	__ISSETF (tc, x, TTY)
+#define TTYSETF(x)	__SETF (tc, x, TTY)
+#define TTYCLEARF(x)	__CLEARF (tc, x, TTY)
+#define TTYCONDSETF(n, x) __CONDSETF(n, tc, x, TTY)
 
 #ifndef MIN_CTRL_C_SLOP
 #define MIN_CTRL_C_SLOP 50
 #endif
 
-#include <devices.h>
 class tty_min
 {
   pid_t sid;	/* Session ID of tty */
-  struct status_flags
-  {
-    unsigned initialized : 1;	/* Set if tty is initialized */
-    unsigned rstcons     : 1;	/* Set if console needs to be set to "non-cooked" */
-  } status;
-
 public:
+  DWORD status;
   pid_t pgid;
-  bool output_stopped;		/* FIXME: Maybe do this with a mutex someday? */
-  fh_devices ntty;
-  DWORD last_ctrl_c;		/* tick count of last ctrl-c */
-  bool is_console;
+  int output_stopped;
+  int ntty;
+  DWORD last_ctrl_c;	// tick count of last ctrl-c
 
-  IMPLEMENT_STATUS_FLAG (bool, initialized)
-  IMPLEMENT_STATUS_FLAG (bool, rstcons)
-
+  tty_min (int t = -1, pid_t s = -1) : sid (s), ntty (t) {}
+  void setntty (int n) {ntty = n;}
+  pid_t getpgid () {return pgid;}
+  void setpgid (int pid) {pgid = pid;}
+  int getsid () {return sid;}
+  void setsid (pid_t tsid) {sid = tsid;}
+  void set_ctty (int ttynum, int flags);
+  void kill_pgrp (int sig);
   struct termios ti;
   struct winsize winsize;
 
@@ -67,81 +79,75 @@ public:
    * -ERRNO
    */
   int ioctl_retval;
-  int write_error;
 
-  void setntty (_major_t t, int n) {ntty = (fh_devices) FHDEV (t, n);}
-  int getntty () const {return ntty;}
-  int get_unit () const {return device::minor (ntty);}
-  pid_t getpgid () const {return pgid;}
-  void setpgid (int pid) {pgid = pid;}
-  int getsid () const {return sid;}
-  void setsid (pid_t tsid) {sid = tsid;}
-  void kill_pgrp (int);
-  int is_orphaned_process_group (int);
-  const __reg1 char *ttyname () __attribute (());
+  int write_error;
 };
 
 class fhandler_pty_master;
 
 class tty: public tty_min
 {
-  HANDLE __reg3 get_event (const char *fmt, PSECURITY_ATTRIBUTES sa,
-		    BOOL manual_reset = FALSE);
+  HANDLE get_event (const char *fmt, BOOL manual_reset = FALSE)
+    __attribute__ ((regparm (2)));
 public:
-  pid_t master_pid;	/* PID of tty master process */
+  HWND  hwnd;	/* Console window handle tty belongs to */
 
-  HANDLE from_master, to_master;
+  DWORD master_pid;	/* Win32 PID of tty master process */
+
+  HANDLE from_master, to_slave;
+  HANDLE from_slave, to_master;
 
   int read_retval;
-  bool was_opened;	/* True if opened at least once. */
+  BOOL was_opened;	/* True if opened at least once. */
 
   void init ();
-  HANDLE open_inuse (ACCESS_MASK access);
-  HANDLE create_inuse (PSECURITY_ATTRIBUTES);
-  bool slave_alive ();
-  HANDLE open_mutex (const char *mutex, ACCESS_MASK access);
-  inline HANDLE open_output_mutex (ACCESS_MASK access)
-    { return open_mutex (OUTPUT_MUTEX, access); }
-  inline HANDLE open_input_mutex (ACCESS_MASK access)
-    { return open_mutex (INPUT_MUTEX, access); }
-  bool exists ();
-  bool not_allocated (HANDLE&, HANDLE&);
-  void set_master_closed () {master_pid = -1;}
-  bool is_master_closed () const {return master_pid == -1;}
-  static void __stdcall create_master (int);
-  static void __stdcall init_session ();
-  friend class fhandler_pty_master;
+  HANDLE create_inuse (const char *);
+  BOOL common_init (fhandler_pty_master *);
+  BOOL alive (const char *fmt);
+  BOOL slave_alive ();
+  BOOL master_alive ();
+  HWND gethwnd () {return hwnd;}
+  void sethwnd (HWND wnd) {hwnd = wnd;}
+  int make_pipes (fhandler_pty_master *ptym);
+  HANDLE open_output_mutex ()
+  {
+    char buf[80];
+    __small_sprintf (buf, OUTPUT_MUTEX, ntty);
+    return OpenMutex (MUTEX_ALL_ACCESS, TRUE, buf);
+  }
+  HANDLE open_input_mutex ()
+  {
+    char buf[80];
+    __small_sprintf (buf, INPUT_MUTEX, ntty);
+    return OpenMutex (MUTEX_ALL_ACCESS, TRUE, buf);
+  }
+  BOOL exists ()
+  {
+    HANDLE h = open_output_mutex ();
+    if (h)
+      {
+	CloseHandle (h);
+	return 1;
+      }
+    return slave_alive ();
+  }
 };
 
 class tty_list
 {
   tty ttys[NTTYS];
-  static HANDLE mutex;
 
 public:
-  tty * operator [](int n) {return ttys + device::minor (n);}
-  int allocate (HANDLE& r, HANDLE& w);	/* allocate a pty */
-  int connect (int);
+  tty * operator [](int n) {return ttys + n;}
+  int allocate_tty (int n); /* n non zero if allocate a tty, pty otherwise */
+  int connect_tty (int);
+  void terminate ();
   void init ();
-  tty_min *get_cttyp ();
-  int __reg2 attach (int n);
-  static void __stdcall init_session ();
-  friend class lock_ttys;
+  tty_min *get_tty (int n);
 };
 
-class lock_ttys
-{
-  bool release_me;
-public:
-  lock_ttys (DWORD = INFINITE);
-  static void release ();
-  void dont_release () {release_me = false;}
-  ~lock_ttys ()
-  {
-    if (release_me)
-      release ();
-  }
-};
-
+void __stdcall tty_init ();
+void __stdcall tty_terminate ();
+int __stdcall attach_tty (int);
+void __stdcall create_tty_master (int);
 extern "C" int ttyslot (void);
-#endif /*_TTY_H*/
