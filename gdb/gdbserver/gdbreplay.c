@@ -1,12 +1,12 @@
 /* Replay a remote debug session logfile for GDB.
-   Copyright (C) 1996-2013 Free Software Foundation, Inc.
+   Copyright 1996, 1998, 1999, 2000 Free Software Foundation, Inc.
    Written by Fred Fish (fnf@cygnus.com) from pieces of gdbserver.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,137 +15,43 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "config.h"
-#include "build-gnulib-gdbserver/config.h"
-
 #include <stdio.h>
-#if HAVE_SYS_FILE_H
 #include <sys/file.h>
-#endif
-#if HAVE_SIGNAL_H
-#include <signal.h>
-#endif
-#include <ctype.h>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-#if HAVE_ERRNO_H
-#include <errno.h>
-#endif
-#ifdef HAVE_STDLIB_H
-#include <stdlib.h>
-#endif
-#ifdef HAVE_STRING_H
-#include <string.h>
-#endif
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-#ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
-#endif
-#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-#endif
-#if HAVE_NETDB_H
 #include <netdb.h>
-#endif
-#if HAVE_NETINET_TCP_H
 #include <netinet/tcp.h>
-#endif
-#if HAVE_ALLOCA_H
-#include <alloca.h>
-#endif
-#if HAVE_MALLOC_H
-#include <malloc.h>
-#endif
-#if USE_WIN32API
-#include <winsock2.h>
-#endif
-
-#ifndef HAVE_SOCKLEN_T
-typedef int socklen_t;
-#endif
+#include <signal.h>
+#include <ctype.h>
+#include <fcntl.h>
+#include <errno.h>
 
 /* Sort of a hack... */
 #define EOL (EOF - 1)
 
-/* Version information, from version.c.  */
-extern const char version[];
-extern const char host_name[];
-
 static int remote_desc;
-
-#ifdef __MINGW32CE__
-
-#ifndef COUNTOF
-#define COUNTOF(STR) (sizeof (STR) / sizeof ((STR)[0]))
-#endif
-
-#define errno (GetLastError ())
-
-char *
-strerror (DWORD error)
-{
-  static char buf[1024];
-  WCHAR *msgbuf;
-  DWORD lasterr = GetLastError ();
-  DWORD chars = FormatMessageW (FORMAT_MESSAGE_FROM_SYSTEM
-				| FORMAT_MESSAGE_ALLOCATE_BUFFER,
-				NULL,
-				error,
-				0, /* Default language */
-				(LPVOID)&msgbuf,
-				0,
-				NULL);
-  if (chars != 0)
-    {
-      /* If there is an \r\n appended, zap it.  */
-      if (chars >= 2
-	  && msgbuf[chars - 2] == '\r'
-	  && msgbuf[chars - 1] == '\n')
-	{
-	  chars -= 2;
-	  msgbuf[chars] = 0;
-	}
-
-      if (chars > ((COUNTOF (buf)) - 1))
-	{
-	  chars = COUNTOF (buf) - 1;
-	  msgbuf [chars] = 0;
-	}
-
-      wcstombs (buf, msgbuf, chars + 1);
-      LocalFree (msgbuf);
-    }
-  else
-    sprintf (buf, "unknown win32 error (%ld)", error);
-
-  SetLastError (lasterr);
-  return buf;
-}
-
-#endif /* __MINGW32CE__ */
 
 /* Print the system error message for errno, and also mention STRING
    as the file name for which the error was encountered.
    Then return to command level.  */
 
-static void
-perror_with_name (const char *string)
+void
+perror_with_name (char *string)
 {
 #ifndef STDC_HEADERS
+  extern int sys_nerr;
+  extern char *sys_errlist[];
   extern int errno;
 #endif
   const char *err;
   char *combined;
 
-  err = strerror (errno);
-  if (err == NULL)
-    err = "unknown error";
-
+  err = (errno < sys_nerr) ? sys_errlist[errno] : "unknown error";
   combined = (char *) alloca (strlen (err) + strlen (string) + 3);
   strcpy (combined, string);
   strcat (combined, ": ");
@@ -165,30 +71,20 @@ sync_error (FILE *fp, char *desc, int expect, int got)
   exit (1);
 }
 
-static void
-remote_error (const char *desc)
-{
-  fprintf (stderr, "\n%s\n", desc);
-  fflush (stderr);
-  exit (1);
-}
-
-static void
+void
 remote_close (void)
 {
-#ifdef USE_WIN32API
-  closesocket (remote_desc);
-#else
   close (remote_desc);
-#endif
 }
 
 /* Open a connection to a remote debugger.
    NAME is the filename used for communication.  */
 
-static void
+void
 remote_open (char *name)
 {
+  extern char *strchr ();
+
   if (!strchr (name, ':'))
     {
       fprintf (stderr, "%s: Must specify tcp connection as host:addr\n", name);
@@ -197,31 +93,18 @@ remote_open (char *name)
     }
   else
     {
-#ifdef USE_WIN32API
-      static int winsock_initialized;
-#endif
       char *port_str;
       int port;
       struct sockaddr_in sockaddr;
-      socklen_t tmp;
+      int tmp;
       int tmp_desc;
 
       port_str = strchr (name, ':');
 
       port = atoi (port_str + 1);
 
-#ifdef USE_WIN32API
-      if (!winsock_initialized)
-	{
-	  WSADATA wsad;
-
-	  WSAStartup (MAKEWORD (1, 0), &wsad);
-	  winsock_initialized = 1;
-	}
-#endif
-
       tmp_desc = socket (PF_INET, SOCK_STREAM, 0);
-      if (tmp_desc == -1)
+      if (tmp_desc < 0)
 	perror_with_name ("Can't open socket");
 
       /* Allow rapid reuse of this port. */
@@ -244,29 +127,21 @@ remote_open (char *name)
 
       /* Enable TCP keep alive process. */
       tmp = 1;
-      setsockopt (tmp_desc, SOL_SOCKET, SO_KEEPALIVE,
-		  (char *) &tmp, sizeof (tmp));
+      setsockopt (tmp_desc, SOL_SOCKET, SO_KEEPALIVE, (char *) &tmp, sizeof (tmp));
 
       /* Tell TCP not to delay small packets.  This greatly speeds up
-	 interactive response. */
+         interactive response. */
       tmp = 1;
       setsockopt (remote_desc, IPPROTO_TCP, TCP_NODELAY,
 		  (char *) &tmp, sizeof (tmp));
 
-#ifndef USE_WIN32API
       close (tmp_desc);		/* No longer need this */
 
-      signal (SIGPIPE, SIG_IGN);	/* If we don't do this, then
-					   gdbreplay simply exits when
-					   the remote side dies.  */
-#else
-      closesocket (tmp_desc);	/* No longer need this */
-#endif
+      signal (SIGPIPE, SIG_IGN);	/* If we don't do this, then gdbreplay simply
+					   exits when the remote side dies.  */
     }
 
-#if defined(F_SETFL) && defined (FASYNC)
   fcntl (remote_desc, F_SETFL, FASYNC);
-#endif
 
   fprintf (stderr, "Replay logfile using %s\n", name);
   fflush (stderr);
@@ -352,25 +227,14 @@ logchar (FILE *fp)
   return (ch);
 }
 
-static int
-gdbchar (int desc)
-{
-  unsigned char fromgdb;
-
-  if (read (desc, &fromgdb, 1) != 1)
-    return -1;
-  else
-    return fromgdb;
-}
-
 /* Accept input from gdb and match with chars from fp (after skipping one
    blank) up until a \n is read from fp (which is not matched) */
 
-static void
+void
 expect (FILE *fp)
 {
   int fromlog;
-  int fromgdb;
+  unsigned char fromgdb;
 
   if ((fromlog = logchar (fp)) != ' ')
     {
@@ -381,16 +245,15 @@ expect (FILE *fp)
     {
       fromlog = logchar (fp);
       if (fromlog == EOL)
-	break;
-      fromgdb = gdbchar (remote_desc);
-      if (fromgdb < 0)
-	remote_error ("Error during read from gdb");
+	{
+	  break;
+	}
+      read (remote_desc, &fromgdb, 1);
     }
   while (fromlog == fromgdb);
-
   if (fromlog != EOL)
     {
-      sync_error (fp, "Sync error during read of gdb packet from log", fromlog,
+      sync_error (fp, "Sync error during read of gdb packet", fromlog,
 		  fromgdb);
     }
 }
@@ -398,7 +261,7 @@ expect (FILE *fp)
 /* Play data back to gdb from fp (after skipping leading blank) up until a
    \n is read from fp (which is discarded and not sent to gdb). */
 
-static void
+void
 play (FILE *fp)
 {
   int fromlog;
@@ -412,28 +275,8 @@ play (FILE *fp)
   while ((fromlog = logchar (fp)) != EOL)
     {
       ch = fromlog;
-      if (write (remote_desc, &ch, 1) != 1)
-	remote_error ("Error during write to gdb");
+      write (remote_desc, &ch, 1);
     }
-}
-
-static void
-gdbreplay_version (void)
-{
-  printf ("GNU gdbreplay %s%s\n"
-	  "Copyright (C) 2013 Free Software Foundation, Inc.\n"
-	  "gdbreplay is free software, covered by "
-	  "the GNU General Public License.\n"
-	  "This gdbreplay was configured as \"%s\"\n",
-	  PKGVERSION, version, host_name);
-}
-
-static void
-gdbreplay_usage (FILE *stream)
-{
-  fprintf (stream, "Usage:\tgdbreplay <logfile> <host:port>\n");
-  if (REPORT_BUGS_TO[0] && stream == stdout)
-    fprintf (stream, "Report bugs to \"%s\".\n", REPORT_BUGS_TO);
 }
 
 int
@@ -442,20 +285,10 @@ main (int argc, char *argv[])
   FILE *fp;
   int ch;
 
-  if (argc >= 2 && strcmp (argv[1], "--version") == 0)
-    {
-      gdbreplay_version ();
-      exit (0);
-    }
-  if (argc >= 2 && strcmp (argv[1], "--help") == 0)
-    {
-      gdbreplay_usage (stdout);
-      exit (0);
-    }
-
   if (argc < 3)
     {
-      gdbreplay_usage (stderr);
+      fprintf (stderr, "Usage: gdbreplay <logfile> <host:port>\n");
+      fflush (stderr);
       exit (1);
     }
   fp = fopen (argv[1], "r");
