@@ -1,27 +1,25 @@
 /* BFD support for the ARC processor
-   Copyright 1994, 1995, 1997, 2001, 2002, 2005, 2007, 2012
-   Free Software Foundation, Inc.
+   Copyright 1994, 1995, 1997, 2001 Free Software Foundation, Inc.
    Contributed by Doug Evans (dje@cygnus.com).
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 
 #define ARC(mach, print_name, default_p, next) \
@@ -37,31 +35,29 @@
     default_p,				\
     bfd_default_compatible,		\
     bfd_default_scan,			\
-    bfd_arch_default_fill,		\
     next,				\
   }
 
 static const bfd_arch_info_type arch_info_struct[] =
 {
-  ARC ( bfd_mach_arc_5, "arc5", FALSE, &arch_info_struct[1] ),
-  ARC ( bfd_mach_arc_5, "base", FALSE, &arch_info_struct[2] ),
-  ARC ( bfd_mach_arc_6, "arc6", FALSE, &arch_info_struct[3] ),
-  ARC ( bfd_mach_arc_7, "arc7", FALSE, &arch_info_struct[4] ),
-  ARC ( bfd_mach_arc_8, "arc8", FALSE, NULL ),
+  ARC ( bfd_mach_arc_5, "arc5", false, &arch_info_struct[1] ),
+  ARC ( bfd_mach_arc_5, "base", false, &arch_info_struct[2] ),
+  ARC ( bfd_mach_arc_6, "arc6", false, &arch_info_struct[3] ),
+  ARC ( bfd_mach_arc_7, "arc7", false, &arch_info_struct[4] ),
+  ARC ( bfd_mach_arc_8, "arc8", false, NULL ),
 };
 
 const bfd_arch_info_type bfd_arc_arch =
-  ARC ( bfd_mach_arc_6, "arc", TRUE, &arch_info_struct[0] );
+  ARC ( bfd_mach_arc_6, "arc", true, &arch_info_struct[0] );
 
 /* Utility routines.  */
 
 /* Given cpu type NAME, return its bfd_mach_arc_xxx value.
    Returns -1 if not found.  */
 
-int arc_get_mach (char *);
-
 int
-arc_get_mach (char *name)
+arc_get_mach (name)
+     char *name;
 {
   const bfd_arch_info_type *p;
 

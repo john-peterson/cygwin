@@ -1,26 +1,25 @@
 /* Generic stabs parsing for gas.
    Copyright 1989, 1990, 1991, 1993, 1995, 1996, 1997, 1998, 2000, 2001
-   2002, 2003, 2004, 2005, 2007, 2009  Free Software Foundation, Inc.
+   Free Software Foundation, Inc.
 
-   This file is part of GAS, the GNU Assembler.
+This file is part of GAS, the GNU Assembler.
 
-   GAS is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as
-   published by the Free Software Foundation; either version 3,
-   or (at your option) any later version.
+GAS is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as
+published by the Free Software Foundation; either version 2,
+or (at your option) any later version.
 
-   GAS is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
-   the GNU General Public License for more details.
+GAS is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+the GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with GAS; see the file COPYING.  If not, write to the Free
+Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+02111-1307, USA.  */
 
 #include "as.h"
-#include "filenames.h"
 #include "obstack.h"
 #include "subsegs.h"
 #include "ecoff.h"
@@ -35,8 +34,8 @@
 
 int outputting_stabs_line_debug = 0;
 
-static void s_stab_generic (int, char *, char *);
-static void generate_asm_file (int, char *);
+static void s_stab_generic PARAMS ((int, char *, char *));
+static void generate_asm_file PARAMS ((int, char *));
 
 /* Allow backends to override the names used for the stab sections.  */
 #ifndef STAB_SECTION_NAME
@@ -81,7 +80,9 @@ static const char *current_function_label;
 #endif
 
 unsigned int
-get_stab_string_offset (const char *string, const char *stabstr_secname)
+get_stab_string_offset (string, stabstr_secname)
+     const char *string;
+     const char *stabstr_secname;
 {
   unsigned int length;
   unsigned int retval;
@@ -108,9 +109,11 @@ get_stab_string_offset (const char *string, const char *stabstr_secname)
       p = frag_more (1);
       *p = 0;
       retval = seg_info (seg)->stabu.stab_string_size = 1;
+#ifdef BFD_ASSEMBLER
       bfd_set_section_flags (stdoutput, seg, SEC_READONLY | SEC_DEBUGGING);
       if (seg->name == stabstr_secname)
 	seg->name = xstrdup (stabstr_secname);
+#endif
     }
 
   if (length > 0)
@@ -149,10 +152,11 @@ aout_process_stab (what, string, type, other, desc)
      ends in "\" and the debug info is continued in the next .stabs
      directive) from being separated by other random symbols.  */
   symbol = symbol_create (string, undefined_section, 0,
-			  &zero_address_frag);
+			  (struct frag *) NULL);
   if (what == 's' || what == 'n')
     {
       /* Pick up the value from the input line.  */
+      symbol_set_frag (symbol, &zero_address_frag);
       pseudo_set (symbol);
     }
   else
@@ -165,8 +169,6 @@ aout_process_stab (what, string, type, other, desc)
 
   symbol_append (symbol, symbol_lastP, &symbol_rootP, &symbol_lastP);
 
-  symbol_get_bfdsym (symbol)->flags |= BSF_DEBUGGING;
-
   S_SET_TYPE (symbol, type);
   S_SET_OTHER (symbol, other);
   S_SET_DESC (symbol, desc);
@@ -177,7 +179,10 @@ aout_process_stab (what, string, type, other, desc)
    kinds of stab sections.  */
 
 static void
-s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
+s_stab_generic (what, stab_secname, stabstr_secname)
+     int what;
+     char *stab_secname;
+     char *stabstr_secname;
 {
   long longint;
   char *string, *saved_string_obstack_end;
@@ -212,7 +217,7 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 	input_line_pointer++;
       else
 	{
-	  as_warn (_(".stab%c: missing comma"), what);
+	  as_warn (_(".stabs: Missing comma"));
 	  ignore_rest_of_line ();
 	  return;
 	}
@@ -220,7 +225,7 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 
   if (get_absolute_expression_and_terminator (&longint) != ',')
     {
-      as_warn (_(".stab%c: missing comma"), what);
+      as_warn (_(".stab%c: Missing comma"), what);
       ignore_rest_of_line ();
       return;
     }
@@ -228,26 +233,18 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 
   if (get_absolute_expression_and_terminator (&longint) != ',')
     {
-      as_warn (_(".stab%c: missing comma"), what);
+      as_warn (_(".stab%c: Missing comma"), what);
       ignore_rest_of_line ();
       return;
     }
   other = longint;
 
   desc = get_absolute_expression ();
-
-  if ((desc > 0xffff) || (desc < -0x8000))
-    /* This could happen for example with a source file with a huge
-       number of lines.  The only cure is to use a different debug
-       format, probably DWARF.  */
-    as_warn (_(".stab%c: description field '%x' too big, try a different debug format"),
-	     what, desc);
-
   if (what == 's' || what == 'n')
     {
       if (*input_line_pointer != ',')
 	{
-	  as_warn (_(".stab%c: missing comma"), what);
+	  as_warn (_(".stab%c: Missing comma"), what);
 	  ignore_rest_of_line ();
 	  return;
 	}
@@ -332,8 +329,10 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 
       if (! seg_info (seg)->hadone)
 	{
+#ifdef BFD_ASSEMBLER
 	  bfd_set_section_flags (stdoutput, seg,
 				 SEC_READONLY | SEC_RELOC | SEC_DEBUGGING);
+#endif
 #ifdef INIT_STAB_SECTION
 	  INIT_STAB_SECTION (seg);
 #endif
@@ -344,7 +343,7 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
       if (what == 's')
 	{
 	  /* Release the string, if nobody else has used the obstack.  */
-	  if (saved_string_obstack_end == notes.next_free)
+	  if (saved_string_obstack_end == notes.next_free) 
 	    obstack_free (&notes, string);
 	}
 
@@ -364,11 +363,13 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 	}
       else
 	{
+	  const char *fake;
 	  symbolS *symbol;
 	  expressionS exp;
 
 	  /* Arrange for a value representing the current location.  */
-	  symbol = symbol_temp_new (saved_seg, dot, saved_frag);
+	  fake = FAKE_LABEL_NAME;
+	  symbol = symbol_new (fake, saved_seg, dot, saved_frag);
 
 	  exp.X_op = O_symbol;
 	  exp.X_add_symbol = symbol;
@@ -398,7 +399,8 @@ s_stab_generic (int what, char *stab_secname, char *stabstr_secname)
 /* Regular stab directive.  */
 
 void
-s_stab (int what)
+s_stab (what)
+     int what;
 {
   s_stab_generic (what, STAB_SECTION_NAME, STAB_STRING_SECTION_NAME);
 }
@@ -406,7 +408,8 @@ s_stab (int what)
 /* "Extended stabs", used in Solaris only now.  */
 
 void
-s_xstab (int what)
+s_xstab (what)
+     int what;
 {
   int length;
   char *stab_secname, *stabstr_secname;
@@ -466,7 +469,7 @@ s_desc (ignore)
   if (*input_line_pointer != ',')
     {
       *p = 0;
-      as_bad (_("expected comma after \"%s\""), name);
+      as_bad (_("Expected comma after name \"%s\""), name);
       *p = c;
       ignore_rest_of_line ();
     }
@@ -487,23 +490,12 @@ s_desc (ignore)
 /* Generate stabs debugging information to denote the main source file.  */
 
 void
-stabs_generate_asm_file (void)
+stabs_generate_asm_file ()
 {
   char *file;
   unsigned int lineno;
 
   as_where (&file, &lineno);
-  if (use_gnu_debug_info_extensions)
-    {
-      const char *dir;
-      char *dir2;
-
-      dir = remap_debug_filename (getpwd ());
-      dir2 = (char *) alloca (strlen (dir) + 2);
-      sprintf (dir2, "%s%s", dir, "/");
-      generate_asm_file (N_SO, dir2);
-      xfree ((char *) dir);
-    }
   generate_asm_file (N_SO, file);
 }
 
@@ -511,7 +503,9 @@ stabs_generate_asm_file (void)
    TYPE is one of N_SO, N_SOL.  */
 
 static void
-generate_asm_file (int type, char *file)
+generate_asm_file (type, file)
+     int type;
+     char *file;
 {
   static char *last_file;
   static int label_count;
@@ -519,11 +513,11 @@ generate_asm_file (int type, char *file)
   char sym[30];
   char *buf;
   char *tmp = file;
-  char *file_endp = file + strlen (file);
-  char *bufp;
+  char *endp = file + strlen (file);
+  char *bufp = buf;
 
   if (last_file != NULL
-      && filename_cmp (last_file, file) == 0)
+      && strcmp (last_file, file) == 0)
     return;
 
   /* Rather than try to do this in some efficient fashion, we just
@@ -538,14 +532,14 @@ generate_asm_file (int type, char *file)
   /* Allocate enough space for the file name (possibly extended with
      doubled up backslashes), the symbol name, and the other characters
      that make up a stabs file directive.  */
-  bufp = buf = (char *) xmalloc (2 * strlen (file) + strlen (sym) + 12);
+  bufp = buf = xmalloc (2 * strlen (file) + strlen (sym) + 12);
 
   *bufp++ = '"';
 
-  while (tmp < file_endp)
+  while (tmp < endp)
     {
       char *bslash = strchr (tmp, '\\');
-      size_t len = (bslash) ? (size_t) (bslash - tmp + 1) : strlen (tmp);
+      int len = (bslash ? (bslash - tmp + 1) : strlen (tmp));
 
       /* Double all backslashes, since demand_copy_C_string (used by
 	 s_stab to extract the part in quotes) will try to replace them as
@@ -578,7 +572,7 @@ generate_asm_file (int type, char *file)
    used to produce debugging information for an assembler file.  */
 
 void
-stabs_generate_asm_lineno (void)
+stabs_generate_asm_lineno ()
 {
   static int label_count;
   char *hold;
@@ -586,9 +580,10 @@ stabs_generate_asm_lineno (void)
   unsigned int lineno;
   char *buf;
   char sym[30];
-  /* Remember the last file/line and avoid duplicates.  */
-  static unsigned int prev_lineno = -1;
-  static char *prev_file = NULL;
+
+  /* Let the world know that we are in the middle of generating a
+     piece of stabs line debugging information.  */
+  outputting_stabs_line_debug = 1;
 
   /* Rather than try to do this in some efficient fashion, we just
      generate a string and then parse it again.  That lets us use the
@@ -598,34 +593,6 @@ stabs_generate_asm_lineno (void)
   hold = input_line_pointer;
 
   as_where (&file, &lineno);
-
-  /* Don't emit sequences of stabs for the same line.  */
-  if (prev_file == NULL)
-    {
-      /* First time thru.  */
-      prev_file = xstrdup (file);
-      prev_lineno = lineno;
-    }
-  else if (lineno == prev_lineno
-	   && filename_cmp (file, prev_file) == 0)
-    {
-      /* Same file/line as last time.  */
-      return;
-    }
-  else
-    {
-      /* Remember file/line for next time.  */
-      prev_lineno = lineno;
-      if (filename_cmp (file, prev_file) != 0)
-	{
-	  free (prev_file);
-	  prev_file = xstrdup (file);
-	}
-    }
-
-  /* Let the world know that we are in the middle of generating a
-     piece of stabs line debugging information.  */
-  outputting_stabs_line_debug = 1;
 
   generate_asm_file (N_SOL, file);
 
@@ -655,7 +622,9 @@ stabs_generate_asm_lineno (void)
    All assembler functions are assumed to have return type `void'.  */
 
 void
-stabs_generate_asm_func (const char *funcname, const char *startlabname)
+stabs_generate_asm_func (funcname, startlabname)
+     const char *funcname;
+     const char *startlabname;
 {
   static int void_emitted_p;
   char *hold = input_line_pointer;
@@ -671,9 +640,8 @@ stabs_generate_asm_func (const char *funcname, const char *startlabname)
     }
 
   as_where (&file, &lineno);
-  if (asprintf (&buf, "\"%s:F1\",%d,0,%d,%s",
-		funcname, N_FUN, lineno + 1, startlabname) == -1)
-    as_fatal ("%s", xstrerror (errno));
+  asprintf (&buf, "\"%s:F1\",%d,0,%d,%s",
+	    funcname, N_FUN, lineno + 1, startlabname);
   input_line_pointer = buf;
   s_stab ('s');
   free (buf);
@@ -686,8 +654,9 @@ stabs_generate_asm_func (const char *funcname, const char *startlabname)
 /* Emit a stab to record the end of a function.  */
 
 void
-stabs_generate_asm_endfunc (const char *funcname ATTRIBUTE_UNUSED,
-			    const char *startlabname)
+stabs_generate_asm_endfunc (funcname, startlabname)
+     const char *funcname ATTRIBUTE_UNUSED;
+     const char *startlabname;
 {
   static int label_count;
   char *hold = input_line_pointer;
@@ -698,8 +667,7 @@ stabs_generate_asm_endfunc (const char *funcname ATTRIBUTE_UNUSED,
   ++label_count;
   colon (sym);
 
-  if (asprintf (&buf, "\"\",%d,0,0,%s-%s", N_FUN, sym, startlabname) == -1)
-    as_fatal ("%s", xstrerror (errno));
+  asprintf (&buf, "\"\",%d,0,0,%s-%s", N_FUN, sym, startlabname);
   input_line_pointer = buf;
   s_stab ('s');
   free (buf);
