@@ -1,6 +1,6 @@
 /* pwdgrp.h
 
-   Copyright 2001, 2002, 2003 Red Hat inc.
+   Copyright 2001 Red Hat inc.
 
    Stuff common to pwd and grp handling.
 
@@ -10,75 +10,46 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-/* These functions are needed to allow searching and walking through
-   the passwd and group lists */
-extern struct passwd *internal_getpwsid (cygpsid &);
-extern struct passwd *internal_getpwnam (const char *, bool = FALSE);
-extern struct passwd *internal_getpwuid (__uid32_t, bool = FALSE);
-extern struct __group32 *internal_getgrsid (cygpsid &);
-extern struct __group32 *internal_getgrgid (__gid32_t gid, bool = FALSE);
-extern struct __group32 *internal_getgrnam (const char *, bool = FALSE);
-extern struct __group32 *internal_getgrent (int);
-int internal_getgroups (int, __gid32_t *, cygpsid * = NULL);
+enum pwdgrp_state {
+  uninitialized = 0,
+  initializing,
+  emulated,
+  loaded
+};
 
-#include "sync.h"
-#include "cygtls.h"
-class pwdgrp
-{
-  unsigned pwdgrp_buf_elem_size;
-  union
-  {
-    passwd **passwd_buf;
-    __group32 **group_buf;
-    void **pwdgrp_buf;
-  };
-  void (pwdgrp::*read) ();
-  bool (pwdgrp::*parse) ();
-  int etc_ix;
-  UNICODE_STRING upath;
-  PWCHAR path;
-  char *buf, *lptr;
-  int max_lines;
-  bool initialized;
-  static muto pglock;
-
-  bool parse_passwd ();
-  bool parse_group ();
-  void read_passwd ();
-  void read_group ();
-  char *add_line (char *);
-  char *raw_ptr () const {return lptr;}
-  char *next_str (char);
-  bool next_num (unsigned long&);
-  bool next_num (unsigned int& i)
-  {
-    unsigned long x;
-    bool res = next_num (x);
-    i = (unsigned int) x;
-    return res;
-  }
-  inline bool next_num (int& i)
-  {
-    unsigned long x;
-    bool res = next_num (x);
-    i = (int) x;
-    return res;
-  }
+class pwdgrp_check {
+  pwdgrp_state	state;
+  FILETIME	last_modified;
+  char		file_w32[MAX_PATH];
 
 public:
-  int curr_lines;
+  pwdgrp_check () : state (uninitialized) {}
+  operator pwdgrp_state ()
+    {
+      if (state != uninitialized && file_w32[0] && cygheap->etc_changed ())
+	{
+	  HANDLE h;
+	  WIN32_FIND_DATA data;
 
-  void load (const wchar_t *);
-  inline void refresh (bool check)
-  {
-    if (!check && initialized)
-      return;
-    if (pglock.acquire () == 1 &&
-	(!initialized || (check && etc::file_changed (etc_ix))))
-      (this->*read) ();
-    pglock.release ();
-  }
+	  if ((h = FindFirstFile (file_w32, &data)) != INVALID_HANDLE_VALUE)
+	    {
+	      if (CompareFileTime (&data.ftLastWriteTime, &last_modified) > 0)
+		state = uninitialized;
+	      FindClose (h);
+	    }
+	}
+      return state;
+    }
+  void operator = (pwdgrp_state nstate)
+    {
+      state = nstate;
+    }
+  void set_last_modified (FILE *f)
+    {
+      if (!file_w32[0])
+	strcpy (file_w32, cygheap->fdtab[fileno (f)]->get_win32_name ());
 
-  pwdgrp (passwd *&pbuf);
-  pwdgrp (__group32 *&gbuf);
+      GetFileTime (cygheap->fdtab[fileno (f)]->get_handle (),
+		   NULL, NULL, &last_modified);
+    }
 };

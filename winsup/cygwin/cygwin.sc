@@ -1,4 +1,6 @@
 OUTPUT_FORMAT(pei-i386)
+SEARCH_DIR(/cygnus/i686-pc-cygwin/lib/w32api); SEARCH_DIR(/cygnus/i686-pc-cygwin/lib);
+ENTRY(_mainCRTStartup)
 SECTIONS
 {
   .text  __image_base__ + __section_alignment__  :
@@ -8,85 +10,59 @@ SECTIONS
     *(SORT(.text$*))
     *(.glue_7t)
     *(.glue_7)
-     ___CTOR_LIST__ = .; __CTOR_LIST__ = .;
-			LONG (-1); *(SORT(.ctors.*)); *(.ctors); *(.ctor); LONG (0);
-     ___DTOR_LIST__ = .; __DTOR_LIST__ = .;
-			LONG (-1); *(SORT(.dtors.*)); *(.dtors); *(.dtor);  LONG (0);
+     ___CTOR_LIST__ = .; __CTOR_LIST__ = . ;
+			LONG (-1); *(.ctors); *(.ctor); LONG (0);
+     ___DTOR_LIST__ = .; __DTOR_LIST__ = . ;
+			LONG (-1); *(.dtors); *(.dtor);  LONG (0);
      *(.fini)
     /* ??? Why is .gcc_exc here?  */
      *(.gcc_exc)
      etext = .;
     *(.gcc_except_table)
   }
-  .autoload_text ALIGN(__section_alignment__) :
-  {
-    *(.*_autoload_text);
-  }
   /* The Cygwin DLL uses a section to avoid copying certain data
      on fork.  This used to be named ".data".  The linker used
      to include this between __data_start__ and __data_end__, but that
      breaks building the cygwin32 dll.  Instead, we name the section
      ".data_cygwin_nocopy" and explictly include it after __data_end__. */
-  .data ALIGN(__section_alignment__) :
+  .data BLOCK(__section_alignment__) :
   {
-    __data_start__ = .;
+    __data_start__ = . ;
     *(.data)
     *(.data2)
     *(SORT(.data$*))
-    __data_end__ = .;
+    __data_end__ = . ;
     *(.data_cygwin_nocopy)
   }
-  .rdata ALIGN(__section_alignment__) :
+  .rdata BLOCK(__section_alignment__) :
   {
     *(.rdata)
     *(SORT(.rdata$*))
     *(.eh_frame)
   }
-  .pdata ALIGN(__section_alignment__) :
+  .pdata BLOCK(__section_alignment__) :
   {
     *(.pdata)
   }
-  .bss ALIGN(__section_alignment__) :
+  .bss BLOCK(__section_alignment__) :
   {
-    __bss_start__ = .;
+    __bss_start__ = . ;
     *(.bss)
     *(COMMON)
-    __bss_end__ = .;
+    __bss_end__ = . ;
   }
-  .edata ALIGN(__section_alignment__) :
+  .edata BLOCK(__section_alignment__) :
   {
     *(.edata)
   }
-  .rsrc BLOCK(__section_alignment__) :
+  /DISCARD/ :
   {
-    *(.rsrc)
-    *(SORT(.rsrc$*))
+    *(.debug$S)
+    *(.debug$T)
+    *(.debug$F)
+    *(.drectve)
   }
-  .reloc BLOCK(__section_alignment__) :
-  {
-    *(.reloc)
-  }
-  .cygwin_dll_common ALIGN(__section_alignment__):
-  {
-    *(.cygwin_dll_common)
-  }
-  .gnu_debuglink_overlay ALIGN(__section_alignment__) (NOLOAD):
-  {
-    BYTE(0)	/* c */
-    BYTE(0)	/* y */
-    BYTE(0)	/* g */
-    BYTE(0)	/* w */
-    BYTE(0)	/* i */
-    BYTE(0)	/* n */
-    BYTE(0)	/* 1 */
-    BYTE(0)	/* . */
-    BYTE(0)	/* d */
-    BYTE(0)	/* b */
-    BYTE(0)	/* g */
-    BYTE(0)	/* \0 */
-    LONG(0)	/* checksum */
-  }
-  .idata ALIGN(__section_alignment__) :
+  .idata BLOCK(__section_alignment__) :
   {
     /* This cannot currently be handled with grouped sections.
 	See pe.em:sort_sections.  */
@@ -98,41 +74,38 @@ SECTIONS
     SORT(*)(.idata$5)
     SORT(*)(.idata$6)
     SORT(*)(.idata$7)
-    . = ALIGN(16);
-    __cygheap_start = ABSOLUTE(.);
   }
-  .cygheap ALIGN(__section_alignment__) :
+  .CRT BLOCK(__section_alignment__) :
   {
-    . = . + (2048 * 1024);
-    . = ALIGN(0x10000);
-    __cygheap_end = ABSOLUTE(.);
+    *(SORT(.CRT$*))
   }
-  /DISCARD/ :
+  .endjunk BLOCK(__section_alignment__) :
   {
-    *(.debug$S)
-    *(.debug$T)
-    *(.debug$F)
-    *(.drectve)
+    /* end is deprecated, don't use it */
+     end = .;
+     _end = .;
+     __end__ = .;
   }
-  .stab ALIGN(__section_alignment__) (NOLOAD) :
+  .rsrc BLOCK(__section_alignment__) :
   {
-    *(.stab)
+    *(.rsrc)
+    *(SORT(.rsrc$*))
   }
-  .stabstr ALIGN(__section_alignment__) (NOLOAD) :
+  .reloc BLOCK(__section_alignment__) :
   {
-    *(.stabstr)
+    *(.reloc)
   }
-  /* DWARF 1.1 and DWARF 2 */
-  .debug_aranges  ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_aranges) }
-  .debug_pubnames ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_pubnames) }
-  /* DWARF 2 */
-  .debug_info     ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_info) }
-  .debug_abbrev   ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_abbrev) }
-  .debug_line     ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_line) }
-  .debug_frame    ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_frame) }
-  .debug_str      ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_str) }
-  .debug_loc      ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_loc) }
-  .debug_macinfo  ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_macinfo) }
-  .debug_ranges   ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_ranges) }
-  .debug_pubtypes ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_pubtypes) }
+  .stab BLOCK(__section_alignment__) (NOLOAD) :
+  {
+    [ .stab ]
+  }
+  .stabstr BLOCK(__section_alignment__) (NOLOAD) :
+  {
+    [ .stabstr ]
+  }
+  .cygheap BLOCK(64 * 1024) :
+  {
+    __system_dlls__ = ABSOLUTE(.) ;
+    __cygheap_start = ABSOLUTE(.) ;
+  }
 }

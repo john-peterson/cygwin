@@ -31,9 +31,6 @@
  * SUCH DAMAGE.
  */
 
-#ifdef _COMPILING_NEWLIB
-#include_next "getopt.h"
-#else
 #ifndef __GETOPT_H__
 #define __GETOPT_H__
 
@@ -41,13 +38,11 @@
 extern "C" {
 #endif
 
-#ifndef __INSIDE_CYGWIN__
-extern int __declspec(dllimport) opterr;	/* if error message should be printed */
-extern int __declspec(dllimport) optind;	/* index into parent argv vector */
-extern int __declspec(dllimport) optopt;	/* character checked for validity */
-extern int __declspec(dllimport) optreset;	/* reset getopt */
-extern char __declspec(dllimport) *optarg;	/* argument associated with option */
-#endif
+extern int   opterr;      /* if error message should be printed */
+extern int   optind;      /* index into parent argv vector */
+extern int   optopt;      /* character checked for validity */
+extern int   optreset;    /* reset getopt */
+extern char *optarg;      /* argument associated with option */
 
 int getopt (int, char * const *, const char *);
 
@@ -73,8 +68,6 @@ struct option {
 };
 
 int getopt_long (int, char *const *, const char *, const struct option *, int *);
-int getopt_long_only (int, char *const *, const char *, const struct option *, int *);
-
 #ifndef HAVE_DECL_GETOPT
 #define HAVE_DECL_GETOPT 1
 #endif
@@ -89,4 +82,3 @@ int getopt_long_only (int, char *const *, const char *, const struct option *, i
 
 #endif /* __GETOPT_LONG_H__ */
 #endif /* __UNISTD_GETOPT__ */
-#endif /*_INSIDE_NEWLIB*/

@@ -1,3 +1,5 @@
+/*	$NetBSD: glob.h,v 1.6.2.2 1997/11/04 23:38:33 thorpej Exp $	*/
+
 /*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -34,7 +36,6 @@
  * SUCH DAMAGE.
  *
  *	@(#)glob.h	8.1 (Berkeley) 6/2/93
- * $FreeBSD: /repoman/r/ncvs/src/include/glob.h,v 1.10 2006/05/22 05:57:39 ache Exp $
  */
 
 #ifndef _GLOB_H_
@@ -45,9 +46,9 @@
 #include <sys/stat.h>
 
 typedef struct {
-	size_t gl_pathc;	/* Count of total paths so far. */
-	size_t gl_matchc;	/* Count of paths matching pattern. */
-	size_t gl_offs;		/* Reserved at beginning of gl_pathv. */
+	int gl_pathc;		/* Count of total paths so far. */
+	int gl_matchc;		/* Count of paths matching pattern. */
+	int gl_offs;		/* Reserved at beginning of gl_pathv. */
 	int gl_flags;		/* Copy of flags parameter to glob. */
 	char **gl_pathv;	/* List of paths matching pattern. */
 				/* Copy of errfunc parameter to glob. */
@@ -58,33 +59,24 @@ typedef struct {
 	 * versions of closedir(3), readdir(3), opendir(3), stat(2)
 	 * and lstat(2).
 	 */
-	void (*gl_closedir)(void *);
-	struct dirent *(*gl_readdir)(void *);
-	void *(*gl_opendir)(const char *);
-#if defined (__INSIDE_CYGWIN__)
-	int (*gl_lstat) __P((const char *, struct __stat64 *));
-	int (*gl_stat) __P((const char *, struct __stat64 *));
+	void (*gl_closedir) __P((void *));
+	struct dirent *(*gl_readdir) __P((void *));
+	void *(*gl_opendir) __P((const char *));
+#ifdef __LIBC12_SOURCE__
+	int (*gl_lstat) __P((const char *, struct stat12 *));
+	int (*gl_stat) __P((const char *, struct stat12 *));
 #else
-
 	int (*gl_lstat) __P((const char *, struct stat *));
 	int (*gl_stat) __P((const char *, struct stat *));
 #endif
 } glob_t;
 
-/* Believed to have been introduced in 1003.2-1992 */
 #define	GLOB_APPEND	0x0001	/* Append to output from previous call. */
 #define	GLOB_DOOFFS	0x0002	/* Use gl_offs. */
 #define	GLOB_ERR	0x0004	/* Return on error. */
 #define	GLOB_MARK	0x0008	/* Append / to matching directories. */
 #define	GLOB_NOCHECK	0x0010	/* Return pattern itself if nothing matches. */
 #define	GLOB_NOSORT	0x0020	/* Don't sort. */
-#define	GLOB_NOESCAPE	0x2000	/* Disable backslash escaping. */
-
-/* Error values returned by glob(3) */
-#define	GLOB_NOSPACE	(-1)	/* Malloc call failed. */
-#define	GLOB_ABORTED	(-2)	/* Unignored error. */
-#define	GLOB_NOMATCH	(-3)	/* No match and GLOB_NOCHECK was not set. */
-#define	GLOB_NOSYS	(-4)	/* Obsolete: source comptability only. */
 
 #ifndef _POSIX_SOURCE
 #define	GLOB_ALTDIRFUNC	0x0040	/* Use alternately specified directory funcs. */
@@ -93,12 +85,10 @@ typedef struct {
 #define	GLOB_NOMAGIC	0x0200	/* GLOB_NOCHECK without magic chars (csh). */
 #define	GLOB_QUOTE	0x0400	/* Quote special chars with \. */
 #define	GLOB_TILDE	0x0800	/* Expand tilde names from the passwd file. */
-#define	GLOB_LIMIT	0x1000	/* limit number of returned paths */
+#endif
 
-/* source compatibility, these are the old names */
-#define GLOB_MAXPATH	GLOB_LIMIT
-#define	GLOB_ABEND	GLOB_ABORTED
-#endif /* __BSD_VISIBLE */
+#define	GLOB_NOSPACE	(-1)	/* Malloc call failed. */
+#define	GLOB_ABEND	(-2)	/* Unignored error. */
 
 __BEGIN_DECLS
 
@@ -108,10 +98,10 @@ __BEGIN_DECLS
 #else
 # define DLLEXPORT __declspec(dllimport)
 #endif
+int	DLLEXPORT glob(const char *, int, int (*)(const char *, int), glob_t *);
+void    DLLEXPORT globfree(glob_t *);
 
-int	DLLEXPORT glob (const char *, int, int (*)(const char *, int), glob_t *);
-void	DLLEXPORT globfree (glob_t *);
-int	DLLEXPORT glob_pattern_p (const char *, int);
+#undef DLLEXPORT
 __END_DECLS
 
 #endif /* !_GLOB_H_ */

@@ -6,9 +6,7 @@
 
 #include "winsup.h"
 #include "cygerrno.h"
-#include "sync.h"
-#include <ctype.h>
-#define STD_INSPIRED
+#include <windows.h>
 #define lint
 
 #define USG_COMPAT
@@ -95,11 +93,14 @@ static char	privatehid[] = "@(#)private.h	7.48";
 ** Nested includes
 */
 
+#include "sys/types.h"	/* for time_t */
 #include "stdio.h"
 #include "limits.h"	/* for CHAR_BIT */
+#include "time.h"
 #include "stdlib.h"
 
 #if HAVE_GETTEXT - 0
+#include "libintl.h"
 #endif /* HAVE_GETTEXT - 0 */
 
 #if HAVE_UNISTD_H - 0
@@ -169,6 +170,7 @@ static char	privatehid[] = "@(#)private.h	7.48";
 
 #ifndef MAXPATHLEN
 #ifdef unix
+#include "sys/param.h"
 #endif /* defined unix */
 #endif /* !defined MAXPATHLEN */
 
@@ -193,6 +195,14 @@ extern int	unlink P((const char * filename));
 /*
 ** Finally, some convenience items.
 */
+
+#ifndef TRUE
+#define TRUE	1
+#endif /* !defined TRUE */
+
+#ifndef FALSE
+#define FALSE	0
+#endif /* !defined FALSE */
 
 #ifndef TYPE_BIT
 #define TYPE_BIT(type)	(sizeof (type) * CHAR_BIT)
@@ -293,7 +303,7 @@ static char	tzfilehid[] = "@(#)tzfile.h	7.14";
 */
 
 #ifndef TZDIR
-#define TZDIR	"/usr/share/zoneinfo" /* Time zone object file directory */
+#define TZDIR	"/usr/local/etc/zoneinfo" /* Time zone object file directory */
 #endif /* !defined TZDIR */
 
 #ifndef TZDEFAULT
@@ -334,13 +344,13 @@ struct tzhead {
 **	tzh_leapcnt repetitions of
 **		one (char [4])		coded leap second transition times
 **		one (char [4])		total correction after above
-**	tzh_ttisstdcnt (char)s		indexed by type; if true, transition
-**					time is standard time, if false,
+**	tzh_ttisstdcnt (char)s		indexed by type; if TRUE, transition
+**					time is standard time, if FALSE,
 **					transition time is wall clock time
 **					if absent, transition times are
 **					assumed to be wall clock time
-**	tzh_ttisgmtcnt (char)s		indexed by type; if true, transition
-**					time is UTC, if false,
+**	tzh_ttisgmtcnt (char)s		indexed by type; if TRUE, transition
+**					time is UTC, if FALSE,
 **					transition time is local time
 **					if absent, transition times are
 **					assumed to be local time
@@ -494,8 +504,8 @@ struct ttinfo {				/* time type information */
 	long		tt_gmtoff;	/* UTC offset in seconds */
 	int		tt_isdst;	/* used to set tm_isdst */
 	int		tt_abbrind;	/* abbreviation list index */
-	int		tt_ttisstd;	/* true if transition is std time */
-	int		tt_ttisgmt;	/* true if transition is UTC */
+	int		tt_ttisstd;	/* TRUE if transition is std time */
+	int		tt_ttisgmt;	/* TRUE if transition is UTC */
 };
 
 struct lsinfo {				/* leap second information */
@@ -596,13 +606,7 @@ static struct state	gmtmem;
 #endif /* !defined TZ_STRLEN_MAX */
 
 static char		lcl_TZname[TZ_STRLEN_MAX + 1];
-static enum lcl_states
-{
-  lcl_setting = -1,
-  lcl_unset = 0,
-  lcl_from_environment = 1,
-  lcl_from_default = 2
-} lcl_is_set;
+static int		lcl_is_set;
 static int		gmt_is_set;
 
 #define tzname _tzname
@@ -633,12 +637,12 @@ static struct tm	tm;
 #undef _daylight
 
 #ifdef USG_COMPAT
-long		timezone;	/* was time_t but POSIX requires long. */
-int		daylight;
+time_t			timezone;
+int			daylight;
 #endif /* defined USG_COMPAT */
 
 #ifdef ALTZONE
-time_t		altzone;
+time_t			altzone;
 #endif /* defined ALTZONE */
 
 static long
@@ -734,14 +738,14 @@ tzload(const char *name, struct state *sp)
 				return -1;
 			if ((strlen(p) + strlen(name) + 1) >= sizeof fullname)
 				return -1;
-			strcpy(fullname, p);
-			strcat(fullname, "/");
-			strcat(fullname, name);
+			(void) strcpy(fullname, p);
+			(void) strcat(fullname, "/");
+			(void) strcat(fullname, name);
 			/*
 			** Set doaccess if '.' (as in "../") shows up in name.
 			*/
 			if (strchr(name, '.') != NULL)
-				doaccess = true;
+				doaccess = TRUE;
 			name = fullname;
 		}
 #if 0
@@ -773,8 +777,8 @@ tzload(const char *name, struct state *sp)
 
 		if (fid == -2)
 		  {
-		    memcpy(u.buf, _posixrules_data, sizeof (_posixrules_data));
-		    i = sizeof (_posixrules_data);
+		    memcpy(u.buf, _posixrules_data, sizeof(_posixrules_data));
+		    i = sizeof(_posixrules_data);
 		  }
 		else
 		  {
@@ -844,11 +848,11 @@ tzload(const char *name, struct state *sp)
 
 			ttisp = &sp->ttis[i];
 			if (ttisstdcnt == 0)
-				ttisp->tt_ttisstd = false;
+				ttisp->tt_ttisstd = FALSE;
 			else {
 				ttisp->tt_ttisstd = *p++;
-				if (ttisp->tt_ttisstd != true &&
-					ttisp->tt_ttisstd != false)
+				if (ttisp->tt_ttisstd != TRUE &&
+					ttisp->tt_ttisstd != FALSE)
 						return -1;
 			}
 		}
@@ -857,22 +861,15 @@ tzload(const char *name, struct state *sp)
 
 			ttisp = &sp->ttis[i];
 			if (ttisgmtcnt == 0)
-				ttisp->tt_ttisgmt = false;
+				ttisp->tt_ttisgmt = FALSE;
 			else {
 				ttisp->tt_ttisgmt = *p++;
-				if (ttisp->tt_ttisgmt != true &&
-					ttisp->tt_ttisgmt != false)
+				if (ttisp->tt_ttisgmt != TRUE &&
+					ttisp->tt_ttisgmt != FALSE)
 						return -1;
 			}
 		}
 	}
-	if (sp == lclptr)
-	  {
-	    __gettzinfo ()->__tzrule[0].offset
-				    = -sp->ttis[1].tt_gmtoff;
-	    __gettzinfo ()->__tzrule[1].offset
-				    = -sp->ttis[0].tt_gmtoff;
-	  }
 	return 0;
 }
 
@@ -1246,13 +1243,6 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 				janfirst += year_lengths[isleap(year)] *
 					SECSPERDAY;
 			}
-			if (sp == lclptr)
-			  {
-			    __gettzinfo ()->__tzrule[0].offset
-						    = -sp->ttis[1].tt_gmtoff;
-			    __gettzinfo ()->__tzrule[1].offset
-						    = -sp->ttis[0].tt_gmtoff;
-			  }
 		} else {
 			register long	theirstdoffset;
 			register long	theirdstoffset;
@@ -1289,7 +1279,7 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 			/*
 			** Initially we're assumed to be in standard time.
 			*/
-			isdst = false;
+			isdst = FALSE;
 			theiroffset = theirstdoffset;
 			/*
 			** Now juggle transition times and types
@@ -1333,19 +1323,12 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 			** ttisstd and ttisgmt need not be handled.
 			*/
 			sp->ttis[0].tt_gmtoff = -stdoffset;
-			sp->ttis[0].tt_isdst = false;
+			sp->ttis[0].tt_isdst = FALSE;
 			sp->ttis[0].tt_abbrind = 0;
 			sp->ttis[1].tt_gmtoff = -dstoffset;
-			sp->ttis[1].tt_isdst = true;
+			sp->ttis[1].tt_isdst = TRUE;
 			sp->ttis[1].tt_abbrind = stdlen + 1;
 			sp->typecnt = 2;
-			if (sp == lclptr)
-			  {
-			    __gettzinfo ()->__tzrule[0].offset
-						    = -sp->ttis[0].tt_gmtoff;
-			    __gettzinfo ()->__tzrule[1].offset
-						    = -sp->ttis[1].tt_gmtoff;
-			  }
 		}
 	} else {
 		dstlen = 0;
@@ -1354,11 +1337,6 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 		sp->ttis[0].tt_gmtoff = -stdoffset;
 		sp->ttis[0].tt_isdst = 0;
 		sp->ttis[0].tt_abbrind = 0;
-		if (sp == lclptr)
-		  {
-		    __gettzinfo ()->__tzrule[0].offset = -sp->ttis[0].tt_gmtoff;
-		    __gettzinfo ()->__tzrule[1].offset = -sp->ttis[0].tt_gmtoff;
-		  }
 	}
 	sp->charcnt = stdlen + 1;
 	if (dstlen != 0)
@@ -1366,11 +1344,11 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 	if ((size_t) sp->charcnt > sizeof sp->chars)
 		return -1;
 	cp = sp->chars;
-	strncpy(cp, stdname, stdlen);
+	(void) strncpy(cp, stdname, stdlen);
 	cp += stdlen;
 	*cp++ = '\0';
 	if (dstlen != 0) {
-		strncpy(cp, dstname, dstlen);
+		(void) strncpy(cp, dstname, dstlen);
 		*(cp + dstlen) = '\0';
 	}
 	return 0;
@@ -1380,7 +1358,7 @@ static void
 gmtload(struct state *sp)
 {
 	if (tzload(gmt, sp) != 0)
-		tzparse(gmt, sp, true);
+		(void) tzparse(gmt, sp, TRUE);
 }
 
 #ifndef STD_INSPIRED
@@ -1393,9 +1371,9 @@ static
 void
 tzsetwall P((void))
 {
-	if (lcl_is_set == lcl_setting)
+	if (lcl_is_set < 0)
 		return;
-	lcl_is_set = lcl_setting;
+	lcl_is_set = -1;
 
 #ifdef ALL_STATE
 	if (lclptr == NULL) {
@@ -1406,7 +1384,8 @@ tzsetwall P((void))
 		}
 	}
 #endif /* defined ALL_STATE */
-#if defined (__CYGWIN__)
+#if defined (_WIN32) || defined (__CYGWIN__)
+#define is_upper(c) ((unsigned)(c) - 'A' <= 26)
 	{
 	    TIME_ZONE_INFORMATION tz;
 	    char buf[BUFSIZ];
@@ -1416,11 +1395,11 @@ tzsetwall P((void))
 	    GetTimeZoneInformation(&tz);
 	    dst = cp = buf;
 	    for (src = tz.StandardName; *src; src++)
-	      if (isupper(*src)) *dst++ = *src;
-	    if ((dst - cp) < 3)
+	      if (is_upper(*src)) *dst++ = *src;
+	    if (cp == dst)
 	      {
-		/* In non-english Windows, converted tz.StandardName
-		   may not contain a valid standard timezone name. */
+		/* In Asian Windows, tz.StandardName may not contain
+		   the timezone name. */
 		strcpy(cp, wildabbr);
 		cp += strlen(wildabbr);
 	      }
@@ -1434,12 +1413,12 @@ tzsetwall P((void))
 		cp = strchr(cp, 0);
 		dst = cp;
 		for (src = tz.DaylightName; *src; src++)
-		  if (isupper(*src)) *dst++ = *src;
-		if ((dst - cp) < 3)
+		  if (is_upper(*src)) *dst++ = *src;
+		if (cp == dst)
 		  {
-		    /* In non-english Windows, converted tz.DaylightName
-		       may not contain a valid daylight timezone name. */
-		    strcpy(cp, wildabbr);
+		    /* In Asian Windows, tz.StandardName may not contain
+		       the daylight name. */
+		    strcpy(buf, wildabbr);
 		    cp += strlen(wildabbr);
 		  }
 		else
@@ -1470,15 +1449,9 @@ tzsetwall P((void))
 		    sprintf(cp=strchr(cp, 0), ":%d", tz.StandardDate.wSecond);
 	    }
 	    /* printf("TZ deduced as `%s'\n", buf); */
-	    if (tzparse(buf, lclptr, false) == 0) {
+	    if (tzparse(buf, lclptr, FALSE) == 0) {
 		settzname();
-		lcl_is_set = lcl_from_default;
-		strlcpy(lcl_TZname, buf, sizeof (lcl_TZname));
-#if 0
-		/* Huh?  POSIX doesn't mention anywhere that tzset should
-		   set $TZ.  That's not right. */
-		setenv("TZ", lcl_TZname, 1);
-#endif
+		setenv("TZ", buf, 1);
 		return;
 	    }
 	}
@@ -1488,32 +1461,28 @@ tzsetwall P((void))
 	settzname();
 }
 
-static NO_COPY muto tzset_guard;
-
 extern "C" void
 tzset P((void))
 {
-	tzset_guard.init ("tzset_guard")->acquire ();
 	const char *	name = getenv("TZ");
 
 	if (name == NULL) {
-		if (lcl_is_set != lcl_from_default)
-			tzsetwall();
-		goto out;
+		tzsetwall();
+		return;
 	}
 
-	if (lcl_is_set > 0 && strncmp(lcl_TZname, name, sizeof(lcl_TZname) - 1) == 0)
-		goto out;
-	lcl_is_set = (strlen(name) < sizeof (lcl_TZname)) ? lcl_from_environment : lcl_unset;
-	if (lcl_is_set != lcl_unset)
-		strlcpy(lcl_TZname, name, sizeof (lcl_TZname));
+	if (lcl_is_set > 0  &&  strcmp(lcl_TZname, name) == 0)
+		return;
+	lcl_is_set = (strlen(name) < sizeof(lcl_TZname));
+	if (lcl_is_set)
+		(void) strcpy(lcl_TZname, name);
 
 #ifdef ALL_STATE
 	if (lclptr == NULL) {
 		lclptr = (struct state *) malloc(sizeof *lclptr);
 		if (lclptr == NULL) {
 			settzname();	/* all we can do */
-			goto out;
+			return;
 		}
 	}
 #endif /* defined ALL_STATE */
@@ -1525,14 +1494,12 @@ tzset P((void))
 		lclptr->timecnt = 0;
 		lclptr->ttis[0].tt_gmtoff = 0;
 		lclptr->ttis[0].tt_abbrind = 0;
-		strcpy(lclptr->chars, gmt);
+		(void) strcpy(lclptr->chars, gmt);
 	} else if (tzload(name, lclptr) != 0) {
-		if (name[0] == ':' || tzparse(name, lclptr, false) != 0)
-			gmtload(lclptr);
+		if (name[0] == ':' || tzparse(name, lclptr, FALSE) != 0)
+			(void) gmtload(lclptr);
 	}
 	settzname();
-out:
-	tzset_guard.release ();
 }
 
 /*
@@ -1604,7 +1571,6 @@ localtime(const time_t *timep)
 extern "C" struct tm *
 localtime_r(const time_t *timep, struct tm *tm)
 {
-	tzset();
 	localsub(timep, 0L, tm);
 	return tm;
 }
@@ -1617,7 +1583,7 @@ static void
 gmtsub(const time_t *timep, const long offset, struct tm *tmp)
 {
 	if (!gmt_is_set) {
-		gmt_is_set = true;
+		gmt_is_set = TRUE;
 #ifdef ALL_STATE
 		gmtptr = (struct state *) malloc(sizeof *gmtptr);
 		if (gmtptr != NULL)
@@ -1810,8 +1776,7 @@ ctime_r(const time_t *timep, char *buf)
 ** Simplified normalize logic courtesy Paul Eggert (eggert@twinsun.com).
 */
 
-/* Mark as noinline to prevent a compiler warning. */
-static int __attribute__((noinline))
+static int
 increment_overflow(int *number, int delta)
 {
 	int	number0;
@@ -1860,7 +1825,7 @@ time2sub(struct tm *tmp, void (*funcp) P((const time_t*, long, struct tm*)),
 	time_t				t;
 	struct tm			yourtm, mytm;
 
-	*okayp = false;
+	*okayp = FALSE;
 	yourtm = *tmp;
 	if (do_norm_secs) {
 		if (normalize_overflow(&yourtm.tm_min, &yourtm.tm_sec,
@@ -1991,7 +1956,7 @@ label:
 		return WRONG;
 	t = newt;
 	(*funcp)(&t, offset, tmp);
-	*okayp = true;
+	*okayp = TRUE;
 	return t;
 }
 
@@ -2006,29 +1971,8 @@ time2(struct tm *tmp, void (*funcp) P((const time_t*, long, struct tm*)),
 	** (in case tm_sec contains a value associated with a leap second).
 	** If that fails, try with normalization of seconds.
 	*/
-	t = time2sub(tmp, funcp, offset, okayp, false);
-	if (*okayp)
-	  return t;
-	t = time2sub(tmp, funcp, offset, okayp, true);
-	if (*okayp)
-	  return t;
-	/* Workaround for the spring forward gap problem which results in
-	   the autoconf mktime usability test failing.
-	   What we do here is this:  The gap has 3600 seconds.  If we
-	   subtract 3600 from the tm_sec value and get a valid result,
-	   then we can simply add 3600 to the return value and are done.
-	   If the result is still not valid, the problem is not the
-	   spring forward gap and we can give up. */
-	struct tm tmp2 = *tmp;
-	tmp2.tm_sec -= 3600;
-	t = time2sub(&tmp2, funcp, offset, okayp, true);
-	if (*okayp)
-	  {
-	    if (t + 3600 < 0)	/* Sanity check */
-	      return WRONG;
-	    return t + 3600;
-	  }
-	return t;
+	t = time2sub(tmp, funcp, offset, okayp, FALSE);
+	return *okayp ? t : time2sub(tmp, funcp, offset, okayp, TRUE);
 }
 
 static time_t

@@ -1,7 +1,6 @@
 /* resource.cc: getrusage () and friends.
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2005, 2008, 2009, 2010,
-   2011 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001 Red Hat, Inc.
 
    Written by Steve Chamberlain (sac@cygnus.com), Doug Evans (dje@cygnus.com),
    Geoffrey Noer (noer@cygnus.com) of Cygnus Support.
@@ -14,17 +13,14 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <errno.h>
 #include <unistd.h>
-#include <sys/param.h>
+#include <limits.h>
+#include "cygerrno.h"
+#include "sync.h"
+#include "sigproc.h"
 #include "pinfo.h"
 #include "psapi.h"
-#include "cygtls.h"
-#include "path.h"
-#include "fhandler.h"
-#include "pinfo.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "ntdll.h"
 
 /* add timeval values */
 static void
@@ -79,17 +75,18 @@ fill_rusage (struct rusage *r, HANDLE h)
   totimeval (&tv, &user_time, 0, 0);
   add_timeval (&r->ru_utime, &tv);
 
-  VM_COUNTERS vmc;
-  NTSTATUS status = NtQueryInformationProcess (h, ProcessVmCounters, &vmc,
-					       sizeof vmc, NULL);
-  if (NT_SUCCESS (status))
+  PROCESS_MEMORY_COUNTERS pmc;
+
+  memset (&pmc, 0, sizeof (pmc));
+  if (GetProcessMemoryInfo( h, &pmc, sizeof (pmc)))
     {
-      r->ru_maxrss += (long) (vmc.WorkingSetSize / 1024);
-      r->ru_majflt += vmc.PageFaultCount;
+      r->ru_maxrss += (long) (pmc.WorkingSetSize /1024);
+      r->ru_majflt += pmc.PageFaultCount;
     }
 }
 
-extern "C" int
+extern "C"
+int
 getrusage (int intwho, struct rusage *rusage_in)
 {
   int res = 0;
@@ -98,7 +95,7 @@ getrusage (int intwho, struct rusage *rusage_in)
   if (intwho == RUSAGE_SELF)
     {
       memset (&r, 0, sizeof (r));
-      fill_rusage (&r, GetCurrentProcess ());
+      fill_rusage (&r, hMainProc);
       *rusage_in = r;
     }
   else if (intwho == RUSAGE_CHILDREN)
@@ -109,17 +106,18 @@ getrusage (int intwho, struct rusage *rusage_in)
       res = -1;
     }
 
-  syscall_printf ("%R = getrusage(%d, %p)", res, intwho, rusage_in);
+  syscall_printf ("%d = getrusage (%d, %p)", res, intwho, rusage_in);
   return res;
 }
+
+unsigned long rlim_core = RLIM_INFINITY;
 
 extern "C" int
 getrlimit (int resource, struct rlimit *rlp)
 {
   MEMORY_BASIC_INFORMATION m;
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
+  if (check_null_invalid_struct_errno (rlp))
     return -1;
 
   rlp->rlim_cur = RLIM_INFINITY;
@@ -130,7 +128,6 @@ getrlimit (int resource, struct rlimit *rlp)
     case RLIMIT_CPU:
     case RLIMIT_FSIZE:
     case RLIMIT_DATA:
-    case RLIMIT_AS:
       break;
     case RLIMIT_STACK:
       if (!VirtualQuery ((LPCVOID) &m, &m, sizeof m))
@@ -144,12 +141,13 @@ getrlimit (int resource, struct rlimit *rlp)
       break;
     case RLIMIT_NOFILE:
       rlp->rlim_cur = getdtablesize ();
-      if (rlp->rlim_cur < OPEN_MAX)
-	rlp->rlim_cur = OPEN_MAX;
-      rlp->rlim_max = OPEN_MAX_MAX;
       break;
     case RLIMIT_CORE:
-      rlp->rlim_cur = cygheap->rlim_core;
+      rlp->rlim_cur = rlim_core;
+      break;
+    case RLIMIT_AS:
+      rlp->rlim_cur = 0x80000000UL;
+      rlp->rlim_max = 0x80000000UL;
       break;
     default:
       set_errno (EINVAL);
@@ -161,8 +159,7 @@ getrlimit (int resource, struct rlimit *rlp)
 extern "C" int
 setrlimit (int resource, const struct rlimit *rlp)
 {
-  myfault efault;
-  if (efault.faulted (EFAULT))
+  if (check_null_invalid_struct_errno (rlp))
     return -1;
 
   struct rlimit oldlimits;
@@ -170,7 +167,7 @@ setrlimit (int resource, const struct rlimit *rlp)
   // Check if the request is to actually change the resource settings.
   // If it does not result in a change, take no action and do not
   // fail.
-  if (getrlimit (resource, &oldlimits) < 0)
+  if (getrlimit(resource, &oldlimits) < 0)
     return -1;
 
   if (oldlimits.rlim_cur == rlp->rlim_cur &&
@@ -181,7 +178,7 @@ setrlimit (int resource, const struct rlimit *rlp)
   switch (resource)
     {
     case RLIMIT_CORE:
-      cygheap->rlim_core = rlp->rlim_cur;
+      rlim_core = rlp->rlim_cur;
       break;
     case RLIMIT_NOFILE:
       if (rlp->rlim_cur != RLIM_INFINITY)

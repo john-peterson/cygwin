@@ -1,7 +1,6 @@
 /* uname.cc
 
-   Copyright 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2008 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
    Written by Steve Chamberlain of Cygnus Support, sac@cygnus.com
    Rewritten by Geoffrey Noer of Cygnus Solutions, noer@cygnus.com
 
@@ -12,18 +11,18 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <stdio.h>
 #include <sys/utsname.h>
 #include "cygwin_version.h"
-#include "cygtls.h"
 
 /* uname: POSIX 4.4.1.1 */
 extern "C" int
 uname (struct utsname *name)
 {
+  DWORD len;
   SYSTEM_INFO sysinfo;
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
+  if (check_null_invalid_struct_errno (name))
     return -1;
 
   char *snp = strstr  (cygwin_version.dll_build_date, "SNP");
@@ -31,25 +30,11 @@ uname (struct utsname *name)
   memset (name, 0, sizeof (*name));
   __small_sprintf (name->sysname, "CYGWIN_%s", wincap.osname ());
 
-#if 0
-  /* Recognition of the real 64 bit CPU inside of a WOW64 system, irritates
-     build systems which think the native system is a 64 bit system.  Since
-     we're actually running in a 32 bit environment, it looks more correct
-     just to use the CPU info given by WOW64. */
-  if (wincap.is_wow64 ())
-    GetNativeSystemInfo (&sysinfo);
-  else
-#else
-  /* But it seems ok to add a hint to the sysname, that we're running under
-     WOW64.  This might give an early clue if somebody encounters problems. */
-  if (wincap.is_wow64 ())
-    strncat (name->sysname, "-WOW64",
-	     sizeof name->sysname - strlen (name->sysname) - 1);
-#endif
-    GetSystemInfo (&sysinfo);
+  GetSystemInfo (&sysinfo);
 
   /* Computer name */
-  cygwin_gethostname (name->nodename, sizeof (name->nodename) - 1);
+  len = sizeof (name->nodename) - 1;
+  GetComputerNameA (name->nodename, &len);
 
   /* Cygwin dll release */
   __small_sprintf (name->release, "%d.%d.%d%s(%d.%d/%d/%d)",
@@ -72,22 +57,24 @@ uname (struct utsname *name)
     {
       case PROCESSOR_ARCHITECTURE_INTEL:
 	unsigned int ptype;
-	if (sysinfo.wProcessorLevel < 3) /* Shouldn't happen. */
-	  ptype = 3;
-	else if (sysinfo.wProcessorLevel > 9) /* P4 */
-	  ptype = 6;
+	if (wincap.has_valid_processorlevel ())
+	  {
+	    if (sysinfo.wProcessorLevel < 3) /* Shouldn't happen. */
+	      ptype = 3;
+	    else if (sysinfo.wProcessorLevel > 9) /* P4 */
+	      ptype = 6;
+	    else
+	      ptype = sysinfo.wProcessorLevel;
+	  }
 	else
-	  ptype = sysinfo.wProcessorLevel;
+	  {
+	    if (sysinfo.dwProcessorType == PROCESSOR_INTEL_386 ||
+	        sysinfo.dwProcessorType == PROCESSOR_INTEL_486)
+	      ptype = sysinfo.dwProcessorType / 100;
+	    else
+	      ptype = PROCESSOR_INTEL_PENTIUM / 100;
+	  }
 	__small_sprintf (name->machine, "i%d86", ptype);
-	break;
-      case PROCESSOR_ARCHITECTURE_IA64:
-	strcpy (name->machine, "ia64");
-	break;
-      case PROCESSOR_ARCHITECTURE_AMD64:
-	strcpy (name->machine, "x86_64");
-	break;
-      case PROCESSOR_ARCHITECTURE_IA32_ON_WIN64:
-	strcpy (name->machine, "ia32-win64");
 	break;
       case PROCESSOR_ARCHITECTURE_ALPHA:
 	strcpy (name->machine, "alpha");

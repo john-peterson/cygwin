@@ -1,6 +1,6 @@
 /* heap.h: Cygwin heap manager definitions.
 
-   Copyright 2000, 2001, 2002 Red Hat, Inc.
+   Copyright 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,6 +15,5 @@ void heap_init ();
 void malloc_init ();
 
 #define inheap(s) \
-  (cygheap->user_heap.ptr && s \
-   && ((char *) (s) >= (char *) cygheap->user_heap.base) \
-   && ((char *) (s) <= (char *) cygheap->user_heap.top))
+  (cygheap->heapptr && s && ((char *) (s) >= (char *) cygheap->heapbase) \
+   && ((char *) (s) <= (char *) cygheap->heaptop))

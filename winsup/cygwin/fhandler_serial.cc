@@ -1,7 +1,6 @@
 /* fhandler_serial.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,26 +9,25 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
-#include <sys/param.h>
+#include <stdlib.h>
 #include "cygerrno.h"
 #include "security.h"
-#include "path.h"
 #include "fhandler.h"
+#include "sync.h"
 #include "sigproc.h"
 #include "pinfo.h"
-#include <asm/socket.h>
-#include <devioctl.h>
-#include <ntddser.h>
-#include "cygwait.h"
+#include <sys/termios.h>
 
 /**********************************************************************/
 /* fhandler_serial */
 
-fhandler_serial::fhandler_serial ()
-  : fhandler_base (), vmin_ (0), vtime_ (0), pgrp_ (myself->pgid)
+fhandler_serial::fhandler_serial (int unit)
+  : fhandler_base (FH_SERIAL, unit), vmin_ (0), vtime_ (0), pgrp_ (myself->pgid)
 {
-  need_fork_fixup (true);
+  set_need_fork_fixup ();
 }
 
 void
@@ -41,41 +39,51 @@ fhandler_serial::overlapped_setup ()
   overlapped_armed = 0;
 }
 
-void __stdcall
-fhandler_serial::raw_read (void *ptr, size_t& ulen)
+int
+fhandler_serial::raw_read (void *ptr, size_t ulen)
 {
   int tot;
   DWORD n;
+  HANDLE w4[2];
+  DWORD minchars = vmin_ ?: ulen;
 
-  size_t minchars = vmin_ ? MIN (vmin_, ulen) : ulen;
+  w4[0] = io_status.hEvent;
+  w4[1] = signal_arrived;
 
   debug_printf ("ulen %d, vmin_ %d, vtime_ %d, hEvent %p", ulen, vmin_, vtime_,
 		io_status.hEvent);
   if (!overlapped_armed)
     {
-      SetCommMask (get_handle (), EV_RXCHAR);
+      (void) SetCommMask (get_handle (), EV_RXCHAR);
       ResetEvent (io_status.hEvent);
     }
 
-  for (n = 0, tot = 0; ulen; ulen -= n, ptr = (char *) ptr + n)
+  for (n = 0, tot = 0; ulen; ulen -= n, ptr = (char *)ptr + n)
     {
       COMSTAT st;
-      DWORD inq = vmin_ ? minchars : vtime_ ? ulen : 1;
+      DWORD inq = 1;
 
       n = 0;
 
-      if (vtime_) // non-interruptible -- have to use kernel timeouts
-	overlapped_armed = -1;
+      if (!vtime_ && !vmin_)
+	inq = ulen;
+      else if (vtime_)
+	{
+	  inq = ulen;	// non-interruptible -- have to use kernel timeouts
+			// also note that this is not strictly correct.
+			// if vmin > ulen then things won't work right.
+	  overlapped_armed = -1;
+	}
 
       if (!ClearCommError (get_handle (), &ev, &st))
 	goto err;
       else if (ev)
 	termios_printf ("error detected %x", ev);
-      else if (st.cbInQue && !vtime_)
+      else if (st.cbInQue)
 	inq = st.cbInQue;
-      else if (!is_nonblocking () && !overlapped_armed)
+      else if (!overlapped_armed)
 	{
-	  if ((size_t) tot >= minchars)
+	  if ((size_t)tot >= minchars)
 	    break;
 	  else if (WaitCommEvent (get_handle (), &ev, &io_status))
 	    {
@@ -88,25 +96,19 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
 	  else
 	    {
 	      overlapped_armed = 1;
-	      switch (cygwait (io_status.hEvent))
+	      switch (WaitForMultipleObjects (2, w4, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
-		  if (!GetOverlappedResult (get_handle (), &io_status, &n,
-					    FALSE))
+		  if (!GetOverlappedResult (get_handle (), &io_status, &n, FALSE))
 		    goto err;
 		  debug_printf ("n %d, ev %x", n, ev);
 		  break;
-		case WAIT_SIGNALED:
+		case WAIT_OBJECT_0 + 1:
 		  tot = -1;
 		  PurgeComm (get_handle (), PURGE_RXABORT);
 		  overlapped_armed = 0;
 		  set_sig_errno (EINTR);
 		  goto out;
-		case WAIT_CANCELED:
-		  PurgeComm (get_handle (), PURGE_RXABORT);
-		  overlapped_armed = 0;
-		  pthread::static_cancel_self ();
-		  /*NOTREACHED*/
 		default:
 		  goto err;
 		}
@@ -118,27 +120,10 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
       if (inq > ulen)
 	inq = ulen;
       debug_printf ("inq %d", inq);
-      if (ReadFile (get_handle (), ptr, inq, &n, &io_status))
+      if (ReadFile (get_handle(), ptr, min (inq, ulen), &n, &io_status))
 	/* Got something */;
       else if (GetLastError () != ERROR_IO_PENDING)
 	goto err;
-      else if (is_nonblocking ())
-	{
-	  /* Use CancelIo rather than PurgeComm (PURGE_RXABORT) since
-	     PurgeComm apparently discards in-flight bytes while CancelIo
-	     only stops the overlapped IO routine. */
-	  CancelIo (get_handle ());
-	  if (GetOverlappedResult (get_handle (), &io_status, &n, FALSE))
-	    tot = n;
-	  else if (GetLastError () != ERROR_OPERATION_ABORTED)
-	    goto err;
-	  if (tot == 0)
-	    {
-	      tot = -1;
-	      set_errno (EAGAIN);
-	    }
-	  goto out;
-	}
       else if (!GetOverlappedResult (get_handle (), &io_status, &n, TRUE))
 	goto err;
 
@@ -149,25 +134,25 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
       continue;
 
     err:
+      PurgeComm (get_handle (), PURGE_RXABORT);
       debug_printf ("err %E");
-      if (GetLastError () != ERROR_OPERATION_ABORTED)
+      if (GetLastError () == ERROR_OPERATION_ABORTED)
+	n = 0;
+      else
 	{
-	  PurgeComm (get_handle (), PURGE_RXABORT);
 	  tot = -1;
 	  __seterrno ();
 	  break;
 	}
-
-      n = 0;
     }
 
 out:
-  ulen = tot;
+  return tot;
 }
 
 /* Cover function to WriteFile to provide Posix interface and semantics
    (as much as possible).  */
-ssize_t __stdcall
+int
 fhandler_serial::raw_write (const void *ptr, size_t len)
 {
   DWORD bytes_written;
@@ -179,85 +164,71 @@ fhandler_serial::raw_write (const void *ptr, size_t len)
 
   for (;;)
     {
-      if (WriteFile (get_handle (), ptr, len, &bytes_written, &write_status))
+      if (WriteFile (get_handle(), ptr, len, &bytes_written, &write_status))
 	break;
 
       switch (GetLastError ())
 	{
-	case ERROR_OPERATION_ABORTED:
-	  DWORD ev;
-	  if (!ClearCommError (get_handle (), &ev, NULL))
+	  case ERROR_OPERATION_ABORTED:
+	    continue;
+	  case ERROR_IO_PENDING:
+	    break;
+	  default:
 	    goto err;
-	  if (ev)
-	    termios_printf ("error detected %x", ev);
-	  continue;
-	case ERROR_IO_PENDING:
-	  break;
-	default:
-	  goto err;
 	}
 
-      if (!is_nonblocking ())
-	{
-	  switch (cygwait (write_status.hEvent))
-	    {
-	    case WAIT_OBJECT_0:
-	      break;
-	    case WAIT_SIGNALED:
-	      PurgeComm (get_handle (), PURGE_TXABORT);
-	      set_sig_errno (EINTR);
-	      ForceCloseHandle (write_status.hEvent);
-	      return -1;
-	    case WAIT_CANCELED:
-	      PurgeComm (get_handle (), PURGE_TXABORT);
-	      pthread::static_cancel_self ();
-	      /*NOTREACHED*/
-	    default:
-	      goto err;
-	    }
-	}
       if (!GetOverlappedResult (get_handle (), &write_status, &bytes_written, TRUE))
 	goto err;
 
       break;
     }
 
-  ForceCloseHandle (write_status.hEvent);
+  ForceCloseHandle(write_status.hEvent);
 
   return bytes_written;
 
 err:
   __seterrno ();
-  ForceCloseHandle (write_status.hEvent);
+  ForceCloseHandle(write_status.hEvent);
   return -1;
 }
 
-int
+void
+fhandler_serial::dump (void)
+{
+  paranoid_printf ("here");
+}
+
+void
 fhandler_serial::init (HANDLE f, DWORD flags, mode_t bin)
 {
-  return open (flags, bin & (O_BINARY | O_TEXT));
+  fhandler_base::init (f, flags, bin);
+  (void) open (NULL, flags, bin ? O_BINARY : 0);
 }
 
 int
-fhandler_serial::open (int flags, mode_t mode)
+fhandler_serial::open (path_conv *, int flags, mode_t mode)
 {
   int res;
   COMMTIMEOUTS to;
+  extern BOOL reset_com;
 
   syscall_printf ("fhandler_serial::open (%s, %p, %p)",
 			get_name (), flags, mode);
 
-  if (!fhandler_base::open (flags, mode))
+  if (!(res = this->fhandler_base::open (NULL, flags, mode)))
     return 0;
 
   res = 1;
 
-  SetCommMask (get_handle (), EV_RXCHAR);
+  (void) SetCommMask (get_handle (), EV_RXCHAR);
+
+  set_r_no_interrupt (1);	// Handled explicitly in read code
 
   overlapped_setup ();
 
   memset (&to, 0, sizeof (to));
-  SetCommTimeouts (get_handle (), &to);
+  (void) SetCommTimeouts (get_handle (), &to);
 
   /* Reset serial port to known state of 9600-8-1-no flow control
      on open for better behavior under Win 95.
@@ -268,6 +239,7 @@ fhandler_serial::open (int flags, mode_t mode)
      initialization we are, is really a terrible kludge and should
      be fixed ASAP.
   */
+  extern char *__progname;
   if (reset_com && __progname)
     {
       DCB state;
@@ -309,7 +281,7 @@ fhandler_serial::open (int flags, mode_t mode)
 int
 fhandler_serial::close ()
 {
-  ForceCloseHandle (io_status.hEvent);
+  (void) ForceCloseHandle (io_status.hEvent);
   return fhandler_base::close ();
 }
 
@@ -340,7 +312,7 @@ fhandler_serial::tcsendbreak (int duration)
 
 /* tcdrain: POSIX 7.2.2.1 */
 int
-fhandler_serial::tcdrain ()
+fhandler_serial::tcdrain (void)
 {
   if (FlushFileBuffers (get_handle ()) == 0)
     return -1;
@@ -360,27 +332,27 @@ fhandler_serial::tcflow (int action)
 
   switch (action)
     {
-    case TCOOFF:
-      win32action = SETXOFF;
-      break;
-    case TCOON:
-      win32action = SETXON;
-      break;
-    case TCION:
-    case TCIOFF:
-      if (GetCommState (get_handle (), &dcb) == 0)
+      case TCOOFF:
+	win32action = SETXOFF;
+	break;
+      case TCOON:
+	win32action = SETXON;
+	break;
+      case TCION:
+      case TCIOFF:
+	if (GetCommState (get_handle (), &dcb) == 0)
+	  return -1;
+	if (action == TCION)
+	  xchar = (dcb.XonChar ? dcb.XonChar : 0x11);
+	else
+	  xchar = (dcb.XoffChar ? dcb.XoffChar : 0x13);
+	if (TransmitCommChar (get_handle (), xchar) == 0)
+	  return -1;
+	return 0;
+	break;
+      default:
 	return -1;
-      if (action == TCION)
-	xchar = (dcb.XonChar ? dcb.XonChar : 0x11);
-      else
-	xchar = (dcb.XoffChar ? dcb.XoffChar : 0x13);
-      if (TransmitCommChar (get_handle (), xchar) == 0)
-	return -1;
-      return 0;
-      break;
-    default:
-      return -1;
-      break;
+	break;
     }
 
   if (EscapeCommFunction (get_handle (), win32action) == 0)
@@ -389,195 +361,25 @@ fhandler_serial::tcflow (int action)
   return 0;
 }
 
-
-/* switch_modem_lines: set or clear RTS and/or DTR */
-int
-fhandler_serial::switch_modem_lines (int set, int clr)
-{
-  int res = 0;
-
-  if (set & TIOCM_RTS)
-    {
-      if (EscapeCommFunction (get_handle (), SETRTS))
-	rts = TIOCM_RTS;
-      else
-	{
-	  __seterrno ();
-	  res = -1;
-	}
-    }
-  else if (clr & TIOCM_RTS)
-    {
-      if (EscapeCommFunction (get_handle (), CLRRTS))
-	rts = 0;
-      else
-	{
-	  __seterrno ();
-	  res = -1;
-	}
-    }
-  if (set & TIOCM_DTR)
-    {
-      if (EscapeCommFunction (get_handle (), SETDTR))
-	rts = TIOCM_DTR;
-      else
-	{
-	  __seterrno ();
-	  res = -1;
-	}
-    }
-  else if (clr & TIOCM_DTR)
-    {
-      if (EscapeCommFunction (get_handle (), CLRDTR))
-	rts = 0;
-      else
-	{
-	  __seterrno ();
-	  res = -1;
-	}
-    }
-
-  return res;
-}
-
-/* ioctl: */
-int
-fhandler_serial::ioctl (unsigned int cmd, void *buf)
-{
-  int res = 0;
-
-# define ibuf ((int) buf)
-# define ipbuf (*(int *) buf)
-
-  DWORD ev;
-  COMSTAT st;
-  if (!ClearCommError (get_handle (), &ev, &st))
-    {
-      __seterrno ();
-      res = -1;
-    }
-  else
-    switch (cmd)
-      {
-      case TCFLSH:
-	res = tcflush (ibuf);
-	break;
-      case TIOCMGET:
-	DWORD modem_lines;
-	if (!GetCommModemStatus (get_handle (), &modem_lines))
-	  {
-	    __seterrno ();
-	    res = -1;
-	  }
-	else
-	  {
-	    ipbuf = 0;
-	    if (modem_lines & MS_CTS_ON)
-	      ipbuf |= TIOCM_CTS;
-	    if (modem_lines & MS_DSR_ON)
-	      ipbuf |= TIOCM_DSR;
-	    if (modem_lines & MS_RING_ON)
-	      ipbuf |= TIOCM_RI;
-	    if (modem_lines & MS_RLSD_ON)
-	      ipbuf |= TIOCM_CD;
-
-	    DWORD cb;
-	    DWORD mcr;
-	    if (!DeviceIoControl (get_handle (), IOCTL_SERIAL_GET_DTRRTS,
-				  NULL, 0, &mcr, 4, &cb, 0) || cb != 4)
-	      ipbuf |= rts | dtr;
-	    else
-	      {
-		if (mcr & 2)
-		  ipbuf |= TIOCM_RTS;
-		if (mcr & 1)
-		  ipbuf |= TIOCM_DTR;
-	      }
-	  }
-	break;
-      case TIOCMSET:
-	if (switch_modem_lines (ipbuf, ~ipbuf))
-	  res = -1;
-	break;
-      case TIOCMBIS:
-	if (switch_modem_lines (ipbuf, 0))
-	  res = -1;
-	break;
-      case TIOCMBIC:
-	if (switch_modem_lines (0, ipbuf))
-	  res = -1;
-	break;
-      case TIOCCBRK:
-	if (ClearCommBreak (get_handle ()) == 0)
-	  {
-	    __seterrno ();
-	    res = -1;
-	  }
-	break;
-      case TIOCSBRK:
-	if (SetCommBreak (get_handle ()) == 0)
-	  {
-	    __seterrno ();
-	    res = -1;
-	  }
-	break;
-     case TIOCINQ:
-       if (ev & CE_FRAME || ev & CE_IOE || ev & CE_OVERRUN || ev & CE_RXOVER
-	   || ev & CE_RXPARITY)
-	 {
-	   set_errno (EINVAL);	/* FIXME: Use correct errno */
-	   res = -1;
-	 }
-       else
-	 ipbuf = st.cbInQue;
-       break;
-     case TIOCGWINSZ:
-       ((struct winsize *) buf)->ws_row = 0;
-       ((struct winsize *) buf)->ws_col = 0;
-       break;
-     case FIONREAD:
-       set_errno (ENOTSUP);
-       res = -1;
-       break;
-     default:
-       res = fhandler_base::ioctl (cmd, buf);
-       break;
-     }
-
-  termios_printf ("%d = ioctl(%p, %p)", res, cmd, buf);
-# undef ibuf
-# undef ipbuf
-  return res;
-}
-
 /* tcflush: POSIX 7.2.2.1 */
 int
 fhandler_serial::tcflush (int queue)
 {
-  DWORD flags;
+  if (queue == TCOFLUSH || queue == TCIOFLUSH)
+    PurgeComm (get_handle (), PURGE_TXABORT | PURGE_TXCLEAR);
 
-  switch (queue)
-    {
-    case TCOFLUSH:
-      flags = PURGE_TXABORT | PURGE_TXCLEAR;
-      break;
-    case TCIFLUSH:
-      flags = PURGE_RXABORT | PURGE_RXCLEAR;
-      break;
-    case TCIOFLUSH:
-      flags = PURGE_TXABORT | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_RXCLEAR;
-      break;
-    default:
-      termios_printf ("Invalid tcflush queue %d", queue);
-      set_errno (EINVAL);
-      return -1;
-    }
-
-  if (!PurgeComm (get_handle (), flags))
-    {
-      __seterrno ();
-      return -1;
-    }
+  if (queue == TCIFLUSH | queue == TCIOFLUSH)
+    /* Input flushing by polling until nothing turns up
+       (we stop after 1000 chars anyway) */
+    for (int max = 1000; max > 0; max--)
+      {
+	COMSTAT st;
+	if (!PurgeComm (get_handle (), PURGE_RXABORT | PURGE_RXCLEAR))
+	  break;
+	Sleep (100);
+	if (!ClearCommError (get_handle (), &ev, &st) || !st.cbInQue)
+	  break;
+      }
 
   return 0;
 }
@@ -592,12 +394,10 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
     TCSAFLUSH: flush output and discard input, then change attributes.
   */
 
-  bool dropDTR = false;
+  BOOL dropDTR = FALSE;
   COMMTIMEOUTS to;
   DCB ostate, state;
   unsigned int ovtime = vtime_, ovmin = vmin_;
-  int tmpDtr, tmpRts, res;
-  res = tmpDtr = tmpRts = 0;
 
   termios_printf ("action %d", action);
   if ((action == TCSADRAIN) || (action == TCSAFLUSH))
@@ -620,112 +420,72 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
 
   switch (t->c_ospeed)
     {
-    case B0:
-      /* Drop DTR - but leave DCB-resident bitrate as-is since
-	 0 is an invalid bitrate in Win32 */
-      dropDTR = true;
-      break;
-    case B110:
-      state.BaudRate = CBR_110;
-      break;
-    case B300:
-      state.BaudRate = CBR_300;
-      break;
-    case B600:
-      state.BaudRate = CBR_600;
-      break;
-    case B1200:
-      state.BaudRate = CBR_1200;
-      break;
-    case B2400:
-      state.BaudRate = CBR_2400;
-      break;
-    case B4800:
-      state.BaudRate = CBR_4800;
-      break;
-    case B9600:
-      state.BaudRate = CBR_9600;
-      break;
-    case B19200:
-      state.BaudRate = CBR_19200;
-      break;
-    case B38400:
-      state.BaudRate = CBR_38400;
-      break;
-    case B57600:
-      state.BaudRate = CBR_57600;
-      break;
-    case B115200:
-      state.BaudRate = CBR_115200;
-      break;
-    case B128000:
-      state.BaudRate = CBR_128000;
-      break;
-    case B230400:
-      state.BaudRate = 230400 /* CBR_230400 - not defined */;
-      break;
-    case B256000:
-      state.BaudRate = CBR_256000;
-      break;
-    case B460800:
-      state.BaudRate = 460800 /* CBR_460800 - not defined */;
-      break;
-    case B500000:
-      state.BaudRate = 500000 /* CBR_500000 - not defined */;
-      break;
-    case B576000:
-      state.BaudRate = 576000 /* CBR_576000 - not defined */;
-      break;
-    case B921600:
-      state.BaudRate = 921600 /* CBR_921600 - not defined */;
-      break;
-    case B1000000:
-      state.BaudRate = 1000000 /* CBR_1000000 - not defined */;
-      break;
-    case B1152000:
-      state.BaudRate = 1152000 /* CBR_1152000 - not defined */;
-      break;
-    case B1500000:
-      state.BaudRate = 1500000 /* CBR_1500000 - not defined */;
-      break;
-    case B2000000:
-      state.BaudRate = 2000000 /* CBR_2000000 - not defined */;
-      break;
-    case B2500000:
-      state.BaudRate = 2500000 /* CBR_2500000 - not defined */;
-      break;
-    case B3000000:
-      state.BaudRate = 3000000 /* CBR_3000000 - not defined */;
-      break;
-    default:
-      /* Unsupported baud rate! */
-      termios_printf ("Invalid t->c_ospeed %d", t->c_ospeed);
-      set_errno (EINVAL);
-      return -1;
+      case B0:	/* drop DTR */
+	dropDTR = TRUE;
+	state.BaudRate = 0;
+	break;
+      case B110:
+	state.BaudRate = CBR_110;
+	break;
+      case B300:
+	state.BaudRate = CBR_300;
+	break;
+      case B600:
+	state.BaudRate = CBR_600;
+	break;
+      case B1200:
+	state.BaudRate = CBR_1200;
+	break;
+      case B2400:
+	state.BaudRate = CBR_2400;
+	break;
+      case B4800:
+	state.BaudRate = CBR_4800;
+	break;
+      case B9600:
+	state.BaudRate = CBR_9600;
+	break;
+      case B19200:
+	state.BaudRate = CBR_19200;
+	break;
+      case B38400:
+	state.BaudRate = CBR_38400;
+	break;
+      case B57600:
+	state.BaudRate = CBR_57600;
+	break;
+      case B115200:
+	state.BaudRate = CBR_115200;
+	break;
+      default:
+	/* Unsupported baud rate! */
+	termios_printf ("Invalid t->c_ospeed %d", t->c_ospeed);
+	set_errno (EINVAL);
+	return -1;
     }
 
   /* -------------- Set byte size ------------------ */
 
   switch (t->c_cflag & CSIZE)
     {
-    case CS5:
-      state.ByteSize = 5;
-      break;
-    case CS6:
-      state.ByteSize = 6;
-      break;
-    case CS7:
-      state.ByteSize = 7;
-      break;
-    case CS8:
-      state.ByteSize = 8;
-      break;
-    default:
-      /* Unsupported byte size! */
-      termios_printf ("Invalid t->c_cflag byte size %d",
-		      t->c_cflag & CSIZE);
-      set_errno (EINVAL);
-      return -1;
+      case CS5:
+	state.ByteSize = 5;
+	break;
+      case CS6:
+	state.ByteSize = 6;
+	break;
+      case CS7:
+	state.ByteSize = 7;
+	break;
+      case CS8:
+	state.ByteSize = 8;
+	break;
+      default:
+	/* Unsupported byte size! */
+	termios_printf ("Invalid t->c_cflag byte size %d",
+			t->c_cflag & CSIZE);
+	set_errno (EINVAL);
+	return -1;
     }
 
   /* -------------- Set stop bits ------------------ */
@@ -803,7 +563,6 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
     {							/* disable */
       state.fRtsControl = RTS_CONTROL_ENABLE;
       state.fOutxCtsFlow = FALSE;
-      tmpRts = TIOCM_RTS;
     }
 
   if (t->c_cflag & CRTSXOFF)
@@ -828,25 +587,15 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
 
   state.fAbortOnError = TRUE;
 
-  if ((memcmp (&ostate, &state, sizeof (state)) != 0)
-      && !SetCommState (get_handle (), &state))
-    {
-      /* SetCommState() failed, usually due to invalid DCB param.
-	 Keep track of this so we can set errno to EINVAL later
-	 and return failure */
-      termios_printf ("SetCommState() failed, %E");
-      __seterrno ();
-      res = -1;
-    }
+  /* -------------- Set state and exit ------------------ */
+  if (memcmp (&ostate, &state, sizeof (state)) != 0)
+    SetCommState (get_handle (), &state);
 
-  rbinary ((t->c_iflag & IGNCR) ? false : true);
-  wbinary ((t->c_oflag & ONLCR) ? false : true);
+  set_r_binary ((t->c_iflag & IGNCR) ? 0 : 1);
+  set_w_binary ((t->c_oflag & ONLCR) ? 0 : 1);
 
-  if (dropDTR)
-    {
-      EscapeCommFunction (get_handle (), CLRDTR);
-      tmpDtr = 0;
-    }
+  if (dropDTR == TRUE)
+    EscapeCommFunction (get_handle (), CLRDTR);
   else
     {
       /* FIXME: Sometimes when CLRDTR is set, setting
@@ -855,13 +604,10 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
       parameters while DTR is still down. */
 
       EscapeCommFunction (get_handle (), SETDTR);
-      tmpDtr = TIOCM_DTR;
     }
 
-  rts = tmpRts;
-  dtr = tmpDtr;
-
-  /* The following documentation on was taken from "Linux Serial Programming
+  /*
+  The following documentation on was taken from "Linux Serial Programming
   HOWTO".  It explains how MIN (t->c_cc[VMIN] || vmin_) and TIME
   (t->c_cc[VTIME] || vtime_) is to be used.
 
@@ -893,7 +639,7 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
 
   if (t->c_lflag & ICANON)
     {
-      vmin_ = 0;
+      vmin_ = MAXDWORD;
       vtime_ = 0;
     }
   else
@@ -902,53 +648,51 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
       vmin_ = t->c_cc[VMIN];
     }
 
-  debug_printf ("vtime %d, vmin %d", vtime_, vmin_);
+  debug_printf ("vtime %d, vmin %d\n", vtime_, vmin_);
 
-  if (ovmin != vmin_ || ovtime != vtime_)
-  {
-    memset (&to, 0, sizeof (to));
+  if (ovmin == vmin_ && ovtime == vtime_)
+    return 0;
 
-    if ((vmin_ > 0) && (vtime_ == 0))
-      {
-	/* Returns immediately with whatever is in buffer on a ReadFile();
-	   or blocks if nothing found.  We will keep calling ReadFile(); until
-	   vmin_ characters are read */
-	to.ReadIntervalTimeout = to.ReadTotalTimeoutMultiplier = MAXDWORD;
-	to.ReadTotalTimeoutConstant = MAXDWORD - 1;
-      }
-    else if ((vmin_ == 0) && (vtime_ > 0))
-      {
-	/* set timeoout constant appropriately and we will only try to
-	   read one character in ReadFile() */
-	to.ReadTotalTimeoutConstant = vtime_;
-	to.ReadIntervalTimeout = to.ReadTotalTimeoutMultiplier = MAXDWORD;
-      }
-    else if ((vmin_ > 0) && (vtime_ > 0))
-      {
-	/* time applies to the interval time for this case */
-	to.ReadIntervalTimeout = vtime_;
-      }
-    else if ((vmin_ == 0) && (vtime_ == 0))
-      {
-	/* returns immediately with whatever is in buffer as per
-	   Time-Outs docs in Win32 SDK API docs */
-	to.ReadIntervalTimeout = MAXDWORD;
-      }
+  memset (&to, 0, sizeof (to));
 
-    debug_printf ("ReadTotalTimeoutConstant %d, ReadIntervalTimeout %d, ReadTotalTimeoutMultiplier %d",
-		  to.ReadTotalTimeoutConstant, to.ReadIntervalTimeout, to.ReadTotalTimeoutMultiplier);
+  if ((vmin_ > 0) && (vtime_ == 0))
+    {
+      /* Returns immediately with whatever is in buffer on a ReadFile();
+	 or blocks if nothing found.  We will keep calling ReadFile(); until
+	 vmin_ characters are read */
+      to.ReadIntervalTimeout = to.ReadTotalTimeoutMultiplier = MAXDWORD;
+      to.ReadTotalTimeoutConstant = MAXDWORD - 1;
+    }
+  else if ((vmin_ == 0) && (vtime_ > 0))
+    {
+      /* set timeoout constant appropriately and we will only try to
+	 read one character in ReadFile() */
+      to.ReadTotalTimeoutConstant = vtime_;
+      to.ReadIntervalTimeout = to.ReadTotalTimeoutMultiplier = MAXDWORD;
+    }
+  else if ((vmin_ > 0) && (vtime_ > 0))
+    {
+      /* time applies to the interval time for this case */
+      to.ReadIntervalTimeout = vtime_;
+    }
+  else if ((vmin_ == 0) && (vtime_ == 0))
+    {
+      /* returns immediately with whatever is in buffer as per
+	 Time-Outs docs in Win32 SDK API docs */
+      to.ReadIntervalTimeout = MAXDWORD;
+    }
 
-    if (!SetCommTimeouts(get_handle (), &to))
-      {
-	/* SetCommTimeouts() failed. Keep track of this so we
-	   can set errno to EINVAL later and return failure */
-	termios_printf ("SetCommTimeouts() failed, %E");
-	__seterrno ();
-	res = -1;
-      }
-  }
+  debug_printf ("ReadTotalTimeoutConstant %d, ReadIntervalTimeout %d, ReadTotalTimeoutMultiplier %d",
+		to.ReadTotalTimeoutConstant, to.ReadIntervalTimeout, to.ReadTotalTimeoutMultiplier);
+  int res = SetCommTimeouts (get_handle (), &to);
+  if (!res)
+    {
+      system_printf ("SetCommTimeout failed, %E");
+      __seterrno ();
+      return -1;
+    }
 
-  return res;
+  return 0;
 }
 
 /* tcgetattr: POSIX 7.2.1.1 */
@@ -964,83 +708,48 @@ fhandler_serial::tcgetattr (struct termios *t)
   /* for safety */
   memset (t, 0, sizeof (*t));
 
-  t->c_cflag = 0;
   /* -------------- Baud rate ------------------ */
+
   switch (state.BaudRate)
     {
-    case CBR_110:
-	t->c_ospeed = t->c_ispeed = B110;
+      case 0:
+	/* FIXME: need to drop DTR */
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B0;
 	break;
-    case CBR_300:
-	t->c_ospeed = t->c_ispeed = B300;
+      case CBR_110:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B110;
 	break;
-    case CBR_600:
-	t->c_ospeed = t->c_ispeed = B600;
+      case CBR_300:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B300;
 	break;
-    case CBR_1200:
-	t->c_ospeed = t->c_ispeed = B1200;
+      case CBR_600:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B600;
 	break;
-    case CBR_2400:
-	t->c_ospeed = t->c_ispeed = B2400;
+      case CBR_1200:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B1200;
 	break;
-    case CBR_4800:
-	t->c_ospeed = t->c_ispeed = B4800;
+      case CBR_2400:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B2400;
 	break;
-    case CBR_9600:
-	t->c_ospeed = t->c_ispeed = B9600;
+      case CBR_4800:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B4800;
 	break;
-    case CBR_19200:
-	t->c_ospeed = t->c_ispeed = B19200;
+      case CBR_9600:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B9600;
 	break;
-    case CBR_38400:
-	t->c_ospeed = t->c_ispeed = B38400;
+      case CBR_19200:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B19200;
 	break;
-    case CBR_57600:
-	t->c_ospeed = t->c_ispeed = B57600;
+      case CBR_38400:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B38400;
 	break;
-    case CBR_115200:
-	t->c_ospeed = t->c_ispeed = B115200;
+      case CBR_57600:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B57600;
 	break;
-    case CBR_128000:
-	t->c_ospeed = t->c_ispeed = B128000;
+      case CBR_115200:
+	t->c_cflag = t->c_ospeed = t->c_ispeed = B115200;
 	break;
-    case 230400: /* CBR_230400 - not defined */
-	t->c_ospeed = t->c_ispeed = B230400;
-	break;
-    case CBR_256000:
-	t->c_ospeed = t->c_ispeed = B256000;
-	break;
-    case 460800: /* CBR_460000 - not defined */
-	t->c_ospeed = t->c_ispeed = B460800;
-	break;
-    case 500000: /* CBR_500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B500000;
-	break;
-    case 576000: /* CBR_576000 - not defined */
-	t->c_ospeed = t->c_ispeed = B576000;
-	break;
-    case 921600: /* CBR_921600 - not defined */
-	t->c_ospeed = t->c_ispeed = B921600;
-	break;
-    case 1000000: /* CBR_1000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1000000;
-	break;
-    case 1152000: /* CBR_1152000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1152000;
-	break;
-    case 1500000: /* CBR_1500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1500000;
-	break;
-    case 2000000: /* CBR_2000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B2000000;
-	break;
-    case 2500000: /* CBR_2500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B2500000;
-	break;
-    case 3000000: /* CBR_3000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B3000000;
-	break;
-    default:
+      default:
 	/* Unsupported baud rate! */
 	termios_printf ("Invalid baud rate %d", state.BaudRate);
 	set_errno (EINVAL);
@@ -1051,23 +760,23 @@ fhandler_serial::tcgetattr (struct termios *t)
 
   switch (state.ByteSize)
     {
-    case 5:
-      t->c_cflag |= CS5;
-      break;
-    case 6:
-      t->c_cflag |= CS6;
-      break;
-    case 7:
-      t->c_cflag |= CS7;
-      break;
-    case 8:
-      t->c_cflag |= CS8;
-      break;
-    default:
-      /* Unsupported byte size! */
-      termios_printf ("Invalid byte size %d", state.ByteSize);
-      set_errno (EINVAL);
-      return -1;
+      case 5:
+	t->c_cflag |= CS5;
+	break;
+      case 6:
+	t->c_cflag |= CS6;
+	break;
+      case 7:
+	t->c_cflag |= CS7;
+	break;
+      case 8:
+	t->c_cflag |= CS8;
+	break;
+      default:
+	/* Unsupported byte size! */
+	termios_printf ("Invalid byte size %d", state.ByteSize);
+	set_errno (EINVAL);
+	return -1;
     }
 
   /* -------------- Stop bits ------------------ */
@@ -1085,7 +794,7 @@ fhandler_serial::tcgetattr (struct termios *t)
   /* -------------- Parity errors ------------------ */
 
   /* fParity combines the function of INPCK and NOT IGNPAR */
-  if (state.fParity)
+  if (state.fParity == TRUE)
     t->c_iflag |= INPCK;
   else
     t->c_iflag |= IGNPAR;	/* not necessarily! */
@@ -1110,7 +819,8 @@ fhandler_serial::tcgetattr (struct termios *t)
      this is what we do. */
 
   /* Input flow-control */
-  if ((state.fRtsControl == RTS_CONTROL_HANDSHAKE) && state.fOutxCtsFlow)
+  if ((state.fRtsControl == RTS_CONTROL_HANDSHAKE) &&
+      (state.fOutxCtsFlow == TRUE))
     t->c_cflag |= CRTSCTS;
   if (state.fRtsControl == RTS_CONTROL_HANDSHAKE)
     t->c_cflag |= CRTSXOFF;
@@ -1121,22 +831,29 @@ fhandler_serial::tcgetattr (struct termios *t)
   /* FIXME: If tcsetattr() hasn't been called previously, this may
      give a false CLOCAL. */
 
-  if (!state.fDsrSensitivity)
+  if (state.fDsrSensitivity == FALSE)
     t->c_cflag |= CLOCAL;
 
   /* FIXME: need to handle IGNCR */
 #if 0
-  if (!rbinary ())
+  if (!get_r_binary ())
     t->c_iflag |= IGNCR;
 #endif
 
-  if (!wbinary ())
+  if (!get_w_binary ())
     t->c_oflag |= ONLCR;
 
-  t->c_cc[VTIME] = vtime_ / 100;
-  t->c_cc[VMIN] = vmin_;
-
   debug_printf ("vmin_ %d, vtime_ %d", vmin_, vtime_);
+  if (vmin_ == MAXDWORD)
+    {
+      t->c_lflag |= ICANON;
+      t->c_cc[VTIME] = t->c_cc[VMIN] = 0;
+    }
+  else
+    {
+      t->c_cc[VTIME] = vtime_ / 100;
+      t->c_cc[VMIN] = vmin_;
+    }
 
   return 0;
 }
@@ -1144,24 +861,26 @@ fhandler_serial::tcgetattr (struct termios *t)
 void
 fhandler_serial::fixup_after_fork (HANDLE parent)
 {
-  if (close_on_exec ())
-    fhandler_base::fixup_after_fork (parent);
+  if (get_close_on_exec ())
+    this->fhandler_base::fixup_after_fork (parent);
   overlapped_setup ();
   debug_printf ("io_status.hEvent %p", io_status.hEvent);
 }
 
 void
-fhandler_serial::fixup_after_exec ()
+fhandler_serial::fixup_after_exec (HANDLE)
 {
-  if (!close_on_exec ())
-    overlapped_setup ();
-  debug_printf ("io_status.hEvent %p, close_on_exec %d", io_status.hEvent, close_on_exec ());
+  overlapped_setup ();
+  debug_printf ("io_status.hEvent %p", io_status.hEvent);
+  return;
 }
 
 int
-fhandler_serial::dup (fhandler_base *child, int flags)
+fhandler_serial::dup (fhandler_base *child)
 {
   fhandler_serial *fhc = (fhandler_serial *) child;
-  fhc->overlapped_setup ();
-  return fhandler_base::dup (child, flags);
+  overlapped_setup ();
+  fhc->vmin_ = vmin_;
+  fhc->vtime_ = vtime_;
+  return fhandler_base::dup (child);
 }

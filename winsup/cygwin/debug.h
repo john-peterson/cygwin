@@ -1,7 +1,6 @@
 /* debug.h
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2010
-   Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -14,32 +13,38 @@ details. */
 #include "dlmalloc.h"
 #define MALLOC_CHECK ({\
   debug_printf ("checking malloc pool");\
-  mallinfo ();\
+  (void)mallinfo ();\
 })
 #endif
+
+extern "C" {
+DWORD __stdcall WFSO (HANDLE, DWORD) __attribute__ ((regparm(2)));
+DWORD __stdcall WFMO (DWORD, CONST HANDLE *, BOOL, DWORD) __attribute__ ((regparm(3)));
+}
+
+#define WaitForSingleObject WFSO
+#define WaitForMultipleObject WFMO
 
 #if !defined(_DEBUG_H_)
 #define _DEBUG_H_
 
-#define being_debugged() (IsDebuggerPresent ())
+void threadname_init ();
+HANDLE __stdcall makethread (LPTHREAD_START_ROUTINE, LPVOID, DWORD, const char *) __attribute__ ((regparm(3)));
+const char * __stdcall threadname (DWORD, int lockit = TRUE) __attribute__ ((regparm(2)));
+void __stdcall regthread (const char *, DWORD) __attribute__ ((regparm(1)));
+int __stdcall iscygthread ();
 
 #ifndef DEBUGGING
 # define cygbench(s)
 # define ForceCloseHandle CloseHandle
 # define ForceCloseHandle1(h, n) CloseHandle (h)
 # define ForceCloseHandle2(h, n) CloseHandle (h)
-# define ModifyHandle(h, n) do {} while (0)
 # define ProtectHandle(h) do {} while (0)
 # define ProtectHandle1(h,n) do {} while (0)
 # define ProtectHandle2(h,n) do {} while (0)
-# define ProtectHandleINH(h) do {} while (0)
-# define ProtectHandle1INH(h,n) do {} while (0)
-# define ProtectHandle2INH(h,n) do {} while (0)
 # define debug_init() do {} while (0)
-# define setclexec(h, nh, b) do {} while (0)
-# define debug_fixup_after_fork_exec() do {} while (0)
-# define VerifyHandle(h) do {} while (0)
-# define console_printf small_printf
+# define setclexec_pid(h, nh, b) do {} while (0)
+# define debug_fixup_after_fork() do {} while (0)
 
 #else
 
@@ -56,36 +61,20 @@ details. */
 	close_handle (__PRETTY_FUNCTION__, __LINE__, (h), n, TRUE)
 # endif
 
-# define ModifyHandle(h, n) modify_handle (__PRETTY_FUNCTION__, __LINE__, (h), #h, n)
-
 # define ProtectHandle(h) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #h)
 # define ProtectHandle1(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #n)
 # define ProtectHandle2(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), n)
-# define ProtectHandleINH(h) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #h, 1)
-# define ProtectHandle1INH(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #n, 1)
-# define ProtectHandle2INH(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), n, 1)
-# define VerifyHandle(h) verify_handle (__PRETTY_FUNCTION__, __LINE__, (h))
 
 void debug_init ();
-void __reg3 add_handle (const char *, int, HANDLE, const char *, bool = false);
-void __reg3 verify_handle (const char *, int, HANDLE);
-bool __reg3 close_handle (const char *, int, HANDLE, const char *, bool);
+void __stdcall add_handle (const char *, int, HANDLE, const char *)
+  __attribute__ ((regparm (3)));
+BOOL __stdcall close_handle (const char *, int, HANDLE, const char *, BOOL)
+  __attribute__ ((regparm (3)));
+void __stdcall cygbench (const char *s) __attribute__ ((regparm (1)));
 extern "C" void console_printf (const char *fmt,...);
-void __reg1 cygbench (const char *s);
-void __reg3 modify_handle (const char *, int, HANDLE, const char *, bool);
-void setclexec (HANDLE, HANDLE, bool);
-void debug_fixup_after_fork_exec ();
-
-struct handle_list
-  {
-    HANDLE h;
-    const char *name;
-    const char *func;
-    int ln;
-    bool inherited;
-    DWORD pid;
-    struct handle_list *next;
-  };
+void setclexec_pid (HANDLE, HANDLE, bool);
+void debug_fixup_after_fork ();
+extern int pinger;
 
 #endif /*DEBUGGING*/
 #endif /*_DEBUG_H_*/

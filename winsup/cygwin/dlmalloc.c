@@ -28,8 +28,72 @@
  *  malloc_usable_size(P) is equivalent to realloc(P, malloc_usable_size(P))
  *
  * $Log$
- * Revision 1.9  2004/05/12 16:21:18  cgf
- * remove keyword stuff
+ * Revision 1.4.4.1  2002/01/04 03:56:06  rbcollins
+ * Merged changes from HEAD
+ *
+ * Revision 1.5  2001/10/03 03:49:25  cgf
+ * * cygheap.cc (cfree): Remove malloc debugging probe.
+ * * dlmalloc.c (errprint): Remove abort() call which causes interesting error
+ * message printing to abort prematurely.
+ * * environ.cc: Sprinkle MALLOC_CHECKs liberally throughout.
+ * (_addenv): Allocate two empty elements at end of environ to
+ * (apparently) work around problems with some buggy applications.
+ * (winenv): Avoid calling alloca if no forced environment variable is present.
+ *
+ * * exceptions.cc (open_stackdumpfile): Don't print "Dumping stack trace to..."
+ * when running in a cygwin environment (i.e., the parent is a cygwin process).
+ *
+ * * dtable.cc (dtable::init_std_file_from_handle): Move device type detection
+ * code from build_fhandler here since it is only used by this function.
+ * (dtable::build_fhandler_from_name): New method.  Renamed from
+ * dtable::build_fhandler.
+ * (dtable::build_fhandler): Use build_fhandler_from_name.
+ * (cygwin_attach_handle_to_fd): Ditto.
+ * * syscalls.cc (_open): Ditto.
+ * (stat_worker): Ditto.
+ * * dtable.h (dtable::build_fhandler_from_name): Rename declaration from
+ * dtable::build_fhandler.
+ *
+ * Revision 1.4  2001/09/07 21:32:04  cgf
+ * * cygheap.h (init_cygheap): Move heap pointers here.
+ * * include/sys/cygwin.h (perprocess): Remove heap pointers.
+ * * dcrt0.cc (__cygwin_user_data): Reflect obsolete perprocess stuff.
+ * (_dll_crt0): Don't initialize heap pointers.
+ * (cygwin_dll_init): Ditto.
+ * (release_upto): Use heap pointers from cygheap.
+ * * heap.h: Ditto.
+ * * fork.cc (fork_parent): Ditto.  Don't set heap pointers in ch.
+ * (fork_child): Remove obsolete sigproc_fixup_after_fork.
+ * * shared.cc (memory_init): Reorganize so that cygheap initialization is called
+ * prior to regular heap since regular heap uses cygheap now.
+ * * sigproc.cc (proc_subproc): Eliminate zombies allocation.
+ * (sigproc_init): Move zombies alloation here.  Don't free up array on fork, just
+ * reuse it.
+ * (sigproc_fixup_after_fork): Eliminate.
+ * * sigproc.h: Ditto.
+ * * include/cygwin/version.h: Reflect change to perprocess structure.
+ *
+ * Revision 1.3  2001/06/26 14:47:48  cgf
+ * * mmap.cc: Clean up *ResourceLock calls throughout.
+ * * thread.cc (pthread_cond::TimedWait): Check for WAIT_TIMEOUT as well as
+ * WAIT_ABANDONED.
+ * (__pthread_cond_timedwait): Calculate a relative wait from the abstime
+ * parameter.
+ *
+ * Revision 1.2  2001/06/24 22:26:49  cgf
+ * forced commit
+ *
+ * Revision 1.1  2001/04/24 15:25:30  duda
+ * * dlmalloc.c: New file. Port of Doug Lea's malloc
+ * * dlmalloc.h: Ditto.
+ * * Makefile.in: Add support for MALLOC_DEBUG
+ * * config.h.in: Ditto.
+ * * winsup.h: Ditto.
+ * * configure.in: Add --enable-malloc-debugging option.
+ * * configure: Regenerate.
+ * * debug.h: Include declarations for debugging malloc.
+ * * tty.cc (grantpt): Fix definition.
+ * (unlockpt): Ditto.
  *
  * Revision 1.1  1997/12/24 18:34:47  nsd
  * Initial revision
@@ -253,6 +317,7 @@
 
 /* Preliminaries */
 
+#include "winsup.h"
 
 #ifndef __STD_C
 #ifdef __STDC__
@@ -286,11 +351,8 @@
 extern "C" {
 #endif
 
-#include <sys/types.h>
-#include "cygmalloc.h"
-#define __INSIDE_CYGWIN__
 #include <stdio.h>    /* needed for malloc_stats */
-#include <string.h>
+
 
 /*
   Compile-time options
@@ -914,31 +976,31 @@ extern Void_t*     sbrk();
 #else
 
 #ifndef cALLOc
-#define cALLOc		dlcalloc
+#define cALLOc		calloc
 #endif
 #ifndef fREe
-#define fREe		dlfree
+#define fREe		free
 #endif
 #ifndef mALLOc
-#define mALLOc		dlmalloc
+#define mALLOc		malloc
 #endif
 #ifndef mEMALIGn
-#define mEMALIGn	dlmemalign
+#define mEMALIGn	memalign
 #endif
 #ifndef rEALLOc
-#define rEALLOc		dlrealloc
+#define rEALLOc		realloc
 #endif
 #ifndef vALLOc
-#define vALLOc		dlvalloc
+#define vALLOc		valloc
 #endif
 #ifndef pvALLOc
-#define pvALLOc		dlpvalloc
+#define pvALLOc		pvalloc
 #endif
 #ifndef mALLINFo
-#define mALLINFo	dlmallinfo
+#define mALLINFo	mallinfo
 #endif
 #ifndef mALLOPt
-#define mALLOPt		dlmallopt
+#define mALLOPt		mallopt
 #endif
 
 #endif
@@ -953,6 +1015,7 @@ extern Void_t*     sbrk();
 #define memalign(align, size)	memalign_dbg(align, size, __FILE__, __LINE__)
 #define valloc(size)		valloc_dbg(size, __FILE__, __LINE__)
 #define pvalloc(size)		pvalloc_dbg(size, __FILE__, __LINE__)
+#define cfree(p)		cfree_dbg(p, __FILE__, __LINE__)
 #define malloc_trim(pad)	malloc_trim_dbg(pad, __FILE__, __LINE__)
 #define malloc_usable_size(p)	malloc_usable_size_dbg(p, __FILE__, __LINE__)
 #define malloc_stats(void)	malloc_stats_dbg(__FILE__, __LINE__)
@@ -967,6 +1030,7 @@ Void_t* calloc_dbg(size_t, size_t, const char *, int);
 Void_t* memalign_dbg(size_t, size_t, const char *, int);
 Void_t* valloc_dbg(size_t, const char *, int);
 Void_t* pvalloc_dbg(size_t, const char *, int);
+void    cfree_dbg(Void_t*, const char *, int);
 int     malloc_trim_dbg(size_t, const char *, int);
 size_t  malloc_usable_size_dbg(Void_t*, const char *, int);
 void    malloc_stats_dbg(const char *, int);
@@ -980,6 +1044,7 @@ Void_t* calloc_dbg();
 Void_t* memalign_dbg();
 Void_t* valloc_dbg();
 Void_t* pvalloc_dbg();
+void    cfree_dbg();
 int     malloc_trim_dbg();
 size_t  malloc_usable_size_dbg();
 void    malloc_stats_dbg();
@@ -998,6 +1063,7 @@ Void_t* cALLOc(size_t, size_t);
 Void_t* mEMALIGn(size_t, size_t);
 Void_t* vALLOc(size_t);
 Void_t* pvALLOc(size_t);
+void    cfree(Void_t*);
 int     malloc_trim(size_t);
 size_t  malloc_usable_size(Void_t*);
 void    malloc_stats(void);
@@ -1011,6 +1077,7 @@ Void_t* cALLOc();
 Void_t* mEMALIGn();
 Void_t* vALLOc();
 Void_t* pvALLOc();
+void    cfree();
 int     malloc_trim();
 size_t  malloc_usable_size();
 void    malloc_stats();
@@ -1038,6 +1105,7 @@ extern "C" {
 #undef memalign
 #undef valloc
 #undef pvalloc
+#undef cfree
 #undef malloc_trim
 #undef malloc_usable_size
 #undef malloc_stats
@@ -1052,6 +1120,7 @@ Void_t* cALLOc(size_t, size_t);
 Void_t* mEMALIGn(size_t, size_t);
 Void_t* vALLOc(size_t);
 Void_t* pvALLOc(size_t);
+void    cfree(Void_t*);
 int     malloc_trim(size_t);
 size_t  malloc_usable_size(Void_t*);
 void    malloc_stats(void);
@@ -1065,6 +1134,7 @@ Void_t* cALLOc();
 Void_t* mEMALIGn();
 Void_t* vALLOc();
 Void_t* pvALLOc();
+void    cfree();
 int     malloc_trim();
 size_t  malloc_usable_size();
 void    malloc_stats();
@@ -1820,7 +1890,9 @@ static void malloc_err(const char *err, mchunkptr p)
       /* avoid invalid pointers */
       debug_file_min &&
       p->file >= debug_file_min &&
-      p->file <= debug_file_max)
+      p->file <= debug_file_max &&
+      /* try to avoid garbage file names */
+      isprint(*p->file))
     errprint(p->file, p->line, "in block allocated here");
 # endif
 }
@@ -1832,6 +1904,7 @@ static void malloc_err(const char *err, mchunkptr p)
 #undef valloc
 #undef pvalloc
 #undef calloc
+#undef cfree
 #undef malloc_trim
 #undef malloc_usable_size
 #undef malloc_stats
@@ -1889,16 +1962,19 @@ Void_t* realloc_dbg(Void_t *oldmem, size_t bytes, dbgargs) {
   skelr(Void_t*, realloc(oldmem, bytes));
 }
 Void_t* memalign_dbg(size_t alignment, size_t bytes, dbgargs) {
-  skelr(Void_t*, dlmemalign(alignment, bytes));
+  skelr(Void_t*, memalign(alignment, bytes));
 }
 Void_t* valloc_dbg(size_t bytes, dbgargs) {
-  skelr(Void_t*, dlvalloc(bytes));
+  skelr(Void_t*, valloc(bytes));
 }
 Void_t* pvalloc_dbg(size_t bytes, dbgargs) {
-  skelr(Void_t*, dlpvalloc(bytes));
+  skelr(Void_t*, pvalloc(bytes));
 }
 Void_t* calloc_dbg(size_t n, size_t elem_size, dbgargs) {
   skelr(Void_t*, calloc(n, elem_size));
+}
+void cfree_dbg(Void_t *mem, dbgargs) {
+  skelv(cfree(mem));
 }
 int malloc_trim_dbg(size_t pad, dbgargs) {
   skelr(int, malloc_trim(pad));
@@ -1910,10 +1986,10 @@ void malloc_stats_dbg(dbgargs) {
   skelv(malloc_stats());
 }
 int mallopt_dbg(int flag, int value, dbgargs) {
-  skelr(int, dlmallopt(flag, value));
+  skelr(int, mallopt(flag, value));
 }
 struct mallinfo mallinfo_dbg(dbgargs) {
-  skelr(struct mallinfo, dlmallinfo());
+  skelr(struct mallinfo, mallinfo());
 }
 
 #undef skel
@@ -3463,6 +3539,24 @@ Void_t* cALLOc(n, elem_size) size_t n; size_t elem_size;
   }
 }
 
+/*
+
+  cfree just calls free. It is needed/defined on some systems
+  that pair it with calloc, presumably for odd historical reasons.
+
+*/
+
+#if !defined(INTERNAL_LINUX_C_LIB) || !defined(__ELF__)
+#if __STD_C
+void cfree(Void_t *mem)
+#else
+void cfree(mem) Void_t *mem;
+#endif
+{
+  free(mem);
+}
+#endif
+
 
 
 /*
@@ -3489,7 +3583,7 @@ Void_t* cALLOc(n, elem_size) size_t n; size_t elem_size;
 */
 
 #if __STD_C
-int dlmalloc_trim(size_t pad)
+int malloc_trim(size_t pad)
 #else
 int malloc_trim(pad) size_t pad;
 #endif
@@ -3562,7 +3656,7 @@ int malloc_trim(pad) size_t pad;
 */
 
 #if __STD_C
-size_t dlmalloc_usable_size(Void_t* mem)
+size_t malloc_usable_size(Void_t* mem)
 #else
 size_t malloc_usable_size(mem) Void_t* mem;
 #endif
@@ -3654,7 +3748,7 @@ static void malloc_update_mallinfo(void)
 
 */
 
-void dlmalloc_stats(void)
+void malloc_stats(void)
 {
   malloc_update_mallinfo();
   fprintf(stderr, "max system bytes = %10u\n",

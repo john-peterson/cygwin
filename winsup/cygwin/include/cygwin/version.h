@@ -1,7 +1,6 @@
 /* version.h -- Cygwin version numbers and accompanying documentation.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -35,15 +34,17 @@ details. */
    that didn't invalidate existing executables.  Both numbers were
    recorded in the executable and in the dll.
 
-   In October 1998 (starting with Cygwin 19.6), we started a new method
-   of Cygwin versioning: */
+   In October 1998 (starting with Cygwin 19.6), we started a new
+   means of Cygwin versioning: */
 
       /* The DLL major and minor numbers correspond to the "version of
-	 the Cygwin shared library".  This version is used to track important
+	 the Cygwin library".  This version is used to track important
 	 changes to the DLL and is mainly informative in nature. */
 
-#define CYGWIN_VERSION_DLL_MAJOR 1007
-#define CYGWIN_VERSION_DLL_MINOR 18
+  /* The current cygwin version is 1.3.6 */
+
+#define CYGWIN_VERSION_DLL_MAJOR 1003
+#define CYGWIN_VERSION_DLL_MINOR 7
 
       /* Major numbers before CYGWIN_VERSION_DLL_EPOCH are
 	 incompatible. */
@@ -62,49 +63,32 @@ details. */
      /* Every version of cygwin <= this uses an old, incorrect method
 	to determine signal masks. */
 
-#define CYGWIN_VERSION_PER_PROCESS_API_VERSION_COMBINED(u) \
-  CYGWIN_VERSION_DLL_MAKE_COMBINED ((u)->api_major, (u)->api_minor)
-
-#define CYGWIN_VERSION_USER_API_VERSION_COMBINED \
-  CYGWIN_VERSION_PER_PROCESS_API_VERSION_COMBINED (user_data)
+#define CYGWIN_VERSION_DLL_BAD_SIGNAL_MASK	19005
 
     /* API versions <= this had a termios structure whose members were
        too small to accomodate modern settings. */
 #define CYGWIN_VERSION_DLL_OLD_TERMIOS		5
 #define CYGWIN_VERSION_DLL_IS_OLD_TERMIOS \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= CYGWIN_VERSION_DLL_OLD_TERMIOS)
+  (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) <= \
+  CYGWIN_VERSION_DLL_OLD_TERMIOS)
 
 #define CYGWIN_VERSION_DLL_MALLOC_ENV		28
      /* Old APIs had getc/putc macros that conflict with new CR/LF
 	handling in the stdio buffers */
 #define CYGWIN_VERSION_OLD_STDIO_CRLF_HANDLING \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 20)
+  (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) <= \
+  20)
 
 #define CYGWIN_VERSION_CHECK_FOR_S_IEXEC \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED >= 36)
+  (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) >= \
+  36)
 
 #define CYGWIN_VERSION_CHECK_FOR_OLD_O_NONBLOCK \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 28)
-
-#define CYGWIN_VERSION_CHECK_FOR_USING_BIG_TYPES \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED >= 79)
-
-#define CYGWIN_VERSION_CHECK_FOR_USING_ANCIENT_MSGHDR \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 138)
-
-#define CYGWIN_VERSION_CHECK_FOR_USING_WINSOCK1_VALUES \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 138)
-
-#define CYGWIN_VERSION_CHECK_FOR_OLD_IFREQ \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 161)
-
-#define CYGWIN_VERSION_CHECK_FOR_OLD_CTYPE \
-  (CYGWIN_VERSION_USER_API_VERSION_COMBINED <= 209)
-
-#define CYGWIN_VERSION_USE_PSEUDO_RELOC_IN_DLL(u) \
-  (CYGWIN_VERSION_PER_PROCESS_API_VERSION_COMBINED (u) >= 227)
-
-#define CYGWIN_VERSION_CYGWIN_CONV 181
+  (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) <= \
+  28)
+     /* We used to use the DLL major/minor to track
+	non-backward-compatible interface changes to the API.  Now we
+	use an API major/minor number for this purpose. */
 
      /* API_MAJOR 0.0: Initial version.  API_MINOR changes:
 	1: Export cygwin32_ calls as cygwin_ as well.
@@ -163,291 +147,20 @@ details. */
        47: Report EOTWarningZoneSize in struct mtget.
        48: Export "posix" regex functions
        49: Export setutent, endutent, utmpname, getutent, getutid, getutline.
-       50: Export fnmatch.
-       51: Export recvmsg, sendmsg.
-       52: Export strptime
-       53: Export strlcat, strlcpy.
-       54: Export __fpclassifyd, __fpclassifyf, __signbitd, __signbitf.
-       55: Export fcloseall, fcloseall_r.
-       56: Make ntsec on by default.
-       57: Export setgroups.
-       58: Export memalign, valloc, malloc_trim, malloc_usable_size, mallopt,
-	   malloc_stats
-       59: getsid
-       60: MSG_NOSIGNAL
-       61: Export getc_unlocked, getchar_unlocked, putc_unlocked,
-	   putchar_unlocked
-       62: Erroneously bumped
-       63: Export pututline
-       64: Export fseeko, ftello
-       65: Export siginterrupt
-       66: Export nl_langinfo
-       67: Export pthread_getsequence_np
-       68: Export netdb stuff
-       69: Export strtof
-       70: Export asprintf, _asprintf_r, vasprintf, _vasprintf_r
-       71: Export strerror_r
-       72: Export nanosleep
-       73: Export setreuid32, setreuid, setregid32, setregid
-       74: Export _strtold a64l hcreate hcreate_r hdestroy hdestroy_r hsearch
-		  hsearch_r isblank iswalnum iswalpha iswblank iswcntrl iswctype
-		  iswdigit iswgraph iswlower iswprint iswpunct iswspace iswupper
-		  iswxdigit l64a mbrlen mbrtowc mbsinit mbsrtowcs mempcpy
-		  on_exit setbuffer setlinebuf strndup strnlen tdelete tdestroy
-		  tfind towctrans towlower towupper tsearch twalk wcrtomb wcscat
-		  wcschr wcscpy wcscspn wcslcat wcslcpy wcsncat wcsncmp wcsncpy
-		  wcspbrk wcsrchr wcsrtombs wcsspn wcsstr wctob wctob wctrans
-		  wctype wmemchr wmemcmp wmemcpy wmemmove wmemset
-       75: Export exp2 exp2f fdim fdimf fma fmaf fmax fmaxf fmin fminf lrint
-		  lrintf lround lroundf nearbyint nearbyintf remquo remquof
-		  round roundf scalbln scalblnf sincos sincosf tgamma tgammaf
-		  truncf
-       76: mallinfo
-       77: thread-safe exit/at_exit
-       78: Use stat and fstat rather than _stat, and _fstat.
-	   Export btowc and trunc.
-       79: Export acl32 aclcheck32 aclfrommode32 aclfrompbits32 aclfromtext32
-		  aclsort32 acltomode32 acltopbits32 acltotext32 facl32
-		  fgetpos64 fopen64 freopen64 fseeko64 fsetpos64 ftello64
-		  _open64 _lseek64 _fstat64 _stat64 mknod32
-       80: Export pthread_rwlock stuff
-       81: CW_CHECK_NTSEC addition to external.cc
-       82: Export wcscoll wcswidth wcwidth
-       83: Export gethostid
-       84: Pty open allocates invisible console.  64 bit interface
-       85: Export new 32/64 functions from API 0.79 only with leading
-	   underscore.  No problems with backward compatibility since no
-	   official release has been made so far.  This change removes
-	   exported symbols like fopen64, which might confuse configure.
-       86: Export ftok
-       87: Export vsyslog
-       88: Export _getreent
-       89: Export __mempcpy
-       90: Export _fopen64
-       91: Export argz_add argz_add_sep argz_append argz_count argz_create
-	   argz_create_sep argz_delete argz_extract argz_insert
-	   argz_next argz_replace argz_stringify envz_add envz_entry
-	   envz_get envz_merge envz_remove envz_strip
-       92: Export getusershell, setusershell, endusershell
-       93: Export daemon, forkpty, openpty, iruserok, ruserok, login_tty,
-	   openpty, forkpty, revoke, logwtmp, updwtmp
-       94: Export getopt, getopt_long, optarg, opterr, optind, optopt,
-	   optreset, __check_rhosts_file, __rcmd_errstr.
-       95: Export shmat, shmctl, shmdt, shmget.
-       96: CW_GET_ERRNO_FROM_WINERROR addition to external.cc
-       97: Export sem_open, sem_close, sem_timedwait, sem_getvalue.
-       98: Export _tmpfile64.
-       99: CW_GET_POSIX_SECURITY_ATTRIBUTE addition to external.cc.
-      100: CW_GET_SHMLBA addition to external.cc.
-      101: Export err, errx, verr, verrx, warn, warnx, vwarn, vwarnx.
-      102: CW_GET_UID_FROM_SID and CW_GET_GID_FROM_SID addition to external.cc.
-      103: Export getprogname, setprogname.
-      104: Export msgctl, msgget, msgrcv, msgsnd, semctl, semget, semop.
-      105: Export sigwait.
-      106: Export flock.
-      107: Export fcntl64.
-      108: Remove unused (hopefully) reent_data export.
-      109: Oh well.  Someone uses reent_data.
-      110: Export clock_gettime, sigwaitinfo, timer_create, timer_delete,
-	   timer_settime
-      111: Export sigqueue, sighold.
-      112: Redefine some mtget fields.
-      113: Again redefine some mtget fields.  Use mt_fileno and mt_blkno as
-	   on Linux.
-      114: Export rand_r, ttyname_r.
-      115: Export flockfile, ftrylockfile, funlockfile, getgrgid_r, getgrnam_r,
-	   getlogin_r.
-      116: Export atoll.
-      117: Export utmpx functions, Return utmp * from pututent.
-      118: Export getpriority, setpriority.
-      119: Export fdatasync.
-      120: Export basename, dirname.
-      122: Export statvfs, fstatvfs.
-      123: Export utmpxname.
-      124: Add MAP_AUTOGROW flag to mmap.
-      125: LD_PRELOAD/CW_HOOK available.
-      126: Export lsearch, lfind, timer_gettime.
-      127: Export sigrelese.
-      128: Export pselect.
-      129: Export mkdtemp.
-      130: Export strtoimax, strtoumax, llabs, imaxabs, lldiv, imaxdiv.
-      131: Export inet_ntop, inet_pton.
-      132: Add GLOB_LIMIT flag to glob.
-      133: Export __getline, __getdelim.
-      134: Export getline, getdelim.
-      135: Export pread, pwrite
-      136: Add TIOCMBIS/TIOCMBIC ioctl codes.
-      137: fts_children, fts_close, fts_get_clientptr, fts_get_stream,
-	   fts_open, fts_read, fts_set, fts_set_clientptr, ftw, nftw.
-      138: Export readdir_r.
-      139: Start using POSIX definition of struct msghdr and WinSock2
-	   IPPROTO_IP values.
-      140: Export mlock, munlock.
-      141: Export futimes, lutimes.
-      142: Export memmem
-      143: Export clock_getres, clock_setres
-      144: Export timelocal, timegm.
-      145: Add MAP_NORESERVE flag to mmap.
-      146: Change SI_USER definition.  FIXME: Need to develop compatibility
-	   macro for this?
-      147: Eliminate problematic d_ino from dirent structure.  unsetenv now
-	   returns int, as per linux.
-      148: Add open(2) flags O_SYNC, O_RSYNC, O_DSYNC and O_DIRECT.
-      149: Add open(2) flag O_NOFOLLOW.
-      150: Export getsubopt.
-      151: Export __opendir_with_d_ino
-      152: Revert to having d_ino in dirent unconditionally.
-      153: Export updwtmpx, Implement CW_SETUP_WINENV.
-      154: Export sigset, sigignore.
-      155: Export __isinff, __isinfd, __isnanf, __isnand.
-      156: Export __srbuf_r, __swget_r.
-      157: Export gai_strerror, getaddrinfo, getnameinfo, freeaddrinfo,
-	   in6addr_any, in6addr_loopback.
-      158: Export bindresvport, bindresvport_sa, iruserok_sa, rcmd_af,
-	   rresvport_af.
-      159: Export posix_openpt.
-      160: Export posix_fadvise, posix_fallocate.
-      161: Export resolver functions.
-      162: New struct ifreq.  Export if_nametoindex, if_indextoname,
-	   if_nameindex, if_freenameindex.
-      163: Export posix_madvise, posix_memalign.
-      164: Export shm_open, shm_unlink.
-      165: Export mq_close, mq_getattr, mq_notify, mq_open, mq_receive,
-	   mq_send, mq_setattr, mq_timedreceive, mq_timedsend, mq_unlink.
-      166: Export sem_unlink.
-      167: Add st_birthtim to struct stat.
-      168: Export asnprintf, dprintf, _Exit, vasnprintf, vdprintf.
-      169: Export confstr.
-      170: Export insque, remque.
-      171: Export exp10, exp10f, pow10, pow10f, strcasestr, funopen,
-	   fopencookie.
-      172: Export getifaddrs, freeifaddrs.
-      173: Export __assert_func.
-      174: Export stpcpy, stpncpy.
-      175: Export fdopendir.
-      176: Export wcstol, wcstoll, wcstoul, wcstoull, wcsxfrm.
-      177: Export sys_sigabbrev
-      178: Export wcpcpy, wcpncpy.
-      179: Export _f_llrint, _f_llrintf, _f_llrintl, _f_lrint, _f_lrintf,
-	   _f_lrintl, _f_rint, _f_rintf, _f_rintl, llrint, llrintf, llrintl,
-	   rintl, lrintl, and redirect exports of lrint, lrintf, rint, rintf.
-      180: Export getxattr, lgetxattr, fgetxattr, listxattr, llistxattr,
-	   flistxattr, setxattr, lsetxattr, fsetxattr, removexattr,
-	   lremovexattr, fremovexattr.
-      181: Export cygwin_conv_path, cygwin_create_path, cygwin_conv_path_list.
-      182: Export lockf.
-      FIXME: Removed 12 year old and entirely wrong wprintf function at
-	   this point.  We need a working implementation soon.
-      183: Export open_memstream, fmemopen.
-      184: Export openat, faccessat, fchmodat, fchownat, fstatat, futimesat,
-	   linkat, mkdirat, mkfifoat, mknodat, readlinkat, renameat, symlinkat,
-	   unlinkat.
-      185: Export futimens, utimensat.
-      186: Remove ancient V8 regexp functions.  Also eliminate old crt0 interface
-	   which provided its own user_data structure.
-      187: Export cfmakeraw.
-      188: Export CW_SET_PRIV_KEY.
-      189: Implement dirent.d_type.
-      190: Export fgetwc, fgetws, fputwc, fputws, fwide, getwc, getwchar,
-	   putwc, putwchar, ungetwc.
-      191: Export glob_pattern_p
-      192: CW_SETERRNO added
-      193: Export wcstok.
-      194: fcntl.h flags O_DIRECTORY, O_EXEC and O_SEARCH added.
-      195: Export wcstod, wcstof.
-      196: Export wcsnlen.
-      197: Export wcstoimax, wcstoumax.
-      198: Export reallocf.
-      199: Export open_wmemstream.
-      200: Export mbsnrtowcs, wcsnrtombs.
-      201: Export wprintf, fwprintf, swprintf, vwprintf, vfwprintf, vswprintf.
-      202: Export gethostbyname2.
-      203: Export wcsftime.
-      204: recv/send flag MSG_DONTWAIT added.
-      205: Export wscanf, fwscanf, swscanf, vwscanf, vfwscanf, vswscanf.
-      206: Export wcscasecmp, wcsncasecmp.
-      207: Export wcsdup.
-      208: Export log2, log2f.
-      209: Export wordexp, wordfree.
-      210: New ctype layout using variable ctype pointer.  Export __ctype_ptr__.
-      211: Export fpurge, mkstemps.
-      212: Add and export libstdc++ malloc wrappers.
-      213: Export canonicalize_file_name, eaccess, euidaccess.
-      214: Export execvpe, fexecve.
-      215: CW_EXIT_PROCESS added.
-      216: CW_SET_EXTERNAL_TOKEN added.
-      217: CW_GET_INSTKEY added.
-      218: Export get_nprocs, get_nprocs_conf, get_phys_pages, get_avphys_pages.
-      219: Export dup3, pipe2, O_CLOEXEC, F_DUPFD_CLOEXEC.
-      220: Export accept4, SOCK_CLOEXEC, SOCK_NONBLOCK.
-      221: Export strfmon.
-      222: CW_INT_SETLOCALE added.
-      223: SIGPWR added.
-      224: Export xdr* functions.
-      225: Export __xdr* functions.
-      226: Export __locale_mb_cur_max.
-      227: Add pseudo_reloc_start, pseudo_reloc_end, image_base to per_process.
-      228: CW_STRERROR added.
-      229: Add mkostemp, mkostemps.
-      230: Add CLOCK_MONOTONIC.
-      231: Add fenv.h functions.
-      232: Export cacos, cacosf, cacosh, cacoshf, carg, cargf, casin, casinf,
-	   casinh, casinhf, catan, catanf, catanh, catanhf, ccos, ccosf, ccosh,
-	   ccoshf, cexp, cexpf, cimag, cimagf, clog, clogf, conj, conjf, cpow,
-	   cpowf, cproj, cprojf, creal, crealf, csin, csinf, csinh, csinhf,
-	   csqrt, csqrtf, ctan, ctanf, ctanh, ctanhf.
-      233: Add TIOCGPGRP, TIOCSPGRP.  Export llround, llroundf.
-      234: Export program_invocation_name, program_invocation_short_name.
-      235: Export madvise.
-      236: Export pthread_yield, __xpg_strerror_r.
-      237: Export strchrnul.
-      238: Export pthread_spin_destroy, pthread_spin_init, pthread_spin_lock,
-	   pthread_spin_trylock, pthread_spin_unlock.
-      239: Export pthread_setschedprio.
-      240: Export ppoll.
-      241: Export pthread_attr_getstack, pthread_attr_getstackaddr,
-	   pthread_getattr_np.
-      242: Export psiginfo, psignal, sys_siglist.
-      243: Export sysinfo.
-      244: Export clock_settime.
-      245: Export pthread_attr_getguardsize, pthread_attr_setguardsize,
-	   pthread_attr_setstack, pthread_attr_setstackaddr.
-      246: Add CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID.
-	   Export clock_getcpuclockid, pthread_getcpuclockid.
-      247: Export error, error_at_line, error_message_count, error_one_per_line,
-	   error_print_progname.
-      248: Export __fpurge.
-      249: Export pthread_condattr_getclock, pthread_condattr_setclock.
-      250: Export clock_nanosleep.
-      251: RTLD_NODELETE, RTLD_NOLOAD, RTLD_DEEPBIND added.
-      252: CW_CVT_ENV_TO_WINENV added.
-      253: Export TIOCSCTTY, tcgetsid.
-      254: Export getgrouplist.
-      255: Export ptsname_r.
-      256: Add CW_ALLOC_DRIVE_MAP, CW_MAP_DRIVE_MAP, CW_FREE_DRIVE_MAP.
-      257: Export getpt.
-      258: Export get_current_dir_name.
-      259: Export pthread_sigqueue.
-      260: Export scandirat.
-      261: Export memrchr.
-      262: Export getmntent_r.
-      263: Export cfsetspeed.
      */
 
      /* Note that we forgot to bump the api for ualarm, strtoll, strtoull */
 
 #define CYGWIN_VERSION_API_MAJOR 0
-#define CYGWIN_VERSION_API_MINOR 263
+#define CYGWIN_VERSION_API_MINOR 49
 
      /* There is also a compatibity version number associated with the
 	shared memory regions.  It is incremented when incompatible
 	changes are made to the shared memory region *or* to any named
 	shared mutexes, semaphores, etc.   The arbitrary starting
-	version was 0 (cygwin release 98r2).
-	Bump to 4 since this hasn't been rigorously updated in a
-	while.  */
+	version was 0 (cygwin release 98r2). */
 
-#define CYGWIN_VERSION_SHARED_DATA 5
+#define CYGWIN_VERSION_SHARED_DATA 3
 
      /* An identifier used in the names used to create shared objects.
 	The full names include the CYGWIN_VERSION_SHARED_DATA version
@@ -463,19 +176,18 @@ details. */
 
 	1: Original number version.
 	2: New mount registry layout, system-wide mount accessibility.
-	3: The mount table is not in the registry anymore, but in /etc/fstab.
      */
 
-#define CYGWIN_VERSION_MOUNT_REGISTRY 3
+#define CYGWIN_VERSION_MOUNT_REGISTRY 2
 
      /* Identifiers used in the Win32 registry. */
 
+#define CYGWIN_INFO_CYGNUS_REGISTRY_NAME "Cygnus Solutions"
 #define CYGWIN_INFO_CYGWIN_REGISTRY_NAME "Cygwin"
 #define CYGWIN_INFO_PROGRAM_OPTIONS_NAME "Program Options"
-#define CYGWIN_INFO_INSTALLATIONS_NAME   "Installations"
-
-     /* The default cygdrive prefix. */
-
+#define CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME "mounts v2"
+#define CYGWIN_INFO_CYGDRIVE_FLAGS "cygdrive flags"
+#define CYGWIN_INFO_CYGDRIVE_PREFIX "cygdrive prefix"
 #define CYGWIN_INFO_CYGDRIVE_DEFAULT_PREFIX "/cygdrive"
 
      /* In addition to the above version number strings, the build
@@ -505,5 +217,5 @@ details. */
 	cygwin_internal (CW_GETVERSIONINFO).
      */
 
-#define CYGWIN_VERSION_MAGIC(a, b) ((unsigned) ((((unsigned short) a) << 16) | (unsigned short) b))
+#define CYGWIN_VERSION_MAGIC(a, b) ((unsigned) (((unsigned short) a) | (unsigned short) b))
 #define CYGWIN_VERSION_MAGIC_VERSION(a) ((unsigned) ((unsigned)a & 0xffff))

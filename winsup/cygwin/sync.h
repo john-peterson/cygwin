@@ -1,7 +1,8 @@
 /* sync.h: Header file for cygwin synchronization primitives.
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2010, 2011,
-   2012, 2013 Red Hat, Inc.
+   Copyright 1999, 2000, 2001 Red Hat, Inc.
+
+   Written by Christopher Faylor <cgf@cygnus.com>
 
 This file is part of Cygwin.
 
@@ -9,62 +10,47 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
-
 /* FIXME: Note that currently this class cannot be allocated via `new' since
    there are issues with malloc and fork. */
 class muto
 {
-public:
-  const char *name;
-private:
   LONG sync;	/* Used to serialize access to this class. */
+  LONG visits;	/* Count of number of times a thread has called acquire. */
   LONG waiters;	/* Number of threads waiting for lock. */
   HANDLE bruteforce; /* event handle used to control waiting for lock. */
+  DWORD tid;	/* Thread Id of lock owner. */
 public:
-  LONG visits;	/* Count of number of times a thread has called acquire. */
-  void *tls;	/* Tls of lock owner. */
-  // class muto *next;
+  class muto *next;
+  const char *name;
 
+  muto() {}
   /* The real constructor. */
-  muto __reg2 *init (const char *);
+  muto(int inh, const char *name);
 
-#if 0	/* FIXME: See comment in sync.cc */
-  ~muto ()
-#endif
-  int __reg2 acquire (DWORD ms = INFINITE); /* Acquire the lock. */
-  int __reg2 release (_cygtls * = &_my_tls); /* Release the lock. */
+  void *operator new (size_t, void *p) {return p;}
+  void *operator new (size_t) {return ::new muto; }
+  void operator delete (void *) {;} /* can't handle allocated mutos
+					currently */
 
-  bool __reg1 acquired ();
-  void upforgrabs () {tls = this;}  // just set to an invalid address
-  void __reg1 grab ();
-  operator int () const {return !!name;}
+  ~muto ();
+  int acquire (DWORD ms = INFINITE) __attribute__ ((regparm(1))); /* Acquire the lock. */
+  int release ();		     /* Release the lock. */
+
+  /* Return true if caller thread owns the lock. */
+  int ismine () {return tid == GetCurrentThreadId ();}
+  DWORD owner () {return tid;}
+  int unstable () {return !tid && (sync || waiters >= 0);}
+  void reset ();
 };
 
-class lock_process
-{
-  bool skip_unlock;
-  static muto locker;
-public:
-  static void init () {locker.init ("lock_process");}
-  void dont_bother () {skip_unlock = true;}
-  lock_process (bool exiting = false)
-  {
-    locker.acquire ();
-    skip_unlock = exiting;
-  }
-  void release ()
-  {
-    locker.release ();
-    skip_unlock = true;
-  }
-  ~lock_process ()
-  {
-    if (!skip_unlock)
-      release ();
-  }
-  operator LONG () const {return locker.visits; }
-  static void force_release (_cygtls *tid) {locker.release (tid);}
-  friend class dtable;
-  friend class fhandler_fifo;
-};
+extern muto muto_start;
+
+/* Use a statically allocated buffer as the storage for a muto */
+#define new_muto(__inh, __name) \
+({ \
+  static __attribute__((section(".data_cygwin_nocopy"))) muto __mbuf; \
+  (void) new ((void *) &__mbuf) muto (__inh, __name); \
+  __mbuf.next = muto_start.next; \
+  muto_start.next = &__mbuf; \
+  &__mbuf; \
+})

@@ -1,10 +1,8 @@
 /* fhandler_dev_dsp: code to emulate OSS sound model /dev/dsp
 
-   Copyright 2001, 2002, 2003, 2004, 2008, 2011, 2012 Red Hat, Inc
+   Copyright 2001 Red Hat, Inc
 
    Written by Andy Younger (andy@snoogie.demon.co.uk)
-   Extended by Gerd Spalink (Gerd.Spalink@t-online.de)
-     to support recording from the audio input
 
 This file is part of Cygwin.
 
@@ -13,620 +11,344 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <stdio.h>
+#include <errno.h>
+#include <windows.h>
 #include <sys/soundcard.h>
+#include <sys/fcntl.h>
+#include <mmsystem.h>
 #include "cygerrno.h"
 #include "security.h"
-#include "path.h"
 #include "fhandler.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "sigproc.h"
-#include "cygwait.h"
 
-/*------------------------------------------------------------------------
-  Simple encapsulation of the win32 audio device.
-
-  Implementation Notes
-  1. Audio structures are malloced just before the first read or
-     write to /dev/dsp. The actual buffer size is determined at that time,
-     such that one buffer holds about 125ms of audio data.
-     At the time of this writing, 12 buffers are allocated,
-     so that up to 1.5 seconds can be buffered within Win32.
-     The buffer size can be queried with the ioctl SNDCTL_DSP_GETBLKSIZE,
-     but for this implementation only returns meaningful results if
-     sampling rate, number of channels and number of bits per sample
-     are not changed afterwards.
-     The audio structures are freed when the device is reset or closed,
-     and they are not passed to exec'ed processes.
-     The dev_ member is cleared after a fork. This forces the child
-     to reopen the audio device._
-
-  2. Every open call creates a new instance of the handler. After a
-     successful open, every subsequent open from the same process
-     to the device fails with EBUSY.
-     The structures are shared between duped handles, but not with
-     children. They only inherit the settings from the parent.
- */
-
-class fhandler_dev_dsp::Audio
-{ // This class contains functionality common to Audio_in and Audio_out
- public:
-   Audio (fhandler_dev_dsp *my_fh);
-   ~Audio ();
-
-  class queue;
-
-  bool isvalid ();
-  void setconvert (int format);
-  void convert_none (unsigned char *buffer, int size_bytes) { }
-  void convert_U8_S8 (unsigned char *buffer, int size_bytes);
-  void convert_S16LE_U16LE (unsigned char *buffer, int size_bytes);
-  void convert_S16LE_U16BE (unsigned char *buffer, int size_bytes);
-  void convert_S16LE_S16BE (unsigned char *buffer, int size_bytes);
-  void fillFormat (WAVEFORMATEX * format,
-		   int rate, int bits, int channels);
-  unsigned blockSize (int rate, int bits, int channels);
-  void (fhandler_dev_dsp::Audio::*convert_)
-    (unsigned char *buffer, int size_bytes);
-
-  enum { MAX_BLOCKS = 12 };
-  int bufferIndex_;  // offset into pHdr_->lpData
-  WAVEHDR *pHdr_;    // data to be filled by write
-  WAVEHDR wavehdr_[MAX_BLOCKS];
-  char *bigwavebuffer_; // audio samples only
-  // Member variables below must be locked
-  queue *Qisr2app_; // blocks passed from wave callback
-
-  fhandler_dev_dsp *fh;
-};
-
-class fhandler_dev_dsp::Audio::queue
-{ // non-blocking fixed size queues for buffer management
- public:
-   queue (int depth = 4);
-  ~queue ();
-
-  bool send (WAVEHDR *);  // queue an item, returns true if successful
-  bool recv (WAVEHDR **); // retrieve an item, returns true if successful
-  void reset ();
-  int query (); // return number of items queued
-  inline void lock () { EnterCriticalSection (&lock_); }
-  inline void unlock () { LeaveCriticalSection (&lock_); }
-  inline void dellock () { debug_printf ("Deleting Critical Section"); DeleteCriticalSection (&lock_); }
-  bool isvalid () { return storage_; }
- private:
-  CRITICAL_SECTION lock_;
-  int head_;
-  int tail_;
-  int depth_;
-  WAVEHDR **storage_;
-};
-
-static void CALLBACK waveOut_callback (HWAVEOUT hWave, UINT msg, DWORD instance,
-				       DWORD param1, DWORD param2);
-
-class fhandler_dev_dsp::Audio_out: public Audio
-{
- public:
-  Audio_out (fhandler_dev_dsp *my_fh) : Audio (my_fh) {}
-
-  void fork_fixup (HANDLE parent);
-  bool query (int rate, int bits, int channels);
-  bool start ();
-  void stop (bool immediately = false);
-  int write (const char *pSampleData, int nBytes);
-  void buf_info (audio_buf_info *p, int rate, int bits, int channels);
-  void callback_sampledone (WAVEHDR *pHdr);
-  bool parsewav (const char *&pData, int &nBytes,
-		 int rate, int bits, int channels);
-
- private:
-  void init (unsigned blockSize);
-  void waitforallsent ();
-  bool waitforspace ();
-  bool sendcurrent ();
-
-  enum { MAX_BLOCKS = 12 };
-  HWAVEOUT dev_;     // The wave device
-  /* Private copies of audiofreq_, audiobits_, audiochannels_,
-     possibly set from wave file */
-  int freq_;
-  int bits_;
-  int channels_;
-};
-
-static void CALLBACK waveIn_callback (HWAVEIN hWave, UINT msg, DWORD instance,
-				      DWORD param1, DWORD param2);
-
-class fhandler_dev_dsp::Audio_in: public Audio
+//------------------------------------------------------------------------
+// Simple encapsulation of the win32 audio device.
+//
+static void CALLBACK wave_callback (HWAVE hWave, UINT msg, DWORD instance,
+				    DWORD param1, DWORD param2);
+class Audio
 {
 public:
-  Audio_in (fhandler_dev_dsp *my_fh) : Audio (my_fh) {}
+  enum
+  {
+    MAX_BLOCKS = 12,
+    BLOCK_SIZE = 16384,
+    TOT_BLOCK_SIZE = BLOCK_SIZE + sizeof (WAVEHDR)
+   };
 
-  void fork_fixup (HANDLE parent);
-  bool query (int rate, int bits, int channels);
-  bool start (int rate, int bits, int channels);
-  void stop ();
-  bool read (char *pSampleData, int &nBytes);
-  void buf_info (audio_buf_info *p, int rate, int bits, int channels);
-  void callback_blockfull (WAVEHDR *pHdr);
+    Audio ();
+   ~Audio ();
+
+  bool open (int rate, int bits, int channels, bool bCallback = false);
+  void close ();
+  int getvolume ();
+  void setvolume (int newVolume);
+  bool write (const void *pSampleData, int nBytes);
+  int blocks ();
+  void callback_sampledone (void *pData);
+  void setformat (int format) {formattype_ = format;}
+  int numbytesoutput ();
+
+  void *operator new (size_t, void *p) {return p;}
 
 private:
-  bool init (unsigned blockSize);
-  bool queueblock (WAVEHDR *pHdr);
-  bool waitfordata (); // blocks until we have a good pHdr_ unless O_NONBLOCK
+  char *initialisebuffer ();
+  void waitforcallback ();
+  bool flush ();
 
-  HWAVEIN dev_;
+  HWAVEOUT dev_;
+  volatile int nBlocksInQue_;
+  int nBytesWritten_;
+  char *buffer_;
+  int bufferIndex_;
+  CRITICAL_SECTION lock_;
+  char *freeblocks_[MAX_BLOCKS];
+  int formattype_;
+
+  char bigwavebuffer_[MAX_BLOCKS * TOT_BLOCK_SIZE];
 };
 
-/* --------------------------------------------------------------------
-   Implementation */
+static char audio_buf[sizeof (class Audio)];
 
-// Simple fixed length FIFO queue implementation for audio buffer management
-fhandler_dev_dsp::Audio::queue::queue (int depth)
+Audio::Audio ()
 {
-  // allow space for one extra object in the queue
-  // so we can distinguish full and empty status
-  depth_ = depth;
-  storage_ = new WAVEHDR *[depth_ + 1];
+  InitializeCriticalSection (&lock_);
+  memset (bigwavebuffer_, 0, sizeof (bigwavebuffer_));
+  for (int i = 0; i < MAX_BLOCKS; i++)
+    freeblocks_[i] =  &bigwavebuffer_[i * TOT_BLOCK_SIZE];
 }
 
-fhandler_dev_dsp::Audio::queue::~queue ()
+Audio::~Audio ()
 {
-  delete[] storage_;
-}
-
-void
-fhandler_dev_dsp::Audio::queue::reset ()
- {
-   /* When starting, after reset and after fork */
-   head_ = tail_ = 0;
-   debug_printf ("InitializeCriticalSection");
-   memset (&lock_, 0, sizeof (lock_));
-   InitializeCriticalSection (&lock_);
- }
-
-bool
-fhandler_dev_dsp::Audio::queue::send (WAVEHDR *x)
-{
-  bool res = false;
-  lock ();
-  if (query () == depth_)
-    system_printf ("Queue overflow");
-  else
-    {
-      storage_[tail_] = x;
-      if (++tail_ > depth_)
-	tail_ = 0;
-      res = true;
-    }
-  unlock ();
-  return res;
-}
-
-bool
-fhandler_dev_dsp::Audio::queue::recv (WAVEHDR **x)
-{
-  bool res = false;
-  lock ();
-  if (query () != 0)
-    {
-      *x = storage_[head_];
-      if (++head_ > depth_)
-	head_ = 0;
-      res = true;
-    }
-  unlock ();
-  return res;
-}
-
-int
-fhandler_dev_dsp::Audio::queue::query ()
-{
-  int n = tail_ - head_;
-  if (n < 0)
-    n += depth_ + 1;
-  return n;
-}
-
-// Audio class implements functionality need for both read and write
-fhandler_dev_dsp::Audio::Audio (fhandler_dev_dsp *my_fh)
-{
-  bigwavebuffer_ = NULL;
-  Qisr2app_ = new queue (MAX_BLOCKS);
-  convert_ = &fhandler_dev_dsp::Audio::convert_none;
-  fh = my_fh;
-}
-
-fhandler_dev_dsp::Audio::~Audio ()
-{
-  debug_printf("");
-  delete Qisr2app_;
-  delete[] bigwavebuffer_;
-}
-
-inline bool
-fhandler_dev_dsp::Audio::isvalid ()
-{
-  return bigwavebuffer_ && Qisr2app_ && Qisr2app_->isvalid ();
-}
-
-void
-fhandler_dev_dsp::Audio::setconvert (int format)
-{
-  switch (format)
-    {
-    case AFMT_S8:
-      convert_ = &fhandler_dev_dsp::Audio::convert_U8_S8;
-      debug_printf ("U8_S8");
-      break;
-    case AFMT_U16_LE:
-      convert_ = &fhandler_dev_dsp::Audio::convert_S16LE_U16LE;
-      debug_printf ("S16LE_U16LE");
-      break;
-    case AFMT_U16_BE:
-      convert_ = &fhandler_dev_dsp::Audio::convert_S16LE_U16BE;
-      debug_printf ("S16LE_U16BE");
-      break;
-    case AFMT_S16_BE:
-      convert_ = &fhandler_dev_dsp::Audio::convert_S16LE_S16BE;
-      debug_printf ("S16LE_S16BE");
-      break;
-    default:
-      convert_ = &fhandler_dev_dsp::Audio::convert_none;
-      debug_printf ("none");
-    }
-}
-
-void
-fhandler_dev_dsp::Audio::convert_U8_S8 (unsigned char *buffer,
-					int size_bytes)
-{
-  while (size_bytes-- > 0)
-    {
-      *buffer ^= (unsigned char)0x80;
-      buffer++;
-    }
-}
-
-void
-fhandler_dev_dsp::Audio::convert_S16LE_U16BE (unsigned char *buffer,
-					      int size_bytes)
-{
-  int size_samples = size_bytes / 2;
-  unsigned char hi, lo;
-  while (size_samples-- > 0)
-    {
-      hi = buffer[0];
-      lo = buffer[1];
-      *buffer++ = lo;
-      *buffer++ = hi ^ (unsigned char)0x80;
-    }
-}
-
-void
-fhandler_dev_dsp::Audio::convert_S16LE_U16LE (unsigned char *buffer,
-					      int size_bytes)
-{
-  int size_samples = size_bytes / 2;
-  while (size_samples-- > 0)
-    {
-      buffer++;
-      *buffer ^= (unsigned char)0x80;
-      buffer++;
-    }
-}
-
-void
-fhandler_dev_dsp::Audio::convert_S16LE_S16BE (unsigned char *buffer,
-					      int size_bytes)
-{
-  int size_samples = size_bytes / 2;
-  unsigned char hi, lo;
-  while (size_samples-- > 0)
-    {
-      hi = buffer[0];
-      lo = buffer[1];
-      *buffer++ = lo;
-      *buffer++ = hi;
-    }
-}
-
-void
-fhandler_dev_dsp::Audio::fillFormat (WAVEFORMATEX * format,
-				     int rate, int bits, int channels)
-{
-  memset (format, 0, sizeof (*format));
-  format->wFormatTag = WAVE_FORMAT_PCM;
-  format->wBitsPerSample = bits;
-  format->nChannels = channels;
-  format->nSamplesPerSec = rate;
-  format->nAvgBytesPerSec = format->nSamplesPerSec * format->nChannels
-    * (bits / 8);
-  format->nBlockAlign = format->nChannels * (bits / 8);
-}
-
-// calculate a good block size
-unsigned
-fhandler_dev_dsp::Audio::blockSize (int rate, int bits, int channels)
-{
-  unsigned blockSize;
-  blockSize = ((bits / 8) * channels * rate) / 8; // approx 125ms per block
-  // round up to multiple of 64
-  blockSize +=  0x3f;
-  blockSize &= ~0x3f;
-  return blockSize;
-}
-
-//=======================================================================
-void
-fhandler_dev_dsp::Audio_out::fork_fixup (HANDLE parent)
-{
-  /* Null dev_.
-     It will be necessary to reset the queue, open the device
-     and create a lock when writing */
-  debug_printf ("parent=0x%08x", parent);
-  dev_ = NULL;
-}
-
-
-bool
-fhandler_dev_dsp::Audio_out::query (int rate, int bits, int channels)
-{
-  WAVEFORMATEX format;
-  MMRESULT rc;
-
-  fillFormat (&format, rate, bits, channels);
-  rc = waveOutOpen (NULL, WAVE_MAPPER, &format, 0L, 0L, WAVE_FORMAT_QUERY);
-  debug_printf ("%d = waveOutOpen(freq=%d bits=%d channels=%d)", rc, rate, bits, channels);
-  return (rc == MMSYSERR_NOERROR);
-}
-
-bool
-fhandler_dev_dsp::Audio_out::start ()
-{
-  WAVEFORMATEX format;
-  MMRESULT rc;
-  unsigned bSize = blockSize (freq_, bits_, channels_);
-
   if (dev_)
-    return true;
+    close ();
+  DeleteCriticalSection (&lock_);
+}
 
-  /* In case of fork bigwavebuffer may already exist */
-  if (!bigwavebuffer_)
-    bigwavebuffer_ = new char[MAX_BLOCKS * bSize];
+bool
+Audio::open (int rate, int bits, int channels, bool bCallback = false)
+{
+  WAVEFORMATEX format;
+  int nDevices = waveOutGetNumDevs ();
 
-  if (!isvalid ())
+  nBytesWritten_ = 0L;
+  bufferIndex_ = 0;
+  buffer_ = 0L;
+  debug_printf ("number devices %d\n", nDevices);
+  if (nDevices <= 0)
     return false;
 
-  fillFormat (&format, freq_, bits_, channels_);
-  rc = waveOutOpen (&dev_, WAVE_MAPPER, &format, (DWORD) waveOut_callback,
-		     (DWORD) this, CALLBACK_FUNCTION);
-  if (rc == MMSYSERR_NOERROR)
-    init (bSize);
+  debug_printf ("trying to map device freq %d, bits %d, "
+		"channels %d, callback %d\n", rate, bits, channels,
+		bCallback);
 
-  debug_printf ("%d = waveOutOpen(freq=%d bits=%d channels=%d)", rc, freq_, bits_, channels_);
+  int bytesperSample = bits / 8;
 
-  return (rc == MMSYSERR_NOERROR);
-}
+  memset (&format, 0, sizeof (format));
+  format.wFormatTag = WAVE_FORMAT_PCM;
+  format.wBitsPerSample = bits;
+  format.nChannels = channels;
+  format.nSamplesPerSec = rate;
+  format.nAvgBytesPerSec = format.nSamplesPerSec * format.nChannels *
+    bytesperSample;
+  format.nBlockAlign = format.nChannels * bytesperSample;
 
-void
-fhandler_dev_dsp::Audio_out::stop (bool immediately)
-{
-  MMRESULT rc;
-  WAVEHDR *pHdr;
-
-  debug_printf ("dev_=%08x", (int)dev_);
-  if (dev_)
+  nBlocksInQue_ = 0;
+  HRESULT res = waveOutOpen (&dev_, WAVE_MAPPER, &format, (DWORD) wave_callback,
+			     (DWORD) this, bCallback ? CALLBACK_FUNCTION : 0);
+  if (res == S_OK)
     {
-      if (!immediately)
-	{
-	  sendcurrent ();	// force out last block whatever size..
-	  waitforallsent ();	// block till finished..
-	}
-
-      rc = waveOutReset (dev_);
-      debug_printf ("%d = waveOutReset()", rc);
-      while (Qisr2app_->recv (&pHdr))
-	{
-	  rc = waveOutUnprepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-	  debug_printf ("%d = waveOutUnprepareHeader(0x%08x)", rc, pHdr);
-	}
-
-      rc = waveOutClose (dev_);
-      debug_printf ("%d = waveOutClose()", rc);
-
-      Qisr2app_->dellock ();
-    }
-}
-
-void
-fhandler_dev_dsp::Audio_out::init (unsigned blockSize)
-{
-  int i;
-
-  // internally queue all of our buffer for later use by write
-  Qisr2app_->reset ();
-  for (i = 0; i < MAX_BLOCKS; i++)
-    {
-      wavehdr_[i].lpData = &bigwavebuffer_[i * blockSize];
-      wavehdr_[i].dwUser = (int) blockSize;
-      wavehdr_[i].dwFlags = 0;
-      if (!Qisr2app_->send (&wavehdr_[i]))
-	{
-	  system_printf ("Internal Error i=%d", i);
-	  break; // should not happen
-	}
-    }
-  pHdr_ = NULL;
-}
-
-int
-fhandler_dev_dsp::Audio_out::write (const char *pSampleData, int nBytes)
-{
-  int bytes_to_write = nBytes;
-  while (bytes_to_write != 0)
-    { // Block if all blocks used until at least one is free
-      if (!waitforspace ())
-	{
-	  if (bytes_to_write != nBytes)
-	    break;
-	  return -1;
-	}
-
-      int sizeleft = (int)pHdr_->dwUser - bufferIndex_;
-      if (bytes_to_write < sizeleft)
-	{ // all data fits into the current block, with some space left
-	  memcpy (&pHdr_->lpData[bufferIndex_], pSampleData, bytes_to_write);
-	  bufferIndex_ += bytes_to_write;
-	  bytes_to_write = 0;
-	  break;
-	}
-      else
-	{ // data will fill up the current block
-	  memcpy (&pHdr_->lpData[bufferIndex_], pSampleData, sizeleft);
-	  bufferIndex_ += sizeleft;
-	  sendcurrent ();
-	  pSampleData += sizeleft;
-	  bytes_to_write -= sizeleft;
-	}
-    }
-  return nBytes - bytes_to_write;
-}
-
-void
-fhandler_dev_dsp::Audio_out::buf_info (audio_buf_info *p,
-				       int rate, int bits, int channels)
-{
-  p->fragstotal = MAX_BLOCKS;
-  if (this && dev_)
-    {
-      /* If the device is running we use the internal values,
-	 possibly set from the wave file. */
-      p->fragsize = blockSize (freq_, bits_, channels_);
-      p->fragments = Qisr2app_->query ();
-      if (pHdr_ != NULL)
-	p->bytes = (int)pHdr_->dwUser - bufferIndex_
-	  + p->fragsize * p->fragments;
-      else
-	p->bytes = p->fragsize * p->fragments;
+      debug_printf ("Sucessfully opened!");
+      return true;
     }
   else
     {
-      p->fragsize = blockSize (rate, bits, channels);
-      p->fragments = MAX_BLOCKS;
-      p->bytes = p->fragsize * p->fragments;
+      debug_printf ("failed to open");
+      return false;
     }
 }
 
-/* This is called on an interupt so use locking.. Note Qisr2app_
-   is used so we should wrap all references to it in locks. */
-inline void
-fhandler_dev_dsp::Audio_out::callback_sampledone (WAVEHDR *pHdr)
+void
+Audio::close ()
 {
-  Qisr2app_->send (pHdr);
+  if (dev_)
+    {
+      flush ();			// force out last block whatever size..
+
+      while (blocks ())		// block till finished..
+	waitforcallback ();
+
+      waveOutReset (dev_);
+      waveOutClose (dev_);
+      dev_ = 0L;
+    }
+  nBytesWritten_ = 0L;
+}
+
+int
+Audio::numbytesoutput ()
+{
+  return nBytesWritten_;
+}
+
+int
+Audio::getvolume ()
+{
+  DWORD volume;
+
+  waveOutGetVolume (dev_, &volume);
+  return ((volume >> 16) + (volume & 0xffff)) >> 1;
+}
+
+void
+Audio::setvolume (int newVolume)
+{
+  waveOutSetVolume (dev_, (newVolume << 16) | newVolume);
+}
+
+char *
+Audio::initialisebuffer ()
+{
+  EnterCriticalSection (&lock_);
+  WAVEHDR *pHeader = 0L;
+  for (int i = 0; i < MAX_BLOCKS; i++)
+    {
+      char *pData = freeblocks_[i];
+      if (pData)
+	{
+	  pHeader = (WAVEHDR *) pData;
+	  if (pHeader->dwFlags & WHDR_DONE)
+	    {
+	      waveOutUnprepareHeader (dev_, pHeader, sizeof (WAVEHDR));
+	    }
+	  freeblocks_[i] = 0L;
+	  break;
+	}
+    }
+  LeaveCriticalSection (&lock_);
+
+  if (pHeader)
+    {
+      memset (pHeader, 0, sizeof (WAVEHDR));
+      pHeader->dwBufferLength = BLOCK_SIZE;
+      pHeader->lpData = (LPSTR) (&pHeader[1]);
+      return (char *) pHeader->lpData;
+    }
+  return 0L;
 }
 
 bool
-fhandler_dev_dsp::Audio_out::waitforspace ()
+Audio::write (const void *pSampleData, int nBytes)
 {
-  WAVEHDR *pHdr;
-  MMRESULT rc = WAVERR_STILLPLAYING;
+  // split up big blocks into smaller BLOCK_SIZE chunks
+  while (nBytes > BLOCK_SIZE)
+    {
+      write (pSampleData, BLOCK_SIZE);
+      nBytes -= BLOCK_SIZE;
+      pSampleData = (void *) ((char *) pSampleData + BLOCK_SIZE);
+    }
 
-  if (pHdr_ != NULL)
-    return true;
-  while (!Qisr2app_->recv (&pHdr))
+  // Block till next sound is flushed
+  if (blocks () == MAX_BLOCKS)
+    waitforcallback ();
+
+  // Allocate new wave buffer if necessary
+  if (buffer_ == 0L)
     {
-      if (fh->is_nonblocking ())
-	{
-	  set_errno (EAGAIN);
-	  return false;
-	}
-      debug_printf ("100ms");
-      switch (cygwait (100))
-	{
-	case WAIT_SIGNALED:
-	  if (!_my_tls.call_signal_handler ())
-	    {
-	      set_errno (EINTR);
-	      return false;
-	    }
-	  break;
-	case WAIT_CANCELED:
-	  pthread::static_cancel_self ();
-	  /*NOTREACHED*/
-	default:
-	  break;
-	}
+      buffer_ = initialisebuffer ();
+      if (buffer_ == 0L)
+	return false;
     }
-  if (pHdr->dwFlags)
+
+
+  // Handle gathering blocks into larger buffer
+  int sizeleft = BLOCK_SIZE - bufferIndex_;
+  if (nBytes < sizeleft)
     {
-      /* Errors are ignored here. They will probbaly cause a failure
-	 in the subsequent PrepareHeader */
-      rc = waveOutUnprepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-      debug_printf ("%d = waveOutUnprepareHeader(0x%08x)", rc, pHdr);
+      memcpy (&buffer_[bufferIndex_], pSampleData, nBytes);
+      bufferIndex_ += nBytes;
+      nBytesWritten_ += nBytes;
+      return true;
     }
-  pHdr_ = pHdr;
-  bufferIndex_ = 0;
+
+  // flushing when we reach our limit of BLOCK_SIZE
+  memcpy (&buffer_[bufferIndex_], pSampleData, sizeleft);
+  bufferIndex_ += sizeleft;
+  nBytesWritten_ += sizeleft;
+  flush ();
+
+  // change pointer to rest of sample, and size accordingly
+  pSampleData = (void *) ((char *) pSampleData + sizeleft);
+  nBytes -= sizeleft;
+
+  // if we still have some sample left over write it out
+  if (nBytes)
+    return write (pSampleData, nBytes);
+
   return true;
 }
 
-void
-fhandler_dev_dsp::Audio_out::waitforallsent ()
+// return number of blocks back.
+int
+Audio::blocks ()
 {
-  while (Qisr2app_->query () != MAX_BLOCKS)
-    {
-      debug_printf ("%d blocks in Qisr2app", Qisr2app_->query ());
-      Sleep (100);
-    }
+  EnterCriticalSection (&lock_);
+  int ret = nBlocksInQue_;
+  LeaveCriticalSection (&lock_);
+  return ret;
 }
 
-// send the block described by pHdr_ and bufferIndex_ to wave device
-bool
-fhandler_dev_dsp::Audio_out::sendcurrent ()
+// This is called on an interupt so use locking.. Note nBlocksInQue_ is
+// modified by it so we should wrap all references to it in locks.
+void
+Audio::callback_sampledone (void *pData)
 {
-  WAVEHDR *pHdr = pHdr_;
-  MMRESULT rc;
-  debug_printf ("pHdr=0x%08x bytes=%d", pHdr, bufferIndex_);
+  EnterCriticalSection (&lock_);
 
-  if (pHdr_ == NULL)
+  nBlocksInQue_--;
+  for (int i = 0; i < MAX_BLOCKS; i++)
+    if (!freeblocks_[i])
+      {
+	freeblocks_[i] = (char *) pData;
+	break;
+      }
+
+  LeaveCriticalSection (&lock_);
+}
+
+void
+Audio::waitforcallback ()
+{
+  int n = blocks ();
+  if (!n)
+    return;
+  do
+    {
+      Sleep (250);
+    }
+  while (n == blocks ());
+}
+
+bool
+Audio::flush ()
+{
+  if (!buffer_)
     return false;
-  pHdr_ = NULL;
-
-  // Sample buffer conversion
-  (this->*convert_) ((unsigned char *)pHdr->lpData, bufferIndex_);
 
   // Send internal buffer out to the soundcard
-  pHdr->dwBufferLength = bufferIndex_;
-  rc = waveOutPrepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-  debug_printf ("%d = waveOutPrepareHeader(0x%08x)", rc, pHdr);
-  if (rc == MMSYSERR_NOERROR)
-    {
-      rc = waveOutWrite (dev_, pHdr, sizeof (WAVEHDR));
-      debug_printf ("%d = waveOutWrite(0x%08x)", rc, pHdr);
-    }
-  if (rc == MMSYSERR_NOERROR)
-    return true;
+  WAVEHDR *pHeader = ((WAVEHDR *) buffer_) - 1;
+  pHeader->dwBufferLength = bufferIndex_;
 
-  /* FIXME: Should we return an error instead ?*/
-  pHdr->dwFlags = 0; /* avoid calling UnprepareHeader again */
-  Qisr2app_->send (pHdr);
+  // Quick bit of sample buffer conversion
+  if (formattype_ == AFMT_S8)
+    {
+      unsigned char *p = ((unsigned char *) buffer_);
+      for (int i = 0; i < bufferIndex_; i++)
+	{
+	  p[i] -= 0x7f;
+	}
+    }
+
+  if (waveOutPrepareHeader (dev_, pHeader, sizeof (WAVEHDR)) == S_OK &&
+      waveOutWrite (dev_, pHeader, sizeof (WAVEHDR)) == S_OK)
+    {
+      EnterCriticalSection (&lock_);
+      nBlocksInQue_++;
+      LeaveCriticalSection (&lock_);
+      bufferIndex_ = 0;
+      buffer_ = 0L;
+      return true;
+    }
+  else
+    {
+      EnterCriticalSection (&lock_);
+      for (int i = 0; i < MAX_BLOCKS; i++)
+	if (!freeblocks_[i])
+	  {
+	    freeblocks_[i] = (char *) pHeader;
+	    break;
+	  }
+      LeaveCriticalSection (&lock_);
+    }
   return false;
 }
 
 //------------------------------------------------------------------------
 // Call back routine
 static void CALLBACK
-waveOut_callback (HWAVEOUT hWave, UINT msg, DWORD instance, DWORD param1,
-		  DWORD param2)
+wave_callback (HWAVE hWave, UINT msg, DWORD instance, DWORD param1,
+	       DWORD param2)
 {
   if (msg == WOM_DONE)
     {
-      fhandler_dev_dsp::Audio_out *ptr =
-	(fhandler_dev_dsp::Audio_out *) instance;
-      ptr->callback_sampledone ((WAVEHDR *) param1);
+      Audio *ptr = (Audio *) instance;
+      ptr->callback_sampledone ((void *) param1);
     }
 }
+
+//------------------------------------------------------------------------
+// /dev/dsp handler
+static Audio *s_audio;		// static instance of the Audio handler
 
 //------------------------------------------------------------------------
 // wav file detection..
@@ -648,749 +370,272 @@ struct wavformat
 #pragma pack()
 
 bool
-fhandler_dev_dsp::Audio_out::parsewav (const char * &pData, int &nBytes,
-				       int dev_freq, int dev_bits, int dev_channels)
+fhandler_dev_dsp::setupwav (const char *pData, int nBytes)
 {
   int len;
   const char *end = pData + nBytes;
-  const char *pDat;
-  int skip = 0;
 
-  /* Start with default values from the device handler */
-  freq_ = dev_freq;
-  bits_ = dev_bits;
-  channels_ = dev_channels;
-  setconvert (bits_ == 8 ? AFMT_U8 : AFMT_S16_LE);
-
-  // Check alignment first: A lot of the code below depends on it
-  if (((int)pData & 0x3) != 0)
+  if (!(pData[0] == 'R' && pData[1] == 'I' &&
+	pData[2] == 'F' && pData[3] == 'F'))
     return false;
-  if (!(pData[0] == 'R' && pData[1] == 'I'
-	&& pData[2] == 'F' && pData[3] == 'F'))
-    return false;
-  if (!(pData[8] == 'W' && pData[9] == 'A'
-	&& pData[10] == 'V' && pData[11] == 'E'))
+  if (!(pData[8] == 'W' && pData[9] == 'A' &&
+	pData[10] == 'V' && pData[11] == 'E'))
     return false;
 
   len = *(int *) &pData[4];
-  len -= 12;
-  pDat = pData + 12;
-  skip = 12;
-  while ((len > 0) && (pDat + sizeof (wavchunk) < end))
-    { /* We recognize two kinds of wavchunk:
-	 "fmt " for the PCM parameters (only PCM supported here)
-	 "data" for the start of PCM data */
-      wavchunk * pChunk = (wavchunk *) pDat;
+  pData += 12;
+  while (len && pData < end)
+    {
+      wavchunk * pChunk = (wavchunk *) pData;
       int blklen = pChunk-> len;
-      if (pChunk->id[0] == 'f' && pChunk->id[1] == 'm'
-	  && pChunk->id[2] == 't' && pChunk->id[3] == ' ')
+      if (pChunk->id[0] == 'f' && pChunk->id[1] == 'm' &&
+	  pChunk->id[2] == 't' && pChunk->id[3] == ' ')
 	{
 	  wavformat *format = (wavformat *) (pChunk + 1);
-	  if ((char *) (format + 1) >= end)
+	  if ((char *) (format + 1) > end)
 	    return false;
-	  // We have found the parameter chunk
-	  if (format->wFormatTag == 0x0001)
-	    { // Micr*s*ft PCM; check if parameters work with our device
-	      if (query (format->dwSamplesPerSec, format->wBitsPerSample,
-			 format->wChannels))
-		{ // return the parameters we found
-		  freq_ = format->dwSamplesPerSec;
-		  bits_ = format->wBitsPerSample;
-		  channels_ = format->wChannels;
-		}
-	    }
-	}
-      else
-	{
-	  if (pChunk->id[0] == 'd' && pChunk->id[1] == 'a'
-	      && pChunk->id[2] == 't' && pChunk->id[3] == 'a')
-	    { // throw away all the header & not output it to the soundcard.
-	      skip += sizeof (wavchunk);
-	      debug_printf ("Discard %d bytes wave header", skip);
-	      pData += skip;
-	      nBytes -= skip;
-	      setconvert (bits_ == 8 ? AFMT_U8 : AFMT_S16_LE);
-	      return true;
-	    }
-	}
-      pDat += blklen + sizeof (wavchunk);
-      skip += blklen + sizeof (wavchunk);
-      len -= blklen + sizeof (wavchunk);
-    }
-  return false;
-}
 
-/* ========================================================================
-   Buffering concept for Audio_in:
-   On the first read, we queue all blocks of our bigwavebuffer
-   for reception and start the wave-in device.
-   We manage queues of pointers to WAVEHDR
-   When a block has been filled, the callback puts the corresponding
-   WAVEHDR pointer into a queue.
-   The function read() blocks (polled, sigh) until at least one good buffer
-   has arrived, then the data is copied into the buffer provided to read().
-   After a buffer has been fully used by read(), it is queued again
-   to the wave-in device immediately.
-   The function read() iterates until all data requested has been
-   received, there is no way to interrupt it */
-
-void
-fhandler_dev_dsp::Audio_in::fork_fixup (HANDLE parent)
-{
-  /* Null dev_.
-     It will be necessary to reset the queue, open the device
-     and create a lock when reading */
-  debug_printf ("parent=0x%08x", parent);
-  dev_ = NULL;
-}
-
-bool
-fhandler_dev_dsp::Audio_in::query (int rate, int bits, int channels)
-{
-  WAVEFORMATEX format;
-  MMRESULT rc;
-
-  fillFormat (&format, rate, bits, channels);
-  rc = waveInOpen (NULL, WAVE_MAPPER, &format, 0L, 0L, WAVE_FORMAT_QUERY);
-  debug_printf ("%d = waveInOpen(freq=%d bits=%d channels=%d)", rc, rate, bits, channels);
-  return (rc == MMSYSERR_NOERROR);
-}
-
-bool
-fhandler_dev_dsp::Audio_in::start (int rate, int bits, int channels)
-{
-  WAVEFORMATEX format;
-  MMRESULT rc;
-  unsigned bSize = blockSize (rate, bits, channels);
-
-  if (dev_)
-    return true;
-
-  /* In case of fork bigwavebuffer may already exist */
-  if (!bigwavebuffer_)
-    bigwavebuffer_ = new char[MAX_BLOCKS * bSize];
-
-  if (!isvalid ())
-    return false;
-
-  fillFormat (&format, rate, bits, channels);
-  rc = waveInOpen (&dev_, WAVE_MAPPER, &format, (DWORD) waveIn_callback,
-		   (DWORD) this, CALLBACK_FUNCTION);
-  debug_printf ("%d = waveInOpen(rate=%d bits=%d channels=%d)", rc, rate, bits, channels);
-
-  if (rc == MMSYSERR_NOERROR)
-    {
-      if (!init (bSize))
-	return false;
-    }
-  return (rc == MMSYSERR_NOERROR);
-}
-
-void
-fhandler_dev_dsp::Audio_in::stop ()
-{
-  MMRESULT rc;
-  WAVEHDR *pHdr;
-
-  debug_printf ("dev_=%08x", (int)dev_);
-  if (dev_)
-    {
-      /* Note that waveInReset calls our callback for all incomplete buffers.
-	 Since all the win32 wave functions appear to use a common lock,
-	 we must not call into the wave API from the callback.
-	 Otherwise we end up in a deadlock. */
-      rc = waveInReset (dev_);
-      debug_printf ("%d = waveInReset()", rc);
-
-      while (Qisr2app_->recv (&pHdr))
-	{
-	  rc = waveInUnprepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-	  debug_printf ("%d = waveInUnprepareHeader(0x%08x)", rc, pHdr);
-	}
-
-      rc = waveInClose (dev_);
-      debug_printf ("%d = waveInClose()", rc);
-
-      Qisr2app_->dellock ();
-    }
-}
-
-bool
-fhandler_dev_dsp::Audio_in::queueblock (WAVEHDR *pHdr)
-{
-  MMRESULT rc;
-  rc = waveInPrepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-  debug_printf ("%d = waveInPrepareHeader(0x%08x)", rc, pHdr);
-  if (rc == MMSYSERR_NOERROR)
-    {
-      rc = waveInAddBuffer (dev_, pHdr, sizeof (WAVEHDR));
-      debug_printf ("%d = waveInAddBuffer(0x%08x)", rc, pHdr);
-    }
-  if (rc == MMSYSERR_NOERROR)
-    return true;
-
-  /* FIXME: Should the calling function return an error instead ?*/
-  pHdr->dwFlags = 0;  /* avoid calling UnprepareHeader again */
-  pHdr->dwBytesRecorded = 0;  /* no data will have been read */
-  Qisr2app_->send (pHdr);
-  return false;
-}
-
-bool
-fhandler_dev_dsp::Audio_in::init (unsigned blockSize)
-{
-  MMRESULT rc;
-  int i;
-
-  // try to queue all of our buffer for reception
-  Qisr2app_->reset ();
-  for (i = 0; i < MAX_BLOCKS; i++)
-    {
-      wavehdr_[i].lpData = &bigwavebuffer_[i * blockSize];
-      wavehdr_[i].dwBufferLength = blockSize;
-      wavehdr_[i].dwFlags = 0;
-      if (!queueblock (&wavehdr_[i]))
-	break;
-    }
-  pHdr_ = NULL;
-  rc = waveInStart (dev_);
-  debug_printf ("%d = waveInStart(), queued=%d", rc, i);
-  return (rc == MMSYSERR_NOERROR);
-}
-
-bool
-fhandler_dev_dsp::Audio_in::read (char *pSampleData, int &nBytes)
-{
-  int bytes_to_read = nBytes;
-  nBytes = 0;
-  debug_printf ("pSampleData=%08x nBytes=%d", pSampleData, bytes_to_read);
-  while (bytes_to_read != 0)
-    { // Block till next sound has been read
-      if (!waitfordata ())
-	{
-	  if (nBytes)
-	    return true;
-	  nBytes = -1;
-	  return false;
-	}
-
-      // Handle gathering our blocks into smaller or larger buffer
-      int sizeleft = pHdr_->dwBytesRecorded - bufferIndex_;
-      if (bytes_to_read < sizeleft)
-	{ // The current buffer holds more data than requested
-	  memcpy (pSampleData, &pHdr_->lpData[bufferIndex_], bytes_to_read);
-	  (this->*convert_) ((unsigned char *)pSampleData, bytes_to_read);
-	  nBytes += bytes_to_read;
-	  bufferIndex_ += bytes_to_read;
-	  debug_printf ("got %d", bytes_to_read);
-	  break; // done; use remaining data in next call to read
-	}
-      else
-	{ // not enough or exact amount in the current buffer
-	  if (sizeleft)
-	    { // use up what we have
-	      memcpy (pSampleData, &pHdr_->lpData[bufferIndex_], sizeleft);
-	      (this->*convert_) ((unsigned char *)pSampleData, sizeleft);
-	      nBytes += sizeleft;
-	      bytes_to_read -= sizeleft;
-	      pSampleData += sizeleft;
-	      debug_printf ("got %d", sizeleft);
-	    }
-	  queueblock (pHdr_); // re-queue this block to ISR
-	  pHdr_ = NULL;       // need to wait for a new block
-	  // if more samples are needed, we need a new block now
-	}
-    }
-  debug_printf ("end nBytes=%d", nBytes);
-  return true;
-}
-
-bool
-fhandler_dev_dsp::Audio_in::waitfordata ()
-{
-  WAVEHDR *pHdr;
-  MMRESULT rc;
-
-  if (pHdr_ != NULL)
-    return true;
-  while (!Qisr2app_->recv (&pHdr))
-    {
-      if (fh->is_nonblocking ())
-	{
-	  set_errno (EAGAIN);
-	  return false;
-	}
-      debug_printf ("100ms");
-      switch (cygwait (100))
-	{
-	case WAIT_SIGNALED:
-	  if (!_my_tls.call_signal_handler ())
+	  // Open up audio device with correct frequency for wav file
+	  //
+	  // FIXME: should through away all the header & not output
+	  // it to the soundcard.
+	  s_audio->close ();
+	  if (s_audio->open (format->dwSamplesPerSec, format->wBitsPerSample,
+			     format->wChannels) == false)
 	    {
-	      set_errno (EINTR);
-	      return false;
+	      s_audio->open (audiofreq_, audiobits_, audiochannels_);
 	    }
-	  break;
-	case WAIT_CANCELED:
-	  pthread::static_cancel_self ();
-	  /*NOTREACHED*/
-	default:
-	  break;
+	  else
+	    {
+	      audiofreq_ = format->dwSamplesPerSec;
+	      audiobits_ = format->wBitsPerSample;
+	      audiochannels_ = format->wChannels;
+	    }
+	  return true;
 	}
+
+      pData += blklen + sizeof (wavchunk);
     }
-  if (pHdr->dwFlags) /* Zero if queued following error in queueblock */
-    {
-      /* Errors are ignored here. They will probbaly cause a failure
-	 in the subsequent PrepareHeader */
-      rc = waveInUnprepareHeader (dev_, pHdr, sizeof (WAVEHDR));
-      debug_printf ("%d = waveInUnprepareHeader(0x%08x)", rc, pHdr);
-    }
-  pHdr_ = pHdr;
-  bufferIndex_ = 0;
-  return true;
+  return false;
 }
 
-void
-fhandler_dev_dsp::Audio_in::buf_info (audio_buf_info *p,
-				      int rate, int bits, int channels)
-{
-  p->fragstotal = MAX_BLOCKS;
-  p->fragsize = blockSize (rate, bits, channels);
-  if (this && dev_)
-    {
-      p->fragments = Qisr2app_->query ();
-      if (pHdr_ != NULL)
-	p->bytes = pHdr_->dwBytesRecorded - bufferIndex_
-	  + p->fragsize * p->fragments;
-      else
-	p->bytes = p->fragsize * p->fragments;
-    }
-  else
-    {
-      p->fragments = 0;
-      p->bytes = 0;
-    }
-}
-
-inline void
-fhandler_dev_dsp::Audio_in::callback_blockfull (WAVEHDR *pHdr)
-{
-  Qisr2app_->send (pHdr);
-}
-
-static void CALLBACK
-waveIn_callback (HWAVEIN hWave, UINT msg, DWORD instance, DWORD param1,
-		 DWORD param2)
-{
-  if (msg == WIM_DATA)
-    {
-      fhandler_dev_dsp::Audio_in *ptr =
-	(fhandler_dev_dsp::Audio_in *) instance;
-      ptr->callback_blockfull ((WAVEHDR *) param1);
-    }
-}
-
-
-/* ------------------------------------------------------------------------
-   /dev/dsp handler
-   ------------------------------------------------------------------------ */
+//------------------------------------------------------------------------
 fhandler_dev_dsp::fhandler_dev_dsp ():
-  fhandler_base ()
+  fhandler_base (FH_OSS_DSP)
 {
-  audio_in_ = NULL;
-  audio_out_ = NULL;
-  dev ().parse (FH_OSS_DSP);
+}
+
+fhandler_dev_dsp::~fhandler_dev_dsp ()
+{
 }
 
 int
-fhandler_dev_dsp::open (int flags, mode_t mode)
+fhandler_dev_dsp::open (path_conv *, int flags, mode_t mode = 0)
 {
-  int err = 0;
-  UINT num_in = 0, num_out = 0;
-  set_flags ((flags & ~O_TEXT) | O_BINARY);
-  // Work out initial sample format & frequency, /dev/dsp defaults
-  audioformat_ = AFMT_U8;
+  // currently we only support writing
+  if ((flags & (O_WRONLY | O_RDONLY | O_RDWR)) != O_WRONLY)
+    return 0;
+
+  set_flags (flags);
+
+  if (!s_audio)
+    s_audio = new (audio_buf) Audio;
+
+  // Work out initial sample format & frequency
+      // dev/dsp defaults
+  audioformat_ = AFMT_S8;
   audiofreq_ = 8000;
   audiobits_ = 8;
   audiochannels_ = 1;
-  switch (flags & O_ACCMODE)
-    {
-    case O_RDWR:
-      if ((num_in = waveInGetNumDevs ()) == 0)
-	err = ENXIO;
-      /* Fall through */
-    case O_WRONLY:
-      if ((num_out = waveOutGetNumDevs ()) == 0)
-	err = ENXIO;
-      break;
-    case O_RDONLY:
-      if ((num_in = waveInGetNumDevs ()) == 0)
-	err = ENXIO;
-      break;
-    default:
-      err = EINVAL;
-    }
 
-  if (!err)
+  if (!s_audio->open (audiofreq_, audiobits_, audiochannels_))
+    debug_printf ("/dev/dsp: failed to open\n");
+  else
     {
       set_open_status ();
-      need_fork_fixup (true);
-      nohandle (true);
+      debug_printf ("/dev/dsp: successfully opened\n");
     }
-  else
-    set_errno (err);
-
-  debug_printf ("ACCMODE=0x%08x audio_in=%d audio_out=%d, err=%d",
-		flags & O_ACCMODE, num_in, num_out, err);
-  return !err;
+  return 1;
 }
 
-#define IS_WRITE() ((get_flags() & O_ACCMODE) != O_RDONLY)
-#define IS_READ() ((get_flags() & O_ACCMODE) != O_WRONLY)
-
-ssize_t __stdcall
+int
 fhandler_dev_dsp::write (const void *ptr, size_t len)
 {
-  debug_printf ("ptr=%08x len=%d", ptr, len);
-  int len_s = len;
-  const char *ptr_s = static_cast <const char *> (ptr);
-
-  if (audio_out_)
-    /* nothing to do */;
-  else if (IS_WRITE ())
+  if (s_audio->numbytesoutput () == 0)
     {
-      debug_printf ("Allocating");
-      if (!(audio_out_ = new Audio_out (this)))
-	return -1;
+      // check for wave file & setup frequencys properly if possible.
+      setupwav ((const char *) ptr, len);
 
-      /* check for wave file & get parameters & skip header if possible. */
-
-      if (audio_out_->parsewav (ptr_s, len_s,
-				audiofreq_, audiobits_, audiochannels_))
-	debug_printf ("=> ptr_s=%08x len_s=%d", ptr_s, len_s);
-    }
-  else
-    {
-      set_errno (EBADF); // device was opened for read?
-      return -1;
+      // Open audio device properly with callbacks.
+      s_audio->close ();
+      if (!s_audio->open (audiofreq_, audiobits_, audiochannels_, true))
+	return 0;
     }
 
-  /* Open audio device properly with callbacks.
-     Private parameters were set in call to parsewav.
-     This is a no-op when there are successive writes in the same process */
-  if (!audio_out_->start ())
-    {
-      set_errno (EIO);
-      return -1;
-    }
-
-  int written = audio_out_->write (ptr_s, len_s);
-  if (written < 0)
-    {
-      if (len - len_s > 0)
-	return len - len_s;
-      return -1;
-    }
-  return len - len_s + written;
+  s_audio->write (ptr, len);
+  return len;
 }
 
-void __stdcall
-fhandler_dev_dsp::read (void *ptr, size_t& len)
+int __stdcall
+fhandler_dev_dsp::read (void *ptr, size_t len)
 {
-  debug_printf ("ptr=%08x len=%d", ptr, len);
-
-  if (audio_in_)
-    /* nothing to do */;
-  else if (IS_READ ())
-    {
-      debug_printf ("Allocating");
-      if (!(audio_in_ = new Audio_in (this)))
-	{
-	  len = (size_t)-1;
-	  return;
-	}
-      audio_in_->setconvert (audioformat_);
-    }
-  else
-    {
-      len = (size_t)-1;
-      set_errno (EBADF); // device was opened for write?
-      return;
-    }
-
-  /* Open audio device properly with callbacks.
-     This is a noop when there are successive reads in the same process */
-  if (!audio_in_->start (audiofreq_, audiobits_, audiochannels_))
-    {
-      len = (size_t)-1;
-      set_errno (EIO);
-      return;
-    }
-
-  audio_in_->read ((char *)ptr, (int&)len);
+  return len;
 }
 
-_off64_t
-fhandler_dev_dsp::lseek (_off64_t offset, int whence)
+off_t
+fhandler_dev_dsp::lseek (off_t offset, int whence)
 {
   return 0;
 }
 
-void
-fhandler_dev_dsp::close_audio_in ()
-{
-  if (audio_in_)
-    {
-      audio_in_->stop ();
-      delete audio_in_;
-      audio_in_ = NULL;
-    }
-}
-
-void
-fhandler_dev_dsp::close_audio_out (bool immediately)
-{
-  if (audio_out_)
-    {
-      audio_out_->stop (immediately);
-      delete audio_out_;
-      audio_out_ = NULL;
-    }
-}
-
 int
-fhandler_dev_dsp::close ()
+fhandler_dev_dsp::close (void)
 {
-  debug_printf ("audio_in=%08x audio_out=%08x",
-		(int)audio_in_, (int)audio_out_);
-  close_audio_in ();
-  close_audio_out (exit_state != ES_NOT_EXITING);
+  s_audio->close ();
   return 0;
 }
 
 int
-fhandler_dev_dsp::ioctl (unsigned int cmd, void *buf)
+fhandler_dev_dsp::dup (fhandler_base * child)
 {
-  debug_printf ("audio_in=%08x audio_out=%08x",
-		(int)audio_in_, (int)audio_out_);
-  int *intbuf = (int *) buf;
+  fhandler_dev_dsp *fhc = (fhandler_dev_dsp *) child;
+
+  fhc->set_flags (get_flags ());
+  fhc->audiochannels_ = audiochannels_;
+  fhc->audiobits_ = audiobits_;
+  fhc->audiofreq_ = audiofreq_;
+  fhc->audioformat_ = audioformat_;
+  return 0;
+}
+
+int
+fhandler_dev_dsp::ioctl (unsigned int cmd, void *ptr)
+{
+  int *intptr = (int *) ptr;
   switch (cmd)
     {
-#define CASE(a) case a : debug_printf ("/dev/dsp: ioctl %s", #a);
+#define CASE(a) case a : debug_printf("/dev/dsp: ioctl %s\n", #a);
 
       CASE (SNDCTL_DSP_RESET)
-	close_audio_in ();
-	close_audio_out (true);
+	audioformat_ = AFMT_S8;
+	audiofreq_ = 8000;
+	audiobits_ = 8;
+	audiochannels_ = 1;
 	return 0;
-	break;
 
       CASE (SNDCTL_DSP_GETBLKSIZE)
-	/* This is valid even if audio_X is NULL */
-	if (IS_WRITE ())
-	  {
-	    *intbuf = audio_out_->blockSize (audiofreq_,
-					     audiobits_,
-					     audiochannels_);
-	  }
-	else
-	  { // I am very sure that IS_READ is valid
-	    *intbuf = audio_in_->blockSize (audiofreq_,
-					    audiobits_,
-					    audiochannels_);
-	  }
+	*intptr = Audio::BLOCK_SIZE;
 	return 0;
 
       CASE (SNDCTL_DSP_SETFMT)
       {
-	int nBits;
-	switch (*intbuf)
+	int nBits = 0;
+	if (*intptr == AFMT_S16_LE)
+	  nBits = 16;
+	else if (*intptr == AFMT_U8)
+	  nBits = 8;
+	else if (*intptr == AFMT_S8)
+	  nBits = 8;
+	if (nBits)
 	  {
-	  case AFMT_QUERY:
-	    *intbuf = audioformat_;
-	    return 0;
-	    break;
-	  case AFMT_U16_BE:
-	  case AFMT_U16_LE:
-	  case AFMT_S16_BE:
-	  case AFMT_S16_LE:
-	    nBits = 16;
-	    break;
-	  case AFMT_U8:
-	  case AFMT_S8:
-	    nBits = 8;
-	    break;
-	  default:
-	    nBits = 0;
-	  }
-	if (nBits && IS_WRITE ())
-	  {
-	    close_audio_out ();
-	    if (audio_out_->query (audiofreq_, nBits, audiochannels_))
+	    s_audio->setformat (*intptr);
+	    s_audio->close ();
+	    if (s_audio->open (audiofreq_, nBits, audiochannels_) == true)
 	      {
 		audiobits_ = nBits;
-		audioformat_ = *intbuf;
+		return 0;
 	      }
 	    else
 	      {
-		*intbuf = audiobits_;
+		s_audio->open (audiofreq_, audiobits_, audiochannels_);
 		return -1;
 	      }
 	  }
-	if (nBits && IS_READ ())
-	  {
-	    close_audio_in ();
-	    if (audio_in_->query (audiofreq_, nBits, audiochannels_))
-	      {
-		audiobits_ = nBits;
-		audioformat_ = *intbuf;
-	      }
-	    else
-	      {
-		*intbuf = audiobits_;
-		return -1;
-	      }
-	  }
-	return 0;
       }
+      break;
 
       CASE (SNDCTL_DSP_SPEED)
-	if (IS_WRITE ())
+	s_audio->close ();
+	if (s_audio->open (*intptr, audiobits_, audiochannels_) == true)
 	  {
-	    close_audio_out ();
-	    if (audio_out_->query (*intbuf, audiobits_, audiochannels_))
-	      audiofreq_ = *intbuf;
-	    else
-	      {
-		*intbuf = audiofreq_;
-		return -1;
-	      }
+	    audiofreq_ = *intptr;
+	    return 0;
 	  }
-	if (IS_READ ())
+	else
 	  {
-	    close_audio_in ();
-	    if (audio_in_->query (*intbuf, audiobits_, audiochannels_))
-	      audiofreq_ = *intbuf;
-	    else
-	      {
-		*intbuf = audiofreq_;
-		return -1;
-	      }
+	    s_audio->open (audiofreq_, audiobits_, audiochannels_);
+	    return -1;
 	  }
-	return 0;
+	break;
 
       CASE (SNDCTL_DSP_STEREO)
       {
-	int nChannels = *intbuf + 1;
-	int res = ioctl (SNDCTL_DSP_CHANNELS, &nChannels);
-	*intbuf = nChannels - 1;
-	return res;
-      }
+	int nChannels = *intptr + 1;
 
-      CASE (SNDCTL_DSP_CHANNELS)
-      {
-	int nChannels = *intbuf;
-
-	if (IS_WRITE ())
+	s_audio->close ();
+	if (s_audio->open (audiofreq_, audiobits_, nChannels) == true)
 	  {
-	    close_audio_out ();
-	    if (audio_out_->query (audiofreq_, audiobits_, nChannels))
-	      audiochannels_ = nChannels;
-	    else
-	      {
-		*intbuf = audiochannels_;
-		return -1;
-	      }
+	    audiochannels_ = nChannels;
+	    return 0;
 	  }
-	if (IS_READ ())
+	else
 	  {
-	    close_audio_in ();
-	    if (audio_in_->query (audiofreq_, audiobits_, nChannels))
-	      audiochannels_ = nChannels;
-	    else
-	      {
-		*intbuf = audiochannels_;
-		return -1;
-	      }
+	    s_audio->open (audiofreq_, audiobits_, audiochannels_);
+	    return -1;
 	  }
-	return 0;
       }
+      break;
 
       CASE (SNDCTL_DSP_GETOSPACE)
       {
-	if (!IS_WRITE ())
-	  {
-	    set_errno(EBADF);
-	    return -1;
-	  }
-	audio_buf_info *p = (audio_buf_info *) buf;
-	audio_out_->buf_info (p, audiofreq_, audiobits_, audiochannels_);
-	debug_printf ("buf=%p frags=%d fragsize=%d bytes=%d",
-		      buf, p->fragments, p->fragsize, p->bytes);
-	return 0;
-      }
+	audio_buf_info *p = (audio_buf_info *) ptr;
 
-      CASE (SNDCTL_DSP_GETISPACE)
-      {
-	if (!IS_READ ())
-	  {
-	    set_errno(EBADF);
-	    return -1;
-	  }
-	audio_buf_info *p = (audio_buf_info *) buf;
-	audio_in_->buf_info (p, audiofreq_, audiobits_, audiochannels_);
-	debug_printf ("buf=%p frags=%d fragsize=%d bytes=%d",
-		      buf, p->fragments, p->fragsize, p->bytes);
+	int nBlocks = s_audio->blocks ();
+	int leftblocks = ((Audio::MAX_BLOCKS - nBlocks) - 1);
+	if (leftblocks < 0)
+	  leftblocks = 0;
+	if (leftblocks > 1)
+	  leftblocks = 1;
+	int left = leftblocks * Audio::BLOCK_SIZE;
+
+	p->fragments = leftblocks;
+	p->fragstotal = Audio::MAX_BLOCKS;
+	p->fragsize = Audio::BLOCK_SIZE;
+	p->bytes = left;
+
+	debug_printf ("ptr %p nblocks %d leftblocks %d left bytes %d ",
+		      ptr, nBlocks, leftblocks, left);
+
 	return 0;
       }
+      break;
 
       CASE (SNDCTL_DSP_SETFRAGMENT)
+      {
 	// Fake!! esound & mikmod require this on non PowerPC platforms.
 	//
 	return 0;
-
-      CASE (SNDCTL_DSP_GETFMTS)
-	*intbuf = AFMT_S16_LE | AFMT_U8; // only native formats returned here
-	return 0;
-
-      CASE (SNDCTL_DSP_GETCAPS)
-	*intbuf = DSP_CAP_BATCH | DSP_CAP_DUPLEX;
-	return 0;
-
-      CASE (SNDCTL_DSP_POST)
-      CASE (SNDCTL_DSP_SYNC)
-	// Stop audio out device
-	close_audio_out ();
-	// Stop audio in device
-	close_audio_in ();
-	return 0;
+      }
+      break;
 
     default:
-      return fhandler_base::ioctl (cmd, buf);
+      debug_printf ("/dev/dsp: ioctl not handled yet! FIXME:\n");
       break;
 
 #undef CASE
-    }
+    };
+  return -1;
 }
 
 void
-fhandler_dev_dsp::fixup_after_fork (HANDLE parent)
-{ // called from new child process
-  debug_printf ("audio_in=%08x audio_out=%08x",
-		(int)audio_in_, (int)audio_out_);
-
-  if (audio_in_)
-    audio_in_->fork_fixup (parent);
-  if (audio_out_)
-    audio_out_->fork_fixup (parent);
-}
-
-void
-fhandler_dev_dsp::fixup_after_exec ()
+fhandler_dev_dsp::dump ()
 {
-  debug_printf ("audio_in=%08x audio_out=%08x, close_on_exec %d",
-		(int) audio_in_, (int) audio_out_, close_on_exec ());
-  if (!close_on_exec ())
-    {
-      audio_in_ = NULL;
-      audio_out_ = NULL;
-    }
+  paranoid_printf ("here, fhandler_dev_dsp");
+}
+
+void
+fhandler_dev_dsp::fixup_after_exec (HANDLE)
+{
+  /* FIXME:  Is there a better way to do this? */
+  s_audio = new (audio_buf) Audio;
 }
