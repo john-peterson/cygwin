@@ -27,7 +27,7 @@
 #
 
 load_lib mi-support.exp
-set MIFLAGS "-i=mi"
+set MIFLAGS "-i=mi1"
 
 gdb_exit
 if [mi_gdb_start] {
@@ -46,13 +46,14 @@ mi_gdb_reinitialize_dir $srcdir/$subdir
 mi_gdb_reinitialize_dir $srcdir/$subdir
 mi_gdb_load ${binfile}
 
+
 proc test_return_simple {} {
     global mi_gdb_prompt
     global hex
 
     send_gdb "111-exec-return\n"
     gdb_expect {
-	-re "111\\^done,frame=\{level=\"0\",addr=\"$hex\",func=\"callee3\",args=\\\[.*\\\],file=\".*basics.c\",line=\"18\"\}\r\n$mi_gdb_prompt$" {pass "return from callee4 now"}
+	-re "111\\^done,frame=\{level=\"0 \",addr=\"$hex\",func=\"callee3\",args=\\\[.*\\\],file=\".*basics.c\",line=\"18\"\}\r\n$mi_gdb_prompt$" {pass "return from callee4 now"}
 	-re ".*\r\n$mi_gdb_prompt$" { fail "return from callee4 now" }
 	timeout { fail "return from callee4 now (timeout)"
 	}
