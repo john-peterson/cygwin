@@ -1,6 +1,6 @@
-/* Target machine description for VxWorks sparc's, for GDB, the GNU debugger.
-   Copyright 1993, 1999 Free Software Foundation, Inc.
-   Contributed by Cygnus Support.
+/* Native-dependent definitions for NetBSD/sparc a.out.
+
+   Copyright 1999, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -19,9 +19,12 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#include "sparc/tm-spc-em.h"
-#include "config/tm-vxworks.h"
+#ifndef NM_NBSDAOUT_H
+#define NM_NBSDAOUT_H
 
-/* Number of registers in a ptrace_getfpregs call. */
+#include "sparc/nm-nbsd.h"
 
-/* #define VX_SIZE_FPREGS (don't know how many) */
+/* Get generic NetBSD a.out native definitions.  */
+#include "config/nm-nbsdaout.h"
+
+#endif /* nm-nbsdaout.h */

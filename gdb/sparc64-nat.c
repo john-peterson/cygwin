@@ -1,12 +1,12 @@
 /* Native-dependent code for GNU/Linux UltraSPARC.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "gdbarch.h"
@@ -26,10 +28,10 @@
 /* Determine whether `gregset_t' contains register REGNUM.  */
 
 static int
-sparc64_gregset_supplies_p (struct gdbarch *gdbarch, int regnum)
+sparc64_gregset_supplies_p (int regnum)
 {
-  if (gdbarch_ptr_bit (gdbarch) == 32)
-    return sparc32_gregset_supplies_p (gdbarch, regnum);
+  if (gdbarch_ptr_bit (current_gdbarch) == 32)
+    return sparc32_gregset_supplies_p (regnum);
 
   /* Integer registers.  */
   if ((regnum >= SPARC_G1_REGNUM && regnum <= SPARC_G7_REGNUM)
@@ -52,10 +54,10 @@ sparc64_gregset_supplies_p (struct gdbarch *gdbarch, int regnum)
 /* Determine whether `fpregset_t' contains register REGNUM.  */
 
 static int
-sparc64_fpregset_supplies_p (struct gdbarch *gdbarch, int regnum)
+sparc64_fpregset_supplies_p (int regnum)
 {
-  if (gdbarch_ptr_bit (gdbarch) == 32)
-    return sparc32_fpregset_supplies_p (gdbarch, regnum);
+  if (gdbarch_ptr_bit (current_gdbarch) == 32)
+    return sparc32_fpregset_supplies_p (regnum);
 
   /* Floating-point registers.  */
   if ((regnum >= SPARC_F0_REGNUM && regnum <= SPARC_F31_REGNUM)

@@ -1,6 +1,7 @@
-/* Native-dependent code for SPARC BSD's.
+/* Target-dependent defenitions for VxWorks SPARC.
 
-   Copyright 2003 Free Software Foundation, Inc.
+   Copyright 1993, 1999, 2004 Free Software Foundation, Inc.
+   Contributed by Cygnus Support.
 
    This file is part of GDB.
 
@@ -19,19 +20,12 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#ifndef SPARCBSD_NAT_H
-#define SPARCBSD_NAT_H
+#ifndef TM_VXWORKS_H
+#define TM_VXWORKS_H
 
-/* Functions translating between `struct reg' and `struct fpreg' and
-   GDB's register cache.  */
-extern void (*sparcbsd_supply_reg)(const char *, int);
-extern void (*sparcbsd_fill_reg)(char *, int);
-extern void (*sparcbsd_supply_fpreg)(const char *, int);
-extern void (*sparcbsd_fill_fpreg)(char *, int);
+#define GDB_MULTI_ARCH GDB_MULTI_ARCH_TM
 
-/* Functions indication whether `struct reg' or `struct fpreg' provides
-   a certain register.  */
-extern int (*sparcbsd_reg_supplies_p)(int);
-extern int (*sparcbsd_fpreg_supplies_p)(int);
+/* Get generic VxWorks definitions.  */
+#include "config/tm-vxworks.h"
 
-#endif /* sparcbsd-nat.h */
+#endif /* tm-vxworks.h */

@@ -1,12 +1,12 @@
 /* Native-dependent code for Solaris SPARC.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "regcache.h"
@@ -24,8 +26,6 @@
 #include "gregset.h"
 
 #include "sparc-tdep.h"
-#include "target.h"
-#include "procfs.h"
 
 /* This file provids the (temporary) glue between the Solaris SPARC
    target dependent code and the machine independent SVR4 /proc
@@ -74,41 +74,25 @@
 #endif
 
 void
-supply_gregset (struct regcache *regcache, const prgregset_t *gregs)
+supply_gregset (prgregset_t *gregs)
 {
-  sparc_supply_gregset (&sparc_sol2_gregset, regcache, -1, gregs);
+  sparc_supply_gregset (&sparc_sol2_gregset, current_regcache, -1, gregs);
 }
 
 void
-supply_fpregset (struct regcache *regcache, const prfpregset_t *fpregs)
+supply_fpregset (prfpregset_t *fpregs)
 {
-  sparc_supply_fpregset (&sparc_sol2_fpregset, regcache, -1, fpregs);
+  sparc_supply_fpregset (current_regcache, -1, fpregs);
 }
 
 void
-fill_gregset (const struct regcache *regcache, prgregset_t *gregs, int regnum)
+fill_gregset (prgregset_t *gregs, int regnum)
 {
-  sparc_collect_gregset (&sparc_sol2_gregset, regcache, regnum, gregs);
+  sparc_collect_gregset (&sparc_sol2_gregset, current_regcache, regnum, gregs);
 }
 
 void
-fill_fpregset (const struct regcache *regcache,
-	       prfpregset_t *fpregs, int regnum)
+fill_fpregset (prfpregset_t *fpregs, int regnum)
 {
-  sparc_collect_fpregset (&sparc_sol2_fpregset, regcache, regnum, fpregs);
-}
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_sparc_sol2_nat;
-
-void
-_initialize_sparc_sol2_nat (void)
-{
-  struct target_ops *t;
-
-  t = procfs_target ();
-#ifdef NEW_PROC_API	/* Solaris 6 and above can do HW watchpoints.  */
-  procfs_use_watchpoints (t);
-#endif
-  add_target (t);
+  sparc_collect_fpregset (current_regcache, regnum, fpregs);
 }

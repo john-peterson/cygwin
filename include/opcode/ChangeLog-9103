@@ -1,22 +1,3 @@
-2005-04-13  H.J. Lu  <hongjiu.lu@intel.com>
-
-	2003-11-18  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
-	* mips.h: Define new enum members, M_LCA_AB and M_DLCA_AB.
-
-	2003-04-04  Svein E. Seldal  <Svein.Seldal@solidas.com>
-	* tic4x.h: Namespace cleanup. Replace s/c4x/tic4x
-
-	2002-11-16  Klee Dienes  <kdienes@apple.com>
-	* m88k.h (INSTAB): Remove 'next' field.
-	(instruction): Remove definition; replace with extern declaration
-	and mark as const.
-
-	2002-08-28  Michael Hayes <m.hayes@elec.canterbury.ac.nz>
-	* tic4x.h: New file.
-
-	2002-07-25  Richard Sandiford  <rsandifo@redhat.com>
-	* mips.h (CPU_R2000): Remove.
-
 2003-10-21  Peter Barada  <pbarada@mail.wm.sps.mot.com>
 	    Bernardo Innocenti  <bernie@develer.com>
 
@@ -3116,16 +3097,6 @@ Sat Nov 30 20:40:51 1991  Steve Chamberlain  (sac at rtl.cygnus.com)
 	vax.h: Renamed from ../<foo>-opcode.h.
 
 
-Copyright (C) 1991-2003 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
-mode: change-log
-left-margin: 8
-fill-column: 74
 version-control: never
 End:
-
