@@ -1,21 +1,22 @@
 /* m32r exception, interrupt, and trap (EIT) support
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998, 2003 Free Software Foundation, Inc.
    Contributed by Renesas.
 
    This file is part of GDB, the GNU debugger.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 2, or (at your option)
+   any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   You should have received a copy of the GNU General Public License along
+   with this program; if not, write to the Free Software Foundation, Inc.,
+   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sim-main.h"
 #include "syscall.h"
@@ -38,6 +39,7 @@
 #include <sys/uio.h>
 #include <sys/utsname.h>
 #include <sys/vfs.h>
+#include <linux/module.h>
 #include <linux/sysctl.h>
 #include <linux/types.h>
 #include <linux/unistd.h>
@@ -141,6 +143,7 @@ static void *
 t2h_addr (host_callback *cb, struct cb_syscall *sc,
           unsigned long taddr)
 {
+  extern sim_core_trans_addr (SIM_DESC, sim_cpu *, unsigned, address_word);
   void *addr;
   SIM_DESC sd = (SIM_DESC) sc->p1;
   SIM_CPU *cpu = (SIM_CPU *) sc->p2;
@@ -382,7 +385,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
-          case __NR_lchown32:
           case __NR_lchown:
             result = lchown((char *) t2h_addr(cb, &s, arg1),
                             (uid_t) arg2, (gid_t) arg3);
@@ -399,7 +401,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
-          case __NR_getuid32:
           case __NR_getuid:
             result = getuid();
             errcode = errno;
@@ -483,19 +484,16 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             //result = arg1;
             break;
 
-          case __NR_getgid32:
           case __NR_getgid:
             result = getgid();
             errcode = errno;
             break;
 
-          case __NR_geteuid32:
           case __NR_geteuid:
             result = geteuid();
             errcode = errno;
             break;
 
-          case __NR_getegid32:
           case __NR_getegid:
             result = getegid();
             errcode = errno;
@@ -509,6 +507,27 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
           case __NR_fcntl:
             result = fcntl(arg1, arg2, arg3);
             errcode = errno;
+            break;
+
+          case __NR_ustat:
+            {
+              struct ustat ubuf;
+
+              result = ustat(arg1, &ubuf);
+              errcode = errno;
+
+              if (result != 0)
+                break;
+
+              ubuf.f_tfree = conv_endian(ubuf.f_tfree);
+              ubuf.f_tinode = conv_endian(ubuf.f_tinode);
+              if ((s.write_mem) (cb, &s, arg2, (char *) &ubuf, sizeof(ubuf))
+                  != sizeof(ubuf))
+                {
+                  result = -1;
+                  errcode = EINVAL;
+                }
+            }
             break;
 
           case __NR_dup2:
@@ -595,7 +614,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             }
             break;
 
-          case __NR_getgroups32:
           case __NR_getgroups:
             {
               gid_t *list;
@@ -754,33 +772,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             }
             break;
 #endif
-          case __NR_mmap2:
-            {
-              void *addr;
-              size_t len;
-              int prot, flags, fildes;
-              off_t off;
-              
-              addr   = (void *)  t2h_addr(cb, &s, arg1);
-              len    = arg2;
-              prot   = arg3;
-              flags  = arg4;
-              fildes = arg5;
-              off    = arg6 << 12;
-
-	      result = (int) mmap(addr, len, prot, flags, fildes, off);
-              errcode = errno;
-              if (result != -1)
-                {
-                  char c;
-		  if (sim_core_read_buffer (sd, NULL, read_map, &c, result, 1) == 0)
-                    sim_core_attach (sd, NULL,
-                                     0, access_read_write_exec, 0,
-                                     result, len, 0, NULL, NULL);
-                }
-            }
-            break;
-
           case __NR_mmap:
             {
               void *addr;
@@ -844,7 +835,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
-          case __NR_fchown32:
           case __NR_fchown:
             result = fchown(arg1, arg2, arg3);
             errcode = errno;
@@ -1127,18 +1117,36 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
+          case __NR_get_kernel_syms:
+            {
+              struct kernel_sym table;
+
+              result = get_kernel_syms(&table);
+              errcode = errno;
+
+              if (result != 0)
+                break;
+
+              table.value = conv_endian(table.value);
+              if ((s.write_mem) (cb, &s, arg1, (char *) &table, sizeof(table))
+                  != sizeof(table))
+                {
+                  result = -1;
+                  errcode = EINVAL;
+                }
+            }
+            break;
+
           case __NR_fchdir:
             result = fchdir(arg1);
             errcode = errno;
             break;
 
-          case __NR_setfsuid32:
           case __NR_setfsuid:
             result = setfsuid(arg1);
             errcode = errno;
             break;
 
-          case __NR_setfsgid32:
           case __NR_setfsgid:
             result = setfsgid(arg1);
             errcode = errno;
@@ -1265,7 +1273,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
-          case __NR_getresuid32:
           case __NR_getresuid:
             {
               uid_t ruid, euid, suid;
@@ -1296,7 +1303,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             }
             break;
 
-          case __NR_getresgid32:
           case __NR_getresgid:
             {
               uid_t rgid, egid, sgid;
@@ -1323,7 +1329,6 @@ m32r_trap (SIM_CPU *current_cpu, PCADDR pc, int num)
             errcode = errno;
             break;
 
-          case __NR_chown32:
           case __NR_chown:
             result = chown((char *) t2h_addr(cb, &s, arg1), arg2, arg3);
             errcode = errno;
