@@ -88,7 +88,7 @@ iwmmxt:
 	wldrb		wr1, [r0, #36]
 	wldrheq		wr2, [r1, #24]!
 	wldrwne		wr3, [r2], #16
-	wldrdvs		wr4, [r3, #-332]
+	wldrdvs		wr4, [r3, #8]
 	wldrw		wcssf, [r1, #20]!
 	
 	wmacu		wr4, wr7, wr9
@@ -164,11 +164,11 @@ iwmmxt:
 	wsrlwgmi	wr1, wr5, wcgr0
 	wsrldg		wr1, wr5, wcgr1
 
-	wstrb		wr1, [r1, #0xFF]
-	wstrh		wr1, [r1, #-0xFF]!
+	wstrb		wr1, [r1, #4]
+	wstrh		wr1, [r1, #4]!
 	wstrw		wr1, [r1], #4
-	wstrd		wr1, [r1, #0x3FC]
-	wstrw		wcasf, [r1], #300
+	wstrd		wr1, [r1, #4]
+	wstrw		wcasf, [r1], #4
 
 	wsubbusul	wr1, wr3, wr14
 	wsubhus		wr1, wr3, wr14
@@ -202,9 +202,3 @@ iwmmxt:
 	wxorne		wr3, wr4, wr5
 
 	wzeroge		wr7
-
-	tmcr		wcgr0, r0
-	tmrc		r1, wcgr2
-
-	@ a.out-required section size padding
-	nop
