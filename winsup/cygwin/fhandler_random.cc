@@ -1,6 +1,6 @@
 /* fhandler_random.cc: code to access /dev/random and /dev/urandom
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2009, 2011 Red Hat, Inc.
+   Copyright 2000, 2001, 2002 Red Hat, Inc.
 
    Written by Corinna Vinschen (vinschen@cygnus.com)
 
@@ -11,14 +11,11 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include <unistd.h>
+#include <errno.h>
+#include <limits.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "security.h"
 #include "fhandler.h"
-#include "sync.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "child_info.h"
 
 #define RANDOM   8
 #define URANDOM  9
@@ -32,34 +29,33 @@ fhandler_dev_random::fhandler_dev_random ()
 }
 
 int
-fhandler_dev_random::open (int flags, mode_t)
+fhandler_dev_random::open (path_conv *, int flags, mode_t)
 {
   set_flags ((flags & ~O_TEXT) | O_BINARY);
-  nohandle (true);
+  set_nohandle (true);
   set_open_status ();
-  dummy_offset = 0;
   return 1;
 }
 
-bool
+BOOL
 fhandler_dev_random::crypt_gen_random (void *ptr, size_t len)
 {
   if (!crypt_prov
-      && !CryptAcquireContextW (&crypt_prov, NULL, MS_DEF_PROV_W, PROV_RSA_FULL,
-				CRYPT_VERIFYCONTEXT | CRYPT_MACHINE_KEYSET)
-      && !CryptAcquireContextW (&crypt_prov, NULL, MS_DEF_PROV_W, PROV_RSA_FULL,
-				CRYPT_VERIFYCONTEXT | CRYPT_MACHINE_KEYSET
-				| CRYPT_NEWKEYSET))
+      && !CryptAcquireContext (&crypt_prov, NULL, MS_DEF_PROV, PROV_RSA_FULL,
+			       CRYPT_VERIFYCONTEXT | CRYPT_MACHINE_KEYSET)
+      && !CryptAcquireContext (&crypt_prov, NULL, MS_DEF_PROV, PROV_RSA_FULL,
+			       CRYPT_VERIFYCONTEXT | CRYPT_MACHINE_KEYSET
+			       | CRYPT_NEWKEYSET))
     {
       debug_printf ("%E = CryptAquireContext()");
-      return false;
+      return FALSE;
     }
   if (!CryptGenRandom (crypt_prov, len, (BYTE *)ptr))
     {
       debug_printf ("%E = CryptGenRandom()");
-      return false;
+      return FALSE;
     }
-  return true;
+  return TRUE;
 }
 
 int
@@ -71,7 +67,7 @@ fhandler_dev_random::pseudo_write (const void *ptr, size_t len)
   return len;
 }
 
-ssize_t __stdcall
+int
 fhandler_dev_random::write (const void *ptr, size_t len)
 {
   if (!len)
@@ -89,7 +85,7 @@ fhandler_dev_random::write (const void *ptr, size_t len)
   memcpy (buf, ptr, limited_len);
 
   /* Mess up system entropy source. Return error if device is /dev/random. */
-  if (!crypt_gen_random (buf, limited_len) && dev () == FH_RANDOM)
+  if (!crypt_gen_random (buf, limited_len) && dev == FH_RANDOM)
     {
       __seterrno ();
       return -1;
@@ -123,7 +119,7 @@ fhandler_dev_random::read (void *ptr, size_t& len)
   if (!ptr)
     {
       set_errno (EINVAL);
-      len = (size_t) -1;
+      (ssize_t) len = -1;
       return;
     }
 
@@ -133,48 +129,26 @@ fhandler_dev_random::read (void *ptr, size_t& len)
   /* If device is /dev/urandom, use pseudo number generator as fallback.
      Don't do this for /dev/random since it's intended for uses that need
      very high quality randomness. */
-  if (dev () == FH_URANDOM)
+  if (dev == FH_URANDOM)
     {
       len = pseudo_read (ptr, len);
       return;
     }
 
   __seterrno ();
-  len = (size_t) -1;
+  (ssize_t) len = -1;
 }
 
-_off64_t
-fhandler_dev_random::lseek (_off64_t off, int whence)
+__off64_t
+fhandler_dev_random::lseek (__off64_t, int)
 {
-  /* As on Linux, fake being able to set an offset.  The fact that neither
-     reading nor writing changes the dummy offset is also the same as on
-     Linux (tested with kernel 2.6.23). */
-  _off64_t new_off;
-
-  switch (whence)
-    {
-    case SEEK_SET:
-      new_off = off;
-      break;
-    case SEEK_CUR:
-      new_off = dummy_offset + off;
-      break;
-    default:
-      set_errno (EINVAL);
-      return (_off64_t) -1;
-    }
-  if (new_off < 0)
-    {
-      set_errno (EINVAL);
-      return (_off64_t) -1;
-    }
-  return dummy_offset = new_off;
+  return 0;
 }
 
 int
-fhandler_dev_random::close ()
+fhandler_dev_random::close (void)
 {
-  if (!have_execed && crypt_prov)
+  if (crypt_prov)
     while (!CryptReleaseContext (crypt_prov, 0)
 	   && GetLastError () == ERROR_BUSY)
       Sleep (10);
@@ -182,9 +156,16 @@ fhandler_dev_random::close ()
 }
 
 int
-fhandler_dev_random::dup (fhandler_base *child, int)
+fhandler_dev_random::dup (fhandler_base *child)
 {
   fhandler_dev_random *fhr = (fhandler_dev_random *) child;
   fhr->crypt_prov = (HCRYPTPROV)NULL;
   return 0;
 }
+
+void
+fhandler_dev_random::dump ()
+{
+  paranoid_printf ("here, fhandler_dev_random");
+}
+

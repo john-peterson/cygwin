@@ -1,7 +1,6 @@
 /* fhandler_windows.cc: code to access windows message queues.
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2009, 2011, 2012
-   Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
    Written by Sergey S. Okhapkin (sos@prospect.com.ru).
    Feedback and testing by Andy Piper (andyp@parallax.co.uk).
@@ -13,20 +12,19 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <errno.h>
 #include <wingdi.h>
 #include <winuser.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "security.h"
 #include "fhandler.h"
-#include "sigproc.h"
-#include "thread.h"
-
 
 /*
 The following unix-style calls are supported:
 
 	open ("/dev/windows", flags, mode=0)
 		- create a unix fd for message queue.
+		  O_NONBLOCK flag controls the read() call behavior.
 
 	read (fd, buf, len)
 		- return next message from queue. buf must point to MSG
@@ -54,34 +52,31 @@ fhandler_windows::fhandler_windows ()
 }
 
 int
-fhandler_windows::open (int flags, mode_t)
+fhandler_windows::open (path_conv *, int flags, mode_t)
 {
   set_flags ((flags & ~O_TEXT) | O_BINARY);
-  close_on_exec (true);
+  set_close_on_exec_flag (1);
   set_open_status ();
   return 1;
 }
 
-ssize_t __stdcall
+int
 fhandler_windows::write (const void *buf, size_t)
 {
   MSG *ptr = (MSG *) buf;
 
   if (method_ == WINDOWS_POST)
     {
-      if (!PostMessageW (ptr->hwnd, ptr->message, ptr->wParam, ptr->lParam))
+      if (!PostMessage (ptr->hwnd, ptr->message, ptr->wParam, ptr->lParam))
 	{
 	  __seterrno ();
 	  return -1;
 	}
+      else
+	return sizeof (MSG);
     }
-  else if (!SendNotifyMessageW (ptr->hwnd, ptr->message, ptr->wParam,
-				ptr->lParam))
-    {
-      __seterrno ();
-      return -1;
-    }
-  return sizeof (MSG);
+  else
+    return SendMessage (ptr->hwnd, ptr->message, ptr->wParam, ptr->lParam);
 }
 
 void __stdcall
@@ -92,53 +87,17 @@ fhandler_windows::read (void *buf, size_t& len)
   if (len < sizeof (MSG))
     {
       set_errno (EINVAL);
-      len = (size_t) -1;
+      (ssize_t) len = -1;
       return;
     }
 
-  HANDLE w4[3] = { get_handle (), };
-  set_signal_arrived here (w4[1]);
-  DWORD cnt = 2;
-  if ((w4[cnt] = pthread::get_cancel_event ()) != NULL)
-    ++cnt;
-  for (;;)
-    {
-      switch (MsgWaitForMultipleObjectsEx (cnt, w4,
-					   is_nonblocking () ? 0 : INFINITE,
-					   QS_ALLINPUT | QS_ALLPOSTMESSAGE,
-					   MWMO_INPUTAVAILABLE))
-	{
-	case WAIT_OBJECT_0:
-	  if (!PeekMessageW (ptr, hWnd_, 0, 0, PM_REMOVE))
-	    {
-	      len = (size_t) -1;
-	      __seterrno ();
-	    }
-	  else if (ptr->message == WM_QUIT)
-	    len = 0;
-	  else
-	    len = sizeof (MSG);
-	  break;
-	case WAIT_OBJECT_0 + 1:
-	  if (_my_tls.call_signal_handler ())
-	    continue;
-	  len = (size_t) -1;
-	  set_errno (EINTR);
-	  break;
-	case WAIT_OBJECT_0 + 2:
-	  pthread::static_cancel_self ();
-	  break;
-	case WAIT_TIMEOUT:
-	  len = (size_t) -1;
-	  set_errno (EAGAIN);
-	  break;
-	default:
-	  len = (size_t) -1;
-	  __seterrno ();
-	  break;
-	}
-      break;
-    }
+  (ssize_t) len = GetMessage (ptr, hWnd_, 0, 0);
+
+  if ((ssize_t) len == -1)
+    __seterrno ();
+  else
+    set_errno (0);
+  return;
 }
 
 int
@@ -159,28 +118,29 @@ fhandler_windows::ioctl (unsigned int cmd, void *val)
       hWnd_ = * ((HWND *) val);
       break;
     default:
-      return fhandler_base::ioctl (cmd, val);
+      set_errno (EINVAL);
+      return -1;
     }
   return 0;
 }
 
 void
-fhandler_windows::set_close_on_exec (bool val)
+fhandler_windows::set_close_on_exec (int val)
 {
   if (get_handle ())
-    fhandler_base::set_close_on_exec (val);
+    this->fhandler_base::set_close_on_exec (val);
   else
-    fhandler_base::close_on_exec (val);
+    this->fhandler_base::set_close_on_exec_flag (val);
   void *h = hWnd_;
   if (h)
-    set_no_inheritance (h, val);
+    set_inheritance (h, val);
 }
 
 void
 fhandler_windows::fixup_after_fork (HANDLE parent)
 {
   if (get_handle ())
-    fhandler_base::fixup_after_fork (parent);
+    this->fhandler_base::fixup_after_fork (parent);
   void *h = hWnd_;
   if (h)
     fork_fixup (parent, h, "hWnd_");
