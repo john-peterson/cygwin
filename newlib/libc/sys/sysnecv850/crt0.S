@@ -5,7 +5,7 @@
 
 _start:
 
-#if defined(__v850e__) || defined(__v850e2__) || defined(__v850e2v3__) || defined(__v850e3v5__)
+#if defined __v850e__ || defined __v850ea__
 	
 	movea   255,		r0,	r20
 	mov     65535,		r21
@@ -14,18 +14,6 @@ _start:
 	mov     hilo(__gp),	gp
 	mov     hilo(__ctbp),	r6
 	ldsr    r6,             ctbp
-
-#if defined(__v850e2v3__) || defined(__v850e3v5__)
-	// FPU enable
-	stsr    psw,            r6
-	movhi   1,              r0,      r7
-	or      r7,             r6
-	ldsr    r6,             psw
-	// Initialize the FPSR
-	movhi	2,		r0,	r6
-	ldsr    r6, 	    	fpsr
-#endif
-	
 	mov     hilo(_edata),	r6
 	mov     hilo(_end),	r7
 .L0:
@@ -35,7 +23,7 @@ _start:
 	bl      .L0
 .L1:
 	jarl    ___main,	r31
-	addi    -16,		sp,	sp
+	addi    -12,		sp,	sp
 	mov     0,		r6
 	mov     0,		r7
 	mov     0,		r8
@@ -54,6 +42,16 @@ _start:
 	movhi   hi(__gp),	r0,	gp
 	movea   lo(__gp),	gp,	gp
 
+	/* Initialise the call table base pointer.
+	We do this even though we are supposedly 
+	assembling this file for the v850 as this
+	allows us to use the same binary for all
+	versions of the v850 architecture.  */
+	
+	movhi   hi(__ctbp),	r0,     r6
+	movea   lo(__ctbp),	r6,     r6
+	ldsr    r6,             ctbp
+
 	movhi   hi(_edata),	r0,	r6
 	movea   lo(_edata),	r6,	r6
 	movhi   hi(_end),	r0,	r7
@@ -65,20 +63,15 @@ _start:
 	bl      .L0
 .L1:
 	jarl    ___main,	r31
-	addi    -16,		sp,	sp
+	addi    -12,		sp,	sp
 	mov     0,		r6
 	mov     0,		r7
 	mov     0,		r8
 	jarl    _main,		r31
 	mov     r10,		r6
 	jarl    _exit,		r31
+
 # endif
 
 	.section .stack
 _stack:	.long 	1
-
-	.section .data
-	.global ___dso_handle
-	.weak   ___dso_handle
-___dso_handle:
-	.long	0

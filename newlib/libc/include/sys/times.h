@@ -12,7 +12,6 @@ typedef _CLOCK_T_ clock_t;
 #define __clock_t_defined
 #endif
 
-/*  Get Process Times, P1003.1b-1993, p. 92 */
 struct tms {
 	clock_t	tms_utime;		/* user time */
 	clock_t	tms_stime;		/* system time */
@@ -21,9 +20,6 @@ struct tms {
 };
 
 clock_t _EXFUN(times,(struct tms *));
-#ifdef _COMPILING_NEWLIB
-clock_t _EXFUN(_times,(struct tms *));
-#endif
 
 #ifdef __cplusplus
 }
