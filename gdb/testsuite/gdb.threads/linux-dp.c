@@ -71,10 +71,11 @@ shared_printf (char *format, ...)
 int 
 shared_random ()
 {
+  static unsigned int seed;
   int result;
 
   pthread_mutex_lock (&random_mutex);
-  result = rand ();
+  result = rand_r (&seed);
   pthread_mutex_unlock (&random_mutex);
   return result;
 }
@@ -152,8 +153,6 @@ philosopher (void *data)
 	pthread_mutex_unlock (&fork_mutex[(n + 1) % num_philosophers]);
 	random_delay ();
       }
-
-  return (void *) 0;
 }
 
 int
