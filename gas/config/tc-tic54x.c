@@ -1,13 +1,12 @@
 /* tc-tic54x.c -- Assembly code for the Texas Instruments TMS320C54X
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2012  Free Software Foundation, Inc.
+   Copyright 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
    Contributed by Timothy Wall (twall@cygnus.com)
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -17,8 +16,8 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 /* Texas Instruments TMS320C54X machine specific gas.
    Written by Timothy Wall (twall@alum.mit.edu).
@@ -45,8 +44,10 @@
    COFF1 limits section names to 8 characters.
    Some of the default behavior changed from COFF1 to COFF2.  */
 
-#include "as.h"
+#include <stdlib.h>
 #include <limits.h>
+#include <errno.h>
+#include "as.h"
 #include "safe-ctype.h"
 #include "sb.h"
 #include "macro.h"
@@ -81,7 +82,7 @@ static struct stag
 
 typedef struct _tic54x_insn
 {
-  const insn_template *tm;	/* Opcode template.  */
+  const template *tm;		/* Opcode template.  */
 
   char mnemonic[MAX_LINE];	/* Opcode name/mnemonic.  */
   char parmnemonic[MAX_LINE];   /* 2nd mnemonic of parallel insn.  */
@@ -152,6 +153,9 @@ struct option md_longopts[] =
   { "mfar-mode",       no_argument,	    NULL, OPTION_ADDRESS_MODE },
   { "mf",	       no_argument,	    NULL, OPTION_ADDRESS_MODE },
   { "mcpu",	       required_argument,   NULL, OPTION_CPU_VERSION },
+#if 0
+  { "mcoff-version",   required_argument,   NULL, OPTION_COFF_VERSION },
+#endif
   { "merrors-to-file", required_argument,   NULL, OPTION_STDERR_TO_FILE },
   { "me",	       required_argument,   NULL, OPTION_STDERR_TO_FILE },
   { NULL,              no_argument,         NULL, 0},
@@ -222,18 +226,132 @@ static struct hash_control *misc_symbol_hash;
       }								\
   while (0)
 
-
-static void subsym_create_or_replace (char *, char *);
-static char *subsym_lookup (char *, int);
-static char *subsym_substitute (char *, int);
+static void	tic54x_emit_char 	PARAMS ((char));
+static fragS *	frag_prev 		PARAMS ((fragS *, segT));
+static fragS *	bit_offset_frag 	PARAMS ((fragS *, segT));
+static int	frag_bit_offset 	PARAMS ((fragS *, segT));
+static char *	parse_expression 	PARAMS ((char *, expressionS *));
+static void	tic54x_asg 		PARAMS ((int));
+static void	tic54x_eval 		PARAMS ((int));
+static void	tic54x_bss 		PARAMS ((int));
+static void	stag_add_field_symbols	PARAMS ((struct stag *, const char *, bfd_vma, symbolS *, const char *));
+static void	stag_add_field 		PARAMS ((struct stag *, const char *, bfd_vma, struct stag *));
+static void	tic54x_struct 		PARAMS ((int));
+static void	tic54x_endstruct 	PARAMS ((int));
+static void	tic54x_tag 		PARAMS ((int));
+static void	tic54x_struct_field 	PARAMS ((int));
+static void	tic54x_cons 		PARAMS ((int));
+static void	tic54x_remove_local_label PARAMS ((const char *, PTR));
+static void	tic54x_clear_local_labels PARAMS ((int));
+static void	tic54x_sect 		PARAMS ((int));
+static void	tic54x_space 		PARAMS ((int));
+static void	tic54x_usect 		PARAMS ((int));
+static enum cpu_version lookup_version	PARAMS ((const char *));
+static void	set_cpu 		PARAMS ((enum cpu_version));
+static void	tic54x_version 		PARAMS ((int));
+static void	tic54x_float_cons 	PARAMS ((int));
+static void	tic54x_stringer 	PARAMS ((int));
+static void	tic54x_p2align 		PARAMS ((int));
+static void	tic54x_align_words 	PARAMS ((int));
+static void	tic54x_field 		PARAMS ((int));
+static int	tic54x_initialized_section PARAMS ((segT));
+static void	tic54x_clink 		PARAMS ((int));
+static void	tic54x_set_default_include PARAMS ((int));
+static void	tic54x_include 		PARAMS ((int));
+static void	tic54x_message 		PARAMS ((int));
+static void	tic54x_label 		PARAMS ((int));
+static void	tic54x_mmregs 		PARAMS ((int));
+static void	tic54x_loop 		PARAMS ((int));
+static void	tic54x_endloop 		PARAMS ((int));
+static void	tic54x_break 		PARAMS ((int));
+static void	set_address_mode 	PARAMS ((int));
+static void	tic54x_address_mode 	PARAMS ((int));
+static void	tic54x_sblock 		PARAMS ((int));
+static void	tic54x_set 		PARAMS ((int));
+static void	tic54x_fclist 		PARAMS ((int));
+static void	tic54x_sslist 		PARAMS ((int));
+static void	tic54x_var 		PARAMS ((int));
+static void	tic54x_mlib 		PARAMS ((int));
+static int 	subsym_symlen 		PARAMS ((char *, char *));
+static int 	subsym_symcmp 		PARAMS ((char *, char *));
+static int 	subsym_firstch 		PARAMS ((char *, char *));
+static int 	subsym_lastch 		PARAMS ((char *, char *));
+static int 	subsym_isdefed 		PARAMS ((char *, char *));
+static int 	subsym_ismember 	PARAMS ((char *, char *));
+static int 	subsym_iscons 		PARAMS ((char *, char *));
+static int 	subsym_isname 		PARAMS ((char *, char *));
+static int 	subsym_isreg 		PARAMS ((char *, char *));
+static int 	subsym_structsz 	PARAMS ((char *, char *));
+static int 	subsym_structacc 	PARAMS ((char *, char *));
+static float 	math_ceil 		PARAMS ((float, float));
+static float 	math_cvi 		PARAMS ((float, float));
+static float 	math_floor 		PARAMS ((float, float));
+static float 	math_fmod 		PARAMS ((float, float));
+static float 	math_int 		PARAMS ((float, float));
+static float 	math_round 		PARAMS ((float, float));
+static float 	math_sgn 		PARAMS ((float, float));
+static float 	math_trunc 		PARAMS ((float, float));
+static float 	math_acos 		PARAMS ((float, float));
+static float 	math_asin 		PARAMS ((float, float));
+static float 	math_atan 		PARAMS ((float, float));
+static float 	math_atan2 		PARAMS ((float, float));
+static float 	math_cosh 		PARAMS ((float, float));
+static float 	math_cos 		PARAMS ((float, float));
+static float 	math_cvf 		PARAMS ((float, float));
+static float 	math_exp 		PARAMS ((float, float));
+static float 	math_fabs 		PARAMS ((float, float));
+static float 	math_ldexp 		PARAMS ((float, float));
+static float 	math_log10 		PARAMS ((float, float));
+static float 	math_log 		PARAMS ((float, float));
+static float 	math_max 		PARAMS ((float, float));
+static float 	math_min 		PARAMS ((float, float));
+static float 	math_pow 		PARAMS ((float, float));
+static float 	math_sin 		PARAMS ((float, float));
+static float 	math_sinh 		PARAMS ((float, float));
+static float 	math_sqrt 		PARAMS ((float, float));
+static float 	math_tan 		PARAMS ((float, float));
+static float 	math_tanh 		PARAMS ((float, float));
+static int 	is_accumulator 		PARAMS ((struct opstruct *));
+static int 	get_operands 		PARAMS ((struct opstruct operands[], char *));
+static int 	is_immediate 		PARAMS ((struct opstruct *));
+static int 	is_absolute 		PARAMS ((struct opstruct *));
+static int 	is_indirect 		PARAMS ((struct opstruct *));
+static int 	is_dual 		PARAMS ((struct opstruct *));
+static int 	is_mmreg 		PARAMS ((struct opstruct *));
+static int 	is_type 		PARAMS ((struct opstruct *, enum optype));
+static int 	operands_match 		PARAMS ((tic54x_insn *, struct opstruct *, int, const enum optype *, int, int));
+static int 	encode_dmad 		PARAMS ((tic54x_insn *, struct opstruct *, int));
+static int 	encode_address 		PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_indirect 	PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_integer 		PARAMS ((tic54x_insn *, struct opstruct *, int, int, int, unsigned short));
+static int 	encode_condition 	PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_cc3 		PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_arx 		PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_cc2 		PARAMS ((tic54x_insn *, struct opstruct *));
+static int 	encode_operand 		PARAMS ((tic54x_insn *, enum optype, struct opstruct *));
+static void 	emit_insn 		PARAMS ((tic54x_insn *));
+static int 	build_insn 		PARAMS ((tic54x_insn *));
+static int 	optimize_insn 		PARAMS ((tic54x_insn *));
+static int 	tic54x_parse_insn 	PARAMS ((tic54x_insn *, char *));
+static int 	next_line_shows_parallel PARAMS ((char *));
+static int 	tic54x_parse_parallel_insn_firstline PARAMS ((tic54x_insn *, char *));
+static int 	tic54x_parse_parallel_insn_lastline PARAMS ((tic54x_insn *, char *));
+static char *	subsym_get_arg 		PARAMS ((char *, char *, char **, int));
+static void	subsym_create_or_replace PARAMS ((char *, char *));
+static char *	subsym_lookup 		PARAMS ((char *, int));
+static char *	subsym_substitute 	PARAMS ((char *, int));
 
 
 void
-md_show_usage (FILE *stream)
+md_show_usage (stream)
+     FILE *stream;
 {
   fprintf (stream, _("C54x-specific command line  options:\n"));
   fprintf (stream, _("-mfar-mode | -mf          Use extended addressing\n"));
   fprintf (stream, _("-mcpu=<CPU version>       Specify the CPU version\n"));
+#if 0
+  fprintf (stream, _("-mcoff-version={0|1|2}    Select COFF version\n"));
+#endif
   fprintf (stream, _("-merrors-to-file <filename>\n"));
   fprintf (stream, _("-me <filename>            Redirect errors to a file\n"));
 }
@@ -241,19 +359,22 @@ md_show_usage (FILE *stream)
 /* Output a single character (upper octect is zero).  */
 
 static void
-tic54x_emit_char (char c)
+tic54x_emit_char (c)
+     char c;
 {
-  expressionS expn;
+  expressionS exp;
 
-  expn.X_op = O_constant;
-  expn.X_add_number = c;
-  emit_expr (&expn, 2);
+  exp.X_op = O_constant;
+  exp.X_add_number = c;
+  emit_expr (&exp, 2);
 }
 
 /* Walk backwards in the frag chain.  */
 
 static fragS *
-frag_prev (fragS *frag, segT seg)
+frag_prev (frag, seg)
+     fragS *frag;
+     segT seg;
 {
   segment_info_type *seginfo = seg_info (seg);
   fragS *fragp;
@@ -266,7 +387,9 @@ frag_prev (fragS *frag, segT seg)
 }
 
 static fragS *
-bit_offset_frag (fragS *frag, segT seg)
+bit_offset_frag (frag, seg)
+     fragS *frag;
+     segT seg;
 {
   while (frag != NULL)
     {
@@ -284,7 +407,9 @@ bit_offset_frag (fragS *frag, segT seg)
    none. .field/.space/.bes may leave words partially allocated.  */
 
 static int
-frag_bit_offset (fragS *frag, segT seg)
+frag_bit_offset (frag, seg)
+     fragS *frag;
+     segT seg;
 {
   frag = bit_offset_frag (frag, seg);
 
@@ -298,14 +423,16 @@ frag_bit_offset (fragS *frag, segT seg)
    expression.  */
 
 static char *
-parse_expression (char *str, expressionS *expn)
+parse_expression (str, exp)
+     char *str;
+     expressionS * exp;
 {
   char *s;
   char *tmp;
 
   tmp = input_line_pointer;	/* Save line pointer.  */
   input_line_pointer = str;
-  expression (expn);
+  expression (exp);
   s = input_line_pointer;
   input_line_pointer = tmp;	/* Restore line pointer.  */
   return s;			/* Return pointer to where parsing stopped.  */
@@ -318,7 +445,8 @@ parse_expression (char *str, expressionS *expn)
    unsupported.  */
 
 static void
-tic54x_asg (int x ATTRIBUTE_UNUSED)
+tic54x_asg (x)
+     int x ATTRIBUTE_UNUSED;
 {
   int c;
   char *name;
@@ -356,7 +484,7 @@ tic54x_asg (int x ATTRIBUTE_UNUSED)
   c = get_symbol_end ();	/* Get terminator.  */
   if (!ISALPHA (*name))
     {
-      as_bad (_("symbols assigned with .asg must begin with a letter"));
+      as_bad ("symbols assigned with .asg must begin with a letter");
       ignore_rest_of_line ();
       return;
     }
@@ -379,7 +507,8 @@ tic54x_asg (int x ATTRIBUTE_UNUSED)
    table, since that's what works best.  */
 
 static void
-tic54x_eval (int x ATTRIBUTE_UNUSED)
+tic54x_eval (x)
+     int x ATTRIBUTE_UNUSED;
 {
   char c;
   int value;
@@ -455,7 +584,8 @@ tic54x_eval (int x ATTRIBUTE_UNUSED)
       (not yet implemented).  */
 
 static void
-tic54x_bss (int x ATTRIBUTE_UNUSED)
+tic54x_bss (x)
+     int x ATTRIBUTE_UNUSED;
 {
   char c;
   char *name;
@@ -476,7 +606,7 @@ tic54x_bss (int x ATTRIBUTE_UNUSED)
   c = get_symbol_end ();	/* Get terminator.  */
   if (c != ',')
     {
-      as_bad (_(".bss size argument missing\n"));
+      as_bad (".bss size argument missing\n");
       ignore_rest_of_line ();
       return;
     }
@@ -485,7 +615,7 @@ tic54x_bss (int x ATTRIBUTE_UNUSED)
   words = get_absolute_expression ();
   if (words < 0)
     {
-      as_bad (_(".bss size %d < 0!"), words);
+      as_bad (".bss size %d < 0!", words);
       ignore_rest_of_line ();
       return;
     }
@@ -537,18 +667,19 @@ tic54x_bss (int x ATTRIBUTE_UNUSED)
     }
 
   if (block)
-    bss_section->flags |= SEC_TIC54X_BLOCK;
+    bss_section->flags |= SEC_BLOCK;
 
   subseg_set (current_seg, current_subseg);	/* Restore current seg.  */
   demand_empty_rest_of_line ();
 }
 
 static void
-stag_add_field_symbols (struct stag *stag,
-			const char *path,
-			bfd_vma base_offset,
-			symbolS *rootsym,
-			const char *root_stag_name)
+stag_add_field_symbols (stag, path, base_offset, rootsym, root_stag_name)
+     struct stag *stag;
+     const char *path;
+     bfd_vma base_offset;
+     symbolS *rootsym;
+     const char *root_stag_name;
 {
   char prefix[strlen (path) + 2];
   struct stag_field *field = stag->field;
@@ -601,10 +732,11 @@ stag_add_field_symbols (struct stag *stag,
    complete dereferencing symbols to the symbol table.  */
 
 static void
-stag_add_field (struct stag *parent,
-		const char *name,
-		bfd_vma offset,
-		struct stag *stag)
+stag_add_field (parent, name, offset, stag)
+     struct stag *parent;
+     const char *name;
+     bfd_vma offset;
+     struct stag *stag;
 {
   struct stag_field *sfield = xmalloc (sizeof (struct stag_field));
 
@@ -636,7 +768,8 @@ stag_add_field (struct stag *parent,
    Start defining structure offsets (symbols in absolute section).  */
 
 static void
-tic54x_struct (int arg)
+tic54x_struct (arg)
+     int arg;
 {
   int start_offset = 0;
   int is_union = arg;
@@ -716,7 +849,8 @@ tic54x_struct (int arg)
    of the structure.  */
 
 static void
-tic54x_endstruct (int is_union)
+tic54x_endstruct (is_union)
+     int is_union;
 {
   int size;
   const char *path =
@@ -781,7 +915,8 @@ tic54x_endstruct (int is_union)
    format on the existing allocated space.  */
 
 static void
-tic54x_tag (int ignore ATTRIBUTE_UNUSED)
+tic54x_tag (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   char *name = input_line_pointer;
   int c = get_symbol_end ();
@@ -840,7 +975,8 @@ tic54x_tag (int ignore ATTRIBUTE_UNUSED)
    and .word.  */
 
 static void
-tic54x_struct_field (int type)
+tic54x_struct_field (type)
+     int type;
 {
   int size;
   int count = 1;
@@ -959,7 +1095,8 @@ tic54x_struct_field (int type)
 /* Handle .byte, .word. .int, .long and all variants.  */
 
 static void
-tic54x_cons (int type)
+tic54x_cons (type)
+     int type;
 {
   unsigned int c;
   int octets;
@@ -1018,28 +1155,28 @@ tic54x_cons (int type)
 	}
       else
 	{
-	  expressionS expn;
+	  expressionS exp;
 
-	  input_line_pointer = parse_expression (input_line_pointer, &expn);
-	  if (expn.X_op == O_constant)
+	  input_line_pointer = parse_expression (input_line_pointer, &exp);
+	  if (exp.X_op == O_constant)
 	    {
-	      offsetT value = expn.X_add_number;
+	      offsetT value = exp.X_add_number;
 	      /* Truncate overflows.  */
 	      switch (octets)
 		{
 		case 1:
 		  if ((value > 0 && value > 0xFF)
 		      || (value < 0 && value < - 0x100))
-		    as_warn (_("Overflow in expression, truncated to 8 bits"));
+		    as_warn ("Overflow in expression, truncated to 8 bits");
 		  break;
 		case 2:
 		  if ((value > 0 && value > 0xFFFF)
 		      || (value < 0 && value < - 0x10000))
-		    as_warn (_("Overflow in expression, truncated to 16 bits"));
+		    as_warn ("Overflow in expression, truncated to 16 bits");
 		  break;
 		}
 	    }
-	  if (expn.X_op != O_constant && octets < 2)
+	  if (exp.X_op != O_constant && octets < 2)
 	    {
 	      /* Disallow .byte with a non constant expression that will
 		 require relocation.  */
@@ -1048,25 +1185,25 @@ tic54x_cons (int type)
 	      return;
 	    }
 
-	  if (expn.X_op != O_constant
+	  if (exp.X_op != O_constant
 	      && amode == c_mode
 	      && octets == 4)
 	    {
 	      /* FIXME -- at one point TI tools used to output REL16
 		 relocations, but I don't think the latest tools do at all
 		 The current tools output extended relocations regardless of
-		 the addressing mode (I actually think that ".c_mode" is
+		 the addresing mode (I actually think that ".c_mode" is
 		 totally ignored in the latest tools).  */
 	      amode = far_mode;
 	      emitting_long = 1;
-	      emit_expr (&expn, 4);
+	      emit_expr (&exp, 4);
 	      emitting_long = 0;
 	      amode = c_mode;
 	    }
 	  else
 	    {
 	      emitting_long = octets == 4;
-	      emit_expr (&expn, (octets == 1) ? 2 : octets);
+	      emit_expr (&exp, (octets == 1) ? 2 : octets);
 	      emitting_long = 0;
 	    }
 	}
@@ -1097,7 +1234,8 @@ tic54x_cons (int type)
    these, so we ignore the type here.  */
 
 void
-tic54x_global (int type)
+tic54x_global (type)
+     int type;
 {
   char *name;
   int c;
@@ -1131,16 +1269,19 @@ tic54x_global (int type)
 /* Remove the symbol from the local label hash lookup.  */
 
 static void
-tic54x_remove_local_label (const char *key, void *value ATTRIBUTE_UNUSED)
+tic54x_remove_local_label (key, value)
+     const char *key;
+     PTR value ATTRIBUTE_UNUSED;
 {
-  void *elem = hash_delete (local_label_hash[macro_level], key, FALSE);
+  PTR *elem = hash_delete (local_label_hash[macro_level], key);
   free (elem);
 }
 
 /* Reset all local labels.  */
 
 static void
-tic54x_clear_local_labels (int ignored ATTRIBUTE_UNUSED)
+tic54x_clear_local_labels (ignored)
+     int ignored ATTRIBUTE_UNUSED;
 {
   hash_traverse (local_label_hash[macro_level], tic54x_remove_local_label);
 }
@@ -1159,7 +1300,8 @@ tic54x_clear_local_labels (int ignored ATTRIBUTE_UNUSED)
 */
 
 static void
-tic54x_sect (int arg)
+tic54x_sect (arg)
+     int arg;
 {
   ILLEGAL_WITHIN_STRUCT ();
 
@@ -1220,9 +1362,10 @@ tic54x_sect (int arg)
    cribbed from s_space.  */
 
 static void
-tic54x_space (int arg)
+tic54x_space (arg)
+     int arg;
 {
-  expressionS expn;
+  expressionS exp;
   char *p = 0;
   int octets = 0;
   long words;
@@ -1238,21 +1381,22 @@ tic54x_space (int arg)
 #endif
 
   /* Read the bit count.  */
-  expression (&expn);
+  expression (&exp);
 
   /* Some expressions are unresolvable until later in the assembly pass;
      postpone until relaxation/fixup.  we also have to postpone if a previous
      partial allocation has not been completed yet.  */
-  if (expn.X_op != O_constant || frag_bit_offset (frag_now, now_seg) == -1)
+  if (exp.X_op != O_constant || frag_bit_offset (frag_now, now_seg) == -1)
     {
       struct bit_info *bi = xmalloc (sizeof (struct bit_info));
+      char *p;
 
       bi->seg = now_seg;
       bi->type = bes;
       bi->sym = label;
       p = frag_var (rs_machine_dependent,
 		    65536 * 2, 1, (relax_substateT) 0,
-		    make_expr_symbol (&expn), (offsetT) 0,
+		    make_expr_symbol (&exp), (offsetT) 0,
 		    (char *) bi);
       if (p)
 	*p = 0;
@@ -1267,7 +1411,7 @@ tic54x_space (int arg)
     {
       int spare_bits = bits_per_byte - bit_offset;
 
-      if (spare_bits >= expn.X_add_number)
+      if (spare_bits >= exp.X_add_number)
 	{
 	  /* Don't have to do anything; sufficient bits have already been
 	     allocated; just point the label to the right place.  */
@@ -1277,10 +1421,10 @@ tic54x_space (int arg)
 	      S_SET_VALUE (label, frag_now_fix () - 1);
 	      label = NULL;
 	    }
-	  frag_now->tc_frag_data += expn.X_add_number;
+	  frag_now->tc_frag_data += exp.X_add_number;
 	  goto getout;
 	}
-      expn.X_add_number -= spare_bits;
+      exp.X_add_number -= spare_bits;
       /* Set the label to point to the first word allocated, which in this
 	 case is the previous word, which was only partially filled.  */
       if (!bes && label != NULL)
@@ -1291,9 +1435,9 @@ tic54x_space (int arg)
 	}
     }
   /* Convert bits to bytes/words and octets, rounding up.  */
-  words = ((expn.X_add_number + bits_per_byte - 1) / bits_per_byte);
+  words = ((exp.X_add_number + bits_per_byte - 1) / bits_per_byte);
   /* How many do we have left over?  */
-  bit_offset = expn.X_add_number % bits_per_byte;
+  bit_offset = exp.X_add_number % bits_per_byte;
   octets = words * OCTETS_PER_BYTE;
   if (octets < 0)
     {
@@ -1342,7 +1486,7 @@ tic54x_space (int arg)
 /* [symbol] .usect "section-name", size-in-words
 		   [, [blocking-flag] [, alignment-flag]]
 
-   Uninitialized section.
+   Unitialized section.
    Non-zero blocking means that if the section would cross a page (128-word)
    boundary, it will be page-aligned.
    Non-zero alignment aligns on a longword boundary.
@@ -1350,7 +1494,8 @@ tic54x_space (int arg)
    Has no effect on the current section.  */
 
 static void
-tic54x_usect (int x ATTRIBUTE_UNUSED)
+tic54x_usect (x)
+     int x ATTRIBUTE_UNUSED;
 {
   char c;
   char *name;
@@ -1435,10 +1580,10 @@ tic54x_usect (int x ATTRIBUTE_UNUSED)
   *p = 0;
 
   if (blocking_flag)
-    flags |= SEC_TIC54X_BLOCK;
+    flags |= SEC_BLOCK;
 
   if (!bfd_set_section_flags (stdoutput, seg, flags))
-    as_warn (_("Error setting flags for \"%s\": %s"), name,
+    as_warn ("Error setting flags for \"%s\": %s", name,
 	     bfd_errmsg (bfd_get_error ()));
 
   subseg_set (current_seg, current_subseg);	/* Restore current seg.  */
@@ -1446,7 +1591,8 @@ tic54x_usect (int x ATTRIBUTE_UNUSED)
 }
 
 static enum cpu_version
-lookup_version (const char *ver)
+lookup_version (ver)
+     const char *ver;
 {
   enum cpu_version version = VNONE;
 
@@ -1467,7 +1613,8 @@ lookup_version (const char *ver)
 }
 
 static void
-set_cpu (enum cpu_version version)
+set_cpu (version)
+     enum cpu_version version;
 {
   cpu = version;
   if (version == V545LP || version == V546LP)
@@ -1494,7 +1641,8 @@ set_cpu (enum cpu_version version)
 static int cpu_needs_set = 1;
 
 static void
-tic54x_version (int x ATTRIBUTE_UNUSED)
+tic54x_version (x)
+     int x ATTRIBUTE_UNUSED;
 {
   enum cpu_version version = VNONE;
   enum cpu_version old_version = cpu;
@@ -1537,7 +1685,8 @@ tic54x_version (int x ATTRIBUTE_UNUSED)
 /* 'f' = float, 'x' = xfloat, 'd' = double, 'l' = ldouble.  */
 
 static void
-tic54x_float_cons (int type)
+tic54x_float_cons (type)
+     int type;
 {
   if (current_stag != 0)
     tic54x_struct_field ('f');
@@ -1567,9 +1716,11 @@ tic54x_float_cons (int type)
    and encoded into the correct octets.  */
 
 static void
-tic54x_stringer (int type)
+tic54x_stringer (type)
+     int type;
 {
   unsigned int c;
+  char *start;
   int append_zero = type == 'S' || type == 'P';
   int packed = type == 'p' || type == 'P';
   int last_char = -1; /* Packed strings need two bytes at a time to encode.  */
@@ -1599,6 +1750,7 @@ tic54x_stringer (int type)
 	  }
 	case '\"':
 	  ++input_line_pointer;	/* -> 1st char of string.  */
+	  start = input_line_pointer;
 	  while (is_a_char (c = next_char_of_string ()))
 	    {
 	      if (!packed)
@@ -1652,13 +1804,15 @@ tic54x_stringer (int type)
 }
 
 static void
-tic54x_p2align (int arg ATTRIBUTE_UNUSED)
+tic54x_p2align (arg)
+     int arg ATTRIBUTE_UNUSED;
 {
   as_bad (_("p2align not supported on this target"));
 }
 
 static void
-tic54x_align_words (int arg)
+tic54x_align_words (arg)
+     int arg;
 {
   /* Only ".align" with no argument is allowed within .struct/.union.  */
   int count = arg;
@@ -1690,9 +1844,10 @@ tic54x_align_words (int arg)
 /* Initialize multiple-bit fields withing a single word of memory.  */
 
 static void
-tic54x_field (int ignore ATTRIBUTE_UNUSED)
+tic54x_field (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
-  expressionS expn;
+  expressionS exp;
   int size = 16;
   char *p;
   valueT value;
@@ -1704,7 +1859,7 @@ tic54x_field (int ignore ATTRIBUTE_UNUSED)
       return;
     }
 
-  input_line_pointer = parse_expression (input_line_pointer, &expn);
+  input_line_pointer = parse_expression (input_line_pointer, &exp);
 
   if (*input_line_pointer == ',')
     {
@@ -1719,7 +1874,7 @@ tic54x_field (int ignore ATTRIBUTE_UNUSED)
     }
 
   /* Truncate values to the field width.  */
-  if (expn.X_op != O_constant)
+  if (exp.X_op != O_constant)
     {
       /* If the expression value is relocatable, the field size *must*
          be 16.  */
@@ -1731,17 +1886,17 @@ tic54x_field (int ignore ATTRIBUTE_UNUSED)
 	}
 
       frag_now->tc_frag_data = 0;
-      emit_expr (&expn, 2);
+      emit_expr (&exp, 2);
     }
   else
     {
       unsigned long fmask = (size == 32) ? 0xFFFFFFFF : (1ul << size) - 1;
 
-      value = expn.X_add_number;
-      expn.X_add_number &= fmask;
-      if (value != (valueT) expn.X_add_number)
+      value = exp.X_add_number;
+      exp.X_add_number &= fmask;
+      if (value != (valueT) exp.X_add_number)
 	as_warn (_("field value truncated"));
-      value = expn.X_add_number;
+      value = exp.X_add_number;
       /* Bits are stored MS first.  */
       while (size >= 16)
 	{
@@ -1813,7 +1968,8 @@ tic54x_field (int ignore ATTRIBUTE_UNUSED)
    available yet.  seg_info ()->bss is the next best thing.  */
 
 static int
-tic54x_initialized_section (segT seg)
+tic54x_initialized_section (seg)
+     segT seg;
 {
   return !seg_info (seg)->bss;
 }
@@ -1826,7 +1982,8 @@ tic54x_initialized_section (segT seg)
    Name is required for uninitialized sections.  */
 
 static void
-tic54x_clink (int ignored ATTRIBUTE_UNUSED)
+tic54x_clink (ignored)
+     int ignored ATTRIBUTE_UNUSED;
 {
   segT seg = now_seg;
 
@@ -1863,7 +2020,7 @@ tic54x_clink (int ignored ATTRIBUTE_UNUSED)
 	}
     }
 
-  seg->flags |= SEC_TIC54X_CLINK;
+  seg->flags |= SEC_CLINK;
 
   demand_empty_rest_of_line ();
 }
@@ -1873,7 +2030,8 @@ tic54x_clink (int ignored ATTRIBUTE_UNUSED)
    set to "." instead.  */
 
 static void
-tic54x_set_default_include (int dot)
+tic54x_set_default_include (dot)
+     int dot;
 {
   char *dir = ".";
   char *tmp = NULL;
@@ -1918,7 +2076,8 @@ tic54x_set_default_include (int dot)
    Entering/exiting included/copied file clears all local labels.  */
 
 static void
-tic54x_include (int ignored ATTRIBUTE_UNUSED)
+tic54x_include (ignored)
+     int ignored ATTRIBUTE_UNUSED;
 {
   char newblock[] = " .newblock\n";
   char *filename;
@@ -1961,7 +2120,8 @@ tic54x_include (int ignored ATTRIBUTE_UNUSED)
 }
 
 static void
-tic54x_message (int type)
+tic54x_message (type)
+     int type;
 {
   char *msg;
   char c;
@@ -2007,7 +2167,8 @@ tic54x_message (int type)
    run address (vma).  */
 
 static void
-tic54x_label (int ignored ATTRIBUTE_UNUSED)
+tic54x_label (ignored)
+     int ignored ATTRIBUTE_UNUSED;
 {
   char *name = input_line_pointer;
   symbolS *symbolP;
@@ -2028,7 +2189,8 @@ tic54x_label (int ignored ATTRIBUTE_UNUSED)
    absolute local symbols.  */
 
 static void
-tic54x_mmregs (int ignored ATTRIBUTE_UNUSED)
+tic54x_mmregs (ignored)
+     int ignored ATTRIBUTE_UNUSED;
 {
   symbol *sym;
 
@@ -2047,7 +2209,8 @@ tic54x_mmregs (int ignored ATTRIBUTE_UNUSED)
    Count defaults to 1024.  */
 
 static void
-tic54x_loop (int count)
+tic54x_loop (count)
+     int count;
 {
   ILLEGAL_WITHIN_STRUCT ();
 
@@ -2061,7 +2224,8 @@ tic54x_loop (int count)
 /* Normally, endloop gets eaten by the preceding loop.  */
 
 static void
-tic54x_endloop (int ignore ATTRIBUTE_UNUSED)
+tic54x_endloop (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   as_bad (_("ENDLOOP without corresponding LOOP"));
   ignore_rest_of_line ();
@@ -2070,7 +2234,8 @@ tic54x_endloop (int ignore ATTRIBUTE_UNUSED)
 /* .break [condition].  */
 
 static void
-tic54x_break (int ignore ATTRIBUTE_UNUSED)
+tic54x_break (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   int cond = 1;
 
@@ -2085,7 +2250,8 @@ tic54x_break (int ignore ATTRIBUTE_UNUSED)
 }
 
 static void
-set_address_mode (int mode)
+set_address_mode (mode)
+     int mode;
 {
   amode = mode;
   if (mode == far_mode)
@@ -2100,7 +2266,8 @@ set_address_mode (int mode)
 static int address_mode_needs_set = 1;
 
 static void
-tic54x_address_mode (int mode)
+tic54x_address_mode (mode)
+     int mode;
 {
   if (assembly_begun && amode != (unsigned) mode)
     {
@@ -2123,7 +2290,8 @@ tic54x_address_mode (int mode)
    Designate initialized sections for blocking.  */
 
 static void
-tic54x_sblock (int ignore ATTRIBUTE_UNUSED)
+tic54x_sblock (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   int c = ',';
 
@@ -2163,7 +2331,7 @@ tic54x_sblock (int ignore ATTRIBUTE_UNUSED)
 	  ignore_rest_of_line ();
 	  return;
 	}
-      seg->flags |= SEC_TIC54X_BLOCK;
+      seg->flags |= SEC_BLOCK;
 
       c = *input_line_pointer;
       if (!is_end_of_line[(int) c])
@@ -2180,7 +2348,8 @@ tic54x_sblock (int ignore ATTRIBUTE_UNUSED)
    symbols assigned with .set/.equ may not be redefined.  */
 
 static void
-tic54x_set (int ignore ATTRIBUTE_UNUSED)
+tic54x_set (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   symbolS *symbolP;
   char *name;
@@ -2214,7 +2383,8 @@ tic54x_set (int ignore ATTRIBUTE_UNUSED)
    List false conditional blocks.  */
 
 static void
-tic54x_fclist (int show)
+tic54x_fclist (show)
+     int show;
 {
   if (show)
     listing &= ~LISTING_NOCOND;
@@ -2224,7 +2394,8 @@ tic54x_fclist (int show)
 }
 
 static void
-tic54x_sslist (int show)
+tic54x_sslist (show)
+     int show;
 {
   ILLEGAL_WITHIN_STRUCT ();
 
@@ -2235,7 +2406,8 @@ tic54x_sslist (int show)
    Define a substitution string to be local to a macro.  */
 
 static void
-tic54x_var (int ignore ATTRIBUTE_UNUSED)
+tic54x_var (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   static char empty[] = "";
   char *name;
@@ -2283,7 +2455,8 @@ tic54x_var (int ignore ATTRIBUTE_UNUSED)
    FIXME need to try the source file directory as well.  */
 
 static void
-tic54x_mlib (int ignore ATTRIBUTE_UNUSED)
+tic54x_mlib (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   char *filename;
   char *path;
@@ -2346,8 +2519,8 @@ tic54x_mlib (int ignore ATTRIBUTE_UNUSED)
   abfd = bfd_openr (path, NULL);
   if (!abfd)
     {
-      as_bad (_("can't open macro library file '%s' for reading: %s"),
-	      path, bfd_errmsg (bfd_get_error ()));
+      as_bad (_("Can't open macro library file '%s' for reading."), path);
+      as_perror ("%s", path);
       ignore_rest_of_line ();
       return;
     }
@@ -2410,6 +2583,9 @@ const pseudo_typeS md_pseudo_table[] =
   { "emsg"     , tic54x_message           ,        'e' },
   { "mmsg"     , tic54x_message           ,        'm' },
   { "wmsg"     , tic54x_message           ,        'w' },
+#if 0
+  { "end"      , s_end                    ,          0 },
+#endif
   { "far_mode" , tic54x_address_mode      ,   far_mode },
   { "fclist"   , tic54x_fclist            ,          1 },
   { "fcnolist" , tic54x_fclist            ,          0 },
@@ -2435,6 +2611,10 @@ const pseudo_typeS md_pseudo_table[] =
                                                              address.  */
   { "length"   , s_ignore                 ,          0 },
   { "width"    , s_ignore                 ,          0 },
+#if 0
+  { "list"     , listing_list             ,          1 },
+  { "nolist"   , listing_list             ,          0 },
+#endif
   { "long"     , tic54x_cons              ,        'l' },
   { "ulong"    , tic54x_cons              ,        'L' },
   { "xlong"    , tic54x_cons              ,        'x' },
@@ -2448,6 +2628,9 @@ const pseudo_typeS md_pseudo_table[] =
   { "newblock" , tic54x_clear_local_labels,          0 },
   { "option"   , s_ignore                 ,          0 },
   { "p2align"  , tic54x_p2align           ,          0 },
+#if 0
+  { "page"     , listing_eject            ,          0 },
+#endif
   { "sblock"   , tic54x_sblock            ,          0 },
   { "sect"     , tic54x_sect              ,        '*' },
   { "set"      , tic54x_set               ,          0 },
@@ -2463,6 +2646,9 @@ const pseudo_typeS md_pseudo_table[] =
   { "endstruct", tic54x_endstruct         ,          0 },
   { "tab"      , s_ignore                 ,          0 },
   { "text"     , tic54x_sect              ,        't' },
+#if 0
+  { "title"    , listing_title            ,          0 },
+#endif
   { "union"    , tic54x_struct            ,          1 },
   { "endunion" , tic54x_endstruct         ,          1 },
   { "usect"    , tic54x_usect             ,          0 },
@@ -2471,8 +2657,25 @@ const pseudo_typeS md_pseudo_table[] =
   {0           , 0                        ,          0 }
 };
 
+#if 0
+/* For debugging, strings for each operand type.  */
+static const char *optypes[] =
+{
+  "none", "Xmem", "Ymem", "pmad", "dmad", "Smem", "Lmem", "MMR", "PA",
+  "Sind", "xpmad", "xpmad+", "MMRX", "MMRY",
+  "SRC1", "SRC", "RND", "DST",
+  "ARX",
+  "SHIFT", "SHFT",
+  "B", "A", "lk", "TS", "k8", "16", "BITC", "CC", "CC2", "CC3", "123", "031",
+  "k5", "k8u", "ASM", "T", "DP", "ARP", "k3", "lku", "N", "SBIT", "12",
+  "k9", "TRN",
+};
+#endif
+
 int
-md_parse_option (int c, char *arg)
+md_parse_option (c, arg)
+     int c;
+     char *arg;
 {
   switch (c)
     {
@@ -2522,7 +2725,7 @@ md_parse_option (int c, char *arg)
    deleting the local label hash between macro invocations.  */
 
 void
-tic54x_macro_start (void)
+tic54x_macro_start ()
 {
   ++macro_level;
   subsym_hash[macro_level] = hash_new ();
@@ -2530,9 +2733,29 @@ tic54x_macro_start (void)
 }
 
 void
-tic54x_macro_info (const macro_entry *macro)
+tic54x_macro_info (info)
+     void *info;
 {
-  const formal_entry *entry;
+  struct formal_struct
+  {
+    struct formal_struct *next;	/* Next formal in list  */
+    sb name;			/* Name of the formal  */
+    sb def;			/* The default value  */
+    sb actual;			/* The actual argument (changed on
+                                   each expansion) */
+    int index;			/* The index of the formal
+                                   0 .. formal_count - 1 */
+  } *entry;
+  struct macro_struct
+  {
+    sb sub;			/* Substitution text.  */
+    int formal_count;		/* Number of formal args.  */
+    struct formal_struct *formals;	/* Pointer to list of
+                                           formal_structs.  */
+    struct hash_control *formal_hash; /* Hash table of formals.  */
+  } *macro;
+
+  macro = (struct macro_struct *) info;
 
   /* Put the formal args into the substitution symbol table.  */
   for (entry = macro->formals; entry; entry = entry->next)
@@ -2551,7 +2774,7 @@ tic54x_macro_info (const macro_entry *macro)
 /* Get rid of this macro's .var's, arguments, and local labels.  */
 
 void
-tic54x_macro_end (void)
+tic54x_macro_end ()
 {
   hash_die (subsym_hash[macro_level]);
   subsym_hash[macro_level] = NULL;
@@ -2561,7 +2784,9 @@ tic54x_macro_end (void)
 }
 
 static int
-subsym_symlen (char *a, char *ignore ATTRIBUTE_UNUSED)
+subsym_symlen (a, ignore)
+     char *a;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   return strlen (a);
 }
@@ -2569,16 +2794,20 @@ subsym_symlen (char *a, char *ignore ATTRIBUTE_UNUSED)
 /* Compare symbol A to string B.  */
 
 static int
-subsym_symcmp (char *a, char *b)
+subsym_symcmp (a, b)
+     char *a;
+     char *b;
 {
   return strcmp (a, b);
 }
 
-/* Return the index of the first occurrence of B in A, or zero if none
+/* Return the index of the first occurence of B in A, or zero if none
    assumes b is an integer char value as a string.  Index is one-based.  */
 
 static int
-subsym_firstch (char *a, char *b)
+subsym_firstch (a, b)
+     char *a;
+     char *b;
 {
   int val = atoi (b);
   char *tmp = strchr (a, val);
@@ -2589,7 +2818,9 @@ subsym_firstch (char *a, char *b)
 /* Similar to firstch, but returns index of last occurrence of B in A.  */
 
 static int
-subsym_lastch (char *a, char *b)
+subsym_lastch (a, b)
+     char *a;
+     char *b;
 {
   int val = atoi (b);
   char *tmp = strrchr (a, val);
@@ -2601,7 +2832,9 @@ subsym_lastch (char *a, char *b)
    symbol table).  */
 
 static int
-subsym_isdefed (char *a, char *ignore ATTRIBUTE_UNUSED)
+subsym_isdefed (a, ignore)
+     char *a;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   symbolS *symbolP = symbol_find (a);
 
@@ -2613,7 +2846,9 @@ subsym_isdefed (char *a, char *ignore ATTRIBUTE_UNUSED)
    symbols, unsubstituted.  */
 
 static int
-subsym_ismember (char *sym, char *list)
+subsym_ismember (sym, list)
+     char *sym;
+     char *list;
 {
   char *elem, *ptr, *listv;
 
@@ -2651,13 +2886,15 @@ subsym_ismember (char *sym, char *list)
    5 if decimal.  */
 
 static int
-subsym_iscons (char *a, char *ignore ATTRIBUTE_UNUSED)
+subsym_iscons (a, ignore)
+     char *a;
+     char *ignore ATTRIBUTE_UNUSED;
 {
-  expressionS expn;
+  expressionS exp;
 
-  parse_expression (a, &expn);
+  parse_expression (a, &exp);
 
-  if (expn.X_op == O_constant)
+  if (exp.X_op == O_constant)
     {
       int len = strlen (a);
 
@@ -2690,7 +2927,9 @@ subsym_iscons (char *a, char *ignore ATTRIBUTE_UNUSED)
 /* Return 1 if A is a valid symbol name.  Expects string input.   */
 
 static int
-subsym_isname (char *a, char *ignore ATTRIBUTE_UNUSED)
+subsym_isname (a, ignore)
+     char *a;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   if (!is_name_beginner (*a))
     return 0;
@@ -2708,7 +2947,9 @@ subsym_isname (char *a, char *ignore ATTRIBUTE_UNUSED)
    Note this does not recognize "A" or "B" accumulators.  */
 
 static int
-subsym_isreg (char *a, char *ignore ATTRIBUTE_UNUSED)
+subsym_isreg (a, ignore)
+     char *a;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   if (hash_find (reg_hash, a))
     return 1;
@@ -2717,10 +2958,12 @@ subsym_isreg (char *a, char *ignore ATTRIBUTE_UNUSED)
   return 0;
 }
 
-/* Return the structure size, given the stag.  */
+/* Return the structrure size, given the stag.  */
 
 static int
-subsym_structsz (char *name, char *ignore ATTRIBUTE_UNUSED)
+subsym_structsz (name, ignore)
+     char *name;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   struct stag *stag = (struct stag *) hash_find (stag_hash, name);
 
@@ -2738,110 +2981,145 @@ subsym_structsz (char *name, char *ignore ATTRIBUTE_UNUSED)
    return zero, we punt and return zero.  */
 
 static int
-subsym_structacc (char *stag_name ATTRIBUTE_UNUSED,
-		  char *ignore ATTRIBUTE_UNUSED)
+subsym_structacc (stag_name, ignore)
+     char *stag_name ATTRIBUTE_UNUSED;
+     char *ignore ATTRIBUTE_UNUSED;
 {
   return 0;
 }
 
 static float
-math_ceil (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_ceil (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) ceil (arg1);
 }
 
 static float
-math_cvi (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_cvi (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (int) arg1;
 }
 
 static float
-math_floor (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_floor (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) floor (arg1);
 }
 
 static float
-math_fmod (float arg1, float arg2)
+math_fmod (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return (int) arg1 % (int) arg2;
 }
 
 static float
-math_int (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_int (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return ((float) ((int) arg1)) == arg1;
 }
 
 static float
-math_round (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_round (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return arg1 > 0 ? (int) (arg1 + 0.5) : (int) (arg1 - 0.5);
 }
 
 static float
-math_sgn (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_sgn (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (arg1 < 0) ? -1 : (arg1 ? 1 : 0);
 }
 
 static float
-math_trunc (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_trunc (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (int) arg1;
 }
 
 static float
-math_acos (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_acos (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) acos (arg1);
 }
 
 static float
-math_asin (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_asin (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) asin (arg1);
 }
 
 static float
-math_atan (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_atan (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) atan (arg1);
 }
 
 static float
-math_atan2 (float arg1, float arg2)
+math_atan2 (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return (float) atan2 (arg1, arg2);
 }
 
 static float
-math_cosh (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_cosh (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) cosh (arg1);
 }
 
 static float
-math_cos (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_cos (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) cos (arg1);
 }
 
 static float
-math_cvf (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_cvf (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) arg1;
 }
 
 static float
-math_exp (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_exp (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) exp (arg1);
 }
 
 static float
-math_fabs (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_fabs (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) fabs (arg1);
 }
@@ -2849,67 +3127,89 @@ math_fabs (float arg1, float ignore ATTRIBUTE_UNUSED)
 /* expr1 * 2^expr2.  */
 
 static float
-math_ldexp (float arg1, float arg2)
+math_ldexp (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return arg1 * (float) pow (2.0, arg2);
 }
 
 static float
-math_log10 (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_log10 (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) log10 (arg1);
 }
 
 static float
-math_log (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_log (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) log (arg1);
 }
 
 static float
-math_max (float arg1, float arg2)
+math_max (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return (arg1 > arg2) ? arg1 : arg2;
 }
 
 static float
-math_min (float arg1, float arg2)
+math_min (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return (arg1 < arg2) ? arg1 : arg2;
 }
 
 static float
-math_pow (float arg1, float arg2)
+math_pow (arg1, arg2)
+     float arg1;
+     float arg2;
 {
   return (float) pow (arg1, arg2);
 }
 
 static float
-math_sin (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_sin (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) sin (arg1);
 }
 
 static float
-math_sinh (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_sinh (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) sinh (arg1);
 }
 
 static float
-math_sqrt (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_sqrt (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) sqrt (arg1);
 }
 
 static float
-math_tan (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_tan (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) tan (arg1);
 }
 
 static float
-math_tanh (float arg1, float ignore ATTRIBUTE_UNUSED)
+math_tanh (arg1, ignore)
+     float arg1;
+     float ignore ATTRIBUTE_UNUSED;
 {
   return (float) tanh (arg1);
 }
@@ -2918,7 +3218,7 @@ math_tanh (float arg1, float ignore ATTRIBUTE_UNUSED)
 typedef struct
 {
   char *name;
-  int (*proc) (char *, char *);
+  int (*proc) PARAMS ((char *, char *));
   int nargs;
 } subsym_proc_entry;
 
@@ -2942,7 +3242,7 @@ static const subsym_proc_entry subsym_procs[] =
 typedef struct
 {
   char *name;
-  float (*proc) (float, float);
+  float (*proc) PARAMS ((float, float));
   int nargs;
   int int_return;
 } math_proc_entry;
@@ -2984,9 +3284,9 @@ static const math_proc_entry math_procs[] =
 };
 
 void
-md_begin (void)
+md_begin ()
 {
-  insn_template *tm;
+  template *tm;
   symbol *sym;
   const subsym_proc_entry *subsym_proc;
   const math_proc_entry *math_proc;
@@ -3015,7 +3315,7 @@ md_begin (void)
     }
 
   op_hash = hash_new ();
-  for (tm = (insn_template *) tic54x_optab; tm->name; tm++)
+  for (tm = (template *) tic54x_optab; tm->name; tm++)
     {
       if (hash_find (op_hash, tm->name))
 	continue;
@@ -3025,7 +3325,7 @@ md_begin (void)
 		  tm->name, hash_err);
     }
   parop_hash = hash_new ();
-  for (tm = (insn_template *) tic54x_paroptab; tm->name; tm++)
+  for (tm = (template *) tic54x_paroptab; tm->name; tm++)
     {
       if (hash_find (parop_hash, tm->name))
 	continue;
@@ -3093,7 +3393,8 @@ md_begin (void)
 }
 
 static int
-is_accumulator (struct opstruct *operand)
+is_accumulator (operand)
+     struct opstruct *operand;
 {
   return strcasecmp (operand->buf, "a") == 0
     || strcasecmp (operand->buf, "b") == 0;
@@ -3104,7 +3405,9 @@ is_accumulator (struct opstruct *operand)
    the next array.  */
 
 static int
-get_operands (struct opstruct operands[], char *line)
+get_operands (operands, line)
+     struct opstruct operands[];
+     char *line;
 {
   char *lptr = line;
   int numexp = 0;
@@ -3125,7 +3428,7 @@ get_operands (struct opstruct operands[], char *line)
 	    {
 	      if (paren_not_balanced)
 		{
-		  as_bad (_("Unbalanced parenthesis in operand %d"), numexp);
+		  as_bad ("Unbalanced parenthesis in operand %d", numexp);
 		  return -1;
 		}
 	      else
@@ -3156,7 +3459,7 @@ get_operands (struct opstruct operands[], char *line)
 	{
 	  if (expecting_operand || *lptr == ',')
 	    {
-	      as_bad (_("Expecting operand after ','"));
+	      as_bad ("Expecting operand after ','");
 	      return -1;
 	    }
 	}
@@ -3164,7 +3467,7 @@ get_operands (struct opstruct operands[], char *line)
 	{
 	  if (*++lptr == '\0')
 	    {
-	      as_bad (_("Expecting operand after ','"));
+	      as_bad ("Expecting operand after ','");
 	      return -1;
 	    }
 	  expecting_operand = 1;
@@ -3175,7 +3478,7 @@ get_operands (struct opstruct operands[], char *line)
     ;
   if (!is_end_of_line[(int) *lptr])
     {
-      as_bad (_("Extra junk on line"));
+      as_bad ("Extra junk on line");
       return -1;
     }
 
@@ -3233,7 +3536,8 @@ get_operands (struct opstruct operands[], char *line)
 /* Predicates for different operand types.  */
 
 static int
-is_immediate (struct opstruct *operand)
+is_immediate (operand)
+     struct opstruct *operand;
 {
   return *operand->buf == '#';
 }
@@ -3242,7 +3546,8 @@ is_immediate (struct opstruct *operand)
    and must *not* have the '#' prefix.  */
 
 static int
-is_absolute (struct opstruct *operand)
+is_absolute (operand)
+     struct opstruct *operand;
 {
   return operand->exp.X_op == O_constant && !is_immediate (operand);
 }
@@ -3250,7 +3555,8 @@ is_absolute (struct opstruct *operand)
 /* Is this an indirect operand?  */
 
 static int
-is_indirect (struct opstruct *operand)
+is_indirect (operand)
+     struct opstruct *operand;
 {
   return operand->buf[0] == '*';
 }
@@ -3258,7 +3564,8 @@ is_indirect (struct opstruct *operand)
 /* Is this a valid dual-memory operand?  */
 
 static int
-is_dual (struct opstruct *operand)
+is_dual (operand)
+     struct opstruct *operand;
 {
   if (is_indirect (operand) && strncasecmp (operand->buf, "*ar", 3) == 0)
     {
@@ -3278,7 +3585,8 @@ is_dual (struct opstruct *operand)
 }
 
 static int
-is_mmreg (struct opstruct *operand)
+is_mmreg (operand)
+     struct opstruct *operand;
 {
   return (is_absolute (operand)
 	  || is_immediate (operand)
@@ -3286,7 +3594,9 @@ is_mmreg (struct opstruct *operand)
 }
 
 static int
-is_type (struct opstruct *operand, enum optype type)
+is_type (operand, type)
+     struct opstruct *operand;
+     enum optype type;
 {
   switch (type)
     {
@@ -3390,12 +3700,13 @@ is_type (struct opstruct *operand, enum optype type)
 }
 
 static int
-operands_match (tic54x_insn *insn,
-		struct opstruct *operands,
-		int opcount,
-		const enum optype *refoptype,
-		int minops,
-		int maxops)
+operands_match (insn, operands, opcount, refoptype, minops, maxops)
+     tic54x_insn *insn;
+     struct opstruct *operands;
+     int opcount;
+     const enum optype *refoptype;
+     int minops;
+     int maxops;
 {
   int op = 0, refop = 0;
 
@@ -3458,7 +3769,10 @@ operands_match (tic54x_insn *insn,
    2 for the upper 7 bits of a 23-bit address (LDX).  */
 
 static int
-encode_dmad (tic54x_insn *insn, struct opstruct *operand, int xpc_code)
+encode_dmad (insn, operand, xpc_code)
+     tic54x_insn *insn;
+     struct opstruct *operand;
+     int xpc_code;
 {
   int op = 1 + insn->is_lkaddr;
 
@@ -3519,7 +3833,9 @@ encode_dmad (tic54x_insn *insn, struct opstruct *operand, int xpc_code)
 /* 7-bit direct address encoding.  */
 
 static int
-encode_address (tic54x_insn *insn, struct opstruct *operand)
+encode_address (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   /* Assumes that dma addresses are *always* in word 0 of the opcode.  */
   insn->opcode[0].addr_expr = operand->exp;
@@ -3540,7 +3856,9 @@ encode_address (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_indirect (tic54x_insn *insn, struct opstruct *operand)
+encode_indirect (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   int arf;
   int mod;
@@ -3612,12 +3930,13 @@ encode_indirect (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_integer (tic54x_insn *insn,
-		struct opstruct *operand,
-		int which,
-		int min,
-		int max,
-		unsigned short mask)
+encode_integer (insn, operand, which, min, max, mask)
+     tic54x_insn *insn;
+     struct opstruct *operand;
+     int which;
+     int min;
+     int max;
+     unsigned short mask;
 {
   long parse, integer;
 
@@ -3672,7 +3991,9 @@ encode_integer (tic54x_insn *insn,
 }
 
 static int
-encode_condition (tic54x_insn *insn, struct opstruct *operand)
+encode_condition (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   symbol *cc = (symbol *) hash_find (cc_hash, operand->buf);
   if (!cc)
@@ -3732,7 +4053,9 @@ encode_condition (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_cc3 (tic54x_insn *insn, struct opstruct *operand)
+encode_cc3 (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   symbol *cc3 = (symbol *) hash_find (cc3_hash, operand->buf);
   int value = cc3 ? cc3->value : operand->exp.X_add_number << 8;
@@ -3747,7 +4070,9 @@ encode_cc3 (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_arx (tic54x_insn *insn, struct opstruct *operand)
+encode_arx (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   int arf = strlen (operand->buf) >= 3 ? operand->buf[2] - '0' : -1;
 
@@ -3761,7 +4086,9 @@ encode_arx (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_cc2 (tic54x_insn *insn, struct opstruct *operand)
+encode_cc2 (insn, operand)
+     tic54x_insn *insn;
+     struct opstruct *operand;
 {
   symbol *cc2 = (symbol *) hash_find (cc2_hash, operand->buf);
 
@@ -3775,7 +4102,10 @@ encode_cc2 (tic54x_insn *insn, struct opstruct *operand)
 }
 
 static int
-encode_operand (tic54x_insn *insn, enum optype type, struct opstruct *operand)
+encode_operand (insn, type, operand)
+     tic54x_insn *insn;
+     enum optype type;
+     struct opstruct *operand;
 {
   int ext = (insn->tm->flags & FL_EXT) != 0;
 
@@ -3998,7 +4328,8 @@ encode_operand (tic54x_insn *insn, enum optype type, struct opstruct *operand)
 }
 
 static void
-emit_insn (tic54x_insn *insn)
+emit_insn (insn)
+     tic54x_insn *insn;
 {
   int i;
   flagword oldflags = bfd_get_section_flags (stdoutput, now_seg);
@@ -4023,7 +4354,7 @@ emit_insn (tic54x_insn *insn)
       if (insn->opcode[i].unresolved)
 	fix_new_exp (frag_now, p - frag_now->fr_literal,
 		     insn->opcode[i].r_nchars, &insn->opcode[i].addr_expr,
-		     FALSE, insn->opcode[i].r_type);
+		     false, insn->opcode[i].r_type);
     }
 }
 
@@ -4031,7 +4362,8 @@ emit_insn (tic54x_insn *insn)
    return the total number of words used by the instruction.  */
 
 static int
-build_insn (tic54x_insn *insn)
+build_insn (insn)
+     tic54x_insn *insn;
 {
   int i;
 
@@ -4081,7 +4413,8 @@ build_insn (tic54x_insn *insn)
 }
 
 static int
-optimize_insn (tic54x_insn *insn)
+optimize_insn (insn)
+     tic54x_insn *insn;
 {
   /* Optimize some instructions, helping out the brain-dead programmer.  */
 #define is_zero(op) ((op).exp.X_op == O_constant && (op).exp.X_add_number == 0)
@@ -4174,9 +4507,11 @@ optimize_insn (tic54x_insn *insn)
 /* Find a matching template if possible, and get the operand strings.  */
 
 static int
-tic54x_parse_insn (tic54x_insn *insn, char *line)
+tic54x_parse_insn (insn, line)
+     tic54x_insn *insn;
+     char *line;
 {
-  insn->tm = (insn_template *) hash_find (op_hash, insn->mnemonic);
+  insn->tm = (template *) hash_find (op_hash, insn->mnemonic);
   if (!insn->tm)
     {
       as_bad (_("Unrecognized instruction \"%s\""), insn->mnemonic);
@@ -4199,8 +4534,8 @@ tic54x_parse_insn (tic54x_insn *insn, char *line)
 	  /* SUCCESS! now try some optimizations.  */
 	  if (optimize_insn (insn))
 	    {
-	      insn->tm = (insn_template *) hash_find (op_hash,
-                                                      insn->mnemonic);
+	      insn->tm = (template *) hash_find (op_hash,
+						 insn->mnemonic);
 	      continue;
 	    }
 
@@ -4221,7 +4556,8 @@ static int parallel_on_next_line_hint = 0;
    Look for a subsequent line starting with "||".  */
 
 static int
-next_line_shows_parallel (char *next_line)
+next_line_shows_parallel (next_line)
+     char *next_line;
 {
   /* Look for the second half.  */
   while (ISSPACE (*next_line))
@@ -4232,9 +4568,11 @@ next_line_shows_parallel (char *next_line)
 }
 
 static int
-tic54x_parse_parallel_insn_firstline (tic54x_insn *insn, char *line)
+tic54x_parse_parallel_insn_firstline (insn, line)
+     tic54x_insn *insn;
+     char *line;
 {
-  insn->tm = (insn_template *) hash_find (parop_hash, insn->mnemonic);
+  insn->tm = (template *) hash_find (parop_hash, insn->mnemonic);
   if (!insn->tm)
     {
       as_bad (_("Unrecognized parallel instruction \"%s\""),
@@ -4263,7 +4601,9 @@ tic54x_parse_parallel_insn_firstline (tic54x_insn *insn, char *line)
 /* Parse the second line of a two-line parallel instruction.  */
 
 static int
-tic54x_parse_parallel_insn_lastline (tic54x_insn *insn, char *line)
+tic54x_parse_parallel_insn_lastline (insn, line)
+     tic54x_insn *insn;
+     char *line;
 {
   int valid_mnemonic = 0;
 
@@ -4301,7 +4641,11 @@ tic54x_parse_parallel_insn_lastline (tic54x_insn *insn, char *line)
    replacement on the value.  */
 
 static char *
-subsym_get_arg (char *line, char *terminators, char **str, int nosub)
+subsym_get_arg (line, terminators, str, nosub)
+     char *line;
+     char *terminators;
+     char **str;
+     int nosub;
 {
   char *ptr = line;
   char *endp;
@@ -4364,7 +4708,9 @@ subsym_get_arg (char *line, char *terminators, char **str, int nosub)
    that's compatible w/TI's assembler.  */
 
 static void
-subsym_create_or_replace (char *name, char *value)
+subsym_create_or_replace (name, value)
+     char *name;
+     char *value;
 {
   int i;
 
@@ -4383,11 +4729,13 @@ subsym_create_or_replace (char *name, char *value)
 }
 
 /* Look up the substitution string replacement for the given symbol.
-   Start with the innermost macro substitution table given and work
+   Start with the innermost macro substituion table given and work
    outwards.  */
 
 static char *
-subsym_lookup (char *name, int nest_level)
+subsym_lookup (name, nest_level)
+     char *name;
+     int nest_level;
 {
   char *value = hash_find (subsym_hash[nest_level], name);
 
@@ -4405,7 +4753,9 @@ subsym_lookup (char *name, int nest_level)
    If FORCED is set, look for forced substitutions of the form ':SYMBOL:'.  */
 
 static char *
-subsym_substitute (char *line, int forced)
+subsym_substitute (line, forced)
+     char * line;
+     int forced;
 {
   /* For each apparent symbol, see if it's a substitution symbol, and if so,
      replace it in the input.  */
@@ -4567,10 +4917,10 @@ subsym_substitute (char *line, int forced)
 	      ++ptr;
 	      if (math_entry != NULL)
 		{
-		  float farg1, farg2 = 0;
+		  float arg1, arg2 = 0;
 		  volatile float fresult;
 
-		  farg1 = (float) strtod (ptr, &ptr);
+		  arg1 = (float) strtod (ptr, &ptr);
 		  if (math_entry->nargs == 2)
 		    {
 		      if (*ptr++ != ',')
@@ -4578,9 +4928,9 @@ subsym_substitute (char *line, int forced)
 			  as_bad (_("Expecting second argument"));
 			  break;
 			}
-		      farg2 = (float) strtod (ptr, &ptr);
+		      arg2 = (float) strtod (ptr, &ptr);
 		    }
-		  fresult = (*math_entry->proc) (farg1, farg2);
+		  fresult = (*math_entry->proc) (arg1, arg2);
 		  value = xmalloc (128);
 		  if (math_entry->int_return)
 		    sprintf (value, "%d", (int) fresult);
@@ -4664,7 +5014,7 @@ subsym_substitute (char *line, int forced)
 		{
 		  hash_insert (subsym_recurse_hash, name, name);
 		  value = subsym_substitute (value, macro_level > 0);
-		  hash_delete (subsym_recurse_hash, name, FALSE);
+		  hash_delete (subsym_recurse_hash, name);
 		}
 
 	      /* Temporarily zero-terminate where the symbol started.  */
@@ -4675,7 +5025,7 @@ subsym_substitute (char *line, int forced)
 		    {
 		      /* Subscripted substitution symbol -- use just the
 			 indicated portion of the string; the description
-			 kinda indicates that forced substitution is not
+			 kinda indicates that forced substituion is not
 			 supposed to be recursive, but I'm not sure.  */
 		      unsigned beg, len = 1; /* default to a single char */
 		      char *newval = strcpy (xmalloc (strlen (value) + 1),
@@ -4687,7 +5037,7 @@ subsym_substitute (char *line, int forced)
 		      if (beg < 1)
 			{
 			  as_bad (_("Invalid subscript (use 1 to %d)"),
-				  (int) strlen (value));
+				  strlen (value));
 			  break;
 			}
 		      if (*input_line_pointer == ',')
@@ -4697,7 +5047,7 @@ subsym_substitute (char *line, int forced)
 			  if (beg + len > strlen (value))
 			    {
 			      as_bad (_("Invalid length (use 0 to %d"),
-				      (int) strlen (value) - beg);
+				      strlen (value) - beg);
 			      break;
 			    }
 			}
@@ -4730,6 +5080,24 @@ subsym_substitute (char *line, int forced)
 		      break;
 		    }
 		  ++tail;
+#if 0
+		  /* Try to replace required whitespace
+		     eliminated by the preprocessor; technically, a forced
+		     substitution could come anywhere, even mid-symbol,
+		     e.g. if x is "0", 'sym:x:end' should result in 'sym0end',
+		     but 'sym:x: end' should result in 'sym0 end'.
+		     FIXME -- this should really be fixed in the preprocessor,
+		     but would require several new states;
+		     KEEP_WHITE_AROUND_COLON does part of the job, but isn't
+		     complete.  */
+		  if ((is_part_of_name (tail[1])
+		       && tail[1] != '.'
+		       && tail[1] != '$')
+		      || tail[1] == '\0' || tail[1] == ',' || tail[1] == '"')
+		    ++tail;
+		  else
+		    *tail = ' ';
+#endif
 		}
 	      else
 		/* Restore the character after the symbol end.  */
@@ -4764,7 +5132,7 @@ subsym_substitute (char *line, int forced)
    returns the new buffer limit.  */
 
 void
-tic54x_start_line_hook (void)
+tic54x_start_line_hook ()
 {
   char *line, *endp;
   char *replacement = NULL;
@@ -4836,7 +5204,8 @@ tic54x_start_line_hook (void)
    machine dependent instruction.  This function is supposed to emit
    the frags/bytes it assembles to.  */
 void
-md_assemble (char *line)
+md_assemble (line)
+     char *line;
 {
   static int repeat_slot = 0;
   static int delay_slots = 0; /* How many delay slots left to fill?  */
@@ -5002,7 +5371,7 @@ md_assemble (char *line)
    a ".file" symbol.  */
 
 void
-tic54x_adjust_symtab (void)
+tic54x_adjust_symtab ()
 {
   if (symbol_rootP == NULL
       || S_GET_STORAGE_CLASS (symbol_rootP) != C_FILE)
@@ -5010,7 +5379,7 @@ tic54x_adjust_symtab (void)
       char *filename;
       unsigned lineno;
       as_where (&filename, &lineno);
-      c_dot_file_symbol (filename, 0);
+      c_dot_file_symbol (filename);
     }
 }
 
@@ -5030,8 +5399,14 @@ tic54x_unrecognized_line (int c)
    FIXME -- obviously this isn't done yet.  These locals still show up in the
    symbol table.  */
 void
-tic54x_define_label (symbolS *sym)
+tic54x_define_label (sym)
+     symbolS *sym;
 {
+#if 0
+  static int local_label_count = 0;
+  const char *name = S_GET_NAME (sym);
+#endif
+
   /* Just in case we need this later; note that this is not necessarily the
      same thing as line_label...
      When aligning or assigning labels to fields, sometimes the label is
@@ -5044,7 +5419,8 @@ tic54x_define_label (symbolS *sym)
 /* Try to parse something that normal parsing failed at.  */
 
 symbolS *
-tic54x_undefined_symbol (char *name)
+tic54x_undefined_symbol (name)
+     char *name;
 {
   symbol *sym;
 
@@ -5076,22 +5452,55 @@ tic54x_undefined_symbol (char *name)
    it.  */
 
 int
-tic54x_parse_name (char *name ATTRIBUTE_UNUSED,
-		   expressionS *expn ATTRIBUTE_UNUSED)
+tic54x_parse_name (name, exp)
+     char *name ATTRIBUTE_UNUSED;
+     expressionS *exp ATTRIBUTE_UNUSED;
 {
+#if 0
+  symbol *sym = (symbol *) hash_find (mmreg_hash, name);
+
+  /* If it's a MMREG, replace it with its constant value.  */
+  if (sym)
+    {
+      exp->X_op = O_constant;
+      exp->X_add_number = sym->value;
+      return 1;
+    }
+#endif
   return 0;
 }
 
 char *
-md_atof (int type, char *literalP, int *sizeP)
+md_atof (type, literalP, sizeP)
+     int type;
+     char *literalP;
+     int *sizeP;
 {
+#define MAX_LITTLENUMS 2
+  LITTLENUM_TYPE words[MAX_LITTLENUMS];
+  LITTLENUM_TYPE *word;
+  /* Only one precision on the c54x.  */
+  int prec = 2;
+  char *t = atof_ieee (input_line_pointer, type, words);
+  if (t)
+    input_line_pointer = t;
+  *sizeP = 4;
+
   /* Target data is little-endian, but floats are stored
      big-"word"ian.  ugh.  */
-  return ieee_md_atof (type, literalP, sizeP, TRUE);
+  for (word = words; prec--;)
+    {
+      md_number_to_chars (literalP, (long) (*word++), sizeof (LITTLENUM_TYPE));
+      literalP += sizeof (LITTLENUM_TYPE);
+    }
+
+  return 0;
 }
 
 arelent *
-tc_gen_reloc (asection *section, fixS *fixP)
+tc_gen_reloc (section, fixP)
+     asection *section;
+     fixS *fixP;
 {
   arelent *rel;
   bfd_reloc_code_real_type code = fixP->fx_r_type;
@@ -5122,7 +5531,11 @@ tc_gen_reloc (asection *section, fixS *fixP)
 /* Handle cons expressions.  */
 
 void
-tic54x_cons_fix_new (fragS *frag, int where, int octets, expressionS *expn)
+tic54x_cons_fix_new (frag, where, octets, exp)
+     fragS *frag;
+     int where;
+     int octets;
+     expressionS *exp;
 {
   bfd_reloc_code_real_type r;
 
@@ -5145,7 +5558,7 @@ tic54x_cons_fix_new (fragS *frag, int where, int octets, expressionS *expn)
 	r = BFD_RELOC_32;
       break;
     }
-  fix_new_exp (frag, where, octets, expn, 0, r);
+  fix_new_exp (frag, where, octets, exp, 0, r);
 }
 
 /* Attempt to simplify or even eliminate a fixup.
@@ -5154,7 +5567,10 @@ tic54x_cons_fix_new (fragS *frag, int where, int octets, expressionS *expn)
    If fixp->fx_addsy is non-NULL, we'll have to generate a reloc entry.   */
 
 void
-md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+md_apply_fix3 (fixP, valP, seg)
+     fixS *fixP;
+     valueT * valP;
+     segT seg ATTRIBUTE_UNUSED;
 {
   char *buf = fixP->fx_where + fixP->fx_frag->fr_literal;
   valueT val = * valP;
@@ -5205,22 +5621,39 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
    don't need to do anything here, since BFD does the proper encoding.  */
 
 valueT
-md_section_align (segT segment ATTRIBUTE_UNUSED, valueT section_size)
+md_section_align (segment, section_size)
+     segT segment ATTRIBUTE_UNUSED;
+     valueT section_size;
 {
   return section_size;
 }
 
 long
-md_pcrel_from (fixS *fixP ATTRIBUTE_UNUSED)
+md_pcrel_from (fixP)
+     fixS *fixP ATTRIBUTE_UNUSED;
 {
   return 0;
 }
+
+#if defined OBJ_COFF
+
+short
+tc_coff_fix2rtype (fixP)
+     fixS *fixP;
+{
+  return (fixP->fx_r_type);
+}
+
+#endif /* OBJ_COFF */
 
 /* Mostly little-endian, but longwords (4 octets) get MS word stored
    first.  */
 
 void
-tic54x_number_to_chars (char *buf, valueT val, int n)
+tic54x_number_to_chars (buf, val, n)
+     char *buf;
+     valueT val;
+     int n;
 {
   if (n != 4)
     number_to_chars_littleendian (buf, val, n);
@@ -5232,8 +5665,9 @@ tic54x_number_to_chars (char *buf, valueT val, int n)
 }
 
 int
-tic54x_estimate_size_before_relax (fragS *frag ATTRIBUTE_UNUSED,
-				   segT seg ATTRIBUTE_UNUSED)
+tic54x_estimate_size_before_relax (frag, seg)
+     fragS *frag ATTRIBUTE_UNUSED;
+     segT seg ATTRIBUTE_UNUSED;
 {
   return 0;
 }
@@ -5242,7 +5676,9 @@ tic54x_estimate_size_before_relax (fragS *frag ATTRIBUTE_UNUSED,
    to symbols being in different frags.  return number of octets added.  */
 
 int
-tic54x_relax_frag (fragS *frag, long stretch ATTRIBUTE_UNUSED)
+tic54x_relax_frag (frag, stretch)
+     fragS *frag;
+     long stretch ATTRIBUTE_UNUSED;
 {
   symbolS *sym = frag->fr_symbol;
   int growth = 0;
@@ -5341,9 +5777,10 @@ tic54x_relax_frag (fragS *frag, long stretch ATTRIBUTE_UNUSED)
 }
 
 void
-tic54x_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
-		     segT seg ATTRIBUTE_UNUSED,
-		     fragS *frag)
+tic54x_convert_frag (abfd, seg, frag)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     segT seg ATTRIBUTE_UNUSED;
+     fragS *frag;
 {
   /* Offset is in bytes.  */
   frag->fr_offset = (frag->fr_next->fr_address
@@ -5369,7 +5806,9 @@ tic54x_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
    Don't allow labels to start with '.'  */
 
 int
-tic54x_start_label (int c, char *rest)
+tic54x_start_label (c, rest)
+     int c;
+     char *rest;
 {
   /* If within .struct/.union, no auto line labels, please.  */
   if (current_stag != NULL)
