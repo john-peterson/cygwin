@@ -6,43 +6,30 @@
 
    This file is part of GNU Bash, the Bourne Again SHell.
 
-   Bash is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
+   Bash is free software; you can redistribute it and/or modify it under
+   the terms of the GNU General Public License as published by the Free
+   Software Foundation; either version 2, or (at your option) any later
+   version.
 
-   Bash is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   Bash is distributed in the hope that it will be useful, but WITHOUT ANY
+   WARRANTY; without even the implied warranty of MERCHANTABILITY or
+   FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+   for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with Bash.  If not, see <http://www.gnu.org/licenses/>.
-*/
+   You should have received a copy of the GNU General Public License along
+   with Bash; see the file COPYING.  If not, write to the Free Software
+   Foundation, 675 Mass Ave, Cambridge, MA 02139, USA. */
 
 #if !defined (_STDLIB_H_)
 #define	_STDLIB_H_ 1
 
 /* String conversion functions. */
 extern int atoi ();
-
-extern double atof ();
-extern double strtod ();
+extern long int atol ();
 
 /* Memory allocation functions. */
-/* Generic pointer type. */
-#ifndef PTR_T
-
-#if defined (__STDC__)
-#  define PTR_T	void *
-#else
-#  define PTR_T char *
-#endif
-
-#endif /* PTR_T */
-
-extern PTR_T malloc ();
-extern PTR_T realloc ();
+extern char *malloc ();
+extern char *realloc ();
 extern void free ();
 
 /* Other miscellaneous functions. */

@@ -1,29 +1,31 @@
 /* funmap.c -- attach names to functions. */
 
-/* Copyright (C) 1987-2010 Free Software Foundation, Inc.
+/* Copyright (C) 1987, 1989, 1992 Free Software Foundation, Inc.
 
-   This file is part of the GNU Readline Library (Readline), a library
-   for reading lines of text with interactive input and history editing.      
+   This file is part of the GNU Readline Library, a library for
+   reading lines of text with interactive input and history editing.
 
-   Readline is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
+   The GNU Readline Library is free software; you can redistribute it
+   and/or modify it under the terms of the GNU General Public License
+   as published by the Free Software Foundation; either version 1, or
    (at your option) any later version.
 
-   Readline is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   The GNU Readline Library is distributed in the hope that it will be
+   useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+   of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with Readline.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
+   The GNU General Public License is often shipped with GNU software, and
+   is generally kept in a file called COPYING or LICENSE.  If you do not
+   have a copy of the license, write to the Free Software Foundation,
+   675 Mass Ave, Cambridge, MA 02139, USA. */
 #define READLINE_LIBRARY
 
 #if defined (HAVE_CONFIG_H)
 #  include <config.h>
 #endif
+
+extern char *xmalloc (), *xrealloc ();
 
 #if !defined (BUFSIZ)
 #include <stdio.h>
@@ -38,15 +40,7 @@
 #include "rlconf.h"
 #include "readline.h"
 
-#include "xmalloc.h"
-
-#ifdef __STDC__
-typedef int QSFUNC (const void *, const void *);
-#else
-typedef int QSFUNC ();
-#endif
-
-extern int _rl_qsort_string_compare PARAMS((char **, char **));
+extern int _rl_qsort_string_compare ();
 
 FUNMAP **funmap;
 static int funmap_size;
@@ -56,12 +50,11 @@ static int funmap_entry;
    program specific function. */
 int funmap_program_specific_entry_start;
 
-static const FUNMAP default_funmap[] = {
+static FUNMAP default_funmap[] = {
   { "abort", rl_abort },
   { "accept-line", rl_newline },
   { "arrow-key-prefix", rl_arrow_keys },
-  { "backward-byte", rl_backward_byte },
-  { "backward-char", rl_backward_char },
+  { "backward-char", rl_backward },
   { "backward-delete-char", rl_rubout },
   { "backward-kill-line", rl_backward_kill_line },
   { "backward-kill-word", rl_backward_kill_word },
@@ -78,7 +71,6 @@ static const FUNMAP default_funmap[] = {
   { "copy-forward-word", rl_copy_forward_word },
   { "copy-region-as-kill", rl_copy_region_to_kill },
   { "delete-char", rl_delete },
-  { "delete-char-or-list", rl_delete_or_show_completions },
   { "delete-horizontal-space", rl_delete_horizontal_space },
   { "digit-argument", rl_digit_argument },
   { "do-lowercase-version", rl_do_lowercase_version },
@@ -91,9 +83,7 @@ static const FUNMAP default_funmap[] = {
   { "end-of-history", rl_end_of_history },
   { "end-of-line", rl_end_of_line },
   { "exchange-point-and-mark", rl_exchange_point_and_mark },
-  { "forward-backward-delete-char", rl_rubout_or_delete },
-  { "forward-byte", rl_forward_byte },
-  { "forward-char", rl_forward_char },
+  { "forward-char", rl_forward },
   { "forward-search-history", rl_forward_search_history },
   { "forward-word", rl_forward_word },
   { "history-search-backward", rl_history_search_backward },
@@ -105,15 +95,12 @@ static const FUNMAP default_funmap[] = {
   { "kill-region", rl_kill_region },
   { "kill-word", rl_kill_word },
   { "menu-complete", rl_menu_complete },
-  { "menu-complete-backward", rl_backward_menu_complete },
   { "next-history", rl_get_next_history },
   { "non-incremental-forward-search-history", rl_noninc_forward_search },
   { "non-incremental-reverse-search-history", rl_noninc_reverse_search },
   { "non-incremental-forward-search-history-again", rl_noninc_forward_search_again },
   { "non-incremental-reverse-search-history-again", rl_noninc_reverse_search_again },
-  { "old-menu-complete", rl_old_menu_complete },
-  { "overwrite-mode", rl_overwrite_mode },
-#ifdef __CYGWIN__
+#ifdef __CYGWIN32__
   { "paste-from-clipboard", rl_paste_from_clipboard },
 #endif
   { "possible-completions", rl_possible_completions },
@@ -125,7 +112,6 @@ static const FUNMAP default_funmap[] = {
   { "revert-line", rl_revert_line },
   { "self-insert", rl_insert },
   { "set-mark", rl_set_mark },
-  { "skip-csi-sequence", rl_skip_csi_sequence },
   { "start-kbd-macro", rl_start_kbd_macro },
   { "tab-insert", rl_tab_insert },
   { "tilde-expand", rl_tilde_expand },
@@ -134,7 +120,6 @@ static const FUNMAP default_funmap[] = {
   { "tty-status", rl_tty_status },
   { "undo", rl_undo_command },
   { "universal-argument", rl_universal_argument },
-  { "unix-filename-rubout", rl_unix_filename_rubout },
   { "unix-line-discard", rl_unix_line_discard },
   { "unix-word-rubout", rl_unix_word_rubout },
   { "upcase-word", rl_upcase_word },
@@ -148,9 +133,8 @@ static const FUNMAP default_funmap[] = {
   { "vi-append-mode", rl_vi_append_mode },
   { "vi-arg-digit", rl_vi_arg_digit },
   { "vi-back-to-indent", rl_vi_back_to_indent },
-  { "vi-backward-bigword", rl_vi_bWord },
-  { "vi-backward-word", rl_vi_bword },
   { "vi-bWord", rl_vi_bWord },
+  { "vi-bracktype", rl_vi_bracktype },
   { "vi-bword", rl_vi_bword },
   { "vi-change-case", rl_vi_change_case },
   { "vi-change-char", rl_vi_change_char },
@@ -162,15 +146,12 @@ static const FUNMAP default_funmap[] = {
   { "vi-delete-to", rl_vi_delete_to },
   { "vi-eWord", rl_vi_eWord },
   { "vi-editing-mode", rl_vi_editing_mode },
-  { "vi-end-bigword", rl_vi_eWord },
   { "vi-end-word", rl_vi_end_word },
   { "vi-eof-maybe", rl_vi_eof_maybe },
   { "vi-eword", rl_vi_eword },
   { "vi-fWord", rl_vi_fWord },
   { "vi-fetch-history", rl_vi_fetch_history },
   { "vi-first-print", rl_vi_first_print },
-  { "vi-forward-bigword", rl_vi_fWord },
-  { "vi-forward-word", rl_vi_fword },
   { "vi-fword", rl_vi_fword },
   { "vi-goto-mark", rl_vi_goto_mark },
   { "vi-insert-beg", rl_vi_insert_beg },
@@ -184,7 +165,6 @@ static const FUNMAP default_funmap[] = {
   { "vi-put", rl_vi_put },
   { "vi-redo", rl_vi_redo },
   { "vi-replace", rl_vi_replace },
-  { "vi-rubout", rl_vi_rubout },
   { "vi-search", rl_vi_search },
   { "vi-search-again", rl_vi_search_again },
   { "vi-set-mark", rl_vi_set_mark },
@@ -194,13 +174,13 @@ static const FUNMAP default_funmap[] = {
   { "vi-yank-to", rl_vi_yank_to },
 #endif /* VI_MODE */
 
- {(char *)NULL, (rl_command_func_t *)NULL }
+ {(char *)NULL, (Function *)NULL }
 };
 
 int
 rl_add_funmap_entry (name, function)
-     const char *name;
-     rl_command_func_t *function;
+     char *name;
+     Function *function;
 {
   if (funmap_entry + 2 >= funmap_size)
     {
@@ -237,27 +217,36 @@ rl_initialize_funmap ()
 /* Produce a NULL terminated array of known function names.  The array
    is sorted.  The array itself is allocated, but not the strings inside.
    You should free () the array when you done, but not the pointrs. */
-const char **
+char **
 rl_funmap_names ()
 {
-  const char **result;
+  char **result;
   int result_size, result_index;
 
   /* Make sure that the function map has been initialized. */
   rl_initialize_funmap ();
 
-  for (result_index = result_size = 0, result = (const char **)NULL; funmap[result_index]; result_index++)
+  for (result_index = result_size = 0, result = (char **)NULL; funmap[result_index]; result_index++)
     {
       if (result_index + 2 > result_size)
 	{
 	  result_size += 20;
-	  result = (const char **)xrealloc (result, result_size * sizeof (char *));
+	  result = (char **)xrealloc (result, result_size * sizeof (char *));
 	}
 
       result[result_index] = funmap[result_index]->name;
       result[result_index + 1] = (char *)NULL;
     }
 
-  qsort (result, result_index, sizeof (char *), (QSFUNC *)_rl_qsort_string_compare);
+  qsort (result, result_index, sizeof (char *), _rl_qsort_string_compare);
   return (result);
 }
+
+/* Things that mean `Control'. */
+char *possible_control_prefixes[] = {
+  "Control-", "C-", "CTRL-", (char *)NULL
+};
+
+char *possible_meta_prefixes[] = {
+  "Meta", "M-", (char *)NULL
+};

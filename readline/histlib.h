@@ -1,40 +1,43 @@
 /* histlib.h -- internal definitions for the history library. */
+/* Copyright (C) 1989, 1992 Free Software Foundation, Inc.
 
-/* Copyright (C) 1989-2009 Free Software Foundation, Inc.
-
-   This file contains the GNU History Library (History), a set of
+   This file contains the GNU History Library (the Library), a set of
    routines for managing the text of previously typed lines.
 
-   History is free software: you can redistribute it and/or modify
+   The Library is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 1, or (at your option)
+   any later version.
 
-   History is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   The Library is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with History.  If not, see <http://www.gnu.org/licenses/>.
-*/
+   The GNU General Public License is often shipped with GNU software, and
+   is generally kept in a file called COPYING or LICENSE.  If you do not
+   have a copy of the license, write to the Free Software Foundation,
+   675 Mass Ave, Cambridge, MA 02139, USA. */
 
 #if !defined (_HISTLIB_H_)
 #define _HISTLIB_H_
 
-#if defined (HAVE_STRING_H)
-#  include <string.h>
-#else
-#  include <strings.h>
-#endif /* !HAVE_STRING_H */
+/* Function pointers can be declared as (Function *)foo. */
+#if !defined (_FUNCTION_DEF)
+#  define _FUNCTION_DEF
+typedef int Function ();
+typedef void VFunction ();
+typedef char *CPFunction ();
+typedef char **CPPFunction ();
+#endif /* _FUNCTION_DEF */
 
-#if !defined (STREQ)
 #define STREQ(a, b)	(((a)[0] == (b)[0]) && (strcmp ((a), (b)) == 0))
-#define STREQN(a, b, n) (((n) == 0) ? (1) \
-				    : ((a)[0] == (b)[0]) && (strncmp ((a), (b), (n)) == 0))
-#endif
+#define STREQN(a, b, n)	(((a)[0] == (b)[0]) && (strncmp ((a), (b), (n)) == 0))
 
 #ifndef savestring
+#  ifndef strcpy
+extern char *strcpy ();
+#  endif
 #define savestring(x) strcpy (xmalloc (1 + strlen (x)), (x))
 #endif
 
@@ -66,7 +69,6 @@ extern char *strchr ();
 #define BAD_WORD_SPEC	1
 #define SUBST_FAILED	2
 #define BAD_MODIFIER	3
-#define NO_PREV_SUBST	4
 
 /* Possible definitions for history starting point specification. */
 #define ANCHORED_SEARCH 1
@@ -75,8 +77,5 @@ extern char *strchr ();
 /* Possible definitions for what style of writing the history file we want. */
 #define HISTORY_APPEND 0
 #define HISTORY_OVERWRITE 1
-
-/* Some variable definitions shared across history source files. */
-extern int history_offset;
 
 #endif /* !_HISTLIB_H_ */
