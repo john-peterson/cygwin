@@ -20,7 +20,6 @@ check:
 
 clean mostlyclean:
 	-rm -f *~ *.o *.ci
-	-rm -f *.dwo *.dwp
 	-rm -f core $(EXECUTABLES)
 	-rm -f $(MISCELLANEOUS)
 
@@ -28,3 +27,6 @@ distclean maintainer-clean realclean: clean
 	-rm -f Makefile config.status config.log
 	-rm -f *-init.exp
 	-rm -fr *.log summary detail *.plog *.sum *.psum site.*
+
+Makefile : $(srcdir)/Makefile.in $(srcdir)/configure.in
+	$(SHELL) ./config.status --recheck

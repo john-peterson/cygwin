@@ -42,6 +42,10 @@ int main (int argc, char *argv[], char **envp)
 char *argv[], **envp;*/
 {
     int factorial (int);
+#ifdef usestubs
+    set_debug_traps();
+    breakpoint();
+#endif
 #ifdef FAKEARGV
     printf ("%d\n", factorial (1));
 #else    
