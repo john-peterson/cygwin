@@ -1,7 +1,6 @@
-/* fhandler_nodevice.cc.  "No such device" handler.
+/* fhandler.cc.  See console.cc for fhandler_console functions.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2008, 2009
-   Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,19 +9,29 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/cygwin.h>
+#include <sys/uio.h>
+#include <signal.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "perprocess.h"
+#include "security.h"
+#include "cygwin/version.h"
 #include "fhandler.h"
+#include "path.h"
+#include "dtable.h"
+#include "cygheap.h"
+#include "shared_info.h"
+#include "pinfo.h"
+#include <assert.h>
+#include <limits.h>
 
 int
-fhandler_nodevice::open (int flags, mode_t)
+fhandler_nodevice::open (path_conv *, int, mode_t)
 {
-  if (!pc.error)
-    set_errno (ENXIO);
-  /* Fixup EROFS error returned from path_conv if /dev is not backed by real
-     directory on disk and the file doesn't exist. */
-  else if (pc.error == EROFS && (flags & O_ACCMODE) == O_RDONLY)
-    set_errno (ENOENT);
+  set_errno (ENODEV);
   return 0;
 }
 
