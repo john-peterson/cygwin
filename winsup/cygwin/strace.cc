@@ -1,7 +1,6 @@
 /* strace.cc: system/windows tracing
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,19 +9,23 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <stdlib.h>
+#include <time.h>
 #include <wingdi.h>
 #include <winuser.h>
 #include <ctype.h>
-#include "cygerrno.h"
+#include <errno.h>
 #include "pinfo.h"
 #include "perprocess.h"
 #include "cygwin_version.h"
+#include "hires.h"
+#include "security.h"
 #include "cygthread.h"
-#include "path.h"
 #include "fhandler.h"
+#include "path.h"
 #include "dtable.h"
+#include "cygerrno.h"
 #include "cygheap.h"
-#include "child_info.h"
 
 #define PROTECT(x) x[sizeof (x)-1] = 0
 #define CHECK(x) if (x[sizeof (x)-1] != 0) { small_printf ("array bound exceeded %d\n", __LINE__); ExitProcess (1); }
@@ -32,43 +35,27 @@ class strace NO_COPY strace;
 #ifndef NOSTRACE
 
 void
-strace::activate (bool isfork)
+strace::hello ()
 {
-  if (!_active && being_debugged ())
-    {
-      char buf[30];
-      __small_sprintf (buf, "cYg%8x %x %d", _STRACE_INTERFACE_ACTIVATE_ADDR, &_active, isfork);
-      OutputDebugString (buf);
-      if (_active)
-	{
-	  char pidbuf[80];
-	  WCHAR progname_buf[NT_MAX_PATH - 512];
-	  WCHAR *progname;
-	  if (myself)
-	    {
-	      __small_sprintf (pidbuf, "(pid %d, ppid %d, windows pid %u)", myself->pid,
-			       myself->ppid ?: 1, GetCurrentProcessId ());
-	      progname = myself->progname;
-	    }
-	  else
-	    {
-	      GetModuleFileNameW (NULL, progname_buf, sizeof (myself->progname));
-	      __small_sprintf (pidbuf, "(windows pid %u)", GetCurrentProcessId ());
-	      progname = progname_buf;
-	    }
-	  prntf (1, NULL, "**********************************************");
-	  prntf (1, NULL, "Program name: %W %s", progname, pidbuf);
-	  prntf (1, NULL, "OS version:   Windows %s", wincap.osname ());
-	  prntf (1, NULL, "**********************************************");
-	}
-    }
-}
+  char buf[30];
 
-void
-strace::dll_info ()
-{
-  if (active ())
+  if (inited)
     {
+      active ^= 1;
+      return;
+    }
+
+  inited = 1;
+  if (!being_debugged ())
+    return;
+
+  __small_sprintf (buf, "cYg%8x %x", _STRACE_INTERFACE_ACTIVATE_ADDR, &active);
+  OutputDebugString (buf);
+
+  if (active)
+    {
+      prntf (1, NULL, "**********************************************");
+      prntf (1, NULL, "Program name: %s (%d)", myself->progname, myself->pid ?: GetCurrentProcessId ());
       prntf (1, NULL, "App version:  %d.%d, api: %d.%d",
 	     user_data->dll_major, user_data->dll_minor,
 	     user_data->api_major, user_data->api_minor);
@@ -76,14 +63,17 @@ strace::dll_info ()
 	     cygwin_version.dll_major, cygwin_version.dll_minor,
 	     cygwin_version.api_major, cygwin_version.api_minor);
       prntf (1, NULL, "DLL build:    %s", cygwin_version.dll_build_date);
+      prntf (1, NULL, "OS version:   Windows %s", wincap.osname ());
+      prntf (1, NULL, "Heap size:    %u", cygheap->user_heap.chunk);
+      prntf (1, NULL, "**********************************************");
     }
 }
 
 int
 strace::microseconds ()
 {
-  static hires_ns now;
-  return (int) now.usecs ();
+  static hires_us now;
+  return (int) now.usecs (true);
 }
 
 static int __stdcall
@@ -120,15 +110,7 @@ getfunc (char *in_dst, const char *func)
   return dst - in_dst;
 }
 
-static char *
-mypid (char *buf)
-{
-  if (myself && myself->pid)
-    __small_sprintf (buf, "%d", myself->pid);
-  else
-    __small_sprintf (buf, "(%d)", GetCurrentProcessId ());
-  return buf;
-}
+extern "C" char *__progname;
 
 /* sprintf analog for use by output routines. */
 int
@@ -136,14 +118,15 @@ strace::vsprntf (char *buf, const char *func, const char *infmt, va_list ap)
 {
   int count;
   char fmt[80];
-  static NO_COPY bool nonewline = false;
+  static NO_COPY int nonewline = FALSE;
   DWORD err = GetLastError ();
   const char *tn = cygthread::name ();
+  char *pn = __progname ?: (myself ? myself->progname : NULL);
 
   int microsec = microseconds ();
   lmicrosec = microsec;
 
-  __small_sprintf (fmt, "%7d [%s] %s ", microsec, tn, "%W %s%s");
+  __small_sprintf (fmt, "%7d [%s] %s ", microsec, tn, "%s %d%s");
 
   SetLastError (err);
 
@@ -151,32 +134,21 @@ strace::vsprntf (char *buf, const char *func, const char *infmt, va_list ap)
     count = 0;
   else
     {
-      PWCHAR pn = NULL;
-      WCHAR progname[NT_MAX_PATH];
-      if (!cygwin_finished_initializing)
-	pn = (myself) ? myself->progname : NULL;
-      else if (__progname)
-	sys_mbstowcs(pn = progname, NT_MAX_PATH, __progname);
-
-      PWCHAR p;
+      char *p, progname[MAX_PATH + 1];
       if (!pn)
-	GetModuleFileNameW (NULL, pn = progname, sizeof (progname));
-      if (!pn)
-	/* hmm */;
-      else if ((p = wcsrchr (pn, L'\\')) != NULL)
+	p = (char *) "*** unknown ***";
+      else if ((p = strrchr (pn, '\\')) != NULL)
 	p++;
-      else if ((p = wcsrchr (pn, L'/')) != NULL)
+      else if ((p = strrchr (pn, '/')) != NULL)
 	p++;
       else
 	p = pn;
-      if (p != progname)
-	wcscpy (progname, p);
-      if ((p = wcsrchr (progname, '.')) != NULL
-	  && !wcscasecmp (p, L".exe"))
+      strcpy (progname, p);
+      if ((p = strrchr (progname, '.')) != NULL && strcasematch (p, ".exe"))
 	*p = '\000';
       p = progname;
-      char tmpbuf[20];
-      count = __small_sprintf (buf, fmt, *p ? p : L"?", mypid (tmpbuf),
+      count = __small_sprintf (buf, fmt, p && *p ? p : "?",
+			       myself->pid ?: GetCurrentProcessId (),
 			       execing ? "!" : "");
       if (func)
 	count += getfunc (buf + count, func);
@@ -192,7 +164,7 @@ strace::vsprntf (char *buf, const char *func, const char *infmt, va_list ap)
 	  break;
 	case '\b':
 	  *--p = '\0';
-	   nonewline = true;
+	   nonewline = TRUE;
 	  goto done;
 	default:
 	  goto addnl;
@@ -201,7 +173,7 @@ strace::vsprntf (char *buf, const char *func, const char *infmt, va_list ap)
 addnl:
   *p++ = '\n';
   *p = '\0';
-  nonewline = false;
+  nonewline = FALSE;
 
 done:
   return p - buf;
@@ -222,17 +194,6 @@ strace::write (unsigned category, const char *buf, int count)
 #undef PREFIX
 }
 
-void
-strace::write_childpid (DWORD pid)
-{
-  char buf[30];
-
-  if (!attached () || !being_debugged ())
-    return;
-  __small_sprintf (buf, "cYg%8x %x", _STRACE_CHILD_PID, pid);
-  OutputDebugString (buf);
-}
-
 /* Printf function used when tracing system calls.
    Warning: DO NOT SET ERRNO HERE! */
 
@@ -240,37 +201,24 @@ void
 strace::vprntf (unsigned category, const char *func, const char *fmt, va_list ap)
 {
   DWORD err = GetLastError ();
-  int len;
-  char buf[NT_MAX_PATH];
+  int count;
+  char buf[10000];
 
   PROTECT (buf);
   SetLastError (err);
 
-  len = vsprntf (buf, func, fmt, ap);
+  count = vsprntf (buf, func, fmt, ap);
   CHECK (buf);
   if (category & _STRACE_SYSTEM)
     {
       DWORD done;
-      WriteFile (GetStdHandle (STD_ERROR_HANDLE), buf, len, &done, 0);
+      WriteFile (GetStdHandle (STD_ERROR_HANDLE), buf, count, &done, 0);
       FlushFileBuffers (GetStdHandle (STD_ERROR_HANDLE));
-      /* Make sure that the message shows up on the screen, too, since this is
-	 a serious error. */
-      if (GetFileType (GetStdHandle (STD_ERROR_HANDLE)) != FILE_TYPE_CHAR)
-	{
-	  HANDLE h = CreateFile ("CONOUT$", GENERIC_READ | GENERIC_WRITE,
-				 FILE_SHARE_READ | FILE_SHARE_WRITE,
-				 &sec_none, OPEN_EXISTING, 0, 0);
-	  if (h != INVALID_HANDLE_VALUE)
-	    {
-	      WriteFile (h, buf, len, &done, 0);
-	      CloseHandle (h);
-	    }
-	}
     }
 
 #ifndef NOSTRACE
-  if (active ())
-    write (category, buf, len);
+  if (active)
+    write (category, buf, count);
 #endif
   SetLastError (err);
 }
@@ -282,7 +230,6 @@ strace::prntf (unsigned category, const char *func, const char *fmt, ...)
 
   va_start (ap, fmt);
   vprntf (category, func, fmt, ap);
-  va_end (ap);
 }
 
 extern "C" void
@@ -290,11 +237,10 @@ strace_printf (unsigned category, const char *func, const char *fmt, ...)
 {
   va_list ap;
 
-  if ((category & _STRACE_SYSTEM) || strace.active ())
+  if ((category & _STRACE_SYSTEM) || strace.active)
     {
       va_start (ap, fmt);
       strace.vprntf (category, func, fmt, ap);
-      va_end (ap);
     }
 }
 
@@ -459,7 +405,7 @@ ta[] =
 void
 strace::wm (int message, int word, int lon)
 {
-  if (active ())
+  if (active)
     {
       int i;
 
