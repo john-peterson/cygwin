@@ -1,7 +1,6 @@
 /* debug.h
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2010
-   Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -14,21 +13,21 @@ details. */
 #include "dlmalloc.h"
 #define MALLOC_CHECK ({\
   debug_printf ("checking malloc pool");\
-  mallinfo ();\
+  (void) mallinfo ();\
 })
 #endif
 
 #if !defined(_DEBUG_H_)
 #define _DEBUG_H_
 
-#define being_debugged() (IsDebuggerPresent ())
+#define being_debugged() \
+  (IsDebuggerPresent () /* || GetLastError () == ERROR_PROC_NOT_FOUND*/)
 
 #ifndef DEBUGGING
 # define cygbench(s)
 # define ForceCloseHandle CloseHandle
 # define ForceCloseHandle1(h, n) CloseHandle (h)
 # define ForceCloseHandle2(h, n) CloseHandle (h)
-# define ModifyHandle(h, n) do {} while (0)
 # define ProtectHandle(h) do {} while (0)
 # define ProtectHandle1(h,n) do {} while (0)
 # define ProtectHandle2(h,n) do {} while (0)
@@ -39,7 +38,6 @@ details. */
 # define setclexec(h, nh, b) do {} while (0)
 # define debug_fixup_after_fork_exec() do {} while (0)
 # define VerifyHandle(h) do {} while (0)
-# define console_printf small_printf
 
 #else
 
@@ -56,8 +54,6 @@ details. */
 	close_handle (__PRETTY_FUNCTION__, __LINE__, (h), n, TRUE)
 # endif
 
-# define ModifyHandle(h, n) modify_handle (__PRETTY_FUNCTION__, __LINE__, (h), #h, n)
-
 # define ProtectHandle(h) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #h)
 # define ProtectHandle1(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), #n)
 # define ProtectHandle2(h, n) add_handle (__PRETTY_FUNCTION__, __LINE__, (h), n)
@@ -67,14 +63,17 @@ details. */
 # define VerifyHandle(h) verify_handle (__PRETTY_FUNCTION__, __LINE__, (h))
 
 void debug_init ();
-void __reg3 add_handle (const char *, int, HANDLE, const char *, bool = false);
-void __reg3 verify_handle (const char *, int, HANDLE);
-bool __reg3 close_handle (const char *, int, HANDLE, const char *, bool);
+void __stdcall add_handle (const char *, int, HANDLE, const char *, bool = false)
+  __attribute__ ((regparm (3)));
+void __stdcall verify_handle (const char *, int, HANDLE)
+  __attribute__ ((regparm (3)));
+bool __stdcall close_handle (const char *, int, HANDLE, const char *, bool)
+  __attribute__ ((regparm (3)));
+void __stdcall cygbench (const char *s) __attribute__ ((regparm (1)));
 extern "C" void console_printf (const char *fmt,...);
-void __reg1 cygbench (const char *s);
-void __reg3 modify_handle (const char *, int, HANDLE, const char *, bool);
 void setclexec (HANDLE, HANDLE, bool);
 void debug_fixup_after_fork_exec ();
+extern int pinger;
 
 struct handle_list
   {
