@@ -1,7 +1,6 @@
 /* wait.cc: Posix wait routines.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2008,
-   2009, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -11,10 +10,11 @@ details. */
 
 #include "winsup.h"
 #include <sys/wait.h>
+#include <stdlib.h>
+#include "cygerrno.h"
 #include "sigproc.h"
 #include "thread.h"
 #include "cygtls.h"
-#include "cygwait.h"
 
 /* This is called _wait and not wait because the real wait is defined
    in libc/syscalls/syswait.c.  It calls us.  */
@@ -54,7 +54,7 @@ wait4 (int intpid, int *status, int options, struct rusage *r)
   while (1)
     {
       sig_dispatch_pending ();
-      if (options & ~(WNOHANG | WUNTRACED | WCONTINUED))
+      if (options & ~(WNOHANG | WUNTRACED))
 	{
 	  set_errno (EINVAL);
 	  res = -1;
@@ -80,9 +80,9 @@ wait4 (int intpid, int *status, int options, struct rusage *r)
       if ((waitfor = w->ev) == NULL)
 	goto nochildren;
 
-      res = cygwait (waitfor, cw_infinite, cw_cancel | cw_cancel_self);
+      res = pthread::cancelable_wait (waitfor, INFINITE);
 
-      sigproc_printf ("%d = cygwait (...)", res);
+      sigproc_printf ("%d = WaitForSingleObject (...)", res);
 
       if (w->ev == NULL)
 	{
@@ -102,6 +102,8 @@ wait4 (int intpid, int *status, int options, struct rusage *r)
 	}
       else if (res != WAIT_OBJECT_0)
 	{
+	  /* We shouldn't set errno to any random value if we can help it.
+	     See the Posix manual for a list of valid values for `errno'.  */
 	  set_errno (EINVAL);
 	  res = -1;
 	}
@@ -110,7 +112,10 @@ wait4 (int intpid, int *status, int options, struct rusage *r)
       break;
     }
 
-  syscall_printf ("%R = wait4(%d, %p, %d, %p)", res, intpid, w->status, options, r);
+  sigproc_printf ("intpid %d, status %p, w->status %d, options %d, res %d",
+		  intpid, status, w->status, options, res);
   w->status = -1;
+  if (res < 0)
+    sigproc_printf ("*** errno %d", get_errno ());
   return res;
 }
