@@ -1,11 +1,11 @@
 /* Architecture-dependent code for the Fujitsu FR-V, for GDB, the GNU Debugger.
-   Copyright (C) 2004-2013 Free Software Foundation, Inc.
+   Copyright 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,7 +14,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* Enumerate the possible ABIs for FR-V.  */
 enum frv_abi
@@ -64,18 +66,7 @@ enum {
   lcr_regnum = 146,
   iacc0h_regnum = 147,
   iacc0l_regnum = 148,
-  fsr0_regnum = 149,
-  acc0_regnum = 150,
-  acc7_regnum = 157,
-  accg0123_regnum = 158,
-  accg4567_regnum = 159,
-  msr0_regnum = 160,
-  msr1_regnum = 161,
-  gner0_regnum = 162,
-  gner1_regnum = 163,
-  fner0_regnum = 164,
-  fner1_regnum = 165,
-  last_spr_regnum = 165,
+  last_spr_regnum = 148,
 
   /* The total number of registers we know exist.  */
   frv_num_regs = last_spr_regnum + 1,
@@ -85,15 +76,18 @@ enum {
 
   /* iacc0 - the 64-bit concatenation of iacc0h and iacc0l.  */
   iacc0_regnum = first_pseudo_regnum + 0,
-  accg0_regnum = first_pseudo_regnum + 1,
-  accg7_regnum = accg0_regnum + 7,
 
-  last_pseudo_regnum = accg7_regnum,
+  last_pseudo_regnum = iacc0_regnum,
   frv_num_pseudo_regs = last_pseudo_regnum - first_pseudo_regnum + 1,
 };
 
 /* Return the FR-V ABI associated with GDBARCH.  */
 enum frv_abi frv_abi (struct gdbarch *gdbarch);
+
+/* Associate a sigcontext address fetcher with GDBARCH.  */
+void frv_set_sigcontext_reg_addr (struct gdbarch *gdbarch,
+                                  CORE_ADDR (*sigcontext_reg_addr)
+			            (struct frame_info *, int, CORE_ADDR *));
 
 /* Fetch the interpreter and executable loadmap addresses (for shared
    library support) for the FDPIC ABI.  Return 0 if successful, -1 if
@@ -109,12 +103,3 @@ CORE_ADDR frv_fdpic_find_global_pointer (CORE_ADDR addr);
    for that function, if one exists.  If no canonical descriptor could
    be found, return 0.  */
 CORE_ADDR frv_fdpic_find_canonical_descriptor (CORE_ADDR entry_point);
-
-
-/* Given an objfile, return the address of its link map.  This value is
-   needed for TLS support.  */
-CORE_ADDR frv_fetch_objfile_link_map (struct objfile *objfile);
-
-struct target_so_ops;
-extern struct target_so_ops frv_so_ops;
-

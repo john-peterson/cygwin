@@ -1,12 +1,13 @@
 /* Intel 387 floating point stuff.
 
-   Copyright (C) 1988-2013 Free Software Foundation, Inc.
+   Copyright 1988, 1989, 1991, 1992, 1993, 1994, 1998, 1999, 2000,
+   2001, 2002, 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "doublest.h"
@@ -32,13 +35,14 @@
 
 #include "i386-tdep.h"
 #include "i387-tdep.h"
-#include "i386-xstate.h"
+
+/* Implement the `info float' layout based on the register definitions
+   in `tm-i386.h'.  */
 
 /* Print the floating point number specified by RAW.  */
 
 static void
-print_i387_value (struct gdbarch *gdbarch,
-		  const gdb_byte *raw, struct ui_file *file)
+print_i387_value (char *raw, struct ui_file *file)
 {
   DOUBLEST value;
 
@@ -46,7 +50,7 @@ print_i387_value (struct gdbarch *gdbarch,
      of certain numbers such as NaNs, even if GDB is running natively.
      This is fine since our caller already detects such special
      numbers and we print the hexadecimal representation anyway.  */
-  value = extract_typed_floating (raw, i387_ext_type (gdbarch));
+  value = extract_typed_floating (raw, builtin_type_i387_ext);
 
   /* We try to print 19 digits.  The last digit may or may not contain
      garbage, but we'd better print one too many.  We need enough room
@@ -62,8 +66,7 @@ print_i387_value (struct gdbarch *gdbarch,
 /* Print the classification for the register contents RAW.  */
 
 static void
-print_i387_ext (struct gdbarch *gdbarch,
-		const gdb_byte *raw, struct ui_file *file)
+print_i387_ext (unsigned char *raw, struct ui_file *file)
 {
   int sign;
   int integer;
@@ -94,11 +97,11 @@ print_i387_ext (struct gdbarch *gdbarch,
     }
   else if (exponent < 0x7fff && exponent > 0x0000 && integer)
     /* Normal.  */
-    print_i387_value (gdbarch, raw, file);
+    print_i387_value (raw, file);
   else if (exponent == 0x0000)
     {
       /* Denormal or zero.  */
-      print_i387_value (gdbarch, raw, file);
+      print_i387_value (raw, file);
       
       if (integer)
 	/* Pseudo-denormal.  */
@@ -112,21 +115,13 @@ print_i387_ext (struct gdbarch *gdbarch,
     fputs_filtered (" Unsupported", file);
 }
 
-/* Print the status word STATUS.  If STATUS_P is false, then STATUS
-   was unavailable.  */
+/* Print the status word STATUS.  */
 
 static void
-print_i387_status_word (int status_p,
-			unsigned int status, struct ui_file *file)
+print_i387_status_word (unsigned int status, struct ui_file *file)
 {
-  fprintf_filtered (file, "Status Word:         ");
-  if (!status_p)
-    {
-      fprintf_filtered (file, "%s\n", _("<unavailable>"));
-      return;
-    }
-
-  fprintf_filtered (file, "%s", hex_string_custom (status, 4));
+  fprintf_filtered (file, "Status Word:         %s",
+		   local_hex_string_custom (status, "04"));
   fputs_filtered ("  ", file);
   fprintf_filtered (file, " %s", (status & 0x0001) ? "IE" : "  ");
   fprintf_filtered (file, " %s", (status & 0x0002) ? "DE" : "  ");
@@ -150,21 +145,13 @@ print_i387_status_word (int status_p,
 		    "                       TOP: %d\n", ((status >> 11) & 7));
 }
 
-/* Print the control word CONTROL.  If CONTROL_P is false, then
-   CONTROL was unavailable.  */
+/* Print the control word CONTROL.  */
 
 static void
-print_i387_control_word (int control_p,
-			 unsigned int control, struct ui_file *file)
+print_i387_control_word (unsigned int control, struct ui_file *file)
 {
-  fprintf_filtered (file, "Control Word:        ");
-  if (!control_p)
-    {
-      fprintf_filtered (file, "%s\n", _("<unavailable>"));
-      return;
-    }
-
-  fprintf_filtered (file, "%s", hex_string_custom (control, 4));
+  fprintf_filtered (file, "Control Word:        %s",
+		   local_hex_string_custom (control, "04"));
   fputs_filtered ("  ", file);
   fprintf_filtered (file, " %s", (control & 0x0001) ? "IM" : "  ");
   fprintf_filtered (file, " %s", (control & 0x0002) ? "DM" : "  ");
@@ -219,171 +206,113 @@ i387_print_float_info (struct gdbarch *gdbarch, struct ui_file *file,
 		       struct frame_info *frame, const char *args)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (get_frame_arch (frame));
+  char buf[4];
   ULONGEST fctrl;
-  int fctrl_p;
   ULONGEST fstat;
-  int fstat_p;
   ULONGEST ftag;
-  int ftag_p;
   ULONGEST fiseg;
-  int fiseg_p;
   ULONGEST fioff;
-  int fioff_p;
   ULONGEST foseg;
-  int foseg_p;
   ULONGEST fooff;
-  int fooff_p;
   ULONGEST fop;
-  int fop_p;
   int fpreg;
   int top;
 
   gdb_assert (gdbarch == get_frame_arch (frame));
 
-  fctrl_p = read_frame_register_unsigned (frame,
-					  I387_FCTRL_REGNUM (tdep), &fctrl);
-  fstat_p = read_frame_register_unsigned (frame,
-					  I387_FSTAT_REGNUM (tdep), &fstat);
-  ftag_p = read_frame_register_unsigned (frame,
-					 I387_FTAG_REGNUM (tdep), &ftag);
-  fiseg_p = read_frame_register_unsigned (frame,
-					  I387_FISEG_REGNUM (tdep), &fiseg);
-  fioff_p = read_frame_register_unsigned (frame,
-					  I387_FIOFF_REGNUM (tdep), &fioff);
-  foseg_p = read_frame_register_unsigned (frame,
-					  I387_FOSEG_REGNUM (tdep), &foseg);
-  fooff_p = read_frame_register_unsigned (frame,
-					  I387_FOOFF_REGNUM (tdep), &fooff);
-  fop_p = read_frame_register_unsigned (frame,
-					I387_FOP_REGNUM (tdep), &fop);
+  /* Define I387_ST0_REGNUM such that we use the proper definitions
+     for FRAME's architecture.  */
+#define I387_ST0_REGNUM tdep->st0_regnum
 
-  if (fstat_p)
+  fctrl = get_frame_register_unsigned (frame, I387_FCTRL_REGNUM);
+  fstat = get_frame_register_unsigned (frame, I387_FSTAT_REGNUM);
+  ftag = get_frame_register_unsigned (frame, I387_FTAG_REGNUM);
+  fiseg = get_frame_register_unsigned (frame, I387_FISEG_REGNUM);
+  fioff = get_frame_register_unsigned (frame, I387_FIOFF_REGNUM);
+  foseg = get_frame_register_unsigned (frame, I387_FOSEG_REGNUM);
+  fooff = get_frame_register_unsigned (frame, I387_FOOFF_REGNUM);
+  fop = get_frame_register_unsigned (frame, I387_FOP_REGNUM);
+
+  top = ((fstat >> 11) & 7);
+
+  for (fpreg = 7; fpreg >= 0; fpreg--)
     {
-      top = ((fstat >> 11) & 7);
+      unsigned char raw[I386_MAX_REGISTER_SIZE];
+      int tag = (ftag >> (fpreg * 2)) & 3;
+      int i;
 
-      for (fpreg = 7; fpreg >= 0; fpreg--)
+      fprintf_filtered (file, "%sR%d: ", fpreg == top ? "=>" : "  ", fpreg);
+
+      switch (tag)
 	{
-	  struct value *regval;
-	  int regnum;
-	  int i;
-	  int tag = -1;
-
-	  fprintf_filtered (file, "%sR%d: ", fpreg == top ? "=>" : "  ", fpreg);
-
-	  if (ftag_p)
-	    {
-	      tag = (ftag >> (fpreg * 2)) & 3;
-
-	      switch (tag)
-		{
-		case 0:
-		  fputs_filtered ("Valid   ", file);
-		  break;
-		case 1:
-		  fputs_filtered ("Zero    ", file);
-		  break;
-		case 2:
-		  fputs_filtered ("Special ", file);
-		  break;
-		case 3:
-		  fputs_filtered ("Empty   ", file);
-		  break;
-		}
-	    }
-	  else
-	    fputs_filtered ("Unknown ", file);
-
-	  regnum = (fpreg + 8 - top) % 8 + I387_ST0_REGNUM (tdep);
-	  regval = get_frame_register_value (frame, regnum);
-
-	  if (value_entirely_available (regval))
-	    {
-	      const char *raw = value_contents (regval);
-
-	      fputs_filtered ("0x", file);
-	      for (i = 9; i >= 0; i--)
-		fprintf_filtered (file, "%02x", raw[i]);
-
-	      if (tag != -1 && tag != 3)
-		print_i387_ext (gdbarch, raw, file);
-	    }
-	  else
-	    fprintf_filtered (file, "%s", _("<unavailable>"));
-
-	  fputs_filtered ("\n", file);
+	case 0:
+	  fputs_filtered ("Valid   ", file);
+	  break;
+	case 1:
+	  fputs_filtered ("Zero    ", file);
+	  break;
+	case 2:
+	  fputs_filtered ("Special ", file);
+	  break;
+	case 3:
+	  fputs_filtered ("Empty   ", file);
+	  break;
 	}
+
+      get_frame_register (frame, (fpreg + 8 - top) % 8 + I387_ST0_REGNUM, raw);
+
+      fputs_filtered ("0x", file);
+      for (i = 9; i >= 0; i--)
+	fprintf_filtered (file, "%02x", raw[i]);
+
+      if (tag != 3)
+	print_i387_ext (raw, file);
+
+      fputs_filtered ("\n", file);
     }
 
   fputs_filtered ("\n", file);
-  print_i387_status_word (fstat_p, fstat, file);
-  print_i387_control_word (fctrl_p, fctrl, file);
+
+  print_i387_status_word (fstat, file);
+  print_i387_control_word (fctrl, file);
   fprintf_filtered (file, "Tag Word:            %s\n",
-		    ftag_p ? hex_string_custom (ftag, 4) : _("<unavailable>"));
+		    local_hex_string_custom (ftag, "04"));
   fprintf_filtered (file, "Instruction Pointer: %s:",
-		    fiseg_p ? hex_string_custom (fiseg, 2) : _("<unavailable>"));
-  fprintf_filtered (file, "%s\n",
-		    fioff_p ? hex_string_custom (fioff, 8) : _("<unavailable>"));
+		    local_hex_string_custom (fiseg, "02"));
+  fprintf_filtered (file, "%s\n", local_hex_string_custom (fioff, "08"));
   fprintf_filtered (file, "Operand Pointer:     %s:",
-		    foseg_p ? hex_string_custom (foseg, 2) : _("<unavailable>"));
-  fprintf_filtered (file, "%s\n",
-		    fooff_p ? hex_string_custom (fooff, 8) : _("<unavailable>"));
+		    local_hex_string_custom (foseg, "02"));
+  fprintf_filtered (file, "%s\n", local_hex_string_custom (fooff, "08"));
   fprintf_filtered (file, "Opcode:              %s\n",
-		    fop_p
-		    ? (hex_string_custom (fop ? (fop | 0xd800) : 0, 4))
-		    : _("<unavailable>"));
+		    local_hex_string_custom (fop ? (fop | 0xd800) : 0, "04"));
+
+#undef I387_ST0_REGNUM
 }
 
-
-/* Return nonzero if a value of type TYPE stored in register REGNUM
-   needs any special handling.  */
-
-int
-i387_convert_register_p (struct gdbarch *gdbarch, int regnum,
-			 struct type *type)
-{
-  if (i386_fp_regnum_p (gdbarch, regnum))
-    {
-      /* Floating point registers must be converted unless we are
-	 accessing them in their hardware type.  */
-      if (type == i387_ext_type (gdbarch))
-	return 0;
-      else
-	return 1;
-    }
-
-  return 0;
-}
 
 /* Read a value of type TYPE from register REGNUM in frame FRAME, and
    return its contents in TO.  */
 
-int
+void
 i387_register_to_value (struct frame_info *frame, int regnum,
-			struct type *type, gdb_byte *to,
-			int *optimizedp, int *unavailablep)
+			struct type *type, void *to)
 {
-  struct gdbarch *gdbarch = get_frame_arch (frame);
-  gdb_byte from[I386_MAX_REGISTER_SIZE];
+  char from[I386_MAX_REGISTER_SIZE];
 
-  gdb_assert (i386_fp_regnum_p (gdbarch, regnum));
+  gdb_assert (i386_fp_regnum_p (regnum));
 
   /* We only support floating-point values.  */
   if (TYPE_CODE (type) != TYPE_CODE_FLT)
     {
-      warning (_("Cannot convert floating-point register value "
-	       "to non-floating-point type."));
-      *optimizedp = *unavailablep = 0;
-      return 0;
+      warning ("Cannot convert floating-point register value "
+	       "to non-floating-point type.");
+      return;
     }
 
-  /* Convert to TYPE.  */
-  if (!get_frame_register_bytes (frame, regnum, 0, TYPE_LENGTH (type),
-				 from, optimizedp, unavailablep))
-    return 0;
-
-  convert_typed_floating (from, i387_ext_type (gdbarch), to, type);
-  *optimizedp = *unavailablep = 0;
-  return 1;
+  /* Convert to TYPE.  This should be a no-op if TYPE is equivalent to
+     the extended floating-point format used by the FPU.  */
+  get_frame_register (frame, regnum, from);
+  convert_typed_floating (from, builtin_type_i387_ext, to, type);
 }
 
 /* Write the contents FROM of a value of type TYPE into register
@@ -391,28 +320,35 @@ i387_register_to_value (struct frame_info *frame, int regnum,
 
 void
 i387_value_to_register (struct frame_info *frame, int regnum,
-			struct type *type, const gdb_byte *from)
+			struct type *type, const void *from)
 {
-  struct gdbarch *gdbarch = get_frame_arch (frame);
-  gdb_byte to[I386_MAX_REGISTER_SIZE];
+  char to[I386_MAX_REGISTER_SIZE];
 
-  gdb_assert (i386_fp_regnum_p (gdbarch, regnum));
+  gdb_assert (i386_fp_regnum_p (regnum));
 
   /* We only support floating-point values.  */
   if (TYPE_CODE (type) != TYPE_CODE_FLT)
     {
-      warning (_("Cannot convert non-floating-point type "
-	       "to floating-point register value."));
+      warning ("Cannot convert non-floating-point type "
+	       "to floating-point register value.");
       return;
     }
 
-  /* Convert from TYPE.  */
-  convert_typed_floating (from, type, to, i387_ext_type (gdbarch));
+  /* Convert from TYPE.  This should be a no-op if TYPE is equivalent
+     to the extended floating-point format used by the FPU.  */
+  convert_typed_floating (from, type, to, builtin_type_i387_ext);
   put_frame_register (frame, regnum, to);
 }
 
+
 
 /* Handle FSAVE and FXSAVE formats.  */
+
+/* FIXME: kettenis/20030927: The functions below should accept a
+   `regcache' argument, but I don't want to change the function
+   signature just yet.  There's some band-aid in the functions below
+   in the form of the `regcache' local variables.  This will ease the
+   transition later on.  */
 
 /* At fsave_offset[REGNUM] you'll find the offset to the location in
    the data structure used by the "fsave" instruction where GDB
@@ -438,8 +374,8 @@ static int fsave_offset[] =
   18				/* `fop' (bottom 11 bits).  */
 };
 
-#define FSAVE_ADDR(tdep, fsave, regnum) \
-  (fsave + fsave_offset[regnum - I387_ST0_REGNUM (tdep)])
+#define FSAVE_ADDR(fsave, regnum) \
+  (fsave + fsave_offset[regnum - I387_ST0_REGNUM])
 
 
 /* Fill register REGNUM in REGCACHE with the appropriate value from
@@ -449,15 +385,17 @@ static int fsave_offset[] =
 void
 i387_supply_fsave (struct regcache *regcache, int regnum, const void *fsave)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  const gdb_byte *regs = fsave;
+  struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
+  const char *regs = fsave;
   int i;
 
   gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
 
-  for (i = I387_ST0_REGNUM (tdep); i < I387_XMM0_REGNUM (tdep); i++)
+  /* Define I387_ST0_REGNUM such that we use the proper definitions
+     for REGCACHE's architecture.  */
+#define I387_ST0_REGNUM tdep->st0_regnum
+
+  for (i = I387_ST0_REGNUM; i < I387_XMM0_REGNUM; i++)
     if (regnum == -1 || regnum == i)
       {
 	if (fsave == NULL)
@@ -468,32 +406,21 @@ i387_supply_fsave (struct regcache *regcache, int regnum, const void *fsave)
 
 	/* Most of the FPU control registers occupy only 16 bits in the
 	   fsave area.  Give those a special treatment.  */
-	if (i >= I387_FCTRL_REGNUM (tdep)
-	    && i != I387_FIOFF_REGNUM (tdep) && i != I387_FOOFF_REGNUM (tdep))
+	if (i >= I387_FCTRL_REGNUM
+	    && i != I387_FIOFF_REGNUM && i != I387_FOOFF_REGNUM)
 	  {
-	    gdb_byte val[4];
+	    unsigned char val[4];
 
-	    memcpy (val, FSAVE_ADDR (tdep, regs, i), 2);
+	    memcpy (val, FSAVE_ADDR (regs, i), 2);
 	    val[2] = val[3] = 0;
-	    if (i == I387_FOP_REGNUM (tdep))
+	    if (i == I387_FOP_REGNUM)
 	      val[1] &= ((1 << 3) - 1);
 	    regcache_raw_supply (regcache, i, val);
 	  }
 	else
-	  regcache_raw_supply (regcache, i, FSAVE_ADDR (tdep, regs, i));
+	  regcache_raw_supply (regcache, i, FSAVE_ADDR (regs, i));
       }
-
-  /* Provide dummy values for the SSE registers.  */
-  for (i = I387_XMM0_REGNUM (tdep); i < I387_MXCSR_REGNUM (tdep); i++)
-    if (regnum == -1 || regnum == i)
-      regcache_raw_supply (regcache, i, NULL);
-  if (regnum == -1 || regnum == I387_MXCSR_REGNUM (tdep))
-    {
-      gdb_byte buf[4];
-
-      store_unsigned_integer (buf, 4, byte_order, 0x1f80);
-      regcache_raw_supply (regcache, I387_MXCSR_REGNUM (tdep), buf);
-    }
+#undef I387_ST0_REGNUM
 }
 
 /* Fill register REGNUM (if it is a floating-point register) in *FSAVE
@@ -504,36 +431,52 @@ i387_supply_fsave (struct regcache *regcache, int regnum, const void *fsave)
 void
 i387_collect_fsave (const struct regcache *regcache, int regnum, void *fsave)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
-  gdb_byte *regs = fsave;
+  struct gdbarch_tdep *tdep = gdbarch_tdep (current_gdbarch);
+  char *regs = fsave;
   int i;
 
   gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
 
-  for (i = I387_ST0_REGNUM (tdep); i < I387_XMM0_REGNUM (tdep); i++)
+  /* Define I387_ST0_REGNUM such that we use the proper definitions
+     for REGCACHE's architecture.  */
+#define I387_ST0_REGNUM tdep->st0_regnum
+
+  for (i = I387_ST0_REGNUM; i < I387_XMM0_REGNUM; i++)
     if (regnum == -1 || regnum == i)
       {
 	/* Most of the FPU control registers occupy only 16 bits in
            the fsave area.  Give those a special treatment.  */
-	if (i >= I387_FCTRL_REGNUM (tdep)
-	    && i != I387_FIOFF_REGNUM (tdep) && i != I387_FOOFF_REGNUM (tdep))
+	if (i >= I387_FCTRL_REGNUM
+	    && i != I387_FIOFF_REGNUM && i != I387_FOOFF_REGNUM)
 	  {
-	    gdb_byte buf[4];
+	    unsigned char buf[4];
 
 	    regcache_raw_collect (regcache, i, buf);
 
-	    if (i == I387_FOP_REGNUM (tdep))
+	    if (i == I387_FOP_REGNUM)
 	      {
 		/* The opcode occupies only 11 bits.  Make sure we
                    don't touch the other bits.  */
 		buf[1] &= ((1 << 3) - 1);
-		buf[1] |= ((FSAVE_ADDR (tdep, regs, i))[1] & ~((1 << 3) - 1));
+		buf[1] |= ((FSAVE_ADDR (regs, i))[1] & ~((1 << 3) - 1));
 	      }
-	    memcpy (FSAVE_ADDR (tdep, regs, i), buf, 2);
+	    memcpy (FSAVE_ADDR (regs, i), buf, 2);
 	  }
 	else
-	  regcache_raw_collect (regcache, i, FSAVE_ADDR (tdep, regs, i));
+	  regcache_raw_collect (regcache, i, FSAVE_ADDR (regs, i));
       }
+#undef I387_ST0_REGNUM
+}
+
+/* Fill register REGNUM (if it is a floating-point register) in *FSAVE
+   with the value in GDB's register cache.  If REGNUM is -1, do this
+   for all registers.  This function doesn't touch any of the reserved
+   bits in *FSAVE.  */
+
+void
+i387_fill_fsave (void *fsave, int regnum)
+{
+  i387_collect_fsave (current_regcache, regnum, fsave);
 }
 
 
@@ -577,8 +520,8 @@ static int fxsave_offset[] =
   160 + 15 * 16,		/* ... %xmm15 (128 bits each).  */
 };
 
-#define FXSAVE_ADDR(tdep, fxsave, regnum) \
-  (fxsave + fxsave_offset[regnum - I387_ST0_REGNUM (tdep)])
+#define FXSAVE_ADDR(fxsave, regnum) \
+  (fxsave + fxsave_offset[regnum - I387_ST0_REGNUM])
 
 /* We made an unfortunate choice in putting %mxcsr after the SSE
    registers %xmm0-%xmm7 instead of before, since it makes supporting
@@ -587,7 +530,7 @@ static int fxsave_offset[] =
 
 #define FXSAVE_MXCSR_ADDR(fxsave) (fxsave + 24)
 
-static int i387_tag (const gdb_byte *raw);
+static int i387_tag (const unsigned char *raw);
 
 
 /* Fill register REGNUM in REGCACHE with the appropriate
@@ -598,13 +541,19 @@ void
 i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
-  const gdb_byte *regs = fxsave;
+  const char *regs = fxsave;
   int i;
 
   gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
   gdb_assert (tdep->num_xmm_regs > 0);
 
-  for (i = I387_ST0_REGNUM (tdep); i < I387_MXCSR_REGNUM (tdep); i++)
+  /* Define I387_ST0_REGNUM and I387_NUM_XMM_REGS such that we use the
+     proper definitions for REGCACHE's architecture.  */
+
+#define I387_ST0_REGNUM	tdep->st0_regnum
+#define I387_NUM_XMM_REGS tdep->num_xmm_regs
+
+  for (i = I387_ST0_REGNUM; i < I387_MXCSR_REGNUM; i++)
     if (regnum == -1 || regnum == i)
       {
 	if (regs == NULL)
@@ -615,16 +564,16 @@ i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 
 	/* Most of the FPU control registers occupy only 16 bits in
 	   the fxsave area.  Give those a special treatment.  */
-	if (i >= I387_FCTRL_REGNUM (tdep) && i < I387_XMM0_REGNUM (tdep)
-	    && i != I387_FIOFF_REGNUM (tdep) && i != I387_FOOFF_REGNUM (tdep))
+	if (i >= I387_FCTRL_REGNUM && i < I387_XMM0_REGNUM
+	    && i != I387_FIOFF_REGNUM && i != I387_FOOFF_REGNUM)
 	  {
-	    gdb_byte val[4];
+	    unsigned char val[4];
 
-	    memcpy (val, FXSAVE_ADDR (tdep, regs, i), 2);
+	    memcpy (val, FXSAVE_ADDR (regs, i), 2);
 	    val[2] = val[3] = 0;
-	    if (i == I387_FOP_REGNUM (tdep))
+	    if (i == I387_FOP_REGNUM)
 	      val[1] &= ((1 << 3) - 1);
-	    else if (i== I387_FTAG_REGNUM (tdep))
+	    else if (i== I387_FTAG_REGNUM)
 	      {
 		/* The fxsave area contains a simplified version of
 		   the tag word.  We have to look at the actual 80-bit
@@ -634,8 +583,7 @@ i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 		int fpreg;
 		int top;
 
-		top = ((FXSAVE_ADDR (tdep, regs,
-				     I387_FSTAT_REGNUM (tdep)))[1] >> 3);
+		top = ((FXSAVE_ADDR (regs, I387_FSTAT_REGNUM))[1] >> 3);
 		top &= 0x7;
 
 		for (fpreg = 7; fpreg >= 0; fpreg--)
@@ -644,9 +592,8 @@ i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 
 		    if (val[0] & (1 << fpreg))
 		      {
-			int thisreg = (fpreg + 8 - top) % 8 
-			               + I387_ST0_REGNUM (tdep);
-			tag = i387_tag (FXSAVE_ADDR (tdep, regs, thisreg));
+			int regnum = (fpreg + 8 - top) % 8 + I387_ST0_REGNUM;
+			tag = i387_tag (FXSAVE_ADDR (regs, regnum));
 		      }
 		    else
 		      tag = 3;		/* Empty */
@@ -659,17 +606,20 @@ i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 	    regcache_raw_supply (regcache, i, val);
 	  }
 	else
-	  regcache_raw_supply (regcache, i, FXSAVE_ADDR (tdep, regs, i));
+	  regcache_raw_supply (regcache, i, FXSAVE_ADDR (regs, i));
       }
 
-  if (regnum == I387_MXCSR_REGNUM (tdep) || regnum == -1)
+  if (regnum == I387_MXCSR_REGNUM || regnum == -1)
     {
       if (regs == NULL)
-	regcache_raw_supply (regcache, I387_MXCSR_REGNUM (tdep), NULL);
+	regcache_raw_supply (regcache, I387_MXCSR_REGNUM, NULL);
       else
-	regcache_raw_supply (regcache, I387_MXCSR_REGNUM (tdep),
+	regcache_raw_supply (regcache, I387_MXCSR_REGNUM,
 			     FXSAVE_MXCSR_ADDR (regs));
     }
+
+#undef I387_ST0_REGNUM
+#undef I387_NUM_XMM_REGS
 }
 
 /* Fill register REGNUM (if it is a floating-point or SSE register) in
@@ -680,33 +630,39 @@ i387_supply_fxsave (struct regcache *regcache, int regnum, const void *fxsave)
 void
 i387_collect_fxsave (const struct regcache *regcache, int regnum, void *fxsave)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
-  gdb_byte *regs = fxsave;
+  struct gdbarch_tdep *tdep = gdbarch_tdep (current_gdbarch);
+  char *regs = fxsave;
   int i;
 
   gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
   gdb_assert (tdep->num_xmm_regs > 0);
 
-  for (i = I387_ST0_REGNUM (tdep); i < I387_MXCSR_REGNUM (tdep); i++)
+  /* Define I387_ST0_REGNUM and I387_NUM_XMM_REGS such that we use the
+     proper definitions for REGCACHE's architecture.  */
+
+#define I387_ST0_REGNUM	tdep->st0_regnum
+#define I387_NUM_XMM_REGS tdep->num_xmm_regs
+
+  for (i = I387_ST0_REGNUM; i < I387_MXCSR_REGNUM; i++)
     if (regnum == -1 || regnum == i)
       {
 	/* Most of the FPU control registers occupy only 16 bits in
            the fxsave area.  Give those a special treatment.  */
-	if (i >= I387_FCTRL_REGNUM (tdep) && i < I387_XMM0_REGNUM (tdep)
-	    && i != I387_FIOFF_REGNUM (tdep) && i != I387_FOOFF_REGNUM (tdep))
+	if (i >= I387_FCTRL_REGNUM && i < I387_XMM0_REGNUM
+	    && i != I387_FIOFF_REGNUM && i != I387_FOOFF_REGNUM)
 	  {
-	    gdb_byte buf[4];
+	    unsigned char buf[4];
 
 	    regcache_raw_collect (regcache, i, buf);
 
-	    if (i == I387_FOP_REGNUM (tdep))
+	    if (i == I387_FOP_REGNUM)
 	      {
 		/* The opcode occupies only 11 bits.  Make sure we
                    don't touch the other bits.  */
 		buf[1] &= ((1 << 3) - 1);
-		buf[1] |= ((FXSAVE_ADDR (tdep, regs, i))[1] & ~((1 << 3) - 1));
+		buf[1] |= ((FXSAVE_ADDR (regs, i))[1] & ~((1 << 3) - 1));
 	      }
-	    else if (i == I387_FTAG_REGNUM (tdep))
+	    else if (i == I387_FTAG_REGNUM)
 	      {
 		/* Converting back is much easier.  */
 
@@ -725,502 +681,36 @@ i387_collect_fxsave (const struct regcache *regcache, int regnum, void *fxsave)
 		      buf[0] |= (1 << fpreg);
 		  }
 	      }
-	    memcpy (FXSAVE_ADDR (tdep, regs, i), buf, 2);
+	    memcpy (FXSAVE_ADDR (regs, i), buf, 2);
 	  }
 	else
-	  regcache_raw_collect (regcache, i, FXSAVE_ADDR (tdep, regs, i));
+	  regcache_raw_collect (regcache, i, FXSAVE_ADDR (regs, i));
       }
 
-  if (regnum == I387_MXCSR_REGNUM (tdep) || regnum == -1)
-    regcache_raw_collect (regcache, I387_MXCSR_REGNUM (tdep),
+  if (regnum == I387_MXCSR_REGNUM || regnum == -1)
+    regcache_raw_collect (regcache, I387_MXCSR_REGNUM,
 			  FXSAVE_MXCSR_ADDR (regs));
+
+#undef I387_ST0_REGNUM
+#undef I387_NUM_XMM_REGS
 }
 
-/* `xstate_bv' is at byte offset 512.  */
-#define XSAVE_XSTATE_BV_ADDR(xsave) (xsave + 512)
-
-/* At xsave_avxh_offset[REGNUM] you'll find the offset to the location in
-   the upper 128bit of AVX register data structure used by the "xsave"
-   instruction where GDB register REGNUM is stored.  */
-
-static int xsave_avxh_offset[] =
-{
-  576 + 0 * 16,		/* Upper 128bit of %ymm0 through ...  */
-  576 + 1 * 16,
-  576 + 2 * 16,
-  576 + 3 * 16,
-  576 + 4 * 16,
-  576 + 5 * 16,
-  576 + 6 * 16,
-  576 + 7 * 16,
-  576 + 8 * 16,
-  576 + 9 * 16,
-  576 + 10 * 16,
-  576 + 11 * 16,
-  576 + 12 * 16,
-  576 + 13 * 16,
-  576 + 14 * 16,
-  576 + 15 * 16		/* Upper 128bit of ... %ymm15 (128 bits each).  */
-};
-
-#define XSAVE_AVXH_ADDR(tdep, xsave, regnum) \
-  (xsave + xsave_avxh_offset[regnum - I387_YMM0H_REGNUM (tdep)])
-
-/* Similar to i387_supply_fxsave, but use XSAVE extended state.  */
+/* Fill register REGNUM (if it is a floating-point or SSE register) in
+   *FXSAVE with the value in GDB's register cache.  If REGNUM is -1, do
+   this for all registers.  This function doesn't touch any of the
+   reserved bits in *FXSAVE.  */
 
 void
-i387_supply_xsave (struct regcache *regcache, int regnum,
-		   const void *xsave)
+i387_fill_fxsave (void *fxsave, int regnum)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
-  const gdb_byte *regs = xsave;
-  int i;
-  unsigned int clear_bv;
-  static const gdb_byte zero[MAX_REGISTER_SIZE] = { 0 };
-  enum
-    {
-      none = 0x0,
-      x87 = 0x1,
-      sse = 0x2,
-      avxh = 0x4,
-      all = x87 | sse | avxh
-    } regclass;
-
-  gdb_assert (regs != NULL);
-  gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
-  gdb_assert (tdep->num_xmm_regs > 0);
-
-  if (regnum == -1)
-    regclass = all;
-  else if (regnum >= I387_YMM0H_REGNUM (tdep)
-	   && regnum < I387_YMMENDH_REGNUM (tdep))
-    regclass = avxh;
-  else if (regnum >= I387_XMM0_REGNUM(tdep)
-	   && regnum < I387_MXCSR_REGNUM (tdep))
-    regclass = sse;
-  else if (regnum >= I387_ST0_REGNUM (tdep)
-	   && regnum < I387_FCTRL_REGNUM (tdep))
-    regclass = x87;
-  else
-    regclass = none;
-
-  if (regclass != none)
-    {
-      /* Get `xstat_bv'.  */
-      const gdb_byte *xstate_bv_p = XSAVE_XSTATE_BV_ADDR (regs);
-
-      /* The supported bits in `xstat_bv' are 1 byte.  Clear part in
-	 vector registers if its bit in xstat_bv is zero.  */
-      clear_bv = (~(*xstate_bv_p)) & tdep->xcr0;
-    }
-  else
-    clear_bv = I386_XSTATE_AVX_MASK;
-
-  /* With the delayed xsave mechanism, in between the program
-     starting, and the program accessing the vector registers for the
-     first time, the register's values are invalid.  The kernel
-     initializes register states to zero when they are set the first
-     time in a program.  This means that from the user-space programs'
-     perspective, it's the same as if the registers have always been
-     zero from the start of the program.  Therefore, the debugger
-     should provide the same illusion to the user.  */
-
-  switch (regclass)
-    {
-    case none:
-      break;
-
-    case avxh:
-      if ((clear_bv & I386_XSTATE_AVX))
-	regcache_raw_supply (regcache, regnum, zero);
-      else
-	regcache_raw_supply (regcache, regnum,
-			     XSAVE_AVXH_ADDR (tdep, regs, regnum));
-      return;
-
-    case sse:
-      if ((clear_bv & I386_XSTATE_SSE))
-	regcache_raw_supply (regcache, regnum, zero);
-      else
-	regcache_raw_supply (regcache, regnum,
-			     FXSAVE_ADDR (tdep, regs, regnum));
-      return;
-
-    case x87:
-      if ((clear_bv & I386_XSTATE_X87))
-	regcache_raw_supply (regcache, regnum, zero);
-      else
-	regcache_raw_supply (regcache, regnum,
-			     FXSAVE_ADDR (tdep, regs, regnum));
-      return;
-
-    case all:
-      /* Handle the upper YMM registers.  */
-      if ((tdep->xcr0 & I386_XSTATE_AVX))
-	{
-	  if ((clear_bv & I386_XSTATE_AVX))
-	    {
-	      for (i = I387_YMM0H_REGNUM (tdep);
-		   i < I387_YMMENDH_REGNUM (tdep);
-		   i++)
-		regcache_raw_supply (regcache, i, zero);
-	    }
-	  else
-	    {
-	      for (i = I387_YMM0H_REGNUM (tdep);
-		   i < I387_YMMENDH_REGNUM (tdep);
-		   i++)
-		regcache_raw_supply (regcache, i,
-				     XSAVE_AVXH_ADDR (tdep, regs, i));
-	    }
-	}
-
-      /* Handle the XMM registers.  */
-      if ((tdep->xcr0 & I386_XSTATE_SSE))
-	{
-	  if ((clear_bv & I386_XSTATE_SSE))
-	    {
-	      for (i = I387_XMM0_REGNUM (tdep);
-		   i < I387_MXCSR_REGNUM (tdep);
-		   i++)
-		regcache_raw_supply (regcache, i, zero);
-	    }
-	  else
-	    {
-	      for (i = I387_XMM0_REGNUM (tdep);
-		   i < I387_MXCSR_REGNUM (tdep); i++)
-		regcache_raw_supply (regcache, i,
-				     FXSAVE_ADDR (tdep, regs, i));
-	    }
-	}
-
-      /* Handle the x87 registers.  */
-      if ((tdep->xcr0 & I386_XSTATE_X87))
-	{
-	  if ((clear_bv & I386_XSTATE_X87))
-	    {
-	      for (i = I387_ST0_REGNUM (tdep);
-		   i < I387_FCTRL_REGNUM (tdep);
-		   i++)
-		regcache_raw_supply (regcache, i, zero);
-	    }
-	  else
-	    {
-	      for (i = I387_ST0_REGNUM (tdep);
-		   i < I387_FCTRL_REGNUM (tdep);
-		   i++)
-		regcache_raw_supply (regcache, i, FXSAVE_ADDR (tdep, regs, i));
-	    }
-	}
-      break;
-    }
-
-  /* Only handle x87 control registers.  */
-  for (i = I387_FCTRL_REGNUM (tdep); i < I387_XMM0_REGNUM (tdep); i++)
-    if (regnum == -1 || regnum == i)
-      {
-	/* Most of the FPU control registers occupy only 16 bits in
-	   the xsave extended state.  Give those a special treatment.  */
-	if (i != I387_FIOFF_REGNUM (tdep)
-	    && i != I387_FOOFF_REGNUM (tdep))
-	  {
-	    gdb_byte val[4];
-
-	    memcpy (val, FXSAVE_ADDR (tdep, regs, i), 2);
-	    val[2] = val[3] = 0;
-	    if (i == I387_FOP_REGNUM (tdep))
-	      val[1] &= ((1 << 3) - 1);
-	    else if (i== I387_FTAG_REGNUM (tdep))
-	      {
-		/* The fxsave area contains a simplified version of
-		   the tag word.  We have to look at the actual 80-bit
-		   FP data to recreate the traditional i387 tag word.  */
-
-		unsigned long ftag = 0;
-		int fpreg;
-		int top;
-
-		top = ((FXSAVE_ADDR (tdep, regs,
-				     I387_FSTAT_REGNUM (tdep)))[1] >> 3);
-		top &= 0x7;
-
-		for (fpreg = 7; fpreg >= 0; fpreg--)
-		  {
-		    int tag;
-
-		    if (val[0] & (1 << fpreg))
-		      {
-			int thisreg = (fpreg + 8 - top) % 8 
-				       + I387_ST0_REGNUM (tdep);
-			tag = i387_tag (FXSAVE_ADDR (tdep, regs, thisreg));
-		      }
-		    else
-		      tag = 3;		/* Empty */
-
-		    ftag |= tag << (2 * fpreg);
-		  }
-		val[0] = ftag & 0xff;
-		val[1] = (ftag >> 8) & 0xff;
-	      }
-	    regcache_raw_supply (regcache, i, val);
-	  }
-	else 
-	  regcache_raw_supply (regcache, i, FXSAVE_ADDR (tdep, regs, i));
-      }
-
-  if (regnum == I387_MXCSR_REGNUM (tdep) || regnum == -1)
-    regcache_raw_supply (regcache, I387_MXCSR_REGNUM (tdep),
-			 FXSAVE_MXCSR_ADDR (regs));
-}
-
-/* Similar to i387_collect_fxsave, but use XSAVE extended state.  */
-
-void
-i387_collect_xsave (const struct regcache *regcache, int regnum,
-		    void *xsave, int gcore)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (get_regcache_arch (regcache));
-  gdb_byte *regs = xsave;
-  int i;
-  enum
-    {
-      none = 0x0,
-      check = 0x1,
-      x87 = 0x2 | check,
-      sse = 0x4 | check,
-      avxh = 0x8 | check,
-      all = x87 | sse | avxh
-    } regclass;
-
-  gdb_assert (tdep->st0_regnum >= I386_ST0_REGNUM);
-  gdb_assert (tdep->num_xmm_regs > 0);
-
-  if (regnum == -1)
-    regclass = all;
-  else if (regnum >= I387_YMM0H_REGNUM (tdep)
-	   && regnum < I387_YMMENDH_REGNUM (tdep))
-    regclass = avxh;
-  else if (regnum >= I387_XMM0_REGNUM(tdep)
-	   && regnum < I387_MXCSR_REGNUM (tdep))
-    regclass = sse;
-  else if (regnum >= I387_ST0_REGNUM (tdep)
-	   && regnum < I387_FCTRL_REGNUM (tdep))
-    regclass = x87;
-  else
-    regclass = none;
-
-  if (gcore)
-    {
-      /* Clear XSAVE extended state.  */
-      memset (regs, 0, I386_XSTATE_SIZE (tdep->xcr0));
-
-      /* Update XCR0 and `xstate_bv' with XCR0 for gcore.  */
-      if (tdep->xsave_xcr0_offset != -1)
-	memcpy (regs + tdep->xsave_xcr0_offset, &tdep->xcr0, 8);
-      memcpy (XSAVE_XSTATE_BV_ADDR (regs), &tdep->xcr0, 8);
-    }
-
-  if ((regclass & check))
-    {
-      gdb_byte raw[I386_MAX_REGISTER_SIZE];
-      gdb_byte *xstate_bv_p = XSAVE_XSTATE_BV_ADDR (regs);
-      unsigned int xstate_bv = 0;
-      /* The supported bits in `xstat_bv' are 1 byte.  */
-      unsigned int clear_bv = (~(*xstate_bv_p)) & tdep->xcr0;
-      gdb_byte *p;
-
-      /* Clear register set if its bit in xstat_bv is zero.  */
-      if (clear_bv)
-	{
-	  if ((clear_bv & I386_XSTATE_AVX))
-	    for (i = I387_YMM0H_REGNUM (tdep);
-		 i < I387_YMMENDH_REGNUM (tdep); i++)
-	      memset (XSAVE_AVXH_ADDR (tdep, regs, i), 0, 16);
-
-	  if ((clear_bv & I386_XSTATE_SSE))
-	    for (i = I387_XMM0_REGNUM (tdep);
-		 i < I387_MXCSR_REGNUM (tdep); i++)
-	      memset (FXSAVE_ADDR (tdep, regs, i), 0, 16);
-
-	  if ((clear_bv & I386_XSTATE_X87))
-	    for (i = I387_ST0_REGNUM (tdep);
-		 i < I387_FCTRL_REGNUM (tdep); i++)
-	      memset (FXSAVE_ADDR (tdep, regs, i), 0, 10);
-	}
-
-      if (regclass == all)
-	{
-	  /* Check if any upper YMM registers are changed.  */
-	  if ((tdep->xcr0 & I386_XSTATE_AVX))
-	    for (i = I387_YMM0H_REGNUM (tdep);
-		 i < I387_YMMENDH_REGNUM (tdep); i++)
-	      {
-		regcache_raw_collect (regcache, i, raw);
-		p = XSAVE_AVXH_ADDR (tdep, regs, i);
-		if (memcmp (raw, p, 16))
-		  {
-		    xstate_bv |= I386_XSTATE_AVX;
-		    memcpy (p, raw, 16);
-		  }
-	      }
-
-	  /* Check if any SSE registers are changed.  */
-	  if ((tdep->xcr0 & I386_XSTATE_SSE))
-	    for (i = I387_XMM0_REGNUM (tdep);
-		 i < I387_MXCSR_REGNUM (tdep); i++)
-	      {
-		regcache_raw_collect (regcache, i, raw);
-		p = FXSAVE_ADDR (tdep, regs, i);
-		if (memcmp (raw, p, 16))
-		  {
-		    xstate_bv |= I386_XSTATE_SSE;
-		    memcpy (p, raw, 16);
-		  }
-	      }
-
-	  /* Check if any X87 registers are changed.  */
-	  if ((tdep->xcr0 & I386_XSTATE_X87))
-	    for (i = I387_ST0_REGNUM (tdep);
-		 i < I387_FCTRL_REGNUM (tdep); i++)
-	      {
-		regcache_raw_collect (regcache, i, raw);
-		p = FXSAVE_ADDR (tdep, regs, i);
-		if (memcmp (raw, p, 10))
-		  {
-		    xstate_bv |= I386_XSTATE_X87;
-		    memcpy (p, raw, 10);
-		  }
-	      }
-	}
-      else
-	{
-	  /* Check if REGNUM is changed.  */
-	  regcache_raw_collect (regcache, regnum, raw);
-
-	  switch (regclass)
-	    {
-	    default:
-	      internal_error (__FILE__, __LINE__,
-			      _("invalid i387 regclass"));
-
-	    case avxh:
-	      /* This is an upper YMM register.  */
-	      p = XSAVE_AVXH_ADDR (tdep, regs, regnum);
-	      if (memcmp (raw, p, 16))
-		{
-		  xstate_bv |= I386_XSTATE_AVX;
-		  memcpy (p, raw, 16);
-		}
-	      break;
-
-	    case sse:
-	      /* This is an SSE register.  */
-	      p = FXSAVE_ADDR (tdep, regs, regnum);
-	      if (memcmp (raw, p, 16))
-		{
-		  xstate_bv |= I386_XSTATE_SSE;
-		  memcpy (p, raw, 16);
-		}
-	      break;
-
-	    case x87:
-	      /* This is an x87 register.  */
-	      p = FXSAVE_ADDR (tdep, regs, regnum);
-	      if (memcmp (raw, p, 10))
-		{
-		  xstate_bv |= I386_XSTATE_X87;
-		  memcpy (p, raw, 10);
-		}
-	      break;
-	    }
-	}
-
-      /* Update the corresponding bits in `xstate_bv' if any SSE/AVX
-	 registers are changed.  */
-      if (xstate_bv)
-	{
-	  /* The supported bits in `xstat_bv' are 1 byte.  */
-	  *xstate_bv_p |= (gdb_byte) xstate_bv;
-
-	  switch (regclass)
-	    {
-	    default:
-	      internal_error (__FILE__, __LINE__,
-			      _("invalid i387 regclass"));
-
-	    case all:
-	      break;
-
-	    case x87:
-	    case sse:
-	    case avxh:
-	      /* Register REGNUM has been updated.  Return.  */
-	      return;
-	    }
-	}
-      else
-	{
-	  /* Return if REGNUM isn't changed.  */
-	  if (regclass != all)
-	    return;
-	}
-    }
-
-  /* Only handle x87 control registers.  */
-  for (i = I387_FCTRL_REGNUM (tdep); i < I387_XMM0_REGNUM (tdep); i++)
-    if (regnum == -1 || regnum == i)
-      {
-	/* Most of the FPU control registers occupy only 16 bits in
-	   the xsave extended state.  Give those a special treatment.  */
-	if (i != I387_FIOFF_REGNUM (tdep)
-	    && i != I387_FOOFF_REGNUM (tdep))
-	  {
-	    gdb_byte buf[4];
-
-	    regcache_raw_collect (regcache, i, buf);
-
-	    if (i == I387_FOP_REGNUM (tdep))
-	      {
-		/* The opcode occupies only 11 bits.  Make sure we
-		   don't touch the other bits.  */
-		buf[1] &= ((1 << 3) - 1);
-		buf[1] |= ((FXSAVE_ADDR (tdep, regs, i))[1] & ~((1 << 3) - 1));
-	      }
-	    else if (i == I387_FTAG_REGNUM (tdep))
-	      {
-		/* Converting back is much easier.  */
-
-		unsigned short ftag;
-		int fpreg;
-
-		ftag = (buf[1] << 8) | buf[0];
-		buf[0] = 0;
-		buf[1] = 0;
-
-		for (fpreg = 7; fpreg >= 0; fpreg--)
-		  {
-		    int tag = (ftag >> (fpreg * 2)) & 3;
-
-		    if (tag != 3)
-		      buf[0] |= (1 << fpreg);
-		  }
-	      }
-	    memcpy (FXSAVE_ADDR (tdep, regs, i), buf, 2);
-	  }
-	else
-	  regcache_raw_collect (regcache, i, FXSAVE_ADDR (tdep, regs, i));
-      }
-
-  if (regnum == I387_MXCSR_REGNUM (tdep) || regnum == -1)
-    regcache_raw_collect (regcache, I387_MXCSR_REGNUM (tdep),
-			  FXSAVE_MXCSR_ADDR (regs));
+  i387_collect_fxsave (current_regcache, regnum, fxsave);
 }
 
 /* Recreate the FTW (tag word) valid bits from the 80-bit FP data in
    *RAW.  */
 
 static int
-i387_tag (const gdb_byte *raw)
+i387_tag (const unsigned char *raw)
 {
   int integer;
   unsigned int exponent;
@@ -1273,17 +763,22 @@ i387_return_value (struct gdbarch *gdbarch, struct regcache *regcache)
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   ULONGEST fstat;
 
+  /* Define I387_ST0_REGNUM such that we use the proper
+     definitions for the architecture.  */
+#define I387_ST0_REGNUM tdep->st0_regnum
+
   /* Set the top of the floating-point register stack to 7.  The
      actual value doesn't really matter, but 7 is what a normal
      function return would end up with if the program started out with
      a freshly initialized FPU.  */
-  regcache_raw_read_unsigned (regcache, I387_FSTAT_REGNUM (tdep), &fstat);
+  regcache_raw_read_unsigned (regcache, I387_FSTAT_REGNUM, &fstat);
   fstat |= (7 << 11);
-  regcache_raw_write_unsigned (regcache, I387_FSTAT_REGNUM (tdep), fstat);
+  regcache_raw_write_unsigned (regcache, I387_FSTAT_REGNUM, fstat);
 
   /* Mark %st(1) through %st(7) as empty.  Since we set the top of the
      floating-point register stack to 7, the appropriate value for the
      tag word is 0x3fff.  */
-  regcache_raw_write_unsigned (regcache, I387_FTAG_REGNUM (tdep), 0x3fff);
+  regcache_raw_write_unsigned (regcache, I387_FTAG_REGNUM, 0x3fff);
 
+#undef I387_ST0_REGNUM
 }
