@@ -1,6 +1,6 @@
 #readelf: -wf
 #name: CFI on mips, 1
-Contents of the .eh_frame section:
+The section .eh_frame contains:
 
 00000000 00000014 00000000 CIE
   Version:               1
@@ -10,7 +10,7 @@ Contents of the .eh_frame section:
   Return address column: 31
   Augmentation data:     0b
 
-  DW_CFA_def_cfa_register: r29
+  DW_CFA_def_cfa_reg: r29
   DW_CFA_def_cfa: r29 ofs 0
   DW_CFA_nop
   DW_CFA_nop
