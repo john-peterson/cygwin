@@ -1,13 +1,12 @@
 /* dllwrap.c -- wrapper for DLLTOOL and GCC to generate PE style DLLs
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2009,
-   2011, 2012 Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
    Contributed by Mumit Khan (khan@xraylith.wisc.edu).
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,17 +16,34 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
-#include "sysdep.h"
+/* AIX requires this to be the first thing in the file.  */
+#ifndef __GNUC__
+# ifdef _AIX
+ #pragma alloca
+#endif
+#endif
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "bfd.h"
 #include "libiberty.h"
+#include "bucomm.h"
 #include "getopt.h"
 #include "dyn-string.h"
-#include "bucomm.h"
 
 #include <time.h>
+#include <sys/stat.h>
+
+#ifdef ANSI_PROTOTYPES
+#include <stdarg.h>
+#else
+#include <varargs.h>
+#endif
 
 #ifdef HAVE_SYS_WAIT_H
 #include <sys/wait.h>
@@ -62,7 +78,7 @@
 #endif /* ! HAVE_SYS_WAIT_H */
 
 static char *driver_name = NULL;
-static char *cygwin_driver_flags =
+static char *cygwin_driver_flags = 
   "-Wl,--dll -nostartfiles";
 static char *mingw32_driver_flags = "-mdll";
 static char *generic_driver_flags = "-Wl,--dll";
@@ -73,31 +89,19 @@ static char *dlltool_name = NULL;
 
 static char *target = TARGET;
 
-/* -1: use default, 0: no underscoring, 1: underscore.  */
-static int is_leading_underscore = -1;
-
 typedef enum {
-  UNKNOWN_TARGET,
-  CYGWIN_TARGET,
+  UNKNOWN_TARGET, 
+  CYGWIN_TARGET, 
   MINGW_TARGET
-}
+} 
 target_type;
 
-typedef enum {
-  UNKNOWN_CPU,
-  X86_CPU,
-  X64_CPU,
-  ARM_CPU
-}
-target_cpu;
-
 static target_type which_target = UNKNOWN_TARGET;
-static target_cpu which_cpu = UNKNOWN_CPU;
 
 static int dontdeltemps = 0;
 static int dry_run = 0;
 
-static char *prog_name;
+static char *program_name;
 
 static int verbose = 0;
 
@@ -110,17 +114,17 @@ static int delete_base_file = 1;
 static int delete_exp_file = 1;
 static int delete_def_file = 1;
 
-static int run (const char *, char *);
-static char *mybasename (const char *);
-static int strhash (const char *);
-static void usage (FILE *, int);
-static void display (const char *, va_list) ATTRIBUTE_PRINTF(1,0);
-static void inform (const char *, ...) ATTRIBUTE_PRINTF_1;
-static void warn (const char *, ...) ATTRIBUTE_PRINTF_1;
-static char *look_for_prog (const char *, const char *, int);
-static char *deduce_name (const char *);
-static void delete_temp_files (void);
-static void cleanup_and_exit (int);
+static int run PARAMS ((const char *, char *));
+static char *mybasename PARAMS ((const char *));
+static int strhash PARAMS ((const char *));
+static void usage PARAMS ((FILE *, int));
+static void display PARAMS ((const char *, va_list));
+static void inform PARAMS ((const char *, ...));
+static void warn PARAMS ((const char *, ...));
+static char *look_for_prog PARAMS ((const char *, const char *, int));
+static char *deduce_name PARAMS ((const char *));
+static void delete_temp_files PARAMS ((void));
+static void cleanup_and_exit PARAMS ((int));
 
 /**********************************************************************/
 
@@ -133,10 +137,12 @@ static void cleanup_and_exit (int);
    (hopefully) soon be retired in favor of `ld --shared.  */
 
 static void
-display (const char * message, va_list args)
+display (message, args)
+     const char * message;
+     va_list      args;
 {
-  if (prog_name != NULL)
-    fprintf (stderr, "%s: ", prog_name);
+  if (program_name != NULL)
+    fprintf (stderr, "%s: ", program_name);
 
   vfprintf (stderr, message, args);
   fputc ('\n', stderr);
@@ -174,20 +180,23 @@ warn VPARAMS ((const char *format, ...))
    appropriate.  */
 
 static char *
-look_for_prog (const char *progname, const char *prefix, int end_prefix)
+look_for_prog (prog_name, prefix, end_prefix)
+     const char *prog_name;
+     const char *prefix;
+     int end_prefix;
 {
   struct stat s;
   char *cmd;
 
-  cmd = xmalloc (strlen (prefix)
-		 + strlen (progname)
+  cmd = xmalloc (strlen (prefix) 
+                 + strlen (prog_name) 
 #ifdef HAVE_EXECUTABLE_SUFFIX
-		 + strlen (EXECUTABLE_SUFFIX)
+                 + strlen (EXECUTABLE_SUFFIX) 
 #endif
 		 + 10);
   strcpy (cmd, prefix);
 
-  sprintf (cmd + end_prefix, "%s", progname);
+  sprintf (cmd + end_prefix, "%s", prog_name);
 
   if (strchr (cmd, '/') != NULL)
     {
@@ -195,12 +204,12 @@ look_for_prog (const char *progname, const char *prefix, int end_prefix)
 
       found = (stat (cmd, &s) == 0
 #ifdef HAVE_EXECUTABLE_SUFFIX
-	       || stat (strcat (cmd, EXECUTABLE_SUFFIX), &s) == 0
+               || stat (strcat (cmd, EXECUTABLE_SUFFIX), &s) == 0
 #endif
 	       );
 
       if (! found)
-	{
+        {
 	  /* xgettext:c-format */
 	  inform (_("Tried file: %s"), cmd);
 	  free (cmd);
@@ -217,43 +226,41 @@ look_for_prog (const char *progname, const char *prefix, int end_prefix)
 /* Deduce the name of the program we are want to invoke.
    PROG_NAME is the basic name of the program we want to run,
    eg "as" or "ld".  The catch is that we might want actually
-   run "i386-pe-as" or "ppc-pe-ld".
+   run "i386-pe-as" or "ppc-pe-ld".  
 
    If argv[0] contains the full path, then try to find the program
    in the same place, with and then without a target-like prefix.
 
    Given, argv[0] = /usr/local/bin/i586-cygwin32-dlltool,
-   deduce_name("as") uses the following search order:
+   deduce_name("as") uses the following search order: 
 
      /usr/local/bin/i586-cygwin32-as
      /usr/local/bin/as
      as
-
+   
    If there's an EXECUTABLE_SUFFIX, it'll use that as well; for each
    name, it'll try without and then with EXECUTABLE_SUFFIX.
 
    Given, argv[0] = i586-cygwin32-dlltool, it will not even try "as"
    as the fallback, but rather return i586-cygwin32-as.
-
+     
    Oh, and given, argv[0] = dlltool, it'll return "as".
 
    Returns a dynamically allocated string.  */
 
 static char *
-deduce_name (const char * name)
+deduce_name (prog_name)
+     const char *prog_name;
 {
   char *cmd;
-  const char *dash;
-  const char *slash;
-  const char *cp;
+  char *dash, *slash, *cp;
 
   dash = NULL;
   slash = NULL;
-  for (cp = prog_name; *cp != '\0'; ++cp)
+  for (cp = program_name; *cp != '\0'; ++cp)
     {
       if (*cp == '-')
 	dash = cp;
-
       if (
 #if defined(__DJGPP__) || defined (__CYGWIN__) || defined(__WIN32__)
 	  *cp == ':' || *cp == '\\' ||
@@ -268,24 +275,30 @@ deduce_name (const char * name)
   cmd = NULL;
 
   if (dash != NULL)
-    /* First, try looking for a prefixed NAME in the
-       PROG_NAME directory, with the same prefix as PROG_NAME.  */
-    cmd = look_for_prog (name, prog_name, dash - prog_name + 1);
+    {
+      /* First, try looking for a prefixed PROG_NAME in the
+         PROGRAM_NAME directory, with the same prefix as PROGRAM_NAME.  */
+      cmd = look_for_prog (prog_name, program_name, dash - program_name + 1);
+    }
 
   if (slash != NULL && cmd == NULL)
-    /* Next, try looking for a NAME in the same directory as
-       that of this program.  */
-    cmd = look_for_prog (name, prog_name, slash - prog_name + 1);
+    {
+      /* Next, try looking for a PROG_NAME in the same directory as
+         that of this program.  */
+      cmd = look_for_prog (prog_name, program_name, slash - program_name + 1);
+    }
 
   if (cmd == NULL)
-    /* Just return NAME as is.  */
-    cmd = xstrdup (name);
+    {
+      /* Just return PROG_NAME as is.  */
+      cmd = xstrdup (prog_name);
+    }
 
   return cmd;
 }
 
 static void
-delete_temp_files (void)
+delete_temp_files ()
 {
   if (delete_base_file && base_file_name)
     {
@@ -297,12 +310,12 @@ delete_temp_files (void)
 	    warn (_("Deleting temporary base file %s"), base_file_name);
 	}
       if (! dontdeltemps)
-	{
-	  unlink (base_file_name);
+        {
+          unlink (base_file_name);
 	  free (base_file_name);
 	}
     }
-
+  
   if (delete_exp_file && exp_file_name)
     {
       if (verbose)
@@ -313,9 +326,9 @@ delete_temp_files (void)
 	    warn (_("Deleting temporary exp file %s"), exp_file_name);
 	}
       if (! dontdeltemps)
-	{
-	  unlink (exp_file_name);
-	  free (exp_file_name);
+        {
+          unlink (exp_file_name);
+          free (exp_file_name);
 	}
     }
   if (delete_def_file && def_file_name)
@@ -328,22 +341,25 @@ delete_temp_files (void)
 	    warn (_("Deleting temporary def file %s"), def_file_name);
 	}
       if (! dontdeltemps)
-	{
-	  unlink (def_file_name);
-	  free (def_file_name);
+        {
+          unlink (def_file_name);
+          free (def_file_name);
 	}
     }
 }
 
-static void
-cleanup_and_exit (int status)
+static void 
+cleanup_and_exit (status)
+     int status;
 {
   delete_temp_files ();
   exit (status);
 }
-
+  
 static int
-run (const char *what, char *args)
+run (what, args)
+     const char *what;
+     char *args;
 {
   char *s;
   int pid, wait_status, retcode;
@@ -382,21 +398,21 @@ run (const char *what, char *args)
 	break;
       *s++ = 0;
       if (in_quote)
-	s++;
+        s++;
     }
   argv[i++] = NULL;
 
   if (dry_run)
     return 0;
 
-  pid = pexecute (argv[0], (char * const *) argv, prog_name, temp_base,
+  pid = pexecute (argv[0], (char * const *) argv, program_name, temp_base,
 		  &errmsg_fmt, &errmsg_arg, PEXECUTE_ONE | PEXECUTE_SEARCH);
 
   if (pid == -1)
     {
       int errno_val = errno;
 
-      fprintf (stderr, "%s: ", prog_name);
+      fprintf (stderr, "%s: ", program_name);
       fprintf (stderr, errmsg_fmt, errmsg_arg);
       fprintf (stderr, ": %s\n", strerror (errno_val));
       return 1;
@@ -406,7 +422,7 @@ run (const char *what, char *args)
   pid = pwait (pid, &wait_status, 0);
   if (pid == -1)
     {
-      warn (_("pwait returns: %s"), strerror (errno));
+      warn ("wait: %s", strerror (errno));
       retcode = 1;
     }
   else if (WIFSIGNALED (wait_status))
@@ -424,12 +440,13 @@ run (const char *what, char *args)
     }
   else
     retcode = 1;
-
+  
   return retcode;
 }
 
 static char *
-mybasename (const char *name)
+mybasename (name)
+     const char *name;
 {
   const char *base = name;
 
@@ -444,8 +461,9 @@ mybasename (const char *name)
   return (char *) base;
 }
 
-static int
-strhash (const char *str)
+static int 
+strhash (str)
+     const char *str;
 {
   const unsigned char *s;
   unsigned long hash;
@@ -470,16 +488,17 @@ strhash (const char *str)
 /**********************************************************************/
 
 static void
-usage (FILE *file, int status)
+usage (file, status)
+     FILE *file;
+     int status;
 {
-  fprintf (file, _("Usage %s <option(s)> <object-file(s)>\n"), prog_name);
+  fprintf (file, _("Usage %s <option(s)> <object-file(s)>\n"), program_name);
   fprintf (file, _("  Generic options:\n"));
-  fprintf (file, _("   @<file>                Read options from <file>\n"));    
   fprintf (file, _("   --quiet, -q            Work quietly\n"));
   fprintf (file, _("   --verbose, -v          Verbose\n"));
   fprintf (file, _("   --version              Print dllwrap version\n"));
   fprintf (file, _("   --implib <outname>     Synonym for --output-lib\n"));
-  fprintf (file, _("  Options for %s:\n"), prog_name);
+  fprintf (file, _("  Options for %s:\n"), program_name);
   fprintf (file, _("   --driver-name <driver> Defaults to \"gcc\"\n"));
   fprintf (file, _("   --driver-flags <flags> Override default ld flags\n"));
   fprintf (file, _("   --dlltool-name <dlltool> Defaults to \"dlltool\"\n"));
@@ -508,23 +527,19 @@ usage (FILE *file, int status)
   fprintf (file, _("   --add-stdcall-alias    Add aliases without @<n>\n"));
   fprintf (file, _("   --as <name>            Use <name> for assembler\n"));
   fprintf (file, _("   --nodelete             Keep temp files.\n"));
-  fprintf (file, _("   --no-leading-underscore  Entrypoint without underscore\n"));
-  fprintf (file, _("   --leading-underscore     Entrypoint with underscore.\n"));
   fprintf (file, _("  Rest are passed unmodified to the language driver\n"));
   fprintf (file, "\n\n");
-  if (REPORT_BUGS_TO[0] && status == 0)
-    fprintf (file, _("Report bugs to %s\n"), REPORT_BUGS_TO);
   exit (status);
 }
 
 #define OPTION_START		149
 
-/* GENERIC options.  */
+/* GENERIC options. */
 #define OPTION_QUIET		(OPTION_START + 1)
 #define OPTION_VERBOSE		(OPTION_QUIET + 1)
 #define OPTION_VERSION		(OPTION_VERBOSE + 1)
 
-/* DLLWRAP options.  */
+/* DLLWRAP options. */
 #define OPTION_DRY_RUN		(OPTION_VERSION + 1)
 #define OPTION_DRIVER_NAME	(OPTION_DRY_RUN + 1)
 #define OPTION_DRIVER_FLAGS	(OPTION_DRIVER_NAME + 1)
@@ -533,13 +548,11 @@ usage (FILE *file, int status)
 #define OPTION_IMAGE_BASE	(OPTION_ENTRY + 1)
 #define OPTION_TARGET		(OPTION_IMAGE_BASE + 1)
 #define OPTION_MNO_CYGWIN	(OPTION_TARGET + 1)
-#define OPTION_NO_LEADING_UNDERSCORE (OPTION_MNO_CYGWIN + 1)
-#define OPTION_LEADING_UNDERSCORE (OPTION_NO_LEADING_UNDERSCORE + 1)
 
-/* DLLTOOL options.  */
-#define OPTION_NODELETE		(OPTION_LEADING_UNDERSCORE + 1)
+/* DLLTOOL options. */
+#define OPTION_NODELETE		(OPTION_MNO_CYGWIN + 1)
 #define OPTION_DLLNAME		(OPTION_NODELETE + 1)
-#define OPTION_NO_IDATA4	(OPTION_DLLNAME + 1)
+#define OPTION_NO_IDATA4 	(OPTION_DLLNAME + 1)
 #define OPTION_NO_IDATA5	(OPTION_NO_IDATA4 + 1)
 #define OPTION_OUTPUT_EXP	(OPTION_NO_IDATA5 + 1)
 #define OPTION_OUTPUT_DEF	(OPTION_OUTPUT_EXP + 1)
@@ -559,13 +572,13 @@ usage (FILE *file, int status)
 
 static const struct option long_options[] =
 {
-  /* generic options.  */
+  /* generic options. */
   {"quiet", no_argument, NULL, 'q'},
   {"verbose", no_argument, NULL, 'v'},
   {"version", no_argument, NULL, OPTION_VERSION},
   {"implib", required_argument, NULL, OPTION_OUTPUT_LIB},
 
-  /* dllwrap options.  */
+  /* dllwrap options. */
   {"dry-run", no_argument, NULL, OPTION_DRY_RUN},
   {"driver-name", required_argument, NULL, OPTION_DRIVER_NAME},
   {"driver-flags", required_argument, NULL, OPTION_DRIVER_FLAGS},
@@ -573,10 +586,8 @@ static const struct option long_options[] =
   {"entry", required_argument, NULL, 'e'},
   {"image-base", required_argument, NULL, OPTION_IMAGE_BASE},
   {"target", required_argument, NULL, OPTION_TARGET},
-  {"no-leading-underscore", no_argument, NULL, OPTION_NO_LEADING_UNDERSCORE},
-  {"leading-underscore", no_argument, NULL, OPTION_NO_LEADING_UNDERSCORE},
 
-  /* dlltool options.  */
+  /* dlltool options. */
   {"no-delete", no_argument, NULL, 'n'},
   {"dllname", required_argument, NULL, OPTION_DLLNAME},
   {"no-idata4", no_argument, NULL, OPTION_NO_IDATA4},
@@ -600,10 +611,12 @@ static const struct option long_options[] =
   {0, 0, 0, 0}
 };
 
-int main (int, char **);
+int main PARAMS ((int, char **));
 
 int
-main (int argc, char **argv)
+main (argc, argv)
+     int argc;
+     char **argv;
 {
   int c;
   int i;
@@ -626,7 +639,7 @@ main (int argc, char **argv)
 
   char *image_base_str = 0;
 
-  prog_name = argv[0];
+  program_name = argv[0];
 
 #if defined (HAVE_SETLOCALE) && defined (HAVE_LC_MESSAGES)
   setlocale (LC_MESSAGES, "");
@@ -637,12 +650,10 @@ main (int argc, char **argv)
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
 
-  expandargv (&argc, &argv);
-
   saved_argv = (char **) xmalloc (argc * sizeof (char*));
   dlltool_arg_indices = (int *) xmalloc (argc * sizeof (int));
   driver_arg_indices = (int *) xmalloc (argc * sizeof (int));
-  for (i = 0; i < argc; ++i)
+  for (i = 0; i < argc; ++i) 
     {
       size_t len = strlen (argv[i]);
       char *arg = (char *) xmalloc (len + 1);
@@ -656,11 +667,11 @@ main (int argc, char **argv)
 
   /* We recognize dllwrap and dlltool options, and everything else is
      passed onto the language driver (eg., to GCC). We collect options
-     to dlltool and driver in dlltool_args and driver_args.  */
-
+     to dlltool and driver in dlltool_args and driver_args. */
+   
   opterr = 0;
-  while ((c = getopt_long_only (argc, argv, "nkAqve:Uho:l:L:I:",
-				long_options, (int *) 0)) != EOF)
+  while ((c = getopt_long_only (argc, argv, "nkAqve:Uho:l:L:I:", 
+                                long_options, (int *) 0)) != EOF)
     {
       int dlltool_arg;
       int driver_arg;
@@ -671,15 +682,15 @@ main (int argc, char **argv)
       single_word_option_value_pair = 0;
 
       if (c != '?')
-	{
+        {
 	  /* We recognize this option, so it has to be either dllwrap or
 	     dlltool option. Do not pass to driver unless it's one of the
 	     generic options that are passed to all the tools (such as -v)
-	     which are dealt with later.  */
+	     which are dealt with later. */
 	  driver_arg = 0;
 	}
 
-      /* deal with generic and dllwrap options first.  */
+      /* deal with generic and dllwrap options first. */
       switch (c)
 	{
 	case 'h':
@@ -692,7 +703,7 @@ main (int argc, char **argv)
 	  verbose = 1;
 	  break;
 	case OPTION_VERSION:
-	  print_version (prog_name);
+	  print_version (program_name);
 	  break;
 	case 'e':
 	  entry_point = optarg;
@@ -738,12 +749,6 @@ main (int argc, char **argv)
 	case OPTION_MNO_CYGWIN:
 	  target = "i386-mingw32";
 	  break;
-	case OPTION_NO_LEADING_UNDERSCORE:
-	  is_leading_underscore = 0;
-	  break;
-	case OPTION_LEADING_UNDERSCORE:
-	  is_leading_underscore = 1;
-	  break;
 	case OPTION_BASE_FILE:
 	  base_file_name = optarg;
 	  delete_base_file = 0;
@@ -764,34 +769,34 @@ main (int argc, char **argv)
 	  dlltool_arg = 1;
 	  break;
 	}
-
-      /* Handle passing through --option=value case.  */
-      if (optarg
-	  && saved_argv[optind-1][0] == '-'
-	  && saved_argv[optind-1][1] == '-'
+      
+      /* Handle passing through --option=value case. */
+      if (optarg 
+          && saved_argv[optind-1][0] == '-' 
+          && saved_argv[optind-1][1] == '-' 
 	  && strchr (saved_argv[optind-1], '='))
 	single_word_option_value_pair = 1;
 
       if (dlltool_arg)
-	{
+        {
 	  dlltool_arg_indices[optind-1] = 1;
 	  if (optarg && ! single_word_option_value_pair)
 	    {
 	      dlltool_arg_indices[optind-2] = 1;
-	    }
+	    } 
 	}
 
       if (! driver_arg)
-	{
+        {
 	  driver_arg_indices[optind-1] = 0;
 	  if (optarg && ! single_word_option_value_pair)
 	    {
 	      driver_arg_indices[optind-2] = 0;
-	    }
+	    } 
 	}
     }
 
-  /* Sanity checks.  */
+  /* sanity checks. */
   if (! dll_name && ! dll_file_name)
     {
       warn (_("Must provide at least one of -o or --dllname options"));
@@ -806,7 +811,7 @@ main (int argc, char **argv)
       dll_file_name = xstrdup (dll_name);
     }
 
-  /* Deduce driver-name and dlltool-name from our own.  */
+  /* Deduce driver-name and dlltool-name from our own. */
   if (driver_name == NULL)
     driver_name = deduce_name ("gcc");
 
@@ -816,58 +821,43 @@ main (int argc, char **argv)
   if (! def_file_seen)
     {
       char *fileprefix = choose_temp_base ();
-
       def_file_name = (char *) xmalloc (strlen (fileprefix) + 5);
-      sprintf (def_file_name, "%s.def",
-	       (dontdeltemps) ? mybasename (fileprefix) : fileprefix);
+      sprintf (def_file_name, "%s.def", 
+               (dontdeltemps) ? mybasename (fileprefix) : fileprefix);
       delete_def_file = 1;
       free (fileprefix);
       delete_def_file = 1;
       warn (_("no export definition file provided.\n\
 Creating one, but that may not be what you want"));
     }
-
-  /* Set the target platform.  */
+  
+  /* set the target platform. */
   if (strstr (target, "cygwin"))
     which_target = CYGWIN_TARGET;
   else if (strstr (target, "mingw"))
     which_target = MINGW_TARGET;
-  else
+  else 
     which_target = UNKNOWN_TARGET;
 
-  if (! strncmp (target, "arm", 3))
-    which_cpu = ARM_CPU;
-  else if (!strncmp (target, "x86_64", 6)
-	   || !strncmp (target, "athlon64", 8)
-	   || !strncmp (target, "amd64", 5))
-    which_cpu = X64_CPU;
-  else if (target[0] == 'i' && (target[1] >= '3' && target[1] <= '6')
-	   && target[2] == '8' && target[3] == '6')
-    which_cpu = X86_CPU;
-  else
-    which_cpu = UNKNOWN_CPU;
-
-  if (is_leading_underscore == -1)
-    is_leading_underscore = (which_cpu != X64_CPU && which_cpu != ARM_CPU);
-
-  /* Re-create the command lines as a string, taking care to quote stuff.  */
+  /* re-create the command lines as a string, taking care to quote stuff. */
   dlltool_cmdline = dyn_string_new (cmdline_len);
   if (verbose)
-    dyn_string_append_cstr (dlltool_cmdline, " -v");
-
+    {
+      dyn_string_append_cstr (dlltool_cmdline, " -v");
+    }
   dyn_string_append_cstr (dlltool_cmdline, " --dllname ");
   dyn_string_append_cstr (dlltool_cmdline, dll_name);
 
   for (i = 1; i < argc; ++i)
     {
       if (dlltool_arg_indices[i])
-	{
+        {
 	  char *arg = saved_argv[i];
-	  int quote = (strchr (arg, ' ') || strchr (arg, '\t'));
-	  dyn_string_append_cstr (dlltool_cmdline,
+          int quote = (strchr (arg, ' ') || strchr (arg, '\t'));
+	  dyn_string_append_cstr (dlltool_cmdline, 
 	                     (quote) ? " \"" : " ");
 	  dyn_string_append_cstr (dlltool_cmdline, arg);
-	  dyn_string_append_cstr (dlltool_cmdline,
+	  dyn_string_append_cstr (dlltool_cmdline, 
 	                     (quote) ? "\"" : "");
 	}
     }
@@ -876,17 +866,17 @@ Creating one, but that may not be what you want"));
   if (! driver_flags || strlen (driver_flags) == 0)
     {
       switch (which_target)
-	{
+        {
 	case CYGWIN_TARGET:
-	  driver_flags = cygwin_driver_flags;
+          driver_flags = cygwin_driver_flags;
 	  break;
-
+	
 	case MINGW_TARGET:
-	  driver_flags = mingw32_driver_flags;
+          driver_flags = mingw32_driver_flags;
 	  break;
-
+	
 	default:
-	  driver_flags = generic_driver_flags;
+          driver_flags = generic_driver_flags;
 	  break;
 	}
     }
@@ -894,44 +884,28 @@ Creating one, but that may not be what you want"));
   dyn_string_append_cstr (driver_cmdline, " -o ");
   dyn_string_append_cstr (driver_cmdline, dll_file_name);
 
-  if (is_leading_underscore == 0)
-    dyn_string_append_cstr (driver_cmdline, " --no-leading-underscore");
-  else if (is_leading_underscore == 1)
-    dyn_string_append_cstr (driver_cmdline, " --leading-underscore");
-
   if (! entry_point || strlen (entry_point) == 0)
     {
-      const char *prefix = (is_leading_underscore != 0 ? "_" : "");
-      const char *postfix = "";
-      const char *name_entry;
-
-      if (which_cpu == X86_CPU || which_cpu == UNKNOWN_CPU)
-	postfix = "@12";
-
       switch (which_target)
-	{
+        {
 	case CYGWIN_TARGET:
-	  name_entry = "_cygwin_dll_entry";
+	  entry_point = "__cygwin_dll_entry@12";
 	  break;
-
+	
 	case MINGW_TARGET:
-	  name_entry = "DllMainCRTStartup";
+	  entry_point = "_DllMainCRTStartup@12";
 	  break;
-
+	
 	default:
-	  name_entry = "DllMain";
+          entry_point = "_DllMain@12";
 	  break;
 	}
-      entry_point =
-	(char *) malloc (strlen (name_entry) + strlen (prefix)
-			 + strlen (postfix) + 1);
-      sprintf (entry_point, "%s%s%s", prefix, name_entry, postfix);
     }
   dyn_string_append_cstr (driver_cmdline, " -Wl,-e,");
   dyn_string_append_cstr (driver_cmdline, entry_point);
   dyn_string_append_cstr (dlltool_cmdline, " --exclude-symbol=");
-  dyn_string_append_cstr (dlltool_cmdline,
-                    (entry_point[0] == '_') ? entry_point+1 : entry_point);
+  dyn_string_append_cstr (dlltool_cmdline, 
+                     (entry_point[0] == '_') ? entry_point+1 : entry_point);
 
   if (! image_base_str || strlen (image_base_str) == 0)
     {
@@ -952,22 +926,25 @@ Creating one, but that may not be what you want"));
   for (i = 1; i < argc; ++i)
     {
       if (driver_arg_indices[i])
-	{
+        {
 	  char *arg = saved_argv[i];
-	  int quote = (strchr (arg, ' ') || strchr (arg, '\t'));
-	  dyn_string_append_cstr (driver_cmdline,
+          int quote = (strchr (arg, ' ') || strchr (arg, '\t'));
+	  dyn_string_append_cstr (driver_cmdline, 
 	                     (quote) ? " \"" : " ");
 	  dyn_string_append_cstr (driver_cmdline, arg);
-	  dyn_string_append_cstr (driver_cmdline,
+	  dyn_string_append_cstr (driver_cmdline, 
 	                     (quote) ? "\"" : "");
 	}
     }
-
-  /* Step pre-1. If no --def <EXPORT_DEF> is specified,
-     then create it and then pass it on.  */
-
-  if (! def_file_seen)
+  
+  /*
+   * Step pre-1. If no --def <EXPORT_DEF> is specified, then create it
+   * and then pass it on.
+   */
+  
+  if (! def_file_seen) 
     {
+      int i;
       dyn_string_t step_pre1;
 
       step_pre1 = dyn_string_new (1024);
@@ -975,8 +952,8 @@ Creating one, but that may not be what you want"));
       dyn_string_append_cstr (step_pre1, dlltool_cmdline->s);
       if (export_all)
 	{
-	  dyn_string_append_cstr (step_pre1, " --export-all --exclude-symbol=");
-	  dyn_string_append_cstr (step_pre1,
+          dyn_string_append_cstr (step_pre1, " --export-all --exclude-symbol=");
+          dyn_string_append_cstr (step_pre1, 
 	  "_cygwin_dll_entry@12,DllMainCRTStartup@12,DllMain@12,DllEntryPoint@12");
 	}
       dyn_string_append_cstr (step_pre1, " --output-def ");
@@ -988,7 +965,7 @@ Creating one, but that may not be what you want"));
 	    {
 	      char *arg = saved_argv[i];
 	      size_t len = strlen (arg);
-	      if (len >= 2 && arg[len-2] == '.'
+	      if (len >= 2 && arg[len-2] == '.' 
 	          && (arg[len-1] == 'o' || arg[len-1] == 'a'))
 		{
 		  int quote = (strchr (arg, ' ') || strchr (arg, '\t'));
@@ -1003,7 +980,7 @@ Creating one, but that may not be what you want"));
 
       if (run (dlltool_name, step_pre1->s))
 	cleanup_and_exit (1);
-
+      
       dyn_string_delete (step_pre1);
     }
 
@@ -1017,149 +994,155 @@ Creating one, but that may not be what you want"));
       fprintf (stderr, _("DRIVER name     : %s\n"), driver_name);
       fprintf (stderr, _("DRIVER options  : %s\n"), driver_cmdline->s);
     }
-
-  /* Step 1. Call GCC/LD to create base relocation file. If using GCC, the
-     driver command line will look like the following:
-    
-        % gcc -Wl,--dll --Wl,--base-file,foo.base [rest of command line]
-    
-     If the user does not specify a base name, create temporary one that
-     is deleted at exit.  */
-
+ 
+  /*
+   * Step 1. Call GCC/LD to create base relocation file. If using GCC, the
+   * driver command line will look like the following:
+   *    
+   *    % gcc -Wl,--dll --Wl,--base-file,foo.base [rest of command line]
+   *
+   * If the user does not specify a base name, create temporary one that
+   * is deleted at exit.
+   *
+   */
+  
   if (! base_file_name)
     {
       char *fileprefix = choose_temp_base ();
       base_file_name = (char *) xmalloc (strlen (fileprefix) + 6);
-      sprintf (base_file_name, "%s.base",
-	       (dontdeltemps) ? mybasename (fileprefix) : fileprefix);
+      sprintf (base_file_name, "%s.base", 
+               (dontdeltemps) ? mybasename (fileprefix) : fileprefix);
       delete_base_file = 1;
       free (fileprefix);
     }
-
+  
   {
     int quote;
 
-    dyn_string_t step1 = dyn_string_new (driver_cmdline->length
-					 + strlen (base_file_name)
-					 + 20);
+    dyn_string_t step1 = dyn_string_new (driver_cmdline->length 
+                                         + strlen (base_file_name)
+				         + 20);
     dyn_string_append_cstr (step1, "-Wl,--base-file,");
-    quote = (strchr (base_file_name, ' ')
-	     || strchr (base_file_name, '\t'));
-    dyn_string_append_cstr (step1,
+    quote = (strchr (base_file_name, ' ') 
+             || strchr (base_file_name, '\t'));
+    dyn_string_append_cstr (step1, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step1, base_file_name);
-    dyn_string_append_cstr (step1,
+    dyn_string_append_cstr (step1, 
 	               (quote) ? "\"" : "");
     if (driver_cmdline->length)
       {
-	dyn_string_append_cstr (step1, " ");
-	dyn_string_append_cstr (step1, driver_cmdline->s);
+        dyn_string_append_cstr (step1, " ");
+        dyn_string_append_cstr (step1, driver_cmdline->s);
       }
 
     if (run (driver_name, step1->s))
       cleanup_and_exit (1);
-
+    
     dyn_string_delete (step1);
   }
 
-  /* Step 2. generate the exp file by running dlltool.
-     dlltool command line will look like the following:
-    
-        % dlltool -Wl,--dll --Wl,--base-file,foo.base [rest of command line]
-    
-     If the user does not specify a base name, create temporary one that
-     is deleted at exit.  */
 
+
+  /*
+   * Step 2. generate the exp file by running dlltool. 
+   * dlltool command line will look like the following:
+   *    
+   *    % dlltool -Wl,--dll --Wl,--base-file,foo.base [rest of command line]
+   *
+   * If the user does not specify a base name, create temporary one that
+   * is deleted at exit.
+   *
+   */
+  
   if (! exp_file_name)
     {
       char *p = strrchr (dll_name, '.');
-      size_t prefix_len = (p) ? (size_t) (p - dll_name) : strlen (dll_name);
-
+      size_t prefix_len = (p) ? p - dll_name : strlen (dll_name);
       exp_file_name = (char *) xmalloc (prefix_len + 4 + 1);
       strncpy (exp_file_name, dll_name, prefix_len);
       exp_file_name[prefix_len] = '\0';
       strcat (exp_file_name, ".exp");
       delete_exp_file = 1;
     }
-
+  
   {
     int quote;
-
-    dyn_string_t step2 = dyn_string_new (dlltool_cmdline->length
-					 + strlen (base_file_name)
-					 + strlen (exp_file_name)
+    dyn_string_t step2 = dyn_string_new (dlltool_cmdline->length 
+                                         + strlen (base_file_name)
+                                         + strlen (exp_file_name)
 				         + 20);
 
     dyn_string_append_cstr (step2, "--base-file ");
-    quote = (strchr (base_file_name, ' ')
-	     || strchr (base_file_name, '\t'));
-    dyn_string_append_cstr (step2,
+    quote = (strchr (base_file_name, ' ') 
+             || strchr (base_file_name, '\t'));
+    dyn_string_append_cstr (step2, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step2, base_file_name);
-    dyn_string_append_cstr (step2,
+    dyn_string_append_cstr (step2, 
 	               (quote) ? "\" " : " ");
 
     dyn_string_append_cstr (step2, "--output-exp ");
-    quote = (strchr (exp_file_name, ' ')
-	     || strchr (exp_file_name, '\t'));
-    dyn_string_append_cstr (step2,
+    quote = (strchr (exp_file_name, ' ') 
+             || strchr (exp_file_name, '\t'));
+    dyn_string_append_cstr (step2, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step2, exp_file_name);
-    dyn_string_append_cstr (step2,
+    dyn_string_append_cstr (step2, 
 	               (quote) ? "\"" : "");
 
     if (dlltool_cmdline->length)
       {
-	dyn_string_append_cstr (step2, " ");
-	dyn_string_append_cstr (step2, dlltool_cmdline->s);
+        dyn_string_append_cstr (step2, " ");
+        dyn_string_append_cstr (step2, dlltool_cmdline->s);
       }
 
     if (run (dlltool_name, step2->s))
       cleanup_and_exit (1);
-
+    
     dyn_string_delete (step2);
   }
 
   /*
    * Step 3. Call GCC/LD to again, adding the exp file this time.
    * driver command line will look like the following:
-   *
+   *    
    *    % gcc -Wl,--dll --Wl,--base-file,foo.base foo.exp [rest ...]
    */
 
   {
     int quote;
 
-    dyn_string_t step3 = dyn_string_new (driver_cmdline->length
-					 + strlen (exp_file_name)
-					 + strlen (base_file_name)
+    dyn_string_t step3 = dyn_string_new (driver_cmdline->length 
+                                         + strlen (exp_file_name)
+                                         + strlen (base_file_name)
 				         + 20);
     dyn_string_append_cstr (step3, "-Wl,--base-file,");
-    quote = (strchr (base_file_name, ' ')
-	     || strchr (base_file_name, '\t'));
-    dyn_string_append_cstr (step3,
+    quote = (strchr (base_file_name, ' ') 
+             || strchr (base_file_name, '\t'));
+    dyn_string_append_cstr (step3, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step3, base_file_name);
-    dyn_string_append_cstr (step3,
+    dyn_string_append_cstr (step3, 
 	               (quote) ? "\" " : " ");
 
-    quote = (strchr (exp_file_name, ' ')
-	     || strchr (exp_file_name, '\t'));
-    dyn_string_append_cstr (step3,
+    quote = (strchr (exp_file_name, ' ') 
+             || strchr (exp_file_name, '\t'));
+    dyn_string_append_cstr (step3, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step3, exp_file_name);
-    dyn_string_append_cstr (step3,
+    dyn_string_append_cstr (step3, 
 	               (quote) ? "\"" : "");
 
     if (driver_cmdline->length)
       {
-	dyn_string_append_cstr (step3, " ");
-	dyn_string_append_cstr (step3, driver_cmdline->s);
+        dyn_string_append_cstr (step3, " ");
+        dyn_string_append_cstr (step3, driver_cmdline->s);
       }
 
     if (run (driver_name, step3->s))
       cleanup_and_exit (1);
-
+    
     dyn_string_delete (step3);
   }
 
@@ -1170,52 +1153,52 @@ Creating one, but that may not be what you want"));
 
   {
     int quote;
-    dyn_string_t step4 = dyn_string_new (dlltool_cmdline->length
-					 + strlen (base_file_name)
-					 + strlen (exp_file_name)
+    dyn_string_t step4 = dyn_string_new (dlltool_cmdline->length 
+                                         + strlen (base_file_name)
+                                         + strlen (exp_file_name)
 				         + 20);
 
     dyn_string_append_cstr (step4, "--base-file ");
-    quote = (strchr (base_file_name, ' ')
-	     || strchr (base_file_name, '\t'));
-    dyn_string_append_cstr (step4,
+    quote = (strchr (base_file_name, ' ') 
+             || strchr (base_file_name, '\t'));
+    dyn_string_append_cstr (step4, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step4, base_file_name);
-    dyn_string_append_cstr (step4,
+    dyn_string_append_cstr (step4, 
 	               (quote) ? "\" " : " ");
 
     dyn_string_append_cstr (step4, "--output-exp ");
-    quote = (strchr (exp_file_name, ' ')
-	     || strchr (exp_file_name, '\t'));
-    dyn_string_append_cstr (step4,
+    quote = (strchr (exp_file_name, ' ') 
+             || strchr (exp_file_name, '\t'));
+    dyn_string_append_cstr (step4, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step4, exp_file_name);
-    dyn_string_append_cstr (step4,
+    dyn_string_append_cstr (step4, 
 	               (quote) ? "\"" : "");
 
     if (dlltool_cmdline->length)
       {
-	dyn_string_append_cstr (step4, " ");
-	dyn_string_append_cstr (step4, dlltool_cmdline->s);
+        dyn_string_append_cstr (step4, " ");
+        dyn_string_append_cstr (step4, dlltool_cmdline->s);
       }
 
     if (output_lib_file_name)
       {
-	dyn_string_append_cstr (step4, " --output-lib ");
-	dyn_string_append_cstr (step4, output_lib_file_name);
+        dyn_string_append_cstr (step4, " --output-lib ");
+        dyn_string_append_cstr (step4, output_lib_file_name);
       }
 
     if (run (dlltool_name, step4->s))
       cleanup_and_exit (1);
-
+    
     dyn_string_delete (step4);
   }
-
+  
 
   /*
    * Step 5. Link it all together and be done with it.
    * driver command line will look like the following:
-   *
+   *    
    *    % gcc -Wl,--dll foo.exp [rest ...]
    *
    */
@@ -1223,26 +1206,26 @@ Creating one, but that may not be what you want"));
   {
     int quote;
 
-    dyn_string_t step5 = dyn_string_new (driver_cmdline->length
-					 + strlen (exp_file_name)
+    dyn_string_t step5 = dyn_string_new (driver_cmdline->length 
+                                         + strlen (exp_file_name)
 				         + 20);
-    quote = (strchr (exp_file_name, ' ')
-	     || strchr (exp_file_name, '\t'));
-    dyn_string_append_cstr (step5,
+    quote = (strchr (exp_file_name, ' ') 
+             || strchr (exp_file_name, '\t'));
+    dyn_string_append_cstr (step5, 
 	               (quote) ? "\"" : "");
     dyn_string_append_cstr (step5, exp_file_name);
-    dyn_string_append_cstr (step5,
+    dyn_string_append_cstr (step5, 
 	               (quote) ? "\"" : "");
 
     if (driver_cmdline->length)
       {
-	dyn_string_append_cstr (step5, " ");
-	dyn_string_append_cstr (step5, driver_cmdline->s);
+        dyn_string_append_cstr (step5, " ");
+        dyn_string_append_cstr (step5, driver_cmdline->s);
       }
 
     if (run (driver_name, step5->s))
       cleanup_and_exit (1);
-
+    
     dyn_string_delete (step5);
   }
 
