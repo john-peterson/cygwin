@@ -1,26 +1,25 @@
 /* CGEN generic opcode support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2005, 2007, 2009,
-   2012  Free Software Foundation, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001
+   Free Software Foundation, Inc.
 
-   This file is part of libopcodes.
+   This file is part of the GNU Binutils and GDB, the GNU debugger.
 
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License along
    with this program; if not, write to the Free Software Foundation, Inc.,
-   51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
+   59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sysdep.h"
-#include "alloca-conf.h"
 #include <stdio.h>
 #include "ansidecl.h"
 #include "libiberty.h"
@@ -28,6 +27,10 @@
 #include "bfd.h"
 #include "symcat.h"
 #include "opcode/cgen.h"
+
+#ifdef HAVE_ALLOCA_H
+#include <alloca.h>
+#endif
 
 static unsigned int hash_keyword_name
   (const CGEN_KEYWORD *, const char *, int);
@@ -154,7 +157,7 @@ cgen_keyword_search_init (CGEN_KEYWORD *kt, const char *spec)
 {
   CGEN_KEYWORD_SEARCH search;
 
-  /* FIXME: Need to specify format of params.  */
+  /* FIXME: Need to specify format of PARAMS.  */
   if (spec != NULL)
     abort ();
 
@@ -376,11 +379,10 @@ cgen_get_insn_value (CGEN_CPU_DESC cd, unsigned char *buf, int length)
 
       for (i = 0; i < length; i += insn_chunk_bitsize) /* NB: i == bits */
 	{
-	  int bit_index;
+	  int index;
 	  bfd_vma this_value;
-
-	  bit_index = i; /* NB: not dependent on endianness; opposite of cgen_put_insn_value! */
-	  this_value = bfd_get_bits (& buf[bit_index / 8], insn_chunk_bitsize, big_p);
+	  index = i; /* NB: not dependent on endianness; opposite of cgen_put_insn_value! */
+	  this_value = bfd_get_bits (& buf[index / 8], insn_chunk_bitsize, big_p);
 	  value = (value << insn_chunk_bitsize) | this_value;
 	}
     }
@@ -415,10 +417,9 @@ cgen_put_insn_value (CGEN_CPU_DESC cd,
 
       for (i = 0; i < length; i += insn_chunk_bitsize) /* NB: i == bits */
 	{
-	  int bit_index;
-
-	  bit_index = (length - insn_chunk_bitsize - i); /* NB: not dependent on endianness! */
-	  bfd_put_bits ((bfd_vma) value, & buf[bit_index / 8], insn_chunk_bitsize, big_p);
+	  int index;
+	  index = (length - insn_chunk_bitsize - i); /* NB: not dependent on endianness! */
+	  bfd_put_bits ((bfd_vma) value, & buf[index / 8], insn_chunk_bitsize, big_p);
 	  value >>= insn_chunk_bitsize;
 	}
     }
@@ -482,7 +483,7 @@ cgen_lookup_insn (CGEN_CPU_DESC cd,
       /* The instructions are stored in hash lists.
 	 Pick the first one and keep trying until we find the right one.  */
 
-      insn_list = cgen_dis_lookup_insn (cd, (char *) buf, base_insn);
+      insn_list = cgen_dis_lookup_insn (cd, buf, base_insn);
       while (insn_list != NULL)
 	{
 	  insn = insn_list->insn;

@@ -1,4 +1,5 @@
-/* Copyright (C) 1991 Free Software Foundation, Inc.
+/* Macro definitions for PowerPC running under NetBSD.
+   Copyright 2000, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,16 +18,9 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-/* This is for the iris. */
+#ifndef TM_NBSD_H
+#define TM_NBSD_H
 
-#define HAVE_TERMIO
+#include "powerpc/tm-ppc-eabi.h"
 
-#define HOST_BYTE_ORDER BIG_ENDIAN
-
-/* Override register locations in upage for SGI machines */
-#undef REGISTER_U_ADDR
-#define REGISTER_U_ADDR(addr, blockend, regno) 		\
-  if (regno < PC_REGNUM)				\
-      addr = regno;					\
-  else							\
-      addr = regno + NSIG_HNDLRS;	/* Skip over signal handlers */
+#endif /* TM_NBSD_H */

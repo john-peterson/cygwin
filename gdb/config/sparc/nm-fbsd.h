@@ -1,6 +1,7 @@
-/* Definitions for irix4 hosting support.
+/* Native-dependent definitions for FreeBSD/sparc64.
 
-   Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+   Copyright 2002, 2003 Free Software Foundation, Inc.
+   Contributed by David E. O'Brien <obrien@FreeBSD.org>.
 
    This file is part of GDB.
 
@@ -16,19 +17,23 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330,
-   Boston, MA 02111-1307, USA.  */
+   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
 
-/* This is for the iris. */
+#ifndef NM_FBSD_H
+#define NM_FBSD_H
 
-#include "mips/xm-irix3.h"
+/* Type of the third argument to the `ptrace' system call.  */
+#define PTRACE_ARG3_TYPE caddr_t
 
-#define BROKEN_SIGINFO_H	/* <sys/siginfo.h> si_pid & si_uid are bogus */
+/* Override copies of {fetch,store}_inferior_registers in `infptrace.c'.  */
+#define FETCH_INFERIOR_REGISTERS
 
-/* Irix 4.0.1 and later have termios.  Not sure about earlier versions.  */
-#undef HAVE_TERMIO
-#define HAVE_TERMIOS
+/* We can attach and detach.  */
+#define ATTACH_DETACH
+
 
-/* This enables reliable signals (and the associated setjmp/longjmp), and gives
-   bsdish prototypes for getpgrp/setpgrg/setgroups and initgroups.  */
-#define _BSD_COMPAT
+/* Shared library support.  */
+
+#include "solib.h"
+
+#endif /* nm-fbsd.h */

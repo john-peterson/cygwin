@@ -1,5 +1,6 @@
-/* Parameters for execution on an HP 9000 model 320, for GDB, the GNU debugger.
-   Copyright 1986, 1987, 1989, 1991, 1992, 1993 Free Software Foundation, Inc.
+/* Definitions to make GDB run on an encore under umax 4.2
+   Copyright 1987, 1989, 1991, 1993, 1994, 1998, 1999, 2000, 2001, 2002
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,15 +19,19 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-/* GCC is the only compiler used for stabs on this OS.  So get this
-   right even if the code which detects gcc2_compiled. is still
-   broken.  */
+#ifndef TM_NS32K_H
+#define TM_NS32K_H
 
-#define BELIEVE_PCC_PROMOTION 1
+/* Need to get function ends by adding this to epilogue address from .bf
+   record, not using x_fsize field.  */
+#define FUNCTION_EPILOGUE_SIZE 4
 
-/* Define BPT_VECTOR if it is different than the default.
-   This is the vector number used by traps to indicate a breakpoint. */
+/* Address of end of stack space.  */
 
-#define BPT_VECTOR 0x1
+#ifndef STACK_END_ADDR
+#define STACK_END_ADDR (0xfffff000)
+#endif
 
-#include "m68k/tm-m68k.h"
+#define NUM_GENERAL_REGS	8
+
+#endif /* TM_NS32K_H */
