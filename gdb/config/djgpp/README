@@ -75,12 +75,12 @@ distribution includes a file `gdb/config/djgpp/fnchange.lst' with the
 necessary mappings.  So you need first to retrieve that batch file,
 and then invoke it to unpack the distribution.  Here's how:
 
- djtar -x -p -o gdb-5.2/djunpack.bat gdb-5.2.tar.gz > djunpack.bat
- djunpack gdb-5.2.tar.gz
+ djtar -x -p -o gdb-5.1/djunpack.bat gdb-5.1.tar.gz > djunpack.bat
+ djunpack gdb-5.1.tar.gz
 
 (The name of the distribution archive and the leading directory of the
 path to `djunpack.bat' in the distribution will be different for
-versions of GDB other than 5.2.)
+versions of GDB other than 5.1.)
 
 If the argument to `djunpack.bat' include leading directories, it MUST
 be given with the DOS-style backslashes; Unix-style forward slashes
@@ -90,25 +90,24 @@ If the distribution comes as a .tar.bz2 archive, and your version of
 `djtar' doesn't support bzip2 decompression, you need to unpack it as
 follows:
 
- bunzip2 gdb-6.4.tar.bz2
- djtar -x -p -o gdb-6.4/djunpack.bat gdb-6.4.tar > djunpack.bat
- djunpack gdb-6.4.tar
+ bnzip2 gdb-5.1.tar.bz2
+ djtar -x -p -o gdb-5.1/djunpack.bat gdb-5.1.tar > djunpack.bat
+ djunpack gdb-5.1.tar
 
 
 3. How to build
    ------------
 
-If the source distribution available from DJGPP archives is already
-configured for DJGPP v2.x (if it is, you will find files named
-`Makefile' in each subdirectory), then just invoke Make:
+The source distribution available from DJGPP archives is already
+configured for DJGPP v2.x, so if you only want to compile it, just
+invoke Make:
 
 		make
 
-To build a package that is not yet configured, or if you downloaded
-GDB from a GNU FTP site, you will need to configure it first.  You
-will also need to configure it if you want to change the configuration
-options (e.g., compile without support for the GDBMI interface).  To
-configure GDB, type this command:
+To build a package downloaded from a GNU FTP site, you will need o
+configure it first.  You will also need to configure it if you want to
+change the configuration options (e.g., compile without support for the
+GDBMI interface).  To configure GDB, type this command:
 
 		sh ./gdb/config/djgpp/djconfig.sh
 
@@ -134,7 +133,7 @@ It is also possible to build GDB in a directory that is different from
 the one where the sources were unpacked.  In that case, you have to
 pass the source directory as the first argument to the script:
 
-	sh ./gdb/config/djgpp/djconfig.sh d:/gnu/gdb-6.4
+	sh ./gdb/config/djgpp/djconfig.sh d:/gnu/gdb-5.1
 
 You MUST use forward slashes in the first argument.
 
@@ -149,18 +148,22 @@ some of the Texinfo sources), type this:
 
 When Make finishes, you can install the package:
 
-	make install prefix='${DJDIR}' INSTALL='ginstall -c'
+	make -k install prefix='${DJDIR}' INSTALL='ginstall -c'
 
 The above doesn't install the docs; for that you will need to say
 this:
 
-	make install-info prefix='${DJDIR}' INSTALL='ginstall -c'
+	make -k install-info prefix='${DJDIR}' INSTALL='ginstall -c'
+
+(The -k switch is required, because some unneeded targets that are
+part of the install process fail; -k lets Make run to completion
+nonetheless.)
 
 The test suite has been made to work with DJGPP.  If you make a change
 in some of the programs, or want to be sure you have a fully
 functional GDB executable, it is a good idea to run the test suite.
 You cannot use "make check" for that, since it will want to run the
-`dejagnu' utility which DJGPP doesn't support.  Instead, use the special
+`dejagnu' utility which GDB doesn't support.  Instead, use the special
 script gdb/config/djgpp/djcheck.sh, like this:
 
 		cd gdb/testsuite
@@ -186,4 +189,4 @@ directories are not run.
 
 
 Enjoy,
-                                    Eli Zaretskii <eliz@gnu.org>
+                                    Eli Zaretskii <eliz@is.elta.co.il>
