@@ -1,3 +1,5 @@
+/*	$OpenBSD: fnmatch.c,v 1.7 2000/03/23 19:13:51 millert Exp $	*/
+
 /*
  * Copyright (c) 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -13,6 +15,10 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
  * 4. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
@@ -31,94 +37,59 @@
  */
 
 #if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)fnmatch.c	8.2 (Berkeley) 4/16/94";
-#endif /* LIBC_SCCS and not lint */
-#include <sys/cdefs.h>
 #if 0
-__FBSDID("$FreeBSD: src/lib/libc/gen/fnmatch.c,v 1.18 2007/01/09 00:27:53 imp Exp $");
+static char sccsid[] = "@(#)fnmatch.c	8.2 (Berkeley) 4/16/94";
+#else
+static char rcsid[] = "$OpenBSD: fnmatch.c,v 1.7 2000/03/23 19:13:51 millert Exp $";
 #endif
+#endif /* LIBC_SCCS and not lint */
 
 /*
  * Function fnmatch() as specified in POSIX 1003.2-1992, section B.6.
  * Compares a filename or pathname to a pattern.
  */
 
-/*
- * Some notes on multibyte character support:
- * 1. Patterns with illegal byte sequences match nothing.
- * 2. Illegal byte sequences in the "string" argument are handled by treating
- *    them as single-byte characters with a value of the first byte of the
- *    sequence cast to wchar_t.
- * 3. Multibyte conversion state objects (mbstate_t) are passed around and
- *    used for most, but not all, conversions. Further work will be required
- *    to support state-dependent encodings.
- */
+/* Just this single line added for Cygwin. */
+#include "winsup.h"
 
-#include <fnmatch.h>
-#include <limits.h>
+#include <ctype.h>
+#include <stdio.h>
 #include <string.h>
-#include <wchar.h>
-#include <wctype.h>
-
-#include "../posix/collate.h"
+#include <fnmatch.h>
 
 #define	EOS	'\0'
 
-#define RANGE_MATCH     1
-#define RANGE_NOMATCH   0
-#define RANGE_ERROR     (-1)
+#define	RANGE_MATCH	1
+#define	RANGE_NOMATCH	0
+#define	RANGE_ERROR	(-1)
 
-static int rangematch(const char *, wchar_t, int, char **, mbstate_t *);
-static int fnmatch1(const char *, const char *, int, mbstate_t, mbstate_t);
+static int rangematch __P((const char *, char, int, char **));
 
 int
 fnmatch(pattern, string, flags)
 	const char *pattern, *string;
 	int flags;
 {
-	static const mbstate_t initial;
-
-	return (fnmatch1(pattern, string, flags, initial, initial));
-}
-
-static int
-fnmatch1(pattern, string, flags, patmbs, strmbs)
-	const char *pattern, *string;
-	int flags;
-	mbstate_t patmbs, strmbs;
-{
 	const char *stringstart;
 	char *newp;
-	char c;
-	wchar_t pc, sc;
-	size_t pclen, sclen;
+	char c, test;
 
-	for (stringstart = string;;) {
-		pclen = mbrtowc(&pc, pattern, MB_LEN_MAX, &patmbs);
-		if (pclen == (size_t)-1 || pclen == (size_t)-2)
-			return (FNM_NOMATCH);
-		pattern += pclen;
-		sclen = mbrtowc(&sc, string, MB_LEN_MAX, &strmbs);
-		if (sclen == (size_t)-1 || sclen == (size_t)-2) {
-			sc = (unsigned char)*string;
-			sclen = 1;
-			memset(&strmbs, 0, sizeof(strmbs));
-		}
-		switch (pc) {
+	for (stringstart = string;;)
+		switch (c = *pattern++) {
 		case EOS:
-			if ((flags & FNM_LEADING_DIR) && sc == '/')
+			if ((flags & FNM_LEADING_DIR) && *string == '/')
 				return (0);
-			return (sc == EOS ? 0 : FNM_NOMATCH);
+			return (*string == EOS ? 0 : FNM_NOMATCH);
 		case '?':
-			if (sc == EOS)
+			if (*string == EOS)
 				return (FNM_NOMATCH);
-			if (sc == '/' && (flags & FNM_PATHNAME))
+			if (*string == '/' && (flags & FNM_PATHNAME))
 				return (FNM_NOMATCH);
-			if (sc == '.' && (flags & FNM_PERIOD) &&
+			if (*string == '.' && (flags & FNM_PERIOD) &&
 			    (string == stringstart ||
 			    ((flags & FNM_PATHNAME) && *(string - 1) == '/')))
 				return (FNM_NOMATCH);
-			string += sclen;
+			++string;
 			break;
 		case '*':
 			c = *pattern;
@@ -126,104 +97,89 @@ fnmatch1(pattern, string, flags, patmbs, strmbs)
 			while (c == '*')
 				c = *++pattern;
 
-			if (sc == '.' && (flags & FNM_PERIOD) &&
+			if (*string == '.' && (flags & FNM_PERIOD) &&
 			    (string == stringstart ||
 			    ((flags & FNM_PATHNAME) && *(string - 1) == '/')))
 				return (FNM_NOMATCH);
 
 			/* Optimize for pattern with * at end or before /. */
-			if (c == EOS)
+			if (c == EOS) {
 				if (flags & FNM_PATHNAME)
 					return ((flags & FNM_LEADING_DIR) ||
 					    strchr(string, '/') == NULL ?
 					    0 : FNM_NOMATCH);
 				else
 					return (0);
-			else if (c == '/' && flags & FNM_PATHNAME) {
+			} else if (c == '/' && (flags & FNM_PATHNAME)) {
 				if ((string = strchr(string, '/')) == NULL)
 					return (FNM_NOMATCH);
 				break;
 			}
 
 			/* General case, use recursion. */
-			while (sc != EOS) {
-				if (!fnmatch1(pattern, string,
-				    flags & ~FNM_PERIOD, patmbs, strmbs))
+			while ((test = *string) != EOS) {
+				if (!fnmatch(pattern, string, flags & ~FNM_PERIOD))
 					return (0);
-				sclen = mbrtowc(&sc, string, MB_LEN_MAX,
-				    &strmbs);
-				if (sclen == (size_t)-1 ||
-				    sclen == (size_t)-2) {
-					sc = (unsigned char)*string;
-					sclen = 1;
-					memset(&strmbs, 0, sizeof(strmbs));
-				}
-				if (sc == '/' && flags & FNM_PATHNAME)
+				if (test == '/' && (flags & FNM_PATHNAME))
 					break;
-				string += sclen;
+				++string;
 			}
 			return (FNM_NOMATCH);
 		case '[':
-			if (sc == EOS)
+			if (*string == EOS)
 				return (FNM_NOMATCH);
-			if (sc == '/' && (flags & FNM_PATHNAME))
+			if (*string == '/' && (flags & FNM_PATHNAME))
 				return (FNM_NOMATCH);
-			if (sc == '.' && (flags & FNM_PERIOD) &&
+			if (*string == '.' && (flags & FNM_PERIOD) &&
 			    (string == stringstart ||
 			    ((flags & FNM_PATHNAME) && *(string - 1) == '/')))
 				return (FNM_NOMATCH);
 
-			switch (rangematch(pattern, sc, flags, &newp,
-			    &patmbs)) {
+			switch (rangematch(pattern, *string, flags, &newp)) {
 			case RANGE_ERROR:
-				goto norm;
+				/* not a good range, treat as normal text */
+				goto normal;
 			case RANGE_MATCH:
 				pattern = newp;
 				break;
 			case RANGE_NOMATCH:
 				return (FNM_NOMATCH);
 			}
-			string += sclen;
+			++string;
 			break;
 		case '\\':
 			if (!(flags & FNM_NOESCAPE)) {
-				pclen = mbrtowc(&pc, pattern, MB_LEN_MAX,
-				    &patmbs);
-				if (pclen == (size_t)-1 || pclen == (size_t)-2)
-					return (FNM_NOMATCH);
-				if (pclen == 0)
-					pc = '\\';
-				pattern += pclen;
+				if ((c = *pattern++) == EOS) {
+					c = '\\';
+					--pattern;
+				}
 			}
 			/* FALLTHROUGH */
 		default:
-		norm:
-			if (pc == sc)
-				;
-			else if ((flags & FNM_CASEFOLD) &&
-				 (towlower(pc) == towlower(sc)))
-				;
-			else
+		normal:
+			if (c != *string && !((flags & FNM_CASEFOLD) &&
+				 (tolower((unsigned char)c) ==
+				 tolower((unsigned char)*string))))
 				return (FNM_NOMATCH);
-			string += sclen;
+			++string;
 			break;
 		}
-	}
 	/* NOTREACHED */
 }
 
 static int
-rangematch(pattern, test, flags, newp, patmbs)
-	const char *pattern;
-	wchar_t test;
+#ifdef __STDC__
+rangematch(const char *pattern, char test, int flags, char **newp)
+#else
+rangematch(pattern, test, flags, newp)
+	char *pattern;
+	char test;
 	int flags;
 	char **newp;
-	mbstate_t *patmbs;
+#endif
 {
 	int negate, ok;
-	wchar_t c, c2;
-	size_t pclen;
-	const char *origpat;
+	char c, c2;
 
 	/*
 	 * A bracket expression starting with an unquoted circumflex
@@ -232,11 +188,11 @@ rangematch(pattern, test, flags, newp, patmbs)
 	 * consistency with the regular expression syntax.
 	 * J.T. Conklin (conklin@ngai.kaleida.com)
 	 */
-	if ( (negate = (*pattern == '!' || *pattern == '^')) )
+	if ((negate = (*pattern == '!' || *pattern == '^')))
 		++pattern;
 
 	if (flags & FNM_CASEFOLD)
-		test = towlower(test);
+		test = tolower((unsigned char)test);
 
 	/*
 	 * A right bracket shall lose its special meaning and represent
@@ -244,49 +200,30 @@ rangematch(pattern, test, flags, newp, patmbs)
 	 * -- POSIX.2 2.8.3.2
 	 */
 	ok = 0;
-	origpat = pattern;
-	for (;;) {
-		if (*pattern == ']' && pattern > origpat) {
-			pattern++;
-			break;
-		} else if (*pattern == '\0') {
+	c = *pattern++;
+	do {
+		if (c == '\\' && !(flags & FNM_NOESCAPE))
+			c = *pattern++;
+		if (c == EOS)
 			return (RANGE_ERROR);
-		} else if (*pattern == '/' && (flags & FNM_PATHNAME)) {
+		if (c == '/' && (flags & FNM_PATHNAME))
 			return (RANGE_NOMATCH);
-		} else if (*pattern == '\\' && !(flags & FNM_NOESCAPE))
-			pattern++;
-		pclen = mbrtowc(&c, pattern, MB_LEN_MAX, patmbs);
-		if (pclen == (size_t)-1 || pclen == (size_t)-2)
-			return (RANGE_NOMATCH);
-		pattern += pclen;
-
-		if (flags & FNM_CASEFOLD)
-			c = towlower(c);
-
-		if (*pattern == '-' && *(pattern + 1) != EOS &&
-		    *(pattern + 1) != ']') {
-			if (*++pattern == '\\' && !(flags & FNM_NOESCAPE))
-				if (*pattern != EOS)
-					pattern++;
-			pclen = mbrtowc(&c2, pattern, MB_LEN_MAX, patmbs);
-			if (pclen == (size_t)-1 || pclen == (size_t)-2)
-				return (RANGE_NOMATCH);
-			pattern += pclen;
+		if ((flags & FNM_CASEFOLD))
+			c = tolower((unsigned char)c);
+		if (*pattern == '-'
+		    && (c2 = *(pattern+1)) != EOS && c2 != ']') {
+			pattern += 2;
+			if (c2 == '\\' && !(flags & FNM_NOESCAPE))
+				c2 = *pattern++;
 			if (c2 == EOS)
 				return (RANGE_ERROR);
-
 			if (flags & FNM_CASEFOLD)
-				c2 = towlower(c2);
-
-			if (__collate_load_error ?
-			    c <= test && test <= c2 :
-			       __collate_range_cmp(c, test) <= 0
-			    && __collate_range_cmp(test, c2) <= 0
-			   )
+				c2 = tolower((unsigned char)c2);
+			if (c <= test && test <= c2)
 				ok = 1;
 		} else if (c == test)
 			ok = 1;
-	}
+	} while ((c = *pattern++) != ']');
 
 	*newp = (char *)pattern;
 	return (ok == negate ? RANGE_NOMATCH : RANGE_MATCH);

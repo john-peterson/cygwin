@@ -1,7 +1,6 @@
 /* sys/socket.h
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2005, 2006, 2009, 2010
-   Red Hat, Inc.
+   Copyright 1996-2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -27,25 +26,21 @@ extern "C"
 #define SHUT_RDWR 2		/* == Win32 SD_BOTH    */
 
 #ifndef __INSIDE_CYGWIN_NET__
-  int accept (int, struct sockaddr *__peer, socklen_t *);
-  int accept4 (int, struct sockaddr *__peer, socklen_t *, int flags);
-  int bind (int, const struct sockaddr *__my_addr, socklen_t __addrlen);
-  int connect (int, const struct sockaddr *, socklen_t);
-  int getpeername (int, struct sockaddr *__peer, socklen_t *);
-  int getsockname (int, struct sockaddr *__addr, socklen_t *);
+  int accept (int, struct sockaddr *__peer, int *);
+  int bind (int, const struct sockaddr *__my_addr, int __addrlen);
+  int connect (int, const struct sockaddr *, int);
+  int getpeername (int, struct sockaddr *__peer, int *);
+  int getsockname (int, struct sockaddr *__addr, int *);
   int listen (int, int __n);
-  ssize_t recv (int, void *__buff, size_t __len, int __flags);
-  ssize_t recvfrom (int, void *__buff, size_t __len, int __flags,
-		    struct sockaddr *__from, socklen_t *__fromlen);
-  ssize_t recvmsg(int s, struct msghdr *msg, int flags);
-  ssize_t send (int, const void *__buff, size_t __len, int __flags);
-  ssize_t sendmsg(int s, const struct msghdr *msg, int flags);
-  ssize_t sendto (int, const void *, size_t __len, int __flags,
-		  const struct sockaddr *__to, socklen_t __tolen);
-  int setsockopt (int __s, int __level, int __optname, const void *optval,
-		  socklen_t __optlen);
-  int getsockopt (int __s, int __level, int __optname, void *__optval,
-		  socklen_t *__optlen);
+  int recv (int, void *__buff, int __len, unsigned int __flags);
+  int recvfrom (int, char *__buff, int __len, int __flags,
+			 struct sockaddr *__from, int *__fromlen);
+  int recvmsg(int s, struct msghdr *msg, int flags);
+  int send (int, const void *__buff, int __len, unsigned int __flags);
+  int sendmsg(int s, const struct msghdr *msg, int flags);
+  int sendto (int, const void *, int, unsigned int, const struct sockaddr *, int);
+  int setsockopt (int __s, int __level, int __optname, const void *optval, int __optlen);
+  int getsockopt (int __s, int __level, int __optname, void *__optval, int *__optlen);
   int shutdown (int, int);
   int socket (int __family, int __type, int __protocol);
   int socketpair (int __domain, int __type, int __protocol, int *__socket_vec);
