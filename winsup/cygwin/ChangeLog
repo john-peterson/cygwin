@@ -1,322 +1,254 @@
-2013-01-31  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* DevNotes: Add entry cgf-000022.
-	* cygtls.h (_cygtls::func): Define as a sa_sigaction style function.
-	* exceptions.cc (sig_handle_tty_stop): Ditto.
-	(_cygtls::interrupt_setup): Fix coercion to accommodate 'func' change.
-	(ctrl_c_handler): Use tty kill_pgrp to send a signal.
-	(sigpacket::process): Don't process sigflush here.
-	(_cygtls::call_signal_handler): Reorganize to avoid a race.  Always
-	call sa_sigaction style function.
-	* fhandler_termios.cc (is_flush_sig): Define new function.
-	(tty_min::kill_pgrp): Handle tty flush when signal detected.
-	(fhandler_termios::bg_check): Be slightly more paranoid about checking
-	for valid tty.
-	(fhandler_termios::sigflush): Don't flush unless tty owner.
-	* fhandler_tty.cc (fhandler_pty_slave::ioctl): Use tty kill_pgrp to
-	send signal.
-	(fhandler_pty_master::ioctl): Ditto.
-	* signal.cc (killsys): Delete definition.
-	* sigproc.h (killsys): Delete declaration.
-	* include/cygwin/signal.h (siginfo_t): Simplify union/struct nesting
-	slightly.  Implement mechanism to allow cygwin data passing.
-
-2013-01-23  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* miscfuncs.cc (__import_address): Check if malloc field points
-	directly at 'malloc'.
-
-2013-01-23  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* miscfuncs.cc (__import_address): On second thought, the chance that
-	this pointer could be NULL is very low so don't bother checking for it.
-
-2013-01-23  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* exceptions.cc (exception::handle): Make attempt to recursively dump
-	stack fatal.
-
-2013-01-22  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* miscfuncs.cc (__import_address): Avoid NULL explicitly.
-
-2013-01-22  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* miscfuncs.cc (__import_address): Avoid treating random instructions
-	as import jump.
-	* malloc_wrapper.cc (malloc_init): Remove comment about 64-bit.
-
-2013-01-21  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* dcrt0.cc (dll_crt0_1): Comment assumption.
-	* exceptions.cc (sigpacket::setup_handler): Avoid sending signals
-	during fork processing.
-
-2013-01-21  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* dcrt0.cc (dll_crt0_1): Flag that we are working "incyg".  Handle any
-	signals (presumably exiting signals) which may have come in while we
-	are in the process of setting up.
-
-2013-01-21  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* update-copyright: Recognize configure.ac scripts too.
-
-2013-01-21  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* cygerrno.h (__reg3): Define.
-	* cygmalloc.h (__reg3): Ditto.
-
-2013-01-21  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* cygerrno.h: Conditionally define __regN for cygserver.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* malloc_wrapper.cc (malloc_init): Re-add inadvertently dropped comment
-	which explains what's going on with the use_internal calculation.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	Throughout, update copyrights to reflect dates which correspond to
-	main-branch checkins.  Regularize copyright format.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	Throughout, change __attribute__ ((regparm (N))) to just __regN.
-	Throughout, (mainly in fhandler*) start fixing gcc 4.7.2 mismatch
-	between regparm definitions and declarations.
-	* gendef: Define some functions to take @ declaration to accommodate
-	_regN defines which use __stdcall.
-	* gentls_offsets: Define __regN macros as empty.
-	* autoload.cc (wsock_init): Remove unneeded regparm attribute.
-	* winsup.h (__reg1): Define.
-	(__reg2): Define.
-	(__reg3): Define.
-
-	* advapi32.cc (DuplicateTokenEx): Coerce some initializers to avoid
-	warnings from gcc 4.7.2.
-	* exceptions.cc (status_info): Declare struct to use NTSTATUS.
-	(cygwin_exception::dump_exception): Coerce e->ExceptionCode to
-	NTSTATUS.
-	* fhandler_clipboard.cc (cygnativeformat): Redefine as UINT to avoid
-	gcc 4.7.2 warnings.
-	(fhandler_dev_clipboard::read): Ditto.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* update-copyright (update_maybe): Accommodate perl-style copyright
-	comments.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* update-copyright: Silently skip nonexistent files.  Display filename
-	on update.  Don't update non-Red Hat copyrights.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* update-copyright: Update standard copyright information based on cvs
-	log and current sandbox status.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* malloc_wrapper.cc: Change 'use_internal_malloc' to 'use_internal'
-	throughout.
-	(export_malloc_called): Delete.
-	(internal_malloc_determined): New variable.
-	(malloc_init): Control calculation of internal/external malloc based on
-	'internal_malloc_determined'.  Use import_address() to determine if
-	malloc in user_data is ours or not.
-	* miscfuncs.cc (thread_wrapper): Make static.
-	(__import_address): Define new function.
-	* miscfuncs.h (import_address): New define.
-	(__import_address): Declare new function.
-
-2013-01-20  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* sigproc.cc (sig_dispatch_pending): Add correct regparm attributes to
-	match declaration.
-	(pid_exists): Ditto.
-	(proc_subproc): Ditto.
-	(sig_clear): Ditto.
-	(sig_send): Ditto.
-	(checkstate): Ditto.
-
-2013-01-19  Corinna Vinschen  <corinna@vinschen.de>
-
-	* syscalls.cc (rename): Remove ill-conceived NFS workaround from
-	2013-01-10 for self-inflicted NFS server problem.
-
-2013-01-19  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* exceptions.cc (ctrl_c_handler): Remove special-case handler for
-	"cygwin_finished_initializing".
-	* sigproc.cc (exit_thread): Undefine ExitThread earlier to avoid
-	recursion on error return.
-
-2013-01-18  Corinna Vinschen  <corinna@vinschen.de>
-
-	* errno.cc (errmap): Map ERROR_LOCK_VIOLATION to EBUSY.
-
-2013-01-18  Corinna Vinschen  <corinna@vinschen.de>
-
-	* mmap.cc (handler_disk_file::msync): Add call to FlushFileBuffers
-	to implement MS_SYNC.
-
-2013-01-17  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* mmap.cc (handler_disk_file::msync): Retry up to 99 times if
-	FlushViewOFile fails with ERROR_LOCK_VIOLATION.
-
-2013-01-16  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* sigproc.cc (no_signals_available): Finally remove this macro
-	entirely.
-	(exit_thread): Ensure process lock is released on error exit.
-	(sig_send): Simplify "its_me" test.  Remove no_signals_available tests.
-
-2013-01-16  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* pthread.cc (pthread_exit): Add kludge to accommodate noreturn attribute.
-
-2013-01-14  Antti Kantee  <pooka@iki.fi>
-
-	* include/pthread.h (pthread_exit): Mark as "noreturn".
-
-2013-01-14  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* exceptions.cc (signal_exit): Move captive process termination...
-	(_cygtls::interrupt_setup): ...into here.
-	(sigpacket::process): Simplify setting of handler when have_execed.
-	(_cygtls::interrupt_setup): Don't call proc_subproc when we've execed.
-	* globals.cc (exit_states): Delete unneeded ES_EXEC_EXIT.
-	* pinfo.cc (pinfo::exit): Change debugging output.  Call proc_terminate
-	rather than the now-obsolete sigproc_terminate.  Don't set exit_state
-	to ES_EXEC_EXIT.  Set exit_state to ES_FINAL later.
-	* sigproc.cc (sigproc_terminate): Delete function.
-	(wait_sig): Don't call proc_subproc if have_execed.
-	* sigproc.h (sigproc_terminate): Delete declaration.
-	* sync.h (lock_process::lock_process): Don't set exit_state to
-	ES_PROCESS_LOCKED.
-	(lock_process::operator LONG): Define.
-
-2013-01-11  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* DevNotes: Add entry cgf-000021.
-	* select.cc (select): Unconditionally return when a signal is detected.
-	(select_stuff::wait): Ditto.
-
-2013-01-11  Corinna Vinschen  <corinna@vinschen.de>
-
-	* syscalls.cc (rename): Drop handling paths > 32757 chars, emit EINVAL
-	instead, thus simplifying code allocating and filling pfri.  Drop size
-	and use constant expression in NtSetInformationFile call.  Add comments.
-	Drop redundant test for fs_serial_number and change comment accordingly.
-
-2013-01-11  Thomas Wolff  <towo@towo.net>
-
-	* fhandler.h (class dev_console): Flag for expanded control sequence.
-	* fhandler_console.cc (char_command): Supporting cursor style modes.
-
-2013-01-10  Corinna Vinschen  <corinna@vinschen.de>
-
-	* path.h (path_conv::fs_type): New method.
-	* syscalls.cc (rename): Check for cross-device situation before
-	touching anything.  Explain why.  Workaround NFS bug in call to
-	NtSetInformationFile(FileRenameInformation).
-
-2013-01-09  Corinna Vinschen  <corinna@vinschen.de>
-
-	* cygerrno.h: Fix copyright.
-	* exceptions.cc: Drop comment explaining removed variable.
-
-2013-01-09  Corinna Vinschen  <corinna@vinschen.de>
-
-	* dcrt0.cc (main_thread_sinit): New inline function.  Fix and explain
-	a stdio initialization issue.
-	(dll_crt0_1): Call main_thread_sinit rather than __sinit.
-
-2013-01-07  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* thread.cc (pthread_rwlock::lookup_reader): Remove parameter: always
-	assume that we're looking for the current thread.
-	(pthread_rwlock::tryrdlock): Eliminate self variable.  Accommodate
-	change in lookup_reader().
-	(pthread_rwlock::unlock): Ditto.
-	(pthread_rwlock::rdlock): Ditto.  Move add_reader call after writer
-	tests to more closely mimic old behavior.
-	(pthread_rwlock::wrlock): Accommodate change in lookup_reader().
-	* thread.h ((pthread_rwlock::lookup_reader): Eliminate argument.
-
-2013-01-07  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* thread.cc (pthread_rwlock::add_reader): Perform new operation here
-	and return pointer to allocated RWLOCK_READER structure.
-	(pthread_rwlock::rdlock): Reorganize to reflect new add_reader
-	functionality.
-	(pthread_rwlock::tryrdlock): Ditto.  Remove unneeded call to
-	lookup_reader().
-	* thread.h (pthread_rwlock::RWLOCK_READER::RWLOCK_READER): New
-	constructor.
-	(pthread_rwlock::add_reader): Reflect new functionality.
-
-2013-01-03  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* globals.cc (exit_states): Renumber so that ES_EXIT_STARTING is first,
-	as intended.
-	* sigproc.cc (wait_sig): Only stop accepting signals after
-	exit_state > ES_EXIT_STARTING.
-
-2013-01-03  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* sigproc.cc (exit_thread): Set thread signal mask so that no signals
-	are sent to an exiting thread.
-
-2013-01-02  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* sigproc.cc (no_signals_available): Remove exit_state test since
-	signals are available in a limited fashion when exiting.
-	(sig_dispatch_pending): Ditto.
-	(sig_send): Ditto.
-	(exit_thread): Rearrange to avoid an unnecessary DuplicateProcess when
-	exiting.
-	(wait_sig): Allow special signals when exiting.
-
-2013-01-02  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* DevNotes: Add entry cgf-000020, relating to previous checkin.
-
-2013-01-02  Christopher Faylor  <me.cygwin2013@cgf.cx>
-
-	* cygtls.h (_cygtls::signal_exit): Delete from class.
-	* exception.h (cygwin_exception): New class.
-	(cygwin_exception::dumpstack): Declare new function.
-	(cygwin_exception::context): Ditto.
-	(cygwin_exception::dump_exception): Ditto.
-	* exceptions.cc (cygwin_exception::dump_exception): Move into
-	cygwin_exception class.  Accommodate new variable names.
-	(cygwin_exception::dumpstack): Ditto stackdump -> dumpstack.
-	(exception::handle): Move andreas processing earlier.  Defer signal
-	processing decisions to the signal thread where they belong.  Pass
-	exception information to sig_send via new siginfo_t si_cyg field.
-	(ctrl_c_handler): Wait for SIGHUP signal to be processed since it could
-	cause a process exit and we don't want races with thread exit lock.
-	(signal_exit): Move back here from sigproc.cc.  Modify arguments and
-	remove from sigpacket class.  Decide when to dump core based on signal
-	type.
-	(sigpacket::process): Handle exiting signals in context of threads
-	rather than in the signal thread.  Signal debugger on non-Windows
-	signals.  Remove setup_signal_exit call.
-	* sigproc.cc (no_signals_available): Remove argument.
-	(signal_exit_code): Delete.
-	(close_my_readsig): Ditto.
-	(_cygtls::signal_exit): Move to exceptions.cc.
-	(sigproc_terminate): Don't attempt to terminate signal thread.
-	(setup_signal_exit): Delete.
-	(exit_thread): Use new si_cyg entry in siginfo_t.
-	(sig_send): Just use empty initializer for si.  Accommodate change in
-	no_signals_available argument.
-	(wait_sig): Remove attempt to "go asynchronous" on process exit.
-	Delete __SIGEXIT handling.  Don't ever exit.
-	* sigproc.h: Remove __SIGEXIT from signal enum.  Renumber.
-	* include/cygwin/signal.h (siginfo_t): Add si_cyg entry.
+2004-01-20  Christopher Faylor  <cgf@redhat.com>
+
+	* sigproc.cc (pending_signals::save): New function.
+	(pending_signals::restore): Ditto.
+	(sig_clear): Save/restore current queue pointer.
+	(wait_sig): Delete signals marked as such.
+	* sigproc.h (__SIGDELETE): New enum.
+
+2004-01-16  Christopher Faylor  <cgf@redhat.com>
+
+	* fhandler_console.cc (fhandler_console::close): Remove obsolete test
+	for vfork_cleanup.
+	* pipe.cc (fhandler_pipe::close): Add comment.
+
+2004-01-16  Christopher Faylor  <cgf@redhat.com>
+
+	* cygheap.cc (init_cygheap::close_ctty): Don't NULL ctty if it is still
+	active.
+
+2004-01-16  Christopher Faylor  <cgf@redhat.com>
+
+	* dtable.cc (dtable::vfork_parent_restore): Store ctty_on_hold prior to
+	calling close_all_files since it will be zeroed.
+
+2004-01-15  Christopher Faylor  <cgf@redhat.com>
+
+	* gentls_offsets: Reinstate unlink of temp files.
+
+2004-01-14  Christopher Faylor  <cgf@redhat.com>
+
+	* fhandler_console.cc (fhandler_console::close): Fix debugging output.
+	(fhandler_console::fixup_after_fork): Decrement open_fhs prior to call
+	to fhandler_console::open since this would cause incrementing too much
+	incrementing in child processes.  (Probably needs to be handled more
+	elegantly someday)
+	(fhandler_console::fixup_after_exec): Ditto.
+
+2004-01-14  Christopher Faylor  <cgf@redhat.com>
+
+	* cygtls.h (_threadinfo::call): Remove regparm declaration to work
+	around compiler bug.
+
+2004-01-13  Christopher Faylor  <cgf@redhat.com>
+
+	* autoload.cc (TryEnterCriticalSection): Remove.
+	* dcrt0.cc (dll_crt0_0): Delete inappropriate setting of
+	_my_tls.stackptr to NULL since it has really bad consequences.  Make
+	'si' an automatic variable.
+
+2004-01-13  Christopher Faylor  <cgf@redhat.com>
+
+	* cygtls.cc (_threadinfo::init_thread): Correct thinko which caused
+	thread list to be allocated every time.
+	* cygtls.h (CYGTLS_PADSIZE): Define as const int.
+	* sync.h: Make multiple inclusion safe.
+	(muto::next): Eliminate.
+	(muto::exiting_thread): New variable.
+	(muto::set_exiting_thread): New function.
+	(new_muto): Change to use different section for mutos since c++ give
+	inexplicable warning in some cases otherwise.
+	(new_muto1): Ditto.
+	* dcrt0.cc (do_exit): Call muto::set_exiting_thread here.
+	* sync.cc (muto_start): Eliminate.
+	(muto::acquire): Always give exiting thread a lock.  Never give thread
+	a lock if exiting.
+	(muto::release): Ditto for releasing.
+	* dtable.cc (dtable::init_lock): Unline function and define here.
+	* dtable.h (lock_cs): Define as a muto since critical sections seem to
+	work oddly on Windows Me.
+	(lock): Accommodate switch to muto.
+	(unlock): Ditto.
+	* exceptions.cc (setup_handler): Don't worry about acquiring mutos
+	since that hasn't mattered for a long time.
+	(signal_exit): Ditto: muto stuff will be handled automatically on exit
+	now.
+
+2004-01-12  Christopher Faylor  <cgf@redhat.com>
+
+	* Makefile.in (DLL_IMPORTS): Link advapi32 to ensure proper DLL
+	initialization.
+	* autoload.cc (RegCloseKey): Arbitrarily choose this function as a
+	"seed" to pull the advapi32 link library in.  So, comment out the
+	autoloading.
+	* cygtls.cc (_threadinfo::init_thread): Just clear CYGTLS_PADSIZE.
+	(_threadinfo::remove): Add debugging.
+	(_threadinfo::find_tls): Ditto.
+	* cygtls.h (_threadinfo::padding): Make zero length (for now?).
+	* dcrt0.cc (dll_crt0_0): Move more initialization here from dll_crt0_1.
+	(dll_crt0_1): See above.
+	* dtable.h (dtable::lock): Remove commented out critical section
+	locking.
+	* dtable.h (dtable::init_lock): Remove commented out critical section
+	locking.
+	* dtable.h (dtable::unlock): Remove commented out critical section
+	locking.
+	* exceptions.cc (interruptible): bool'ize.
+	* init.cc (threadfunc_fe): Revert to storing threadfunc at stack
+	bottom.
+	(munge_threadfunc): Ditto.  Avoid adding overhead to
+	calibration_thread.
+	(prime_threads): Don't initialize tls stuff.
+	(dll_entry): Make minor change to initialization order.
+	* tlsoffsets.h: Regenerate.
+
+	* sigproc.cc (wait_sig): Add sanity check for end of process thread
+	exit.
+
+	* select.h: Make minor formatting change.
+
+2004-01-10  Christopher Faylor  <cgf@redhat.com>
+
+	* Makefile.in: Add still more -fomit-frame-pointer functions.
+	* dtable.h (dtable::lock): New function.
+	(dtable::unlock): New function.
+	(dtable::init_lock): New function.
+	* cygheap.h (HEAP_TLS): Declare new enum value.
+	(init_cygheap::threadlist): Declare new array.
+	(init_cygheap::sthreads): Declare new variable.
+	(cygheap_fdmanip::~cygheap_fdmanip): Use new dtable lock/unlock
+	functions.
+	(cygheap_fdnew::cygheap_fdnew): Ditto.
+	(cygheap_fdget::cygheap_fdget): Ditto.
+	* dtable.cc (dtable_init): Initialize fdtab critical section.
+	(dtable::fixup_after_fork): Ditto.
+	(dtable::fixup_after_exec): Ditto.
+	(dtable::dup2): Use lock/unlock calls to protect access to fdtab.
+	(dtable::find_fifo): Ditto.
+	(dtable::fixup_before_fork): Ditto.
+	(dtable::fixup_before_exec): Ditto.
+	(dtable::set_file_pointers_for_exec): Ditto.
+	(dtable::vfork_child_dup): Ditto.
+	(dtable::vfork_parent_restore): Ditto.
+	* syscalls.cc (close_all_files): Ditto.
+	* sync.h (muto::acquired): Declare new function.
+	(new_muto1): Declare new macro used to specify name of muto storage.
+	* sync.cc (muto::acquired): Define new function.
+
+	* cygthread.cc (cygthread::stub): Remove signal chain removal call
+	since it is handled during initialization now.
+	* cygthread.cc (cygthread::simplestub): Remove signal chain removal
+	call since it is handled during initialization now.
+	* cygtls.cc (sentry): New class used for locking.  Use throughout.
+	(_threadinfo::reset_exception): Don't pop stack.
+	(_threadinfo::find_tls): Move from exceptions.cc.
+	(_threadinfo::init_thread): Initialize array of threads rather than
+	linked list.  Take second argument indicating thread function for this
+	thread.
+	(_threadinfo::remove): Search thread array rather than linked list.
+	Use sentry to lock.  Only unlock if we got the lock.
+	(_threadinfo::find_tls): Ditto for first two.
+	(handle_threadlist_exception): Handle exceptions when manipulating the
+	thread list in case of premature thread termination.
+	(_threadinfo::init_threadlist_exceptions): Ditto.
+	* cygtls.h (TLS_STACK_SIZE): Decrease size.
+	(_threadinfo::padding): Add element to avoid overwriting lower part of
+	stack.
+	(_threadinfo::remove): Add a "wait" argument to control how long we
+	wait for a lock before removing.
+	* exceptions.cc (init_exception_handler): Make global.  Take argument
+	to control exception handler being set.
+	(ctrl_c_handler): Wait forever when removing self from signal chain.
+	(_threadinfo::find_tls): Move to cygtls.cc.
+	(sig_handle): Reorganize detection for thread-specific signals.
+	* heap.cc (heap_init): Rework slightly.  Make fatal error more verbose.
+	Remove malloc initialization since it can't happen during dll attach.
+	* init.cc (search_for): Move address to search for on stack here.
+	(threadfunc_ix): Ditto for stack offset.  Make shared so that stack
+	walk potentially only has to be done once when cygwin processes are
+	running.
+	(threadfunc_fe): Use standard tls to store thread function (may change
+	back later).
+	(calibration_thread): New function.  Potentially called to find
+	threadfunc_ix.
+	(munge_threadfunc): Search for "search_for" value on stack.  Output
+	warning when thread func not found on stack.  Use standard tls to store
+	thread function.
+	(prime_threads): New function.  Called to prime thread front end.
+	(dll_entry): Call dll_crt0_0 here when DLL_PROCESS_ATTACH.  Call
+	prime_threads here.  Try to remove thread from signal list here.
+	* sigproc.cc (wait_sig): Initialize threadlist exception stuff here.
+	* thread.cc (pthread::exit): Pass argument to signal list remove
+	function.
+	* thread.h: Remove obsolete *ResourceLock defines.
+
+	* tlsoffsets.h: Regenerate.
+
+	* winsup.h (spf): Define temporary debug macro to be deleted later.
+
+	* dcrt0.cc (dll_crt0_0): New function, called during DLL
+	initialization.  Mainly consists of code pulled from dll_crt0_1.
+	(dll_crt0_1): See above.
+	(_dll_crt0): Wait for initial calibration thread to complete, if
+	appropriate.  Move some stuff to dll_crt0_0.
+	(initialize_main_tls): Accommodate argument change to
+	_thread_info::init_thread.
+	* fork.cc (fork_child): Ditto.
+	(sync_with_child): Fix debug message.
+	* external.cc (cygwin_internal): Remove special considerations for
+	uninitialized dll since initialization happens during dll attach now.
+
+	* dlfcn.cc (dlopen): Remove obsolete *ResourceLock calls.
+	(dlclose): Ditto.
+
+2004-01-05  Christopher Faylor  <cgf@redhat.com>
+
+	* cygheap.h (init_cygheap::close_ctty): Declare new function.
+	* cygheap.cc (init_cygheap::close_ctty): Define new function.
+	* syscalls.cc (close_all_files): Use close_ctty.
+	(setsid): Ditto.
+
+	* cygthread.cc (cygthread::stub): Remove exception initialization.
+	* cygthread.cc (cygthread::stub): Remove exception initialization.
+	(cygthread::simplestub): Ditto.
+	* thread.cc (pthread::thread_init_wrapper): Ditto.
+	* cygtls.cc (_last_thread): Make static.
+	(_threadinfo::call2): Initialize exception handler here.
+	(_threadinfo::find_tls): Move here.
+	* exceptions.cc (_threadinfo::find_tls): Move.
+
+	* dcrt0.cc (__api_fatal): Add prefix info to message here rather than
+	including it in every call to function.
+	* winsup.h (api_fatal): Accommodate above change.
+	* debug.cc (add_handle): Don't do anything if cygheap not around.
+	(mark_closed): Ditto.
+
+	* dll_init.cc (dll_list::detach): Fix debug output.
+	* fork.cc (sync_with_child): Ditto.
+	(vfork): Improve debug output.
+	* heap.cc (heap_init): Ditto.
+
+	* exceptions.cc (try_to_debug): Clarify message when debugger attaches.
+
+2004-01-03  Christopher Faylor  <cgf@redhat.com>
+
+	* exceptions.cc (_threadinfo::interrupt_now): Avoid double call to
+	sigdelayed.
+	* pinfo.cc (_pinfo::commune_send): Avoid inexplicable test which caused
+	most pids to be shown as "<defunct>" on Win9x.
+
+2004-01-02  Christopher Faylor  <cgf@redhat.com>
+
+	* cygheap.h (init_cygheap): Play more vfork shell games and move
+	ctty_on_hold and open_fhs_on_hold (back) here.
+	* dcrt0.cc (_dll_crt0): Just set impure_ptr_ptr here and let later
+	initialization deal with tls.
+	* dtable.cc (dtable::vfork_child_fixup): Move ctty considerations here.
+	(dtable:vfork_parent_restore): And here.
+	* fork.cc (vfork): Reflect change to ctty handling.
+	* perthread.h (vfork_save::fhctty): Eliminate.
+
+	* cygwin.din: Make more exports NOSIGFE that will never be interrupted
+	by a signal.
+
+	* init.cc (dll_entry): Set stackptr to NULL to catch problems earlier.
