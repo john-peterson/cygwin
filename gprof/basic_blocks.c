@@ -2,14 +2,14 @@
    of basic-block info to/from gmon.out; computing and formatting of
    basic-block related statistics.
 
-   Copyright 1999, 2000, 2001, 2002, 2004, 2005, 2007
+   Copyright 1999, 2000, 2001, 2002, 2004, 2005
    Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -19,12 +19,11 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
-#include "gprof.h"
 #include "libiberty.h"
-#include "filenames.h"
+#include "gprof.h"
 #include "basic_blocks.h"
 #include "corefile.h"
 #include "gmon_io.h"
@@ -62,7 +61,7 @@ cmp_bb (const PTR lp, const PTR rp)
 
   if (left->file && right->file)
     {
-      r = filename_cmp (left->file->name, right->file->name);
+      r = strcmp (left->file->name, right->file->name);
 
       if (r)
 	return r;
@@ -320,7 +319,7 @@ print_exec_counts ()
 static void
 annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
 {
-  Source_File *sf = (Source_File *) arg;
+  Source_File *sf = arg;
   Sym *b;
   unsigned int i;
   static unsigned long last_count;
@@ -329,7 +328,7 @@ annotate_with_count (char *buf, unsigned int width, int line_num, PTR arg)
   b = NULL;
 
   if (line_num <= sf->num_lines)
-    b = (Sym *) sf->line[line_num - 1];
+    b = sf->line[line_num - 1];
 
   if (!b)
     {
@@ -489,7 +488,7 @@ print_annotated_source ()
     {
       if (sf->num_lines > 0)
 	{
-	  sf->line = (void **) xmalloc (sf->num_lines * sizeof (sf->line[0]));
+	  sf->line = (void *) xmalloc (sf->num_lines * sizeof (sf->line[0]));
 	  memset (sf->line, 0, sf->num_lines * sizeof (sf->line[0]));
 	}
     }
@@ -503,7 +502,7 @@ print_annotated_source ()
 		  && !sym_lookup (&syms[EXCL_ANNO], sym->addr))))
 	{
 	  sym->file->ncalls += sym->ncalls;
-	  line_stats = (Sym *) sym->file->line[sym->line_num - 1];
+	  line_stats = sym->file->line[sym->line_num - 1];
 
 	  if (!line_stats)
 	    {
@@ -553,7 +552,7 @@ print_annotated_source ()
 
 	  for (i = 0; i < table_len; ++i)
 	    {
-	      sym = (Sym *) sf->line[i];
+	      sym = sf->line[i];
 
 	      if (!sym || sym->ncalls == 0)
 		  break;
