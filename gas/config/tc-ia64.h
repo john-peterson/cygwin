@@ -1,13 +1,12 @@
 /* tc-ia64.h -- Header file for tc-ia64.c.
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008,
-   2009, 2010  Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
    Contributed by David Mosberger-Tang <davidm@hpl.hp.com>
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -17,8 +16,8 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to
-   the Free Software Foundation, 51 Franklin Street - Fifth Floor,
-   Boston, MA 02110-1301, USA.  */
+   the Free Software Foundation, 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "opcode/ia64.h"
 #include "elf/ia64.h"
@@ -34,10 +33,10 @@
 #define MD_FLAGS_DEFAULT		EF_IA_64_ABI64
 #endif /* TE_HPUX */
 
-extern void (*ia64_number_to_chars) (char *, valueT, int);
+extern void (*ia64_number_to_chars) PARAMS ((char *, valueT, int));
 #define md_number_to_chars		(*ia64_number_to_chars)
 
-extern void ia64_elf_section_change_hook (void);
+extern void ia64_elf_section_change_hook PARAMS ((void));
 #define md_elf_section_change_hook	ia64_elf_section_change_hook
 
 /* We record the endian for this section. 0 means default, 1 means
@@ -49,10 +48,10 @@ struct ia64_segment_info_type
 
 #define TC_SEGMENT_INFO_TYPE		struct ia64_segment_info_type
 
-extern void ia64_adjust_symtab (void);
+extern void ia64_adjust_symtab PARAMS ((void));
 #define tc_adjust_symtab()	ia64_adjust_symtab ()
 
-extern void ia64_frob_file (void);
+extern void ia64_frob_file PARAMS ((void));
 #define tc_frob_file()		ia64_frob_file ()
 
 /* We need to set the default object file format in ia64_init and not in
@@ -61,10 +60,10 @@ extern void ia64_frob_file (void);
    md_parse_args.  */
 
 #define HOST_SPECIAL_INIT ia64_init
-extern void ia64_init (int, char **);
+extern void ia64_init PARAMS ((int, char **));
 
 #define TARGET_FORMAT ia64_target_format()
-extern const char *ia64_target_format (void);
+extern const char *ia64_target_format PARAMS ((void));
 
 #define TARGET_ARCH			bfd_arch_ia64
 #define DOUBLESLASH_LINE_COMMENTS	/* allow //-style comments */
@@ -75,15 +74,9 @@ extern const char *ia64_target_format (void);
 #define NEED_INDEX_OPERATOR		/* [ ] is index operator */
 
 #define QUOTES_IN_INSN			/* allow `string "foo;bar"' */
-#define LEX_AT		(LEX_NAME|LEX_BEGIN_NAME) /* allow `@' inside name */
-#define LEX_QM		(LEX_NAME|LEX_BEGIN_NAME) /* allow `?' inside name */
+#define LEX_AT		LEX_NAME	/* allow `@' inside name */
+#define LEX_QM		LEX_NAME	/* allow `?' inside name */
 #define LEX_HASH	LEX_END_NAME	/* allow `#' ending a name */
-
-#define TC_PREDICATE_START_CHAR '('
-#define TC_PREDICATE_END_CHAR ')'
-
-extern const char ia64_symbol_chars[];
-#define tc_symbol_chars ia64_symbol_chars
 
 #define SUB_SEGMENT_ALIGN(SEG, FRCHAIN) 0
 
@@ -93,32 +86,34 @@ struct ia64_fix
     enum ia64_opnd opnd;
   };
 
-extern void ia64_end_of_source (void);
-extern void ia64_start_line (void);
-extern int ia64_unrecognized_line (int);
-extern void ia64_frob_label (struct symbol *);
+extern void ia64_end_of_source PARAMS((void));
+extern void ia64_start_line PARAMS((void));
+extern int ia64_unrecognized_line PARAMS((int ch));
+extern void ia64_frob_label PARAMS((struct symbol *sym));
 #ifdef TE_HPUX
-extern int ia64_frob_symbol (struct symbol *);
+extern int ia64_frob_symbol PARAMS((struct symbol *sym));
 #endif
-extern void ia64_flush_pending_output (void);
-extern int ia64_parse_name (char *, expressionS *, char *);
-extern int ia64_optimize_expr (expressionS *, operatorT, expressionS *);
-extern void ia64_cons_align (int);
-extern void ia64_flush_insns (void);
-extern int ia64_fix_adjustable (struct fix *);
-extern int ia64_force_relocation (struct fix *);
-extern void ia64_cons_fix_new (fragS *, int, int, expressionS *);
-extern void ia64_validate_fix (struct fix *);
-extern char * ia64_canonicalize_symbol_name (char *);
-extern bfd_vma ia64_elf_section_letter (int, char **);
-extern flagword ia64_elf_section_flags (flagword, bfd_vma, int);
-extern int ia64_elf_section_type (const char *, size_t);
-extern long ia64_pcrel_from_section (struct fix *, segT);
-extern void ia64_md_do_align (int, const char *, int, int);
-extern void ia64_handle_align (fragS *);
-extern void ia64_after_parse_args (void);
-extern void ia64_dwarf2_emit_offset (symbolS *, unsigned int);
-extern void ia64_check_label (symbolS *);
+extern void ia64_flush_pending_output PARAMS((void));
+extern int ia64_parse_name (char *name, expressionS *e);
+extern int ia64_optimize_expr PARAMS((expressionS *l, operatorT op,
+				      expressionS *r));
+extern void ia64_cons_align PARAMS((int));
+extern void ia64_flush_insns PARAMS((void));
+extern int ia64_fix_adjustable PARAMS((struct fix *fix));
+extern int ia64_force_relocation PARAMS((struct fix *));
+extern void ia64_cons_fix_new PARAMS ((fragS *f, int where, int nbytes,
+				       expressionS *exp));
+extern void ia64_validate_fix PARAMS ((struct fix *fix));
+extern char * ia64_canonicalize_symbol_name PARAMS ((char *));
+extern int ia64_elf_section_letter PARAMS ((int, char **));
+extern flagword ia64_elf_section_flags PARAMS ((flagword, int, int));
+extern int ia64_elf_section_type PARAMS ((const char *, size_t len));
+extern long ia64_pcrel_from_section PARAMS ((struct fix *fix, segT sec));
+extern void ia64_md_do_align PARAMS ((int, const char *, int, int));
+extern void ia64_handle_align PARAMS ((fragS *f));
+extern void ia64_after_parse_args PARAMS ((void));
+extern void ia64_dwarf2_emit_offset PARAMS ((symbolS *, unsigned int));
+extern void ia64_check_label PARAMS ((symbolS *));
 extern int ia64_estimate_size_before_relax (fragS *, asection *);
 extern void ia64_convert_frag (fragS *);
 
@@ -130,8 +125,7 @@ extern void ia64_convert_frag (fragS *);
 #define tc_frob_symbol(s,p)		p |= ia64_frob_symbol (s)
 #endif /* TE_HPUX */
 #define md_flush_pending_output()	ia64_flush_pending_output ()
-#define md_parse_name(s,e,m,c)		ia64_parse_name (s, e, c)
-#define md_register_arithmetic		0
+#define md_parse_name(s,e,c)		ia64_parse_name (s, e)
 #define tc_canonicalize_symbol_name(s)	ia64_canonicalize_symbol_name (s)
 #define tc_canonicalize_section_name(s)	ia64_canonicalize_symbol_name (s)
 #define md_optimize_expr(l,o,r)		ia64_optimize_expr (l, o, r)
@@ -159,22 +153,10 @@ extern void ia64_convert_frag (fragS *);
 #define md_after_parse_args()		ia64_after_parse_args ()
 #define TC_DWARF2_EMIT_OFFSET		ia64_dwarf2_emit_offset
 #define tc_check_label(l)		ia64_check_label (l)
-#ifdef TE_VMS
-#define tc_init_after_args() ia64_vms_note ()
-void ia64_vms_note (void);
-#endif
 
 /* Record if an alignment frag should end with a stop bit.  */
 #define TC_FRAG_TYPE			int
 #define TC_FRAG_INIT(FRAGP)		do {(FRAGP)->tc_frag_data = 0;}while (0)
-
-/* Give an error if a frag containing code is not aligned to a 16 byte
-   boundary.  */
-#define md_frag_check(FRAGP) \
-  if ((FRAGP)->has_code							\
-      && (((FRAGP)->fr_address + (FRAGP)->insn_addr) & 15) != 0)	\
-     as_bad_where ((FRAGP)->fr_file, (FRAGP)->fr_line,			\
-		   _("instruction address is not a multiple of 16"));
 
 #define MAX_MEM_FOR_RS_ALIGN_CODE  (15 + 16)
 
@@ -247,7 +229,7 @@ typedef struct unw_r_record
   struct
   {
     unsigned char *i;
-    unsigned int fr_mem;
+    unsigned long fr_mem;
     unsigned char gr_mem;
     unsigned char br_mem;
   } mask;
@@ -255,22 +237,17 @@ typedef struct unw_r_record
 
 typedef struct unw_p_record
 {
-  struct unw_rec_list *next;
+  void *imask;
   unsigned long t;
   unsigned long size;
-  union
-  {
-    unsigned long sp;
-    unsigned long psp;
-  } off;
-  union
-  {
-    unsigned short gr;
-    unsigned short br;
-  } r;
-  unsigned char grmask;
-  unsigned char brmask;
-  unsigned int frmask;
+  unsigned long spoff;
+  unsigned long br;
+  unsigned long pspoff;
+  unsigned short gr;
+  unsigned short rmask;
+  unsigned short grmask;
+  unsigned long frmask;
+  unsigned short brmask;
   unsigned char abi;
   unsigned char context;
 } unw_p_record;
@@ -285,13 +262,10 @@ typedef struct unw_b_record
 typedef struct unw_x_record
 {
   unsigned long t;
-  union
-  {
-    unsigned long spoff;
-    unsigned long pspoff;
-    unsigned int reg;
-  } where;
+  unsigned long spoff;
+  unsigned long pspoff;
   unsigned short reg;
+  unsigned short treg;
   unsigned short qp;
   unsigned short ab;	/* Value of the AB field..  */
   unsigned short xy;	/* Value of the XY field..  */
@@ -321,11 +295,5 @@ typedef struct unwind_record
 #define TC_FORCE_RELOCATION_LOCAL(FIX)			\
   ((FIX)->fx_r_type != BFD_RELOC_UNUSED			\
    && (!(FIX)->fx_pcrel					\
-       || (FIX)->fx_r_type == BFD_RELOC_IA64_PLTOFF22	\
+       || (FIX)->fx_plt					\
        || TC_FORCE_RELOCATION (FIX)))
-
-/* VMS backtraces expect dwarf version 3.  */
-#ifdef TE_VMS
-#define DWARF2_VERSION 3
-#define DWARF2_LINE_VERSION 3
-#endif

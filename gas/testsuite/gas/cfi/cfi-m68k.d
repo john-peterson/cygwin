@@ -1,6 +1,6 @@
 #readelf: -wf
 #name: CFI on m68k
-Contents of the .eh_frame section:
+The section .eh_frame contains:
 
 00000000 00000014 00000000 CIE
   Version:               1
@@ -15,22 +15,22 @@ Contents of the .eh_frame section:
   DW_CFA_nop
   DW_CFA_nop
 
-00000018 00000014 0000001c FDE cie=00000000 pc=00000000..0000000c
-  DW_CFA_advance_loc: 4 to 00000004
+00000018 00000014 0000001c FDE cie=00000000 pc=00000020..0000002c
+  DW_CFA_advance_loc: 4 to 00000024
   DW_CFA_def_cfa_offset: 4664
-  DW_CFA_advance_loc: 6 to 0000000a
+  DW_CFA_advance_loc: 6 to 0000002a
   DW_CFA_def_cfa_offset: 4
 
-00000030 00000018 00000034 FDE cie=00000000 pc=0000000c..00000018
-  DW_CFA_advance_loc: 4 to 00000010
+00000030 00000018 00000034 FDE cie=00000000 pc=00000038..00000044
+  DW_CFA_advance_loc: 4 to 0000003c
   DW_CFA_def_cfa_offset: 8
   DW_CFA_offset: r14 at cfa-8
-  DW_CFA_def_cfa_register: r14
-  DW_CFA_advance_loc: 6 to 00000016
-  DW_CFA_def_cfa_register: r15
+  DW_CFA_def_cfa_reg: r14
+  DW_CFA_advance_loc: 6 to 00000042
+  DW_CFA_def_cfa_reg: r15
   DW_CFA_nop
 
-0000004c 00000010 00000050 FDE cie=00000000 pc=00000018..0000001c
+0000004c 00000010 00000050 FDE cie=00000000 pc=00000054..00000058
 
   DW_CFA_nop
   DW_CFA_nop

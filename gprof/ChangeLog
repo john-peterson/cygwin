@@ -1,11 +1,12 @@
-For older changes see ChangeLog-2012
+2004-04-09  Daniel Jacobowitz  <drow@mvista.com>
+
+	Merge from mainline:
+	2004-03-19  Alan Modra  <amodra@bigpond.net.au>
+	* po/sv.po: Updated.
+
+
+For older changes see ChangeLog-9203
 
-Copyright (C) 2013 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
 mode: change-log
 left-margin: 8
