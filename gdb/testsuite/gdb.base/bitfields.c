@@ -5,7 +5,7 @@
    this may cause some tests to fail.  But at least we can still compile
    the test program and run the tests... */
 
-#if !defined(__STDC__) && !defined(__cplusplus)
+#ifndef __STDC__
 #define signed  /**/
 #endif
 
@@ -63,12 +63,6 @@ void break10 ()
 {
 }
 
-struct container
-{
-  struct fields one;
-  struct fields two;
-} container;
-
 /* This is used by bitfields.exp to determine if the target understands
    signed bitfields.  */
 int i;
@@ -78,11 +72,15 @@ int main ()
   /* For each member, set that member to 1, allow gdb to verify that the
      member (and only that member) is 1, and then reset it back to 0. */
 
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   flags.uc = 1;
   break1 ();
   flags.uc = 0;
 
-  flags.s1 = -1;
+  flags.s1 = 1;
   break1 ();
   flags.s1 = 0;
 
@@ -133,10 +131,10 @@ int main ()
   flags.u3 = 0;
   flags.u9 = 0;
 
-  flags.s1 = -1;
-  flags.s2 = -1;
-  flags.s3 = -1;
-  flags.s9 = -1;
+  flags.s1 = 0x1;
+  flags.s2 = 0x3;
+  flags.s3 = 0x7;
+  flags.s9 = 0x1FF;
   flags.sc = 0xFF;
   break2 ();
   flags.s1 = 0;
@@ -171,31 +169,26 @@ int main ()
   break4 ();
 
   /* Maximally negative values */
-  flags.s1 = -0x1;
-  flags.s2 = -0x2;
-  flags.s3 = -0x4;
-  flags.s9 = -0x100;
+  flags.s1 = 0x1;
+  flags.s2 = 0x2;
+  flags.s3 = 0x4;
+  flags.s9 = 0x100;
   /* Extract bitfield value so that bitfield.exp can check if the target
      understands signed bitfields.  */
   i = flags.s9;
   break4 ();
 
   /* -1 */
-  flags.s1 = -1;
-  flags.s2 = -1;
-  flags.s3 = -1;
-  flags.s9 = -1;
+  flags.s1 = 0x1;
+  flags.s2 = 0x3;
+  flags.s3 = 0x7;
+  flags.s9 = 0x1FF;
   break4 ();
 
   flags.s1 = 0;
   flags.s2 = 0;
   flags.s3 = 0;
   flags.s9 = 0;
-
-  /* Bitfields at a non-zero offset in a containing structure.  */
-  container.one.u3 = 5;
-  container.two.u3 = 3;
-  break5 ();
 
   return 0;
 }

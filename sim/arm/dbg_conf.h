@@ -3,7 +3,7 @@
  
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
  
     This program is distributed in the hope that it will be useful,
@@ -12,27 +12,26 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>. */
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
 #ifndef Dbg_Conf__h
 
 #define Dbg_Conf__h
 
-typedef struct Dbg_ConfigBlock
-{
-  int bytesex;
-  long memorysize;
-  int serialport;		/*) remote connection parameters */
-  int seriallinespeed;		/*) (serial connection) */
-  int parallelport;		/*) ditto */
-  int parallellinespeed;	/*) (parallel connection) */
-  int processor;		/* processor the armulator is to emulate (eg ARM60) */
-  int rditype;			/* armulator / remote processor */
-  int drivertype;		/* parallel / serial / etc */
-  char const *configtoload;
-  int flags;
-}
-Dbg_ConfigBlock;
+typedef struct Dbg_ConfigBlock {
+    int bytesex;
+    long memorysize;
+    int serialport;        /*) remote connection parameters */
+    int seriallinespeed;   /*) (serial connection) */
+    int parallelport;      /*) ditto */
+    int parallellinespeed; /*) (parallel connection) */
+    int processor;         /* processor the armulator is to emulate (eg ARM60) */
+    int rditype;           /* armulator / remote processor */
+    int drivertype;        /* parallel / serial / etc */
+    char const *configtoload;
+    int flags;
+} Dbg_ConfigBlock;
 
 #define Dbg_ConfigFlag_Reset 1
 

@@ -1,23 +1,22 @@
-/* The common simulator framework for GDB, the GNU Debugger.
+/*  This file is part of the program psim.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+    Copyright (C) 1994-1997, Andrew Cagney <cagney@highland.com.au>
 
-   Contributed by Andrew Cagney and Red Hat.
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
 
-   This file is part of GDB.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+ 
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ 
+    */
 
 
 #ifndef SIM_EVENTS_H
@@ -55,7 +54,7 @@
 	   if (events-were-next)
 	     next-cpu-nr = 0;
 
-           .... // prime main loop
+           .... // prime main loop 
 
            while (1)
              {
@@ -93,7 +92,7 @@ struct _sim_events {
   unsigned long elapsed_wallclock;
   SIM_ELAPSED_TIME resume_wallclock;
   signed64 time_of_event;
-  signed64 time_from_event;
+  int time_from_event;
   int trace;
 };
 
@@ -246,7 +245,7 @@ INLINE_SIM_EVENTS\
  int slip);
 
 
-/* Progress time such that an event shall occur upon the next call to
+/* Progress time such that an event shall occure upon the next call to
    sim_events tick */
 
 #if 0
@@ -268,11 +267,5 @@ INLINE_SIM_EVENTS\
 INLINE_SIM_EVENTS\
 (unsigned long) sim_events_elapsed_time
 (SIM_DESC sd);
-
-/* Returns the time that remains before the event is raised. */
-INLINE_SIM_EVENTS\
-(signed64) sim_events_remain_time
-(SIM_DESC sd, sim_event *event);
-
 
 #endif

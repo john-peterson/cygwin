@@ -5,21 +5,12 @@ static int filelocal_bss;	/* In BSS section */
 #endif
 static const int filelocal_ro = 201;	/* In Read-Only Data section */
 
-extern void init1();
-extern void foo();
-
-int autovars (int bcd, int abc);
-int localscopes (int x);
-int useit (int val);
-int useitp (const int *val);
-void init0();
-void marker1 ();
-void marker2 ();
-void marker3 ();
-void marker4 ();
-
-int main ()
+main ()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   init0 ();
   foo ();
   autovars (5, 6);
@@ -27,16 +18,15 @@ int main ()
 }
 
 /* On some systems, such as AIX, unreferenced variables are deleted
-   from the executable.  On other compilers, such as ARM RealView,
-   const variables without their address taken are deleted.  */
-void usestatics ()
+   from the executable.  */
+usestatics ()
 {
-  useitp (&filelocal);
-  useitp (&filelocal_bss);
-  useitp (&filelocal_ro);
+  useit (filelocal);
+  useit (filelocal_bss);
+  useit (filelocal_ro);
 }
 
-void init0 ()
+init0 ()
 {
   filelocal_bss = 101;
   init1 ();
@@ -44,14 +34,9 @@ void init0 ()
 
 /* This is to derail optimizer in localscopes.
    Return 1 + 2 + . . . + N.  */
-#ifdef PROTOTYPES
-int
-sum_upto (int n)
-#else
 int
 sum_upto (n)
      int n;
-#endif
 {
   int i;
   int retval = 0;
@@ -61,13 +46,8 @@ sum_upto (n)
   return retval;
 }
 
-#ifdef PROTOTYPES
 int
-useit (int val)
-#else
-int
-useit (val) int val;
-#endif
+useit (val)
 {
     static int usedval;
 
@@ -75,29 +55,10 @@ useit (val) int val;
     return val + sum_upto (0);
 }
 
-#ifdef PROTOTYPES
-int
-useitp (const int *val)
-#else
-int
-useitp (val) const int *val;
-#endif
-{
-    static int usedval;
-
-    usedval = *val;
-    return *val + sum_upto (0);
-}
-
-#ifdef PROTOTYPES
-int
-autovars (int bcd, int abc)
-#else
 int
 autovars (bcd, abc)
      int bcd;
      int abc;
-#endif
 {
     int  i0 =  useit (0),  i1 =  useit (1),  i2 =  useit (2);
     int  i3 =  useit (3),  i4 =  useit (4),  i5 =  useit (5);
@@ -172,14 +133,9 @@ autovars (bcd, abc)
       + i91 + i92 + i93 + i94 + i95 + i96 + i97 + i98 + i99 + abc + bcd;
 }
 
-#ifdef PROTOTYPES
-int
-localscopes (int x)
-#else
 int
 localscopes (x)
      int x;
-#endif
 {
     int localval;
     int retval;
@@ -214,7 +170,7 @@ localscopes (x)
     return retval;
 }
 
-void marker1 () {}
-void marker2 () {}
-void marker3 () {}
-void marker4 () {}
+marker1 () {}
+marker2 () {}
+marker3 () {}
+marker4 () {}

@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -24,40 +25,40 @@
 
 /* C byte conversion functions */
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_h2t_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_h2t_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_h2t_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_h2t_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_h2t_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_h2t_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_h2t_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_h2t_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_t2h_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_t2h_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_t2h_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_t2h_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_t2h_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_t2h_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_t2h_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_t2h_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) swap_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) swap_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) swap_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) swap_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) swap_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) swap_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) swap_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) swap_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_h2be_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_h2be_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_h2be_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_h2be_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_h2be_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_h2be_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_h2be_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_h2be_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_be2h_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_be2h_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_be2h_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_be2h_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_be2h_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_be2h_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_be2h_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_be2h_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_h2le_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_h2le_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_h2le_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_h2le_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_h2le_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_h2le_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_h2le_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_h2le_8(unsigned_8 x);
 
-INLINE_PSIM_ENDIAN(unsigned_1) endian_le2h_1(unsigned_1 x);
-INLINE_PSIM_ENDIAN(unsigned_2) endian_le2h_2(unsigned_2 x);
-INLINE_PSIM_ENDIAN(unsigned_4) endian_le2h_4(unsigned_4 x);
-INLINE_PSIM_ENDIAN(unsigned_8) endian_le2h_8(unsigned_8 x);
+INLINE_SIM_ENDIAN(unsigned_1) endian_le2h_1(unsigned_1 x);
+INLINE_SIM_ENDIAN(unsigned_2) endian_le2h_2(unsigned_2 x);
+INLINE_SIM_ENDIAN(unsigned_4) endian_le2h_4(unsigned_4 x);
+INLINE_SIM_ENDIAN(unsigned_8) endian_le2h_8(unsigned_8 x);
 
 
 /* Host dependant:
@@ -93,6 +94,7 @@ INLINE_PSIM_ENDIAN(unsigned_8) endian_le2h_8(unsigned_8 x);
 
 #if defined(__linux__)
 # include <endian.h>
+# include <asm/byteorder.h>
 # if defined(__LITTLE_ENDIAN) && !defined(LITTLE_ENDIAN)
 #  define LITTLE_ENDIAN __LITTLE_ENDIAN
 # endif
@@ -244,46 +246,46 @@ INLINE_PSIM_ENDIAN(unsigned_8) endian_le2h_8(unsigned_8 x);
 
 /* SWAP */
 
-#define SWAP_1 swap_1
-#define SWAP_2 swap_2
-#define SWAP_4 swap_4
-#define SWAP_8 swap_8
+#define SWAP_1(X) swap_1(X)
+#define SWAP_2(X) swap_2(X)
+#define SWAP_4(X) swap_4(X)
+#define SWAP_8(X) swap_8(X)
 
 
 /* HOST to BE */
 
-#define H2BE_1 endian_h2be_1
-#define H2BE_2 endian_h2be_2
-#define H2BE_4 endian_h2be_4
-#define H2BE_8 endian_h2be_8
-#define BE2H_1 endian_be2h_1
-#define BE2H_2 endian_be2h_2
-#define BE2H_4 endian_be2h_4
-#define BE2H_8 endian_be2h_8
+#define H2BE_1(X) endian_h2be_1(X)
+#define H2BE_2(X) endian_h2be_2(X)
+#define H2BE_4(X) endian_h2be_4(X)
+#define H2BE_8(X) endian_h2be_8(X)
+#define BE2H_1(X) endian_be2h_1(X)
+#define BE2H_2(X) endian_be2h_2(X)
+#define BE2H_4(X) endian_be2h_4(X)
+#define BE2H_8(X) endian_be2h_8(X)
 
 
 /* HOST to LE */
 
-#define H2LE_1 endian_h2le_1
-#define H2LE_2 endian_h2le_2
-#define H2LE_4 endian_h2le_4
-#define H2LE_8 endian_h2le_8
-#define LE2H_1 endian_le2h_1
-#define LE2H_2 endian_le2h_2
-#define LE2H_4 endian_le2h_4
-#define LE2H_8 endian_le2h_8
+#define H2LE_1(X) endian_h2le_1(X)
+#define H2LE_2(X) endian_h2le_2(X)
+#define H2LE_4(X) endian_h2le_4(X)
+#define H2LE_8(X) endian_h2le_8(X)
+#define LE2H_1(X) endian_le2h_1(X)
+#define LE2H_2(X) endian_le2h_2(X)
+#define LE2H_4(X) endian_le2h_4(X)
+#define LE2H_8(X) endian_le2h_8(X)
 
 
 /* HOST to TARGET */
 
-#define H2T_1 endian_h2t_1
-#define H2T_2 endian_h2t_2
-#define H2T_4 endian_h2t_4
-#define H2T_8 endian_h2t_8
-#define T2H_1 endian_t2h_1
-#define T2H_2 endian_t2h_2
-#define T2H_4 endian_t2h_4
-#define T2H_8 endian_t2h_8
+#define H2T_1(X) endian_h2t_1(X)
+#define H2T_2(X) endian_h2t_2(X)
+#define H2T_4(X) endian_h2t_4(X)
+#define H2T_8(X) endian_h2t_8(X)
+#define T2H_1(X) endian_t2h_1(X)
+#define T2H_2(X) endian_t2h_2(X)
+#define T2H_4(X) endian_t2h_4(X)
+#define T2H_8(X) endian_t2h_8(X)
 
 
 /* CONVERT IN PLACE
@@ -368,22 +370,22 @@ do { \
    Byte swap a quantity the size of the targets word */
 
 #if (WITH_TARGET_WORD_BITSIZE == 64)
-#define H2T_word H2T_8
-#define T2H_word T2H_8
-#define H2BE_word H2BE_8
-#define BE2H_word BE2H_8
-#define H2LE_word H2LE_8
-#define LE2H_word LE2H_8
-#define SWAP_word SWAP_8
+#define H2T_word(X) H2T_8(X)
+#define T2H_word(X) T2H_8(X)
+#define H2BE_word(X) H2BE_8(X)
+#define BE2H_word(X) BE2H_8(X)
+#define H2LE_word(X) H2LE_8(X)
+#define LE2H_word(X) LE2H_8(X)
+#define SWAP_word(X) SWAP_8(X)
 #endif
 #if (WITH_TARGET_WORD_BITSIZE == 32)
-#define H2T_word H2T_4
-#define T2H_word T2H_4
-#define H2BE_word H2BE_4
-#define BE2H_word BE2H_4
-#define H2LE_word H2LE_4
-#define LE2H_word LE2H_4
-#define SWAP_word SWAP_4
+#define H2T_word(X) H2T_4(X)
+#define T2H_word(X) T2H_4(X)
+#define H2BE_word(X) H2BE_4(X)
+#define BE2H_word(X) BE2H_4(X)
+#define H2LE_word(X) H2LE_4(X)
+#define LE2H_word(X) LE2H_4(X)
+#define SWAP_word(X) SWAP_4(X)
 #endif
 
 
@@ -391,13 +393,13 @@ do { \
 
    Byte swap a quantity the size of the targets IEEE 1275 memory cell */
 
-#define H2T_cell H2T_4
-#define T2H_cell T2H_4
-#define H2BE_cell H2BE_4
-#define BE2H_cell BE2H_4
-#define H2LE_cell H2LE_4
-#define LE2H_cell LE2H_4
-#define SWAP_cell SWAP_4
+#define H2T_cell(X) H2T_4(X)
+#define T2H_cell(X) T2H_4(X)
+#define H2BE_cell(X) H2BE_4(X)
+#define BE2H_cell(X) BE2H_4(X)
+#define H2LE_cell(X) H2LE_4(X)
+#define LE2H_cell(X) LE2H_4(X)
+#define SWAP_cell(X) SWAP_4(X)
 
 
 #if (SIM_ENDIAN_INLINE & INCLUDE_MODULE)

@@ -1,10 +1,10 @@
 /*  This file is part of the program psim.
 
-    Copyright 1994, 1995, 1996, 1997, 2003 Andrew Cagney
+    Copyright (C) 1994-1997, Andrew Cagney <cagney@highland.com.au>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -314,10 +315,12 @@ program_interrupt(cpu *processor,
       cpu_error(processor, cia, "program interrupt - %s",
 		"illegal instruction (optional instruction not supported)");
       break;
+#ifdef WITH_OPTION_MPC860C0
     case mpc860c0_instruction_program_interrupt:
       cpu_error(processor, cia, "program interrupt - %s",
         	"problematic branch detected, see MPC860 C0 errata");
       break;
+#endif // WITH_OPTION_MPC860C0
     default:
       error("internal error - program_interrupt - reason %d not implemented", reason);
     }
@@ -339,11 +342,13 @@ program_interrupt(cpu *processor,
       case trap_program_interrupt:
 	srr1_set = srr1_trap;
 	break;
+#ifdef WITH_OPTION_MPC860C0
       case mpc860c0_instruction_program_interrupt:
         srr1_set = 0;
-        cpu_error(processor, cia, "program interrupt - %s",
+        error(processor, cia, "program interrupt - %s",
               "problematic branch detected, see MPC860 C0 errata");
         break;
+#endif // WITH_OPTION_MPC860C0
       default:
 	srr1_set = 0;
 	error("internal error - program_interrupt - reason %d not implemented", reason);
@@ -468,7 +473,7 @@ deliver_hardware_interrupt(void *data)
       unsigned_word cia = cpu_get_program_counter(processor);
       unsigned_word nia = perform_oea_interrupt(processor,
 						cia, 0x00900, 0, 0, 0, 0);
-      TRACE(trace_interrupts, ("decrementer interrupt - cia 0x%lx, time %ld\n",
+      TRACE(trace_interrupts, ("decrementer interrupt - cia=0x%lx time=0x%lx\n",
 			       (unsigned long)cia,
 			       (unsigned long)event_queue_time(psim_event_queue(cpu_system(processor)))
 			       ));
@@ -521,7 +526,7 @@ external_interrupt(cpu *processor,
 {
   interrupts *ints = cpu_interrupts(processor);
   if (is_asserted) {
-    if (!(ints->pending_interrupts & external_interrupt_pending)) {
+    if (!ints->pending_interrupts & external_interrupt_pending) {
       ints->pending_interrupts |= external_interrupt_pending;
       if (cpu_registers(processor)->msr & msr_external_interrupt_enable)
 	schedule_hardware_interrupt_delivery(processor);

@@ -48,7 +48,7 @@ enum interrupt_type
   num_int_types
 };
 
-const char *interrupt_names[] = {
+char *interrupt_names[] = {
   "reset",
   "nmi",
   "intov1",
@@ -65,7 +65,7 @@ do_interrupt (sd, data)
      SIM_DESC sd;
      void *data;
 {
-  const char **interrupt_name = (const char**)data;
+  char **interrupt_name = (char**)data;
   enum interrupt_type inttype;
   inttype = (interrupt_name - STATE_WATCHPOINTS (sd)->interrupt_names);
 
@@ -192,7 +192,7 @@ SIM_DESC
 sim_open (kind, cb, abfd, argv)
      SIM_OPEN_KIND kind;
      host_callback *cb;
-     struct bfd *abfd;
+     struct _bfd *abfd;
      char **argv;
 {
   SIM_DESC sd = sim_state_alloc (kind, cb);
@@ -267,8 +267,7 @@ sim_open (kind, cb, abfd, argv)
 
   /* determine the machine type */
   if (STATE_ARCHITECTURE (sd) != NULL
-      && (STATE_ARCHITECTURE (sd)->arch == bfd_arch_v850
-	  || STATE_ARCHITECTURE (sd)->arch == bfd_arch_v850_rh850))
+      && STATE_ARCHITECTURE (sd)->arch == bfd_arch_v850)
     mach = STATE_ARCHITECTURE (sd)->mach;
   else
     mach = bfd_mach_v850; /* default */
@@ -278,11 +277,13 @@ sim_open (kind, cb, abfd, argv)
     {
     case bfd_mach_v850:
     case bfd_mach_v850e:
-    case bfd_mach_v850e1:
-    case bfd_mach_v850e2:
-    case bfd_mach_v850e2v3:
-    case bfd_mach_v850e3v5:
       STATE_CPU (sd, 0)->psw_mask = (PSW_NP | PSW_EP | PSW_ID | PSW_SAT
+				     | PSW_CY | PSW_OV | PSW_S | PSW_Z);
+      break;
+    case bfd_mach_v850ea:
+      PSW |= PSW_US;
+      STATE_CPU (sd, 0)->psw_mask = (PSW_US
+				     | PSW_NP | PSW_EP | PSW_ID | PSW_SAT
 				     | PSW_CY | PSW_OV | PSW_S | PSW_Z);
       break;
     }
@@ -302,13 +303,18 @@ sim_close (sd, quitting)
 SIM_RC
 sim_create_inferior (sd, prog_bfd, argv, env)
      SIM_DESC sd;
-     struct bfd *prog_bfd;
+     struct _bfd *prog_bfd;
      char **argv;
      char **env;
 {
   memset (&State, 0, sizeof (State));
   if (prog_bfd != NULL)
     PC = bfd_get_start_address (prog_bfd);
+  /* For v850ea, set PSW[US] by default */
+  if (STATE_ARCHITECTURE (sd) != NULL
+      && STATE_ARCHITECTURE (sd)->arch == bfd_arch_v850
+      && STATE_ARCHITECTURE (sd)->mach == bfd_mach_v850ea)
+    PSW |= PSW_US;
   return SIM_RC_OK;
 }
 
@@ -331,5 +337,24 @@ sim_store_register (sd, rn, memory, length)
      int length;
 {
   State.regs[rn] = T2H_4 (*(unsigned32*)memory);
-  return length;
+  return -1;
+}
+
+void
+sim_do_command (sd, cmd)
+     SIM_DESC sd;
+     char *cmd;
+{
+  char *mm_cmd = "memory-map";
+  char *int_cmd = "interrupt";
+
+  if (sim_args_command (sd, cmd) != SIM_RC_OK)
+    {
+      if (strncmp (cmd, mm_cmd, strlen (mm_cmd) == 0))
+	sim_io_eprintf (sd, "`memory-map' command replaced by `sim memory'\n");
+      else if (strncmp (cmd, int_cmd, strlen (int_cmd)) == 0)
+	sim_io_eprintf (sd, "`interrupt' command replaced by `sim watch'\n");
+      else
+	sim_io_eprintf (sd, "Unknown command `%s'\n", cmd);
+    }
 }

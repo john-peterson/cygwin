@@ -1,48 +1,49 @@
 /* Source-language-related definitions for GDB.
-
-   Copyright (C) 1991-2013 Free Software Foundation, Inc.
-
+   Copyright 1991, 1992 Free Software Foundation, Inc.
    Contributed by the Department of Computer Science at the State University
    of New York at Buffalo.
 
-   This file is part of GDB.
+This file is part of GDB.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #if !defined (LANGUAGE_H)
 #define LANGUAGE_H 1
 
-/* Forward decls for prototypes.  */
+#ifdef __STDC__		/* Forward decls for prototypes */
 struct value;
 struct objfile;
-struct frame_info;
 struct expression;
-struct ui_file;
-struct value_print_options;
-struct type_print_options;
+/* enum exp_opcode;	ANSI's `wisdom' didn't include forward enum decls. */
+#endif
 
-#define MAX_FORTRAN_DIMS  7	/* Maximum number of F77 array dims.  */
+/* This used to be included to configure GDB for one or more specific
+   languages.  Now it is shortcutted to configure for all of them.  FIXME.  */
+/* #include "lang_def.h" */
+#define	_LANG_c
+#define	_LANG_m2
+#define	_LANG_chill
+#define _LANG_fortran
+
+#define MAX_FORTRAN_DIMS  7   /* Maximum number of F77 array dims */ 
 
 /* range_mode ==
    range_mode_auto:   range_check set automatically to default of language.
    range_mode_manual: range_check set manually by user.  */
 
-extern enum range_mode
-  {
-    range_mode_auto, range_mode_manual
-  }
-range_mode;
+extern enum range_mode {range_mode_auto, range_mode_manual} range_mode;
 
 /* range_check ==
    range_check_on:    Ranges are checked in GDB expressions, producing errors.
@@ -50,305 +51,153 @@ range_mode;
    range_check_off:   Ranges are not checked in GDB expressions.  */
 
 extern enum range_check
-  {
-    range_check_off, range_check_warn, range_check_on
-  }
-range_check;
+  {range_check_off, range_check_warn, range_check_on} range_check;
 
-/* case_mode ==
-   case_mode_auto:   case_sensitivity set upon selection of scope.
-   case_mode_manual: case_sensitivity set only by user.  */
+/* type_mode ==
+   type_mode_auto:   type_check set automatically to default of language
+   type_mode_manual: type_check set manually by user. */
 
-extern enum case_mode
-  {
-    case_mode_auto, case_mode_manual
-  }
-case_mode;
+extern enum type_mode {type_mode_auto, type_mode_manual} type_mode;
 
-/* array_ordering ==
-   array_row_major:     Arrays are in row major order.
-   array_column_major:  Arrays are in column major order.  */
+/* type_check ==
+   type_check_on:    Types are checked in GDB expressions, producing errors.
+   type_check_warn:  Types are checked, producing warnings.
+   type_check_off:   Types are not checked in GDB expressions.  */
 
-extern enum array_ordering
-  {
-    array_row_major, array_column_major
-  } 
-array_ordering;
-
-
-/* case_sensitivity ==
-   case_sensitive_on:   Case sensitivity in name matching is used.
-   case_sensitive_off:  Case sensitivity in name matching is not used.  */
-
-extern enum case_sensitivity
-  {
-    case_sensitive_on, case_sensitive_off
-  }
-case_sensitivity;
-
-
-/* macro_expansion ==
-   macro_expansion_no:  No macro expansion is available.
-   macro_expansion_c:   C-like macro expansion is available.  */
-
-enum macro_expansion
-  {
-    macro_expansion_no, macro_expansion_c
-  };
-
+extern enum type_check
+  {type_check_off, type_check_warn, type_check_on} type_check;
 
-/* Per architecture (OS/ABI) language information.  */
+/* Information for doing language dependent formatting of printed values. */
 
-struct language_arch_info
+struct language_format_info
 {
-  /* Its primitive types.  This is a vector ended by a NULL pointer.
-     These types can be specified by name in parsing types in
-     expressions, regardless of whether the program being debugged
-     actually defines such a type.  */
-  struct type **primitive_type_vector;
-  /* Type of elements of strings.  */
-  struct type *string_char_type;
+  /* The format that can be passed directly to standard C printf functions
+     to generate a completely formatted value in the format appropriate for
+     the language. */
 
-  /* Symbol name of type to use as boolean type, if defined.  */
-  const char *bool_type_symbol;
-  /* Otherwise, this is the default boolean builtin type.  */
-  struct type *bool_type_default;
+  char *la_format;
+
+  /* The prefix to be used when directly printing a value, or constructing
+     a standard C printf format.  This generally is everything up to the
+     conversion specification (the part introduced by the '%' character
+     and terminated by the conversion specifier character). */
+
+  char *la_format_prefix;
+
+  /* The conversion specifier.  This is generally everything after the
+     field width and precision, typically only a single character such
+     as 'o' for octal format or 'x' for hexadecimal format. */
+
+  char *la_format_specifier;
+
+  /* The suffix to be used when directly printing a value, or constructing
+     a standard C printf format.  This generally is everything after the
+     conversion specification (the part introduced by the '%' character
+     and terminated by the conversion specifier character). */
+
+  char *la_format_suffix;		/* Suffix for custom format string */
 };
-
-/* A pointer to a function expected to return nonzero if
-   SYMBOL_SEARCH_NAME matches the given LOOKUP_NAME.
-
-   SYMBOL_SEARCH_NAME should be a symbol's "search" name.
-   LOOKUP_NAME should be the name of an entity after it has been
-   transformed for lookup.  */
-
-typedef int (*symbol_name_cmp_ftype) (const char *symbol_search_name,
-					  const char *lookup_name);
 
 /* Structure tying together assorted information about a language.  */
 
 struct language_defn
-  {
-    /* Name of the language.  */
+{
+  /* Name of the language */
+  
+  char *la_name;
 
-    char *la_name;
+  /* its symtab language-enum (defs.h) */
 
-    /* its symtab language-enum (defs.h).  */
+  enum language la_language;
 
-    enum language la_language;
+  /* Its builtin types.  This is a vector ended by a NULL pointer.  These
+     types can be specified by name in parsing types in expressions,
+     regardless of whether the program being debugged actually defines
+     such a type.  */
 
-    /* Default range checking.  */
+  struct type ** const *la_builtin_type_vector;
 
-    enum range_check la_range_check;
+  /* Default range checking */
 
-    /* Default case sensitivity.  */
-    enum case_sensitivity la_case_sensitivity;
+  enum range_check la_range_check;
 
-    /* Multi-dimensional array ordering.  */
-    enum array_ordering la_array_ordering;
+  /* Default type checking */
 
-    /* Style of macro expansion, if any, supported by this language.  */
-    enum macro_expansion la_macro_expansion;
+  enum type_check la_type_check;
 
-    /* Definitions related to expression printing, prefixifying, and
-       dumping.  */
+  /* Parser function. */
+  
+  int (*la_parser) PARAMS((void));
 
-    const struct exp_descriptor *la_exp_desc;
+  /* Parser error function */
 
-    /* Parser function.  */
+  void (*la_error) PARAMS ((char *));
 
-    int (*la_parser) (void);
+  /* Evaluate an expression. */
+  struct value * (*evaluate_exp) PARAMS ((struct type *, struct expression *, 
+					  int *, enum noside));
 
-    /* Parser error function.  */
+  void (*la_printchar) PARAMS ((int ch, GDB_FILE *stream));
 
-    void (*la_error) (char *);
+  void (*la_printstr) PARAMS ((GDB_FILE *stream, char *string,
+			       unsigned int length, int width,
+			       int force_ellipses));
 
-    /* Given an expression *EXPP created by prefixifying the result of
-       la_parser, perform any remaining processing necessary to complete
-       its translation.  *EXPP may change; la_post_parser is responsible 
-       for releasing its previous contents, if necessary.  If 
-       VOID_CONTEXT_P, then no value is expected from the expression.  */
+  void (*la_emitchar) PARAMS ((int ch, GDB_FILE *stream, int quoter));
 
-    void (*la_post_parser) (struct expression ** expp, int void_context_p);
+  struct type *(*la_fund_type) PARAMS ((struct objfile *, int));
 
-    void (*la_printchar) (int ch, struct type *chtype,
-			  struct ui_file * stream);
+  /* Print a type using syntax appropriate for this language. */
 
-    void (*la_printstr) (struct ui_file * stream, struct type *elttype,
-			 const gdb_byte *string, unsigned int length,
-			 const char *encoding, int force_ellipses,
-			 const struct value_print_options *);
+  void (*la_print_type) PARAMS ((struct type *, char *, GDB_FILE *, int, int));
 
-    void (*la_emitchar) (int ch, struct type *chtype,
-			 struct ui_file * stream, int quoter);
+  /* Print a value using syntax appropriate for this language. */
 
-    /* Print a type using syntax appropriate for this language.  */
+  int (*la_val_print) PARAMS ((struct type *, char *, int, CORE_ADDR, GDB_FILE *,
+			       int, int, int, enum val_prettyprint));
 
-    void (*la_print_type) (struct type *, const char *, struct ui_file *, int,
-			   int, const struct type_print_options *);
+  /* Print a top-level value using syntax appropriate for this language. */
 
-    /* Print a typedef using syntax appropriate for this language.
-       TYPE is the underlying type.  NEW_SYMBOL is the symbol naming
-       the type.  STREAM is the output stream on which to print.  */
+  int (*la_value_print) PARAMS ((struct value *, GDB_FILE *,
+				 int, enum val_prettyprint));
 
-    void (*la_print_typedef) (struct type *type, struct symbol *new_symbol,
-			      struct ui_file *stream);
+  /* Base 2 (binary) formats. */
 
-    /* Print a value using syntax appropriate for this language.
-       
-       TYPE is the type of the sub-object to be printed.
+  struct language_format_info la_binary_format;
 
-       CONTENTS holds the bits of the value.  This holds the entire
-       enclosing object.
+  /* Base 8 (octal) formats. */
 
-       EMBEDDED_OFFSET is the offset into the outermost object of the
-       sub-object represented by TYPE.  This is the object which this
-       call should print.  Note that the enclosing type is not
-       available.
+  struct language_format_info la_octal_format;
 
-       ADDRESS is the address in the inferior of the enclosing object.
+  /* Base 10 (decimal) formats */
 
-       STREAM is the stream on which the value is to be printed.
+  struct language_format_info la_decimal_format;
 
-       RECURSE is the recursion depth.  It is zero-based.
+  /* Base 16 (hexadecimal) formats */
 
-       OPTIONS are the formatting options to be used when
-       printing.  */
+  struct language_format_info la_hex_format;
 
-    void (*la_val_print) (struct type *type,
-			  const gdb_byte *contents,
-			  int embedded_offset, CORE_ADDR address,
-			  struct ui_file *stream, int recurse,
-			  const struct value *val,
-			  const struct value_print_options *options);
+  /* Table for printing expressions */
 
-    /* Print a top-level value using syntax appropriate for this language.  */
+  const struct op_print *la_op_print_tab;
 
-    void (*la_value_print) (struct value *, struct ui_file *,
-			    const struct value_print_options *);
+  /* Zero if the language has first-class arrays.  True if there are no
+     array values, and array objects decay to pointers, as in C. */
 
-    /* Given a symbol VAR, and a stack frame id FRAME, read the value
-       of the variable an return (pointer to a) struct value containing
-       the value.
+  char c_style_arrays;
 
-       Throw an error if the variable cannot be found.  */
+  /* Index to use for extracting the first element of a string. */
+  char string_lower_bound;
 
-    struct value *(*la_read_var_value) (struct symbol *var,
-					struct frame_info *frame);
+  /* Type of elements of strings. */
+  struct type **string_char_type;
 
-    /* PC is possibly an unknown languages trampoline.
-       If that PC falls in a trampoline belonging to this language,
-       return the address of the first pc in the real function, or 0
-       if it isn't a language tramp for this language.  */
-    CORE_ADDR (*skip_trampoline) (struct frame_info *, CORE_ADDR);
-
-    /* Now come some hooks for lookup_symbol.  */
+  /* Add fields above this point, so the magic number is always last. */
+  /* Magic number for compat checking */
 
-    /* If this is non-NULL, specifies the name that of the implicit
-       local variable that refers to the current object instance.  */
+  long la_magic;
 
-    char *la_name_of_this;
-
-    /* This is a function that lookup_symbol will call when it gets to
-       the part of symbol lookup where C looks up static and global
-       variables.  */
-
-    struct symbol *(*la_lookup_symbol_nonlocal) (const char *,
-						 const struct block *,
-						 const domain_enum);
-
-    /* Find the definition of the type with the given name.  */
-    struct type *(*la_lookup_transparent_type) (const char *);
-
-    /* Return demangled language symbol, or NULL.  */
-    char *(*la_demangle) (const char *mangled, int options);
-
-    /* Return class name of a mangled method name or NULL.  */
-    char *(*la_class_name_from_physname) (const char *physname);
-
-    /* Table for printing expressions.  */
-
-    const struct op_print *la_op_print_tab;
-
-    /* Zero if the language has first-class arrays.  True if there are no
-       array values, and array objects decay to pointers, as in C.  */
-
-    char c_style_arrays;
-
-    /* Index to use for extracting the first element of a string.  */
-    char string_lower_bound;
-
-    /* The list of characters forming word boundaries.  */
-    char *(*la_word_break_characters) (void);
-
-    /* Should return a vector of all symbols which are possible
-       completions for TEXT.  WORD is the entire command on which the
-       completion is being made.  If CODE is TYPE_CODE_UNDEF, then all
-       symbols should be examined; otherwise, only STRUCT_DOMAIN
-       symbols whose type has a code of CODE should be matched.  */
-    VEC (char_ptr) *(*la_make_symbol_completion_list) (char *text, char *word,
-						       enum type_code code);
-
-    /* The per-architecture (OS/ABI) language information.  */
-    void (*la_language_arch_info) (struct gdbarch *,
-				   struct language_arch_info *);
-
-    /* Print the index of an element of an array.  */
-    void (*la_print_array_index) (struct value *index_value,
-                                  struct ui_file *stream,
-                                  const struct value_print_options *options);
-
-    /* Return non-zero if TYPE should be passed (and returned) by
-       reference at the language level.  */
-    int (*la_pass_by_reference) (struct type *type);
-
-    /* Obtain a string from the inferior, storing it in a newly allocated
-       buffer in BUFFER, which should be freed by the caller.  If the
-       in- and out-parameter *LENGTH is specified at -1, the string is
-       read until a null character of the appropriate width is found -
-       otherwise the string is read to the length of characters specified.
-       On completion, *LENGTH will hold the size of the string in characters.
-       If a *LENGTH of -1 was specified it will count only actual
-       characters, excluding any eventual terminating null character.
-       Otherwise *LENGTH will include all characters - including any nulls.
-       CHARSET will hold the encoding used in the string.  */
-    void (*la_get_string) (struct value *value, gdb_byte **buffer, int *length,
-			   struct type **chartype, const char **charset);
-
-    /* Return a pointer to the function that should be used to match
-       a symbol name against LOOKUP_NAME. This is mostly for languages
-       such as Ada where the matching algorithm depends on LOOKUP_NAME.
-
-       This field may be NULL, in which case strcmp_iw will be used
-       to perform the matching.  */
-    symbol_name_cmp_ftype (*la_get_symbol_name_cmp) (const char *lookup_name);
-
-    /* Find all symbols in the current program space matching NAME in
-       DOMAIN, according to this language's rules.
-
-       The search starts with BLOCK.  This function iterates upward
-       through blocks.  When the outermost block has been finished,
-       the function returns.
-
-       For each one, call CALLBACK with the symbol and the DATA
-       argument.  If CALLBACK returns zero, the iteration ends at that
-       point.
-
-       This field may not be NULL.  If the language does not need any
-       special processing here, 'iterate_over_symbols' should be
-       used as the definition.  */
-    void (*la_iterate_over_symbols) (const struct block *block,
-				     const char *name,
-				     domain_enum domain,
-				     symbol_found_callback_ftype *callback,
-				     void *data);
-
-    /* Add fields above this point, so the magic number is always last.  */
-    /* Magic number for compat checking.  */
-
-    long la_magic;
-
-  };
+};
 
 #define LANG_MAGIC	910823L
 
@@ -366,7 +215,7 @@ struct language_defn
    its own language and we should keep track of that regardless of the
    language when symbols are read.  If we want some manual setting for
    the language of symbol files (e.g. detecting when ".c" files are
-   C++), it should be a separate setting from the current_language.  */
+   C++), it should be a seprate setting from the current_language.  */
 
 extern const struct language_defn *current_language;
 
@@ -377,157 +226,214 @@ extern const struct language_defn *expected_language;
 
 /* language_mode == 
    language_mode_auto:   current_language automatically set upon selection
-   of scope (e.g. stack frame)
+			 of scope (e.g. stack frame)
    language_mode_manual: current_language set only by user.  */
 
 extern enum language_mode
-  {
-    language_mode_auto, language_mode_manual
-  }
-language_mode;
-
-struct type *language_bool_type (const struct language_defn *l,
-				 struct gdbarch *gdbarch);
-
-struct type *language_string_char_type (const struct language_defn *l,
-					struct gdbarch *gdbarch);
-
-struct type *language_lookup_primitive_type_by_name (const struct language_defn *l,
-						     struct gdbarch *gdbarch,
-						     const char *name);
-
+  {language_mode_auto, language_mode_manual} language_mode;
 
 /* These macros define the behaviour of the expression 
    evaluator.  */
 
-/* Should we range check values against the domain of their type?  */
+/* Should we strictly type check expressions? */
+#define STRICT_TYPE (type_check != type_check_off)
+
+/* Should we range check values against the domain of their type? */
 #define RANGE_CHECK (range_check != range_check_off)
 
-/* "cast" really means conversion.  */
-/* FIXME -- should be a setting in language_defn.  */
-#define CAST_IS_CONVERSION(LANG) ((LANG)->la_language == language_c  || \
-				  (LANG)->la_language == language_cplus || \
-				  (LANG)->la_language == language_objc)
+/* "cast" really means conversion */
+/* FIXME -- should be a setting in language_defn */
+#define CAST_IS_CONVERSION (current_language->la_language == language_c  || \
+			    current_language->la_language == language_cplus)
 
-extern void language_info (int);
+extern void
+language_info PARAMS ((int));
 
-extern enum language set_language (enum language);
+extern enum language
+set_language PARAMS ((enum language));
+
 
-
 /* This page contains functions that return things that are
    specific to languages.  Each of these functions is based on
    the current setting of working_lang, which the user sets
-   with the "set language" command.  */
+   with the "set language" command. */
 
-#define LA_PRINT_TYPE(type,varstring,stream,show,level,flags)		\
-  (current_language->la_print_type(type,varstring,stream,show,level,flags))
+#define create_fundamental_type(objfile,typeid) \
+  (current_language->la_fund_type(objfile, typeid))
 
-#define LA_PRINT_TYPEDEF(type,new_symbol,stream) \
-  (current_language->la_print_typedef(type,new_symbol,stream))
+#define LA_PRINT_TYPE(type,varstring,stream,show,level) \
+  (current_language->la_print_type(type,varstring,stream,show,level))
 
-#define LA_VAL_PRINT(type,valaddr,offset,addr,stream,val,recurse,options) \
-  (current_language->la_val_print(type,valaddr,offset,addr,stream, \
-				  val,recurse,options))
-#define LA_VALUE_PRINT(val,stream,options) \
-  (current_language->la_value_print(val,stream,options))
+#define LA_VAL_PRINT(type,valaddr,offset,addr,stream,fmt,deref,recurse,pretty) \
+  (current_language->la_val_print(type,valaddr,offset,addr,stream,fmt,deref, \
+				  recurse,pretty))
+#define LA_VALUE_PRINT(val,stream,fmt,pretty) \
+  (current_language->la_value_print(val,stream,fmt,pretty))
 
-#define LA_PRINT_CHAR(ch, type, stream) \
-  (current_language->la_printchar(ch, type, stream))
-#define LA_PRINT_STRING(stream, elttype, string, length, encoding, force_ellipses, options) \
-  (current_language->la_printstr(stream, elttype, string, length, \
-				 encoding, force_ellipses,options))
-#define LA_EMIT_CHAR(ch, type, stream, quoter) \
-  (current_language->la_emitchar(ch, type, stream, quoter))
-#define LA_GET_STRING(value, buffer, length, chartype, encoding) \
-  (current_language->la_get_string(value, buffer, length, chartype, encoding))
+/* Return a format string for printf that will print a number in one of
+   the local (language-specific) formats.  Result is static and is
+   overwritten by the next call.  Takes printf options like "08" or "l"
+   (to produce e.g. %08x or %lx).  */
 
-#define LA_PRINT_ARRAY_INDEX(index_value, stream, options) \
-  (current_language->la_print_array_index(index_value, stream, options))
+#define local_binary_format() \
+  (current_language->la_binary_format.la_format)
+#define local_binary_format_prefix() \
+  (current_language->la_binary_format.la_format_prefix)
+#define local_binary_format_specifier() \
+  (current_language->la_binary_format.la_format_specifier)
+#define local_binary_format_suffix() \
+  (current_language->la_binary_format.la_format_suffix)
 
-#define LA_ITERATE_OVER_SYMBOLS(BLOCK, NAME, DOMAIN, CALLBACK, DATA) \
-  (current_language->la_iterate_over_symbols (BLOCK, NAME, DOMAIN, CALLBACK, \
-					      DATA))
+#define local_octal_format() \
+  (current_language->la_octal_format.la_format)
+#define local_octal_format_prefix() \
+  (current_language->la_octal_format.la_format_prefix)
+#define local_octal_format_specifier() \
+  (current_language->la_octal_format.la_format_specifier)
+#define local_octal_format_suffix() \
+  (current_language->la_octal_format.la_format_suffix)
+
+#define local_decimal_format() \
+  (current_language->la_decimal_format.la_format)
+#define local_decimal_format_prefix() \
+  (current_language->la_decimal_format.la_format_prefix)
+#define local_decimal_format_specifier() \
+  (current_language->la_decimal_format.la_format_specifier)
+#define local_decimal_format_suffix() \
+  (current_language->la_decimal_format.la_format_suffix)
+
+#define local_hex_format() \
+  (current_language->la_hex_format.la_format)
+#define local_hex_format_prefix() \
+  (current_language->la_hex_format.la_format_prefix)
+#define local_hex_format_specifier() \
+  (current_language->la_hex_format.la_format_specifier)
+#define local_hex_format_suffix() \
+  (current_language->la_hex_format.la_format_suffix)
+
+#define LA_PRINT_CHAR(ch, stream) \
+  (current_language->la_printchar(ch, stream))
+#define LA_PRINT_STRING(stream, string, length, width, force_ellipses) \
+  (current_language->la_printstr(stream, string, length, width, force_ellipses))
+#define LA_EMIT_CHAR(ch, stream, quoter) \
+  (current_language->la_emitchar(ch, stream, quoter))
 
 /* Test a character to decide whether it can be printed in literal form
    or needs to be printed in another representation.  For example,
    in C the literal form of the character with octal value 141 is 'a'
    and the "other representation" is '\141'.  The "other representation"
-   is program language dependent.  */
+   is program language dependent. */
 
 #define PRINT_LITERAL_FORM(c)		\
   ((c) >= 0x20				\
    && ((c) < 0x7F || (c) >= 0xA0)	\
    && (!sevenbit_strings || (c) < 0x80))
 
+/* Return a format string for printf that will print a number in one of
+   the local (language-specific) formats.  Result is static and is
+   overwritten by the next call.  Takes printf options like "08" or "l"
+   (to produce e.g. %08x or %lx).  */
+
+extern char *
+local_decimal_format_custom PARAMS ((char *));	/* language.c */
+
+extern char *
+local_octal_format_custom PARAMS ((char *));	/* language.c */
+
+extern char *
+local_hex_format_custom PARAMS ((char *));	/* language.c */
+
+/* Return a string that contains a number formatted in one of the local
+   (language-specific) formats.  Result is static and is overwritten by
+   the next call.  Takes printf options like "08" or "l".  */
+
+extern char *
+local_hex_string PARAMS ((unsigned long));		/* language.c */
+
+extern char *
+local_hex_string_custom PARAMS ((unsigned long, char *)); /* language.c */
+
 /* Type predicates */
 
-extern int pointer_type (struct type *);
+extern int
+simple_type PARAMS ((struct type *));
 
-/* Checks Binary and Unary operations for semantic type correctness.  */
-/* FIXME:  Does not appear to be used.  */
+extern int
+ordered_type PARAMS ((struct type *));
+
+extern int
+same_type PARAMS ((struct type *, struct type *));
+
+extern int
+integral_type PARAMS ((struct type *));
+
+extern int
+numeric_type PARAMS ((struct type *));
+
+extern int
+character_type PARAMS ((struct type *));
+
+extern int
+boolean_type PARAMS ((struct type *));
+
+extern int
+float_type PARAMS ((struct type *));
+
+extern int
+pointer_type PARAMS ((struct type *));
+
+extern int
+structured_type PARAMS ((struct type *));
+
+/* Checks Binary and Unary operations for semantic type correctness */
+/* FIXME:  Does not appear to be used */
 #define unop_type_check(v,o) binop_type_check((v),NULL,(o))
 
-extern void binop_type_check (struct value *, struct value *, int);
+extern void
+binop_type_check PARAMS ((struct value *, struct value *, int));
 
 /* Error messages */
 
-extern void range_error (const char *, ...) ATTRIBUTE_PRINTF (1, 2);
+extern void
+op_error PARAMS ((char *fmt, enum exp_opcode, int));
+
+#define type_op_error(f,o) \
+   op_error((f),(o),type_check==type_check_on ? 1 : 0)
+#define range_op_error(f,o) \
+   op_error((f),(o),range_check==range_check_on ? 1 : 0)
+
+extern void
+type_error PARAMS ((char *, ...))
+     ATTR_FORMAT(printf, 1, 2);
+
+void
+range_error PARAMS ((char *, ...))
+     ATTR_FORMAT(printf, 1, 2);
 
 /* Data:  Does this value represent "truth" to the current language?  */
 
-extern int value_true (struct value *);
+extern int
+value_true PARAMS ((struct value *));
+
+extern struct type * lang_bool_type PARAMS ((void));
+
+/* The type used for Boolean values in the current language. */
+#define LA_BOOL_TYPE lang_bool_type ()
 
 /* Misc:  The string representing a particular enum language.  */
 
-extern enum language language_enum (char *str);
+extern const struct language_defn *
+language_def PARAMS ((enum language));
 
-extern const struct language_defn *language_def (enum language);
-
-extern char *language_str (enum language);
+extern char *
+language_str PARAMS ((enum language));
 
 /* Add a language to the set known by GDB (at initialization time).  */
 
-extern void add_language (const struct language_defn *);
+extern void
+add_language PARAMS ((const struct language_defn *));
 
-extern enum language get_frame_language (void);	/* In stack.c */
+extern enum language
+get_frame_language PARAMS ((void));		/* In stack.c */
 
-/* Check for a language-specific trampoline.  */
-
-extern CORE_ADDR skip_language_trampoline (struct frame_info *, CORE_ADDR pc);
-
-/* Return demangled language symbol, or NULL.  */
-extern char *language_demangle (const struct language_defn *current_language, 
-				const char *mangled, int options);
-
-/* Return class name from physname, or NULL.  */
-extern char *language_class_name_from_physname (const struct language_defn *,
-					        const char *physname);
-
-/* Splitting strings into words.  */
-extern char *default_word_break_characters (void);
-
-/* Print the index of an array element using the C99 syntax.  */
-extern void default_print_array_index (struct value *index_value,
-                                       struct ui_file *stream,
-				       const struct value_print_options *options);
-
-/* Return non-zero if TYPE should be passed (and returned) by
-   reference at the language level.  */
-int language_pass_by_reference (struct type *type);
-
-/* Return zero; by default, types are passed by value at the language
-   level.  The target ABI may pass or return some structs by reference
-   independent of this.  */
-int default_pass_by_reference (struct type *type);
-
-/* The default implementation of la_print_typedef.  */
-void default_print_typedef (struct type *type, struct symbol *new_symbol,
-			    struct ui_file *stream);
-
-void default_get_string (struct value *value, gdb_byte **buffer, int *length,
-			 struct type **char_type, const char **charset);
-
-void c_get_string (struct value *value, gdb_byte **buffer, int *length,
-		   struct type **char_type, const char **charset);
-
-#endif /* defined (LANGUAGE_H) */
+#endif	/* defined (LANGUAGE_H) */

@@ -1,23 +1,22 @@
-/* The common simulator framework for GDB, the GNU Debugger.
+/*  This file is part of the GNU simulators.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+    Copyright (C) 1994-1995,1997, Andrew Cagney <cagney@highland.com.au>
 
-   Contributed by Andrew Cagney and Red Hat.
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
 
-   This file is part of GDB.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+ 
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ 
+    */
 
 
 #include "sim-main.h"
@@ -144,14 +143,10 @@ sim_config (SIM_DESC sd)
   SIM_ASSERT (STATE_MAGIC (sd) == SIM_MAGIC_NUMBER);
 
   /* extract all relevant information */
-  if (STATE_PROG_BFD (sd) == NULL
-      /* If we have a binary input file (presumably with specified
-	 "--architecture"), it'll have no endianness.  */
-      || (!bfd_little_endian (STATE_PROG_BFD (sd))
-	  && !bfd_big_endian (STATE_PROG_BFD (sd))))
+  if (STATE_PROG_BFD (sd) == NULL)
     prefered_target_byte_order = 0;
   else
-    prefered_target_byte_order = (bfd_little_endian (STATE_PROG_BFD (sd))
+    prefered_target_byte_order = (bfd_little_endian(STATE_PROG_BFD (sd))
 				  ? LITTLE_ENDIAN
 				  : BIG_ENDIAN);
 
@@ -224,8 +219,8 @@ sim_config (SIM_DESC sd)
 		      config_stdio_to_a (current_stdio));
       return SIM_RC_FAIL;
     }
-
-
+  
+  
   /* check the value of MSB */
   if (WITH_TARGET_WORD_MSB != 0
       && WITH_TARGET_WORD_MSB != (WITH_TARGET_WORD_BITSIZE - 1))
@@ -234,35 +229,35 @@ sim_config (SIM_DESC sd)
 		      WITH_TARGET_WORD_BITSIZE, WITH_TARGET_WORD_MSB);
       return SIM_RC_FAIL;
     }
-
-
+  
+  
   /* set the environment */
 #if (WITH_TREE_PROPERTIES)
   if (STATE_ENVIRONMENT (sd) == ALL_ENVIRONMENT)
     {
       const char *env =
-	tree_find_string_property (root, "/openprom/options/env");
-      STATE_ENVIRONMENT (sd) = ((strcmp (env, "user") == 0
-				 || strcmp (env, "uea") == 0)
+	tree_find_string_property(root, "/openprom/options/env");
+      STATE_ENVIRONMENT (sd) = ((strcmp(env, "user") == 0
+				 || strcmp(env, "uea") == 0)
 				? USER_ENVIRONMENT
-				: (strcmp (env, "virtual") == 0
-				   || strcmp (env, "vea") == 0)
+				: (strcmp(env, "virtual") == 0
+				   || strcmp(env, "vea") == 0)
 				? VIRTUAL_ENVIRONMENT
-				: (strcmp (env, "operating") == 0
-				   || strcmp (env, "oea") == 0)
+				: (strcmp(env, "operating") == 0
+				   || strcmp(env, "oea") == 0)
 				? OPERATING_ENVIRONMENT
 				: ALL_ENVIRONMENT);
     }
 #endif
   if (STATE_ENVIRONMENT (sd) == ALL_ENVIRONMENT)
     STATE_ENVIRONMENT (sd) = DEFAULT_ENVIRONMENT;
-
-
+  
+  
   /* set the alignment */
 #if (WITH_TREE_PROPERTIES)
   if (current_alignment == 0)
     current_alignment =
-      (tree_find_boolean_property (root, "/openprom/options/strict-alignment?")
+      (tree_find_boolean_property(root, "/openprom/options/strict-alignment?")
        ? STRICT_ALIGNMENT
        : NONSTRICT_ALIGNMENT);
 #endif
@@ -270,7 +265,7 @@ sim_config (SIM_DESC sd)
     current_alignment = WITH_ALIGNMENT;
   if (current_alignment == 0)
     current_alignment = WITH_DEFAULT_ALIGNMENT;
-
+  
   /* verify the alignment */
   if (CURRENT_ALIGNMENT == 0)
     {
@@ -284,13 +279,13 @@ sim_config (SIM_DESC sd)
 		      config_alignment_to_a (current_alignment));
       return SIM_RC_FAIL;
     }
-
+  
 #if defined (WITH_FLOATING_POINT)
-
+  
   /* set the floating point */
   if (current_floating_point == 0)
     current_floating_point = WITH_FLOATING_POINT;
-
+  
   /* verify the floating point */
   if (CURRENT_FLOATING_POINT == 0)
     {
@@ -304,7 +299,7 @@ sim_config (SIM_DESC sd)
 		      config_alignment_to_a (current_floating_point));
       return SIM_RC_FAIL;
     }
-
+  
 #endif
   return SIM_RC_OK;
 }
@@ -374,9 +369,9 @@ print_sim_config (SIM_DESC sd)
 #if defined (WITH_RESERVED_BITS)
   sim_io_printf (sd, "WITH_RESERVED_BITS = %d\n", WITH_RESERVED_BITS);
 #endif
-
+		 
 #if defined (WITH_PROFILE)
   sim_io_printf (sd, "WITH_PROFILE = %d\n", WITH_PROFILE);
 #endif
-
+		 
 }

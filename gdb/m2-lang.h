@@ -1,57 +1,31 @@
 /* Modula 2 language support definitions for GDB, the GNU debugger.
+   Copyright 1992 Free Software Foundation, Inc.
 
-   Copyright (C) 1992-2013 Free Software Foundation, Inc.
+This file is part of GDB.
 
-   This file is part of GDB.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+extern int
+m2_parse PARAMS ((void));	/* Defined in m2-exp.y */
 
-struct type_print_options;
+extern void
+m2_error PARAMS ((char *));	/* Defined in m2-exp.y */
 
-extern int m2_parse (void);	/* Defined in m2-exp.y */
+extern void			/* Defined in m2-typeprint.c */
+m2_print_type PARAMS ((struct type *, char *, GDB_FILE *, int, int));
 
-extern void m2_error (char *);	/* Defined in m2-exp.y */
-
-/* Defined in m2-typeprint.c */
-extern void m2_print_type (struct type *, const char *, struct ui_file *, int,
-			   int, const struct type_print_options *);
-
-extern void m2_print_typedef (struct type *, struct symbol *,
-			      struct ui_file *);
-
-extern int m2_is_long_set (struct type *type);
-extern int m2_is_unbounded_array (struct type *type);
-
-extern void m2_val_print (struct type *, const gdb_byte *, int, CORE_ADDR,
-			  struct ui_file *, int,
-			  const struct value *,
-			  const struct value_print_options *);
-
-extern int get_long_set_bounds (struct type *type, LONGEST *low,
-				LONGEST *high);
-
-/* Modula-2 types */
-
-struct builtin_m2_type
-{
-  struct type *builtin_char;
-  struct type *builtin_int;
-  struct type *builtin_card;
-  struct type *builtin_real;
-  struct type *builtin_bool;
-};
-
-/* Return the Modula-2 type table for the specified architecture.  */
-extern const struct builtin_m2_type *builtin_m2_type (struct gdbarch *gdbarch);
-
+extern int
+m2_val_print PARAMS ((struct type *, char *, int, CORE_ADDR, GDB_FILE *, int, int,
+		      int, enum val_prettyprint));

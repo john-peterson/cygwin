@@ -1,4 +1,3 @@
-#include <stdio.h>
 int nothing ()
 
 {
@@ -7,11 +6,14 @@ int nothing ()
 }
 
 
-int main ()
+main ()
 
 {
     int y ;
+#ifdef usestubs
+    set_debug_traps();
+    breakpoint();
+#endif    
     y = nothing () ;
     printf ("hello\n") ;
-    return 0;
 }

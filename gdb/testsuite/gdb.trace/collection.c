@@ -26,16 +26,6 @@ double       globald;
 test_struct  globalstruct;
 test_struct *globalp;
 int          globalarr[16];
-int          globalarr2[4];
-int          globalarr3[4];
-
-struct global_pieces {
-  unsigned int a;
-  unsigned int b;
-} global_pieces =
-  {
-    0x12345678, 0x87654321
-  };
 
 /*
  * Additional globals used in arithmetic tests
@@ -103,7 +93,6 @@ int local_test_func ()			/* test collecting locals */
   test_struct locst;
   int         locar[4];
   int         i;
-  struct localstruct {} locdefst;
 
   locst.memberc  = 15;
   locst.memberi  = 16;
@@ -201,21 +190,6 @@ int globals_test_func ()
   return i;	/* Set_Tracepoint_Here */
 }
 
-int strings_test_func ()
-{
-  int i = 0;
-  char *locstr, *longloc;
-
-  locstr = "abcdef";
-  longloc = malloc(500);
-  strcpy(longloc, "how now brown cow spam spam spam wonderful wonderful spam");
-
-  i += strlen (locstr);
-  i += strlen (longloc);
-
-  return i;	/* Set_Tracepoint_Here */
-}
-
 int
 main (argc, argv, envp)
      int argc;
@@ -224,6 +198,11 @@ main (argc, argv, envp)
   int         i = 0;
   test_struct mystruct;
   int         myarray[4];
+
+#ifdef usestubs
+  set_debug_traps ();
+  breakpoint ();
+#endif
 
   begin ();
   /* Assign collectable values to global variables. */
@@ -249,12 +228,6 @@ main (argc, argv, envp)
   for (i = 0; i < 15; i++)
     globalarr[i] = i;
 
-  for (i = 0; i < 4; i++)
-    globalarr2[i] = i;
-
-  for (i = 0; i < 4; i++)
-    globalarr3[3 - i] = i;
-
   mystruct.memberc = 101;
   mystruct.memberi = 102;
   mystruct.memberf = 103.3;
@@ -273,7 +246,6 @@ main (argc, argv, envp)
   i += reglocal_test_func ();
   i += statlocal_test_func ();
   i += globals_test_func ();
-  i += strings_test_func ();
 
   /* Values of globals at end of test should be different from
      values that they had when trace data was captured.  */
@@ -302,10 +274,6 @@ main (argc, argv, envp)
   globalp = 0;
   for (i = 0; i < 15; i++)
     globalarr[i] = 0;
-  for (i = 0; i < 4; i++)
-    globalarr2[i] = 0;
-  for (i = 0; i < 4; i++)
-    globalarr3[i] = 0;
 
   end ();
   return 0;

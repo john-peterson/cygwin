@@ -1,24 +1,24 @@
 /* Model support.
-   Copyright (C) 1996-2013 Free Software Foundation, Inc.
+   Copyright (C) 1996, 1997, 1998 Free Software Foundation, Inc.
    Contributed by Cygnus Support.
 
 This file is part of GDB, the GNU debugger.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #include "sim-main.h"
-#include "sim-model.h"
 #include "libiberty.h"
 #include "sim-options.h"
 #include "sim-io.h"
@@ -31,24 +31,13 @@ static DECLARE_OPTION_HANDLER (model_option_handler);
 
 static MODULE_INIT_FN sim_model_init;
 
-enum {
-  OPTION_MODEL = OPTION_START,
-  OPTION_MODEL_INFO,
-};
+#define OPTION_MODEL (OPTION_START + 0)
 
 static const OPTION model_options[] = {
   { {"model", required_argument, NULL, OPTION_MODEL},
       '\0', "MODEL", "Specify model to simulate",
-      model_option_handler, NULL },
-
-  { {"model-info", no_argument, NULL, OPTION_MODEL_INFO},
-      '\0', NULL, "List selectable models",
-      model_option_handler, NULL },
-  { {"info-model", no_argument, NULL, OPTION_MODEL_INFO},
-      '\0', NULL, NULL,
-      model_option_handler, NULL },
-
-  { {NULL, no_argument, NULL, 0}, '\0', NULL, NULL, NULL, NULL }
+      model_option_handler },
+  { {NULL, no_argument, NULL, 0}, '\0', NULL, NULL, NULL }
 };
 
 static SIM_RC
@@ -62,26 +51,10 @@ model_option_handler (SIM_DESC sd, sim_cpu *cpu, int opt,
 	const MODEL *model = sim_model_lookup (arg);
 	if (! model)
 	  {
-	    sim_io_eprintf (sd, "unknown model `%s'\n", arg);
+	    sim_io_eprintf (sd, "unknown model `%s'", arg);
 	    return SIM_RC_FAIL;
 	  }
 	sim_model_set (sd, cpu, model);
-	break;
-      }
-
-    case OPTION_MODEL_INFO :
-      {
-	const MACH **machp;
-	const MODEL *model;
-	for (machp = & sim_machs[0]; *machp != NULL; ++machp)
-	  {
-	    sim_io_printf (sd, "Models for architecture `%s':\n",
-			   MACH_NAME (*machp));
-	    for (model = MACH_MODELS (*machp); MODEL_NAME (model) != NULL;
-		 ++model)
-	      sim_io_printf (sd, " %s", MODEL_NAME (model));
-	    sim_io_printf (sd, "\n");
-	  }
 	break;
       }
     }
@@ -224,13 +197,6 @@ sim_model_init (SIM_DESC sd)
       /* Use the default model for the selected machine.
 	 The default model is the first one in the list.  */
       const MACH *mach = sim_mach_lookup_bfd_name (STATE_ARCHITECTURE (sd)->printable_name);
-
-      if (mach == NULL)
-	{
-	  sim_io_eprintf (sd, "unsupported machine `%s'\n",
-			  STATE_ARCHITECTURE (sd)->printable_name);
-	  return SIM_RC_FAIL;
-	}
       sim_model_set (sd, NULL, MACH_MODELS (mach));
     }
   else

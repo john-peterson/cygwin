@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -25,7 +26,6 @@
 #include "events.h"
 
 #include <signal.h>
-#include <stdlib.h>
 
 #if !defined (SIM_EVENTS_POLL_RATE)
 #define SIM_EVENTS_POLL_RATE 0x1000
@@ -114,7 +114,7 @@ event_queue_init(event_queue *queue)
     while (event != NULL) {
       event_entry *dead = event;
       event = event->next;
-      free(dead);
+      zfree(dead);
     }
     queue->held = NULL;
     queue->held_end = &queue->held;
@@ -128,7 +128,7 @@ event_queue_init(event_queue *queue)
   while (event != NULL) {
     event_entry *dead = event;
     event = event->next;
-    free(dead);
+    zfree(dead);
   }
   queue->queue = NULL;
     
@@ -161,25 +161,8 @@ update_time_from_event(event_queue *events)
     events->time_of_event = current_time - 1;
     events->time_from_event = -1;
   }
-  if (WITH_TRACE && ppc_trace[trace_events])
-    {
-      event_entry *event;
-      int i;
-      for (event = events->queue, i = 0;
-	   event != NULL;
-	   event = event->next, i++)
-	{
-	  TRACE(trace_events, ("event time-from-event - time %ld, delta %ld - event %d, tag 0x%lx, time %ld, handler 0x%lx, data 0x%lx\n",
-			       (long)current_time,
-			       (long)events->time_from_event,
-			       i,
-			       (long)event,
-			       (long)event->time_of_event,
-			       (long)event->handler,
-			       (long)event->data));
-	}
-    }
   ASSERT(current_time == event_queue_time(events));
+  ASSERT((events->time_from_event >= 0) == (events->queue != NULL));
 }
 
 STATIC_INLINE_EVENTS\
@@ -304,7 +287,7 @@ event_queue_deschedule(event_queue *events,
 			   (long)current->time_of_event,
 			   (long)current->handler,
 			   (long)current->data));
-      free(current);
+      zfree(current);
       update_time_from_event(events);
     }
     else {
@@ -386,22 +369,18 @@ event_queue_process(event_queue *events)
     event_handler *handler = to_do->handler;
     void *data = to_do->data;
     events->queue = to_do->next;
-    TRACE(trace_events, ("event issued at %ld - tag 0x%lx - time %ld, handler 0x%lx, data 0x%lx\n",
+    TRACE(trace_events, ("event issued at %ld - tag 0x%lx - handler 0x%lx, data 0x%lx\n",
 			 (long)event_time,
 			 (long)to_do,
-			 (long)to_do->time_of_event,
 			 (long)handler,
 			 (long)data));
-    free(to_do);
-    /* Always re-compute the time to the next event so that HANDLER()
-       can safely insert new events into the queue. */
-    update_time_from_event(events);
+    zfree(to_do);
     handler(data);
   }
   events->processing = 0;
 
-  ASSERT(events->time_from_event > 0);
-  ASSERT(events->queue != NULL); /* always poll event */
+  /* re-caculate time for new events */
+  update_time_from_event(events);
 }
 
 

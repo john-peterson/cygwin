@@ -2,8 +2,6 @@
  * Test program for trace action commands
  */
 
-#include <string.h>
-
 static char   gdb_char_test;
 static short  gdb_short_test;
 static long   gdb_long_test;
@@ -55,15 +53,15 @@ unsigned long   gdb_c_test( unsigned long *parm )
 
 {
    char *p = "gdb_c_test";
-   char *ridiculously_long_variable_name_with_equally_long_string_assignment;
+   char *rediculously_long_variable_name_with_equally_long_string_assignment;
    register long local_reg = 7;
    static unsigned long local_static, local_static_sizeof;
    long local_long;
    unsigned long *stack_ptr;
    unsigned long end_of_stack;
 
-   ridiculously_long_variable_name_with_equally_long_string_assignment = 
-     "ridiculously long variable name with equally long string assignment";
+   rediculously_long_variable_name_with_equally_long_string_assignment = 
+     "rediculously long variable name with equally long string assignment";
    local_static = 9;
    local_static_sizeof = sizeof (struct GDB_STRUCT_TEST);
    local_long = local_reg + 1;
@@ -118,6 +116,11 @@ main (argc, argv, envp)
 {
   int i;
   unsigned long myparms[10];
+
+#ifdef usestubs
+  set_debug_traps ();
+  breakpoint ();
+#endif
 
   begin ();
   for (i = 0; i < sizeof (myparms) / sizeof (myparms[0]); i++)

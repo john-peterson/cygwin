@@ -1,10 +1,10 @@
 /*  This file is part of the program psim.
 
-    Copyright 1994, 1995, 1996, 2003, 2004 Andrew Cagney
+    Copyright (C) 1994-1996, Andrew Cagney <cagney@highland.com.au>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -216,21 +217,14 @@ htab_decode_hash_table(device *me,
     device_error(parent, "must be a htab device");
   htab_ra = device_find_integer_property(parent, "real-address");
   htab_nr_bytes = device_find_integer_property(parent, "nr-bytes");
-  if (htab_nr_bytes < 0x10000) {
-    device_error(parent, "htab size 0x%x less than 0x1000",
-		 htab_nr_bytes);
-  }
   for (n = htab_nr_bytes; n > 1; n = n / 2) {
     if (n % 2 != 0)
       device_error(parent, "htab size 0x%x not a power of two",
 		   htab_nr_bytes);
   }
   *htaborg = htab_ra;
-  /* Position the HTABMASK ready for use against a hashed address and
-     not ready for insertion into SDR1.HTABMASK.  */
   *htabmask = MASKED32(htab_nr_bytes - 1, 7, 31-6);
-  /* Check that the MASK and ADDRESS do not overlap.  */
-  if ((htab_ra & (*htabmask)) != 0) {
+  if ((htab_ra & INSERTED32(*htabmask, 7, 15)) != 0) {
     device_error(parent, "htaborg 0x%lx not aligned to htabmask 0x%lx",
 		 (unsigned long)*htaborg, (unsigned long)*htabmask);
   }
@@ -390,8 +384,9 @@ htab_sum_binary(bfd *abfd,
 		PTR data)
 {
   htab_binary_sizes *sizes = (htab_binary_sizes*)data;
-  unsigned_word size = bfd_get_section_size (sec);
+  unsigned_word size = bfd_get_section_size_before_reloc (sec);
   unsigned_word vma = bfd_get_section_vma (abfd, sec);
+#define bfd_get_section_lma(abfd, sec) ((sec)->lma + 0)
   unsigned_word ra = bfd_get_section_lma (abfd, sec);
 
   /* skip the section if no memory to allocate */
@@ -435,7 +430,7 @@ htab_dma_binary(bfd *abfd,
     return;
 
   /* check/ignore any sections of size zero */
-  section_size = bfd_get_section_size (sec);
+  section_size = bfd_get_section_size_before_reloc(sec);
   if (section_size == 0)
     return;
 
@@ -485,7 +480,7 @@ htab_dma_binary(bfd *abfd,
 			      1 /*violate_read_only*/)
       != section_size)
     device_error(me, "broken dma transfer");
-  free(section_init); /* only free if load */
+  zfree(section_init); /* only free if load */
 }
 
 /* create a memory map from a binaries virtual addresses to a copy of
@@ -576,12 +571,10 @@ htab_map_binary(device *me,
   }
 
   /* set up virtual memory maps for each of the regions */
-  if (sizes.text_bound - sizes.text_base > 0) {
-    htab_map_region(me, memory, sizes.text_ra, sizes.text_base,
-		    sizes.text_bound - sizes.text_base,
-		    wimg, pp,
-		    htaborg, htabmask);
-  }
+  htab_map_region(me, memory, sizes.text_ra, sizes.text_base,
+		  sizes.text_bound - sizes.text_base,
+		  wimg, pp,
+		  htaborg, htabmask);
 
   htab_map_region(me, memory, sizes.data_ra, sizes.data_base,
 		  sizes.data_bound - sizes.data_base,

@@ -1,9 +1,12 @@
 #include "list0.h"
 
-int main ()
+main ()
 {
     int x;
-
+#ifdef usestubs
+    set_debug_traps();
+    breakpoint();
+#endif
     x = 0;
     foo (x++);
     foo (x++);
@@ -30,10 +33,6 @@ int main ()
     foo (x++);
     foo (x++);
     foo (x++);
-    foo (x++);
-    foo (x++);
-    foo (x++);
-    return 0;
 }
 
 static void

@@ -1,6 +1,6 @@
-# Copyright 1993, 1994, 2002 Free Software Foundation, Inc.
+# Copyright 1993, 1994 Free Software Foundation, Inc.
 
-# This file is part of SPU.
+# This file is part of GNU CC.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,23 +15,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-VPATH = @srcdir@
 
-SHELL = /bin/sh
+prefix = /usr/local
 
-prefix = @prefix@
-exec_prefix = @exec_prefix@
-bindir = @bindir@
-libdir = @libdir@
-datadir = @datadir@
-mandir = @mandir@
-infodir = @infodir@
-includedir = @includedir@
-srcdir = @srcdir@
+program_transform_name =
+exec_prefix = $(prefix)
+bindir = $(exec_prefix)/bin
+libdir = $(exec_prefix)/lib
+tooldir = $(libdir)/$(target_alias)
 
-CC = @CC@
-CFLAGS = @CFLAGS@
-
+datadir = $(prefix)/share
+mandir = $(prefix)/man
 man1dir = $(mandir)/man1
 man2dir = $(mandir)/man2
 man3dir = $(mandir)/man3
@@ -41,15 +35,27 @@ man6dir = $(mandir)/man6
 man7dir = $(mandir)/man7
 man8dir = $(mandir)/man8
 man9dir = $(mandir)/man9
-tooldir = $(libdir)/$(target_alias)
+infodir = $(prefix)/info
+includedir = $(prefix)/include
 
-INSTALL = @INSTALL@
+SHELL = /bin/sh
+
+INSTALL = install -c
 INSTALL_PROGRAM = $(INSTALL)
 INSTALL_DATA = $(INSTALL)
 
+AR = ar
+AR_FLAGS = qv
+RANLIB = ranlib
+
+# Directory containing source files.  Don't clean up the spacing,
+# this exact string is matched for by the "configure" script.
+srcdir = .
+
 # Where is the "include" directory?  Traditionally ../include or ./include
 
-INCLUDE_DIR = ${srcdir}/../../include
+INCLUDE_DIR =  ${srcdir}/../../include
+INCLUDE_DEP = $$(INCLUDE_DIR)
 
 # All the includes used for CFLAGS and for lint.
 # -I. for config files.
@@ -58,9 +64,36 @@ INCLUDE_DIR = ${srcdir}/../../include
 
 INCLUDE_CFLAGS = -I. -I${srcdir} -I${srcdir}/config -I$(INCLUDE_DIR)
 
+# CFLAGS is specifically reserved for setting from the command line
+# when running make.  I.E.  "make CFLAGS=-Wmissing-prototypes".
+
+CFLAGS = -g
+
 # ALL_CFLAGS is the aggregate of all other *CFLAGS macros.
 
-ALL_CFLAGS = @DEFS@ $(INCLUDE_CFLAGS) $(CFLAGS)
+ALL_CFLAGS = $(CFLAGS) $(INCLUDE_CFLAGS)
+
+# None of the things in CFLAGS will do any harm, and on some systems
+#  (e.g. SunOS4) it is important to use the MH_CFLAGS.
+
+LDFLAGS = $(CFLAGS)
+
+# Where is the "-liberty" library, containing getopt and obstack?
+
+LIBIBERTY_DIR = ${srcdir}/../../libiberty
+LIBIBERTY = ./../../libiberty${subdir}/libiberty.a
+
+# Host and target-dependent makefile fragments come in here.
+####
+# End of host and target-dependent makefile fragments
+
+# Prevent Sun make from putting in the machine type.  Setting
+# TARGET_ARCH to nothing works for SunOS 3, 4.0, but not for 4.1.
+
+.c.o:
+	${CC} -c ${ALL_CFLAGS} $<
+
+OFILES = spu.o
 
 all: spu
 
@@ -68,29 +101,24 @@ info:
 
 install:
 
-spu: spu.o
+install-info:
+
+spu: ${OFILES}
 	$(CC) $(CFLAGS) -o spu spu.o
 
-# Prevent Sun make from putting in the machine type.  Setting
-# TARGET_ARCH to nothing works for SunOS 3, 4.0, but not for 4.1.
-spu.o: $(srcdir)/spu.c
-	${CC} -c ${ALL_CFLAGS} $(srcdir)/spu.c
+spu.o: spu.c
 
 mostlyclean:
 
-clean: mostlyclean
+clean:		mostlyclean
 	rm -f *.o spu
 
-distclean: clean
-	rm -f Makefile config.status config.log config.cache
+distclean:	clean
+	rm -f Makefile config.status
 
-maintainer-clean realclean: distclean
+maintainer-clean realclean:	distclean
 
-Makefile: $(srcdir)/Makefile.in config.status
-	./config.status
+Makefile: Makefile.in $(host_makefile_frag) $(target_makefile_frag)
+	$(SHELL) config.status
 
-config.status: $(srcdir)/configure
-	./config.status --recheck
-
-$(srcdir)/configure: $(srcdir)/configure.ac
-	cd $(srcdir) && autoconf
+force:

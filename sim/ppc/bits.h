@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -44,14 +45,9 @@
    MASKED*(VALUE, FIRST, LAST): Masks out all but bits [FIRST
    .. LAST].
 
-   LSMASKED*(VALUE, FIRST, LAST): Like MASKED - LS bit is zero.
-
    EXTRACTED*(VALUE, FIRST, LAST): Masks out bits [FIRST .. LAST] but
    also right shifts the masked value so that bit LAST becomes the
    least significant (right most).
-
-   LSEXTRACTED*(VALUE, FIRST, LAST): Same as extracted - LS bit is
-   zero.
 
    SHUFFLED**(VALUE, OLD, NEW): Mask then move a single bit from OLD
    new NEW.
@@ -81,13 +77,6 @@
 #define _MAKE_SHIFT(WIDTH, pos) ((WIDTH) - 1 - (pos))
 
 
-#if (WITH_TARGET_WORD_MSB == 0)
-#define _LSB_POS(WIDTH, SHIFT) (WIDTH - 1 - SHIFT)
-#else
-#define _LSB_POS(WIDTH, SHIFT) (SHIFT)
-#endif
-
-
 /* MakeBit */
 #define _BITn(WIDTH, pos) (((natural##WIDTH)(1)) \
 			   << _MAKE_SHIFT(WIDTH, pos))
@@ -114,14 +103,6 @@
 
 #define MASK32(START, STOP)   _MASKn(32, START, STOP)
 #define MASK64(START, STOP)   _MASKn(64, START, STOP)
-
-/* Multi-bit mask on least significant bits */
-
-#define _LSMASKn(WIDTH, FIRST, LAST) _MASKn (WIDTH, \
-					     _LSB_POS (WIDTH, FIRST), \
-					     _LSB_POS (WIDTH, LAST))
-
-#define LSMASK64(FIRST, LAST)  _LSMASKn (64, (FIRST), (LAST))
 
 #if (WITH_TARGET_WORD_BITSIZE == 64)
 #define MASK(START, STOP) \
@@ -168,12 +149,6 @@ INLINE_BITS\
  unsigned start,
  unsigned stop);
 
-INLINE_BITS\
-(unsigned64) LSMASKED64
-(unsigned64 word,
- int first,
-  int last);
-
 
 /* extract the required bits aligning them with the lsb */
 #define _EXTRACTEDn(WIDTH, WORD, START, STOP) \
@@ -190,11 +165,6 @@ INLINE_BITS\
  unsigned start,
  unsigned stop);
 
-INLINE_BITS\
-(unsigned64) LSEXTRACTED64
-(unsigned64 val,
- int start,
- int stop);
 
 /* move a single bit around */
 /* NB: the wierdness (N>O?N-O:0) is to stop a warning from GCC */

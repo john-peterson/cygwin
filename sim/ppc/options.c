@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
     */
 
@@ -98,9 +99,9 @@ options_inline (int in)
   case /*1*/ REVEAL_MODULE:			return "REVEAL_MODULE";
   case /*2*/ INLINE_MODULE:			return "INLINE_MODULE";
   case /*3*/ REVEAL_MODULE|INLINE_MODULE:	return "REVEAL_MODULE|INLINE_MODULE";
-  case /*4*/ PSIM_INLINE_LOCALS:		return "PSIM_LOCALS_INLINE";
-  case /*5*/ PSIM_INLINE_LOCALS|REVEAL_MODULE:	return "PSIM_INLINE_LOCALS|REVEAL_MODULE";
-  case /*6*/ PSIM_INLINE_LOCALS|INLINE_MODULE:	return "PSIM_INLINE_LOCALS|INLINE_MODULE";
+  case /*4*/ INLINE_LOCALS:			return "LOCALS_INLINE";
+  case /*5*/ INLINE_LOCALS|REVEAL_MODULE:	return "INLINE_LOCALS|REVEAL_MODULE";
+  case /*6*/ INLINE_LOCALS|INLINE_MODULE:	return "INLINE_LOCALS|INLINE_MODULE";
   case /*7*/ ALL_INLINE:			return "ALL_INLINE";
   }
   return "0";

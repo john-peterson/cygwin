@@ -6,7 +6,7 @@
  * 
  * This program is free software; you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 3 of the License, or (at your option)
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  * 
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -15,14 +15,14 @@
  * more details.
  * 
  * You should have received a copy of the GNU General Public License along with
- * this program; if not, see <http://www.gnu.org/licenses/>.
+ * this program; if not, write to the Free Software Foundation, Inc., 675
+ * Mass Ave, Cambridge, MA 02139, USA.
  * 
  */
 
-#include "config.h"
 #include "ansidecl.h"
-#include "gdb/callback.h"
-#include "gdb/remote-sim.h"
+#include "callback.h"
+#include "remote-sim.h"
 
 #include "end.h"
 
@@ -53,9 +53,7 @@ typedef double  float64;	/* 64-bit float */
 
 /* FIXME: what about host compilers that don't support 64-bit ints? */
 typedef unsigned long long uint64; /* 64-bit unsigned int */
-typedef long long int64;	   /* 64-bit signed int */
-
-#define UINT64_MAX 18446744073709551615ULL
+typedef long long int64;	/* 64-bit signed int */
 
 struct pstate {
 
@@ -110,22 +108,22 @@ struct pstate {
     float32         freq;	/* Simulated processor frequency */
 
 
-    uint64          tottime;
-    uint64          ninst;
-    uint64          fholdt;
-    uint64          holdt;
-    uint64          icntt;
-    uint64          finst;
-    uint64          simstart;
-    uint64          starttime;
-    uint64          tlimit;	/* Simulation time limit */
-    uint64          pwdtime;	/* Cycles in power-down mode */
-    uint64          nstore;	/* Number of load instructions */
-    uint64          nload;	/* Number of store instructions */
-    uint64          nannul;	/* Number of annuled instructions */
-    uint64          nbranch;	/* Number of branch instructions */
+    uint32          tottime;
+    uint32          ninst;
+    uint32          fholdt;
+    uint32          holdt;
+    uint32          icntt;
+    uint32          finst;
+    uint32          simstart;
+    uint32          starttime;
+    uint32          tlimit;	/* Simulation time limit */
+    uint32          pwdtime;	/* Cycles in power-down mode */
+    uint32          nstore;	/* Number of load instructions */
+    uint32          nload;	/* Number of store instructions */
+    uint32          nannul;	/* Number of annuled instructions */
+    uint32          nbranch;	/* Number of branch instructions */
     uint32          ildreg;	/* Destination of last load instruction */
-    uint64          ildtime;	/* Last time point for load dependency */
+    uint32          ildtime;	/* Last time point for load dependency */
 
     int             rett_err;	/* IU in jmpl/restore error state (Rev.0) */
     int             jmpltime;
@@ -134,14 +132,14 @@ struct pstate {
 struct evcell {
     void            (*cfunc) ();
     int32           arg;
-    uint64          time;
+    uint32          time;
     struct evcell  *nxt;
 };
 
 struct estate {
     struct evcell   eq;
     struct evcell  *freeq;
-    uint64          simtime;
+    uint32          simtime;
 };
 
 struct irqcell {
@@ -170,8 +168,8 @@ extern int	memory_read PARAMS ((int32 asi, uint32 addr, uint32 *data,
 				     int32 sz, int32 *ws));
 extern int	memory_write PARAMS ((int32 asi, uint32 addr, uint32 *data,
 				    int32 sz, int32 *ws));
-extern int	sis_memory_write PARAMS ((uint32 addr,
-				    const unsigned char *data, uint32 length));
+extern int	sis_memory_write PARAMS ((uint32 addr, char *data,
+					  uint32 length));
 extern int	sis_memory_read PARAMS ((uint32 addr, char *data,
 					 uint32 length));
 
@@ -188,7 +186,7 @@ extern void	init_signals PARAMS ((void));
 struct disassemble_info;
 extern void	dis_mem PARAMS ((uint32 addr, uint32 len,
 				 struct disassemble_info *info));
-extern void	event PARAMS ((void (*cfunc) (), int32 arg, uint64 delta));
+extern void	event PARAMS ((void (*cfunc) (), int32 arg, uint32 delta));
 extern void	set_int PARAMS ((int32 level, void (*callback) (), int32 arg));
 extern void	advance_time PARAMS ((struct pstate  *sregs));
 extern uint32	now PARAMS ((void));
@@ -207,7 +205,7 @@ extern void	init_regs PARAMS ((struct pstate *sregs));
 
 /* interf.c */
 extern int	run_sim PARAMS ((struct pstate *sregs,
-				 uint64 icount, int dis));
+				 unsigned int icount, int dis));
 
 /* float.c */
 extern int	get_accex PARAMS ((void));

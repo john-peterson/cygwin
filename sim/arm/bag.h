@@ -3,7 +3,7 @@
  
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
  
     This program is distributed in the hope that it will be useful,
@@ -12,7 +12,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>. */
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
 /********************************************************************/
 /* bag.h:                                                           */
@@ -24,19 +25,18 @@
 /* is deleted.                                                      */
 /********************************************************************/
 
-typedef enum
-{
+typedef enum {
   NO_ERROR,
   DELETED_OLD_PAIR,
   NO_SUCH_PAIR,
-}
-Bag_error;
+} Bag_error;
 
-void BAG_putpair (long first, long second);
+void BAG_putpair(long first, long second);
 
-void BAG_newbag (void);
-Bag_error BAG_killpair_byfirst (long first);
-Bag_error BAG_killpair_bysecond (long second);
+void BAG_newbag(void);
+Bag_error BAG_killpair_byfirst(long first);
+Bag_error BAG_killpair_bysecond(long second);
 
-Bag_error BAG_getfirst (long *first, long second);
-Bag_error BAG_getsecond (long first, long *second);
+Bag_error BAG_getfirst(long *first, long second);
+Bag_error BAG_getsecond(long first, long *second);
+

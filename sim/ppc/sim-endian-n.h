@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -34,7 +35,7 @@
 #define endian_le2h_N XCONCAT2(endian_le2h_,N)
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_t2h_N(unsigned_N raw_in)
 {
@@ -47,7 +48,7 @@ endian_t2h_N(unsigned_N raw_in)
 }
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_h2t_N(unsigned_N raw_in)
 {
@@ -60,7 +61,7 @@ endian_h2t_N(unsigned_N raw_in)
 }
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 swap_N(unsigned_N raw_in)
 {
@@ -69,7 +70,7 @@ swap_N(unsigned_N raw_in)
 
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_h2be_N(unsigned_N raw_in)
 {
@@ -82,7 +83,7 @@ endian_h2be_N(unsigned_N raw_in)
 }
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_be2h_N(unsigned_N raw_in)
 {
@@ -95,7 +96,7 @@ endian_be2h_N(unsigned_N raw_in)
 }
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_h2le_N(unsigned_N raw_in)
 {
@@ -108,7 +109,7 @@ endian_h2le_N(unsigned_N raw_in)
 }
 
 
-INLINE_PSIM_ENDIAN\
+INLINE_SIM_ENDIAN\
 (unsigned_N)
 endian_le2h_N(unsigned_N raw_in)
 {

@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -28,10 +29,6 @@
 #include "options.h"
 #include "device.h" /* FIXME: psim should provide the interface */
 #include "events.h" /* FIXME: psim should provide the interface */
-
-#include "bfd.h"
-#include "gdb/callback.h"
-#include "gdb/remote-sim.h"
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -225,31 +222,21 @@ sim_io_flush_stdoutput(void)
   }
 }
 
-void
-sim_io_error (SIM_DESC sd, const char *msg, ...)
-{
-  va_list ap;
-  va_start(ap, msg);
-  vprintf(msg, ap);
-  printf("\n");
-  va_end(ap);
-
-  /* any final clean up */
-  if (ppc_trace[trace_print_info] && simulation != NULL)
-    psim_print_info (simulation, ppc_trace[trace_print_info]);
-
-  exit (1);
-}
-
 
 void *
 zalloc(long size)
 {
   void *memory = malloc(size);
   if (memory == NULL)
-    error("zalloc failed\n");
+    error("zmalloc failed\n");
   memset(memory, 0, size);
   return memory;
+}
+
+void
+zfree(void *chunk)
+{
+  free(chunk);
 }
 
 /* When a CNTRL-C occures, queue an event to shut down the simulation */
@@ -276,7 +263,7 @@ main(int argc, char **argv)
       print_options ();
       return 0;
     } else {
-      psim_usage(0, 0);
+      psim_usage(0);
     }
   }
   name_of_file = argv[0];
@@ -312,7 +299,7 @@ main(int argc, char **argv)
   status = psim_get_status(simulation);
   switch (status.reason) {
   case was_continuing:
-    error("psim: continuing while stopped!\n");
+    error("psim: continuing while stoped!\n");
     return 0;
   case was_trap:
     error("psim: no trap insn\n");

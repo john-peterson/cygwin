@@ -1,17 +1,21 @@
-# Copyright (C) 1998-2013 Free Software Foundation, Inc.
+# Copyright (C) 1998 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 
 
 #
@@ -121,7 +125,7 @@ proc gdb_trace_setactions { testname tracepoint args } {
 	    }
 	    exp_continue;
 	}
-	-re "\(.*\)\[\r\n\]+\[ \t]*>$" {
+	-re "\(.*\)\[\r\n\]+\[ \t]*> $" {
 	    if { $expected_result != "" } {
 		regsub "^\[^\r\n\]+\[\r\n\]+" "$expect_out(1,string)" "" out;
 		if ![regexp $expected_result $out] {
@@ -300,16 +304,4 @@ proc gdb_find_recursion_test_baseline { filename } {
 	default { }
     }
     return $baseline;
-}
-
-# Return the location of the IPA library.
-
-proc get_in_proc_agent {} {
-    global objdir
-
-    if [target_info exists in_proc_agent] {
-	return [target_info in_proc_agent]
-    } else {
-	return $objdir/../gdbserver/libinproctrace.so
-    }
 }

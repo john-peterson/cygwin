@@ -1,23 +1,23 @@
-/* The common simulator framework for GDB, the GNU Debugger.
+/*  This file is part of the program psim.
 
-   Copyright 2002-2013 Free Software Foundation, Inc.
+    Copyright (C) 1994-1997, Andrew Cagney <cagney@highland.com.au>
+    Copyright (C) 1997, Free Software Foundation, Inc.
 
-   Contributed by Andrew Cagney and Red Hat.
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
 
-   This file is part of GDB.
-
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+ 
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ 
+    */
 
 
 #ifndef SIM_INLINE_H
@@ -33,7 +33,7 @@
    eliminate the overhead of function calls and (as a consequence)
    also eliminate further dead code.
 
-   On a CISC (x86) I've found that I can achieve an order of magnitude
+   On a CISC (x86) I've found that I can achieve an order of magintude
    speed improvement (x3-x5).  In the case of RISC (sparc) while the
    performance gain isn't as great it is still significant.
 
@@ -176,7 +176,7 @@
 
       Since no inlining is defined. All macro's get standard defaults
       (extern, static, ...).
-
+      
 
 
       H_REVEALS_MODULE (alt includes our):
@@ -226,7 +226,7 @@
       altprog.c defines ALTPROG_C and then includes sim-inline.c
 
       sim-inline.c defines C_INLINE_C and then includes sim-inline.h
-
+      
       In sim-inline.h the expression `` defined (SIM_INLINE) && !
       defined (OURPROG_C) && REVEAL_MODULE_P (OURPROG_INLINE) '' is
       true so it defines *_OURPROG as static and EXTERN_OURPROG_P as
@@ -246,7 +246,7 @@
       ourprog.c defines OURPROG_C and then includes sim-inline.c
 
       sim-inline.c defines C_INLINE_C and then includes sim-inline.h
-
+      
       In sim-inline.h the term `` !  defined (OURPROG_C) '' is FALSE
       so it defines *_OURPROG as non-static and EXTERN_OURPROG_P as
       TRUE.

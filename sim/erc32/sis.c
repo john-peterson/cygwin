@@ -6,7 +6,7 @@
  * 
  * This program is free software; you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 3 of the License, or (at your option)
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  * 
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -15,7 +15,8 @@
  * more details.
  * 
  * You should have received a copy of the GNU General Public License along with
- * this program; if not, see <http://www.gnu.org/licenses/>.
+ * this program; if not, write to the Free Software Foundation, Inc., 675
+ * Mass Ave, Cambridge, MA 02139, USA.
  * 
  */
 
@@ -31,6 +32,10 @@
 #include "sis.h"
 #include <dis-asm.h>
 #include "sim-config.h"
+
+#ifndef fprintf
+extern          fprintf();
+#endif
 
 #define	VAL(x)	strtol(x,(char **)NULL,0)
 
@@ -81,7 +86,7 @@ extern int era;
 int
 run_sim(sregs, icount, dis)
     struct pstate  *sregs;
-    uint64          icount;
+    unsigned int    icount;
     int             dis;
 {
     int             irq, mexc, deb, asi;
@@ -176,7 +181,7 @@ main(argc, argv)
     cfile = 0;
     for (i = 0; i < 64; i++)
 	cmdq[i] = 0;
-    printf("\n SIS - SPARC instruction simulator %s,  copyright Jiri Gaisler 1995\n", sis_version);
+    printf("\n SIS - SPARC intruction simulator %s,  copyright Jiri Gaisler 1995\n", sis_version);
     printf(" Bug-reports to jgais@wd.estec.esa.nl\n\n");
     while (stat < argc) {
 	if (argv[stat][0] == '-') {

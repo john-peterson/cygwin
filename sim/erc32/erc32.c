@@ -6,7 +6,7 @@
  * 
  * This program is free software; you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 3 of the License, or (at your option)
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  * 
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -15,16 +15,15 @@
  * more details.
  * 
  * You should have received a copy of the GNU General Public License along with
- * this program; if not, see <http://www.gnu.org/licenses/>.
+ * this program; if not, write to the Free Software Foundation, Inc., 675
+ * Mass Ave, Cambridge, MA 02139, USA.
  * 
  */
 
 /* The control space devices */
 
-#include "config.h"
 #include <sys/types.h>
 #include <stdio.h>
-#include <string.h>
 #include <termios.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
@@ -1660,7 +1659,7 @@ memory_read(asi, addr, data, sz, ws)
 	errmec = 0;
 	return(1);
     }
-#endif
+#endif;
 
     if ((addr >= mem_ramstart) && (addr < (mem_ramstart + mem_ramsz))) {
 	fetch_bytes (asi, &ramb[addr & mem_rammask], data, sz);
@@ -1737,7 +1736,7 @@ memory_write(asi, addr, data, sz, ws)
 	errmec = 0;
 	return(1);
     }
-#endif
+#endif;
 
     if ((addr >= mem_ramstart) && (addr < (mem_ramstart + mem_ramsz))) {
 	if (mem_accprot) {
@@ -1860,9 +1859,9 @@ get_mem_ptr(addr, size)
 
 int
 sis_memory_write(addr, data, length)
-    uint32               addr;
-    const unsigned char *data;
-    uint32               length;
+    uint32          addr;
+    char           *data;
+    uint32          length;
 {
     char           *mem;
 

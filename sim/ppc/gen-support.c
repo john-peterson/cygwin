@@ -1,10 +1,10 @@
 /*  This file is part of the program psim.
 
-    Copyright 1994, 1995, 2003 Andrew Cagney
+    Copyright (C) 1994-1995, Andrew Cagney <cagney@highland.com.au>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  
     */
 
@@ -37,7 +38,7 @@ print_support_function_name(lf *file,
 			    int is_function_definition)
 {
   if (it_is("internal", function->fields[insn_flags])) {
-    lf_print_function_type(file, SEMANTIC_FUNCTION_TYPE, "PSIM_INLINE_SUPPORT",
+    lf_print_function_type(file, SEMANTIC_FUNCTION_TYPE, "INLINE_SUPPORT",
 			   (is_function_definition ? "\n" : " "));
     print_function_name(file,
 			function->fields[function_name],
@@ -51,7 +52,7 @@ print_support_function_name(lf *file,
   else {
     lf_print_function_type(file,
 			   function->fields[function_type],
-			   "PSIM_INLINE_SUPPORT",
+			   "INLINE_SUPPORT",
 			   (is_function_definition ? "\n" : " "));
     lf_printf(file, "%s\n(%s)%s",
 	      function->fields[function_name],
@@ -121,10 +122,6 @@ gen_support_c(insn_table *table,
 {
   lf_printf(file, "#include \"cpu.h\"\n");
   lf_printf(file, "#include \"idecode.h\"\n");
-  lf_printf(file, "#ifdef HAVE_COMMON_FPU\n");
-  lf_printf(file, "#include \"sim-inline.h\"\n");
-  lf_printf(file, "#include \"sim-fpu.h\"\n");
-  lf_printf(file, "#endif\n");
   lf_printf(file, "#include \"support.h\"\n");
   lf_printf(file, "\n");
 

@@ -84,16 +84,6 @@ main (void)
   float          *const   lissome   = &leeway;
   double         *const   locust    = &legacy;
 
-  /* constant arrays */
-  const char logical[2] = {laconic, laconic};
-  const unsigned char lugged[2] = {laggard, laggard};
-  const short luck[2] = {lagoon, lagoon};
-  const unsigned short lunar[2] = {laity, laity};
-  const long lumen[2] = {lambent, lambent};
-  const unsigned long lurk[2] = {laminated, laminated};
-  const float lush[2] = {lampoon, lampoon};
-  const double lynx[2] = {languid, languid};
-
   /* volatile variables */
 
   volatile char vox = 'X';
@@ -176,21 +166,16 @@ main (void)
 
   const volatile char              * const volatile vagary = &victor;
   const volatile unsigned char     * const volatile vendor = &vicar;
-  
-  /* various structs with const members */
-
-  struct crass { char * const ptr; } crass = { lamprey };
-  struct crisp { char * const *ptr; } crisp = { &lamprey };
-
-  /* Reference the structs so that they are not discarded.  */
-  struct crass *creed = &crass;
-  struct crisp *crow = &crisp;
 
   /* misc. references */
   /*
   const char           & radiation = laconic;
   volatile signed char & remuneration = lemonade;
   */
+#ifdef usestubs
+  set_debug_traps ();
+  breakpoint ();
+#endif
   marker1 ();
     
 
