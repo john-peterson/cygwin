@@ -1,6 +1,5 @@
 /* Main header for the Hitachi h8/300 architecture.  */
 
-#include "config.h"
 #include "bfd.h"
 
 #ifndef SIM_MAIN_H
@@ -28,7 +27,7 @@
 /* avolkov: 
    Next 2 macros are ugly for any workstation, but while they're work.
    Memory size MUST be configurable.  */
-#define H8300H_MSIZE (1 << 24) 
+#define H8300H_MSIZE (1 << 18) 
 #define H8300S_MSIZE (1 << 24) 
 
 #define CSIZE 1024
@@ -165,9 +164,7 @@ struct sim_state {
 /* Local version of macros for decoding exit status.  
    (included here rather than try to find target version of wait.h)
 */
-#define SIM_WIFEXITED(V)	(((V) & 0xff) == 0)
-#define SIM_WIFSTOPPED(V)	(!SIM_WIFEXITED (V))
-#define SIM_WEXITSTATUS(V)	(((V) >> 8) & 0xff)
-#define SIM_WSTOPSIG(V)		((V) & 0x7f)
+#define SIM_WIFEXITED(V) (((V) & 0xff) == 0)
+#define SIM_WEXITSTATUS(V) ((V) >> 8)
 
 #endif /* SIM_MAIN_H */
