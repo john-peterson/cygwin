@@ -1,231 +1,318 @@
-2013-01-30  Markos Chandras  <markos.chandras@imgtec.com>
+2004-02-26  Eric Christopher  <echristo@redhat.com>
 
-	* config/tc-metag.c: Make SWAP instruction less permissive with
-	its operands.
+	* config/tc-mips.c (mips_dwarf2_addr_size): New.
+	* config/tc-mips.h (DWARF2_ADDR_SIZE): Use.
 
-2013-01-29  DJ Delorie  <dj@redhat.com>
+2004-02-17  Petko Manolov  <petkan@nucleusys.com>
 
-	* config/tc-rl78.c (rl78_cons_fix_new): Handle user-specified
-	relocs in .word/.etc statements.
+	* config/tc-arm.c (do_mav_dspsc_1): Correct offset of CRn.
+	(do_mav_dspsc_2): Likewise.
+	Fix accumulator registers move opcodes.
 
-2013-01-29  Roland McGrath  <mcgrathr@google.com>
+2004-02-13  Hannes Reinecke  <hare@suse.de>
+            Jakub Jelinek  <jakub@redhat.com>
 
-	* config/tc-arm.c (md_apply_fix): Use as_bad_where for "bad
-	immediate value for 8-bit offset" error so it shows line info.
+	* dwarf2dbg.c (get_filenum): Do not read beyond allocated memory.
 
-2013-01-24  Joseph Myers  <joseph@codesourcery.com>
+2004-02-10  Steve Ellcey  <sje@cup.hp.com>
 
-	* config/tc-ppc.c (md_assemble): Do not generate APUinfo sections
-	for 64-bit output.
+	* config/tc-ia64.h (ia64_frob_symbol): New declaration.
+	(tc_frob_symbol): New macro definition.
+	* config/tc-ia64.c (ia64_frob_symbol): New routine.
 
-2013-01-24  Nick Clifton  <nickc@redhat.com>
+2004-02-09  Daniel Jacobowitz  <drow@mvista.com>
 
-	* config/tc-v850.c: Add support for e3v5 architecture.
-	* doc/c-v850.texi: Mention new support.
+	* config/tc-arm.c (md_begin): Mark .note.gnu.arm.ident as
+	read-only.
 
-2013-01-23  Nick Clifton  <nickc@redhat.com>
+2004-02-09  Nathan Sidwell  <nathan@codesourcery.com>
 
-	PR gas/15039
-	* config/tc-avr.c: Include dwarf2dbg.h.
+	* read.h (IGNORE_OPCODE_CASE): Do not define. Replace with ...
+	(TC_CASE_SENSITIVE): ... this.
+	* read.c: Replace IGNORE_OPCODE_CASE with TC_CASE_SENSITIVE.
+	* doc/internals.texi (TC_CASE_SENSITIVE): Document.
 
-2013-01-18  H.J. Lu  <hongjiu.lu@intel.com>
+2004-02-06  James E Wilson  <wilson@specifixinc.com>
 
-	* config/tc-i386.c (reloc): Support size relocation only for ELF.
-	(tc_i386_fix_adjustable): Likewise.
-	(lex_got): Likewise.
-	(tc_gen_reloc): Likewise.
+	* config/tc-ia64.c (dot_endp): Delete call to output_endp.
+	(generate_unwind_image): Re-add it here.
 
-2013-01-17  Yufeng Zhang  <yufeng.zhang@arm.com>
+2004-02-06  Nathan Sidwell  <nathan@codesourcery.com>
 
-	* config/tc-aarch64.c (output_operand_error_record): Change to output
-	the out-of-range error message as value-expected message if there is
-	only one single value in the expected range.
-	(programmer_friendly_fixup): Remove the handling of 8-bit MOVI with
-	LSL #0 as a programmer-friendly feature.
+	* dwarf2dbg.c (DWARF2_ADDR_SIZE): Remove trailing ';'
+	* read.h (SKIP_WHITESPACE): Turn into an expression.
+	* read.c (read_a_source_file): A pseudo is removed by having a
+	NULL handler.
 
-2013-01-16  H.J. Lu  <hongjiu.lu@intel.com>
+2004-02-05  James E Wilson  <wilson@specifixinc.com>
 
-	* config/tc-i386.c (reloc): Support BFD_RELOC_SIZE32.
-	(tc_i386_fix_adjustable): Keep symbol for BFD_RELOC_32_SIZE and
-	BFD_RELOC_64_SIZE relocations.
-	(lex_got): Support "symbol@SIZE" and don't create GOT symbol
-	for it.
-	(tc_gen_reloc): Resolve BFD_RELOC_SIZE32 and BFD_RELOC_SIZE64
-	relocations against local symbols.
+	* config/tc-ia64.c (output_endp): New.
+	(count_bits): Delete.
+	(ia64_flush_insns, process_one_record, optimize_unw_records): Handle
+	endp unwind records.
+	(fixup_unw_records): Handle endp unwind records.  Delete code for
+	shortening prologue regions not followed by a body record.
+	(dot_endp): Call add_unwind_entry to emit endp unwind record.
+	* config/tc-ia64.h (unw_record_type): Add endp.
 
-2013-01-16  Alan Modra  <amodra@gmail.com>
+2004-02-03  James E Wilson  <wilson@specifixinc.com>
 
-	* config/tc-ppc.c (md_assemble <TE_PE>): Ignore line after
-	finding some sort of toc syntax error, and break to avoid
-	compiler uninit warning.
+	* config/tc-ia64.c (ia64_convert_frag): Call md_number_to_chars to
+	fill padding bytes with zeroes.
+	(emit_one_bundle): New locals last_ptr, end_ptr.  Rewrite code that
+	sets unwind_record slot_number and slot_frag fields.
 
-2013-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+2004-02-02  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
 
-	PR gas/15019
-	* config/tc-i386.c (lex_got): Increment length by 1 if the
-	relocation token is removed.
+	* config/tc-mips.c (add_got_offset_hilo): New function.
+	(macro): Use load_register() and add_got_offset_hilo() to load
+	constants instead of hardcoding code sequences throughout.
 
-2013-01-15  Nick Clifton  <nickc@redhat.com>
+2004-01-28  H.J. Lu  <hongjiu.lu@intel.com>
 
-	* config/tc-v850.c (md_assemble): Allow signed values for
-	V850E_IMMEDIATE.
+	* config/tc-ia64.c (emit_one_bundle): Add proper indentation.
 
-2013-01-11  Sean Keys  <skeys@ipdatasys.com>
+2004-01-26  Bernardo Innocenti  <bernie@develer.com>
 
-	* config/tc-xgate.c (md_begin): Fix mistake made when going from
-	git to cvs.
+	* config/tc-m68k.h (EXTERN_FORCE_RELOC): Handle m68k-uclinux specially,
+	like m68k-elf.
+	* config/tc-m68k.c (RELAXABLE_SYMBOL): Use EXTERN_FORCE_RELOC instead
+	of hard-coded test for TARGET_OS=elf.
 
-2013-01-10  Peter Bergner <bergner@vnet.ibm.com>
+2004-01-24  Chris Demetriou  <cgd@broadcom.com>
 
-	* doc/as.texinfo (Target PowerPC): Document -mpower8 and -mhtm.
-	* doc/c-ppc.texi (PowerPC-Opts):  Likewise.
-	* config/tc-ppc.c (md_show_usage): Likewise.
-	(ppc_handle_align): Handle power8's group ending nop.
+	* config/tc-mips.c (hilo_interlocks): Change definition
+	so that MIPS32, MIPS64 and later ISAs are included, along with
+	the already-included machines.  Update comments.
 
-2013-01-10  Sean Keys  <skeys@ipdatasys.com>
+2004-01-23  Daniel Jacobowitz  <drow@mvista.com>
 
-	* config/tc-xgate.c (md_begin): Fix the printing of opcodes so
-	that the assember exits after the opcodes have been printed.
+	* config/tc-arm.c (tc_gen_reloc): Improve error message for
+	undefined local labels.
 
-2013-01-10  H.J. Lu  <hongjiu.lu@intel.com>
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
 
-	* app.c: Remove trailing white spaces.
-	* as.c: Likewise.
-	* as.h: Likewise.
-	* cond.c: Likewise.
-	* dw2gencfi.c: Likewise.
-	* dwarf2dbg.h: Likewise.
-	* ecoff.c: Likewise.
-	* input-file.c: Likewise.
-	* itbl-lex.h: Likewise.
-	* output-file.c: Likewise.
-	* read.c: Likewise.
-	* sb.c: Likewise.
-	* subsegs.c: Likewise.
-	* symbols.c: Likewise.
-	* write.c: Likewise.
-	* config/tc-i386.c: Likewise.
-	* doc/Makefile.am: Likewise.
-	* doc/Makefile.in: Likewise.
-	* doc/c-aarch64.texi: Likewise.
-	* doc/c-alpha.texi: Likewise.
-	* doc/c-arc.texi: Likewise.
-	* doc/c-arm.texi: Likewise.
-	* doc/c-avr.texi: Likewise.
-	* doc/c-bfin.texi: Likewise.
-	* doc/c-cr16.texi: Likewise.
-	* doc/c-d10v.texi: Likewise.
-	* doc/c-d30v.texi: Likewise.
-	* doc/c-h8300.texi: Likewise.
-	* doc/c-hppa.texi: Likewise.
-	* doc/c-i370.texi: Likewise.
-	* doc/c-i386.texi: Likewise.
-	* doc/c-i860.texi: Likewise.
-	* doc/c-m32c.texi: Likewise.
-	* doc/c-m32r.texi: Likewise.
-	* doc/c-m68hc11.texi: Likewise.
-	* doc/c-m68k.texi: Likewise.
-	* doc/c-microblaze.texi: Likewise.
-	* doc/c-mips.texi: Likewise.
-	* doc/c-msp430.texi: Likewise.
-	* doc/c-mt.texi: Likewise.
-	* doc/c-s390.texi: Likewise.
-	* doc/c-score.texi: Likewise.
-	* doc/c-sh.texi: Likewise.
-	* doc/c-sh64.texi: Likewise.
-	* doc/c-tic54x.texi: Likewise.
-	* doc/c-tic6x.texi: Likewise.
-	* doc/c-v850.texi: Likewise.
-	* doc/c-xc16x.texi: Likewise.
-	* doc/c-xgate.texi: Likewise.
-	* doc/c-xtensa.texi: Likewise.
-	* doc/c-z80.texi: Likewise.
-	* doc/internals.texi: Likewise.
+	* config/tc-mips.c (load_address, macro): Update comments about
+	NewABI GP relaxation.
 
-2013-01-10  Roland McGrath  <mcgrathr@google.com>
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
 
-	* hash.c (hash_new_sized): Make it global.
-	* hash.h: Declare it.
-	* macro.c (define_macro): Use hash_new_sized instead of hash_new,
-	pass a small size.
+	* config/tc-mips.c (macro_build): Remove place and counter arguments.
+	(mips_build_lui, macro_build_ldst_constoffset): Likewise.
+	(mips16_macro_build, macro_build_jalr): Remove counter argument.
+	(set_at, load_register, load_address, move_register): Likewise.
+	(load_got_offset, add_got_offset): Likewise.
+	Update all calls and tidy accordingly.
 
-2013-01-10  Will Newton <will.newton@imgtec.com>
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
 
-	* Makefile.am: Add Meta.
+	* config/tc-mips.c (RELAX_ENCODE): Remove WARN argument.
+	(RELAX_FIRST, RELAX_SECOND): Turn into 8-bit quantities.
+	(RELAX_USE_SECOND): Bump to 0x10000.
+	(RELAX_SECOND_LONGER, RELAX_NOMACRO, RELAX_DELAY_SLOT): New flags.
+	(mips_macro_warning): New variable.
+	(md_assemble): Wrap macro expansion in macro_start() and macro_end().
+	(s_cpload, s_cpsetup, s_cprestore, s_cpreturn): Likewise.
+	(relax_close_frag): Set mips_macro_warning.first_frag.  Adjust use
+	of RELAX_ENCODE.
+	(append_insn): Update mips_macro_warning.sizes.
+	(macro_start, macro_warning, macro_end): New functions.
+	(macro_build): Don't emit warnings here.
+	(macro_build_lui, md_estimate_size_before_relax): ...or here.
+	(md_convert_frag): Check for cases where one macro alternative
+	needs a warning and the other doesn't.  Emit a warning if the
+	longer sequence was chosen.
+
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
+
+	* config/tc-mips.h (tc_frag_data_type, TC_FRAG_TYPE): Remove.
+	* config/tc-mips.c (RELAX_ENCODE): Take three arguments: the size of
+	the first sequence, the size of the second sequence, and a flag
+	that says whether we should warn.
+	(RELAX_OLD, RELAX_NEW, RELAX_RELOC[123]): Delete.
+	(RELAX_FIRST, RELAX_SECOND): New.
+	(mips_relax): New variable.
+	(relax_close_frag, relax_start, relax_switch, relax_end): New fns.
+	(append_insn): Remove "place" argument.  Use mips_relax.sequence
+	rather than "place" to check whether we're expanding the second
+	alternative of a relaxable macro.  Remove redundant check for
+	branch relaxation.  If generating a normal insn, and there
+	is not enough room in the current frag, call relax_close_frag()
+	to close it.  Update mips_relax.sizes[].  Emit fixups for the
+	second version of a relaxable macro.  Record the first relaxable
+	fixup in mips_relax.  Remove tc_gen_reloc workaround.
+	(macro_build): Remove all uses of "place".  Use mips_relax.sequence
+	in the same way as in append_insn.
+	(mips16_macro_build): Remove "place" argument.
+	(macro_build_lui): As for macro_build.  Don't drop the add_symbol
+	when generating the second version of a relaxable macro.
+	(load_got_offset, add_got_offset): New functions.
+	(load_address, macro): Use new relaxation machinery.  Remove
+	tc_gen_reloc workarounds.
+	(md_estimate_size_before_relax): Set RELAX_USE_SECOND if the second
+	version of a relaxable macro is needed.  Return -RELAX_SECOND if the
+	first version is needed.
+	(tc_gen_reloc): Remove relaxation handling.
+	(md_convert_frag): Go through the fixups for a relaxable macro and
+	mark those that belong to the unneeded alternative as done.  If the
+	second alternative is needed, adjust the fixup addresses to account
+	for the deleted first alternative.
+
+2004-01-23  Richard Sandiford  <rsandifo@redhat.com>
+
+	* frags.h (frag_room): Declare.
+	* frags.c (frag_room): New function.
+	* doc/internals.texi: Document it.
+
+2004-01-22  Thiemo Seufer <seufer@csv.ica.uni-stuttgart.de>
+
+	* config/tc-mips.c (append_insn): Don't do r3900 interlock
+	optimization for -mtune=r3900, as this will break on other CPUs.
+
+2004-01-11  Tom Rix   <tcrix@worldnet.att.net>
+
+	* config/tc-m68hc11.c (build_indexed_byte): movb and movw cannot
+	be relaxed, use fixup.
+	(md_apply_fix3): Use 5 bit reloc from movb and movw fixup.
+
+2004-01-19  Jakub Jelinek  <jakub@redhat.com>
+
+	* config/tc-sparc.c (sparc_ip): Disallow %f32-%f63 for single
+	precision operands.
+
+2004-01-14  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
+
+	* config/tc-mips.c (append_insn): Properly detect variant frags
+	that preclude swapping of relaxed branches.  Correctly swap
+	instructions between frags when dealing with relaxed branches.
+
+2004-01-14  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
+
+	* acinclude.m4: Quote names of macros to be defined by AC_DEFUN
+	throughout.
+	* aclocal.m4: Regenerate.
+	* configure: Regenerate.
+
+2004-01-12  Anil Paranjpe  <anilp1@KPITCummins.com>
+
+	* config/tc-h8300.c (build_bytes): Apply relaxation to bit
+	manipulation insns.
+
+2004-01-12  Richard Sandiford  <rsandifo@redhat.com>
+
+	* config/tc-mips.c (macro_build_jalr): When adding an R_MIPS_JALR
+	reloc, reserve space for the delay slot as well as the jalr itself.
+
+2004-01-09  Paul Brook  <paul@codesourcery.com>
+
+	* config/tc-arm.c (do_vfp_reg2_from_sp2): Rename from do_vfp_sp_reg2.
+	(do_vfp_sp2_from_reg2): New function.
+	(insns): Use them.
+	(do_vfp_dp_from_reg2): Check return values properly.
+
+2004-01-08  Ian Lance Taylor  <ian@wasabisystems.com>
+
+	* config/tc-mips.c (warn_nops): Remove static variable.
+	(macro): Remove test of warn_nops.
+	(md_shortops): Remove 'n'.
+	(md_parse_option): Remove 'n' case.
+	(md_show_usage): Remove -n.
+	* doc/as.texinfo (Overview): Remove MIPS -n option.
+	* doc/c-mips.texi (MIPS Opts): Remove mention -n.
+	* NEWS: Mention removal of MIPS -n option.
+
+	* config/tc-mips.c (ISA_HAS_COPROC_DELAYS): Remove.
+	(cop_interlocks): Check ISA level.
+	(cop_mem_interlocks): Define.
+	(reg_needs_delay): Check cop_interlocks rather than
+	ISA_HAS_COPROC_DELAYS.
+	(append_insn): Likewise.  Use cop_mem_interlocks rather than
+	directly checking mips_opts.isa.
+	(mips_emit_delays): Likewise.
+
+2004-01-07  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/tc-ia64.c (unwind): Move next_slot_number and
+	next_slot_frag to ...
+	(unw_rec_list): Here.
+	(free_list_records): Removed.
+	(output_unw_records): Likewise.
+	(generate_unwind_image): Make it void.
+	(alloc_record): Initialize next_slot_number and next_slot_frag.
+	(slot_index): Take .org, .space and .align into account.
+	(fixup_unw_records): Don't set slot_number to 0. Use
+	list->next_slot_number and list->next_slot_frag instead of
+	unwind.next_slot_number and unwind.next_slot_frag.
+	(ia64_convert_frag): New.
+	(generate_unwind_image): Generate a rs_machine_dependent frag
+	for unwind record.
+	(emit_one_bundle): Use list->next_slot_number and
+	list->next_slot_frag instead of unwind.next_slot_number and
+	unwind.next_slot_frag.
+
+	* config/tc-ia64.h (md_convert_frag): Defined as
+	ia64_convert_frag.
+	(md_estimate_size_before_relax): Defined as (f)->fr_var.
+
+2004-01-06  Alexandre Oliva  <aoliva@redhat.com>
+
+	2003-12-19  Alexandre Oliva  <aoliva@redhat.com>
+	* config/tc-frv.h (md_apply_fix3): Don't define.
+	* config/tc-frv.c (md_apply_fix3): New.  Shift/truncate %hi/%lo
+	operands.
+	* config/tc-frv.h (TC_FORCE_RELOCATION_SUB_LOCAL): Define.
+	2003-10-07  Alexandre Oliva  <aoliva@redhat.com>
+	* config/tc-frv.c (line_separator_chars): Add `!'.
+	2003-09-19  Alexandre Oliva  <aoliva@redhat.com>
+	* config/tc-frv.c (md_assemble): Clear insn upfront.
+	2003-09-18  Alexandre Oliva  <aoliva@redhat.com>
+	* config/tc-frv.c (OPTION_FDPIC): New macro.
+	(md_longopts): Add mfdpic.
+	(md_parse_option): Handle it.
+	2003-08-04  Alexandre Oliva  <aoliva@redhat.com>
+	* config/tc-frv.c (md_cgen_lookup_reloc) <FRV_OPERAND_D12,
+	FRV_OPERAND_S12>: Use reloc type encoded in fix-up.
+	(frv_pic_ptr): Parse funcdesc.
+
+2004-01-05  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
+
+	* doc/as.texinfo: Let texi2pod parse asconfig.texi and
+	gasver.texi.  Remove duplicate symbol definitions for texi2pod.
+
+2004-01-05  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
+
+	* Makefile.am (Makefile): Move the dependency on
+	$(BFDDIR)/configure.in to...
+	(CONFIG_STATUS_DEPENDENCIES): ... here.
+	(AUTOMAKE_OPTIONS): Require automake 1.8.
 	* Makefile.in: Regenerate.
-	* config/tc-metag.c: New file.
-	* config/tc-metag.h: New file.
-	* configure.tgt: Add Meta.
-	* doc/Makefile.am: Add Meta.
+	* doc/Makefile.am (BASEDIR, BFDDIR): Define.
+	(CONFIG_STATUS_DEPENDENCIES): Add a dependency on
+	$(BFDDIR)/configure.in here as well.
 	* doc/Makefile.in: Regenerate.
-	* doc/all.texi: Add Meta.
-	* doc/as.texiinfo: Document Meta options.
-	* doc/c-metag.texi: New file.
 
-2013-01-09  Steve Ellcey  <sellcey@mips.com>
+2004-01-05  Maciej W. Rozycki  <macro@ds2.pg.gda.pl>
 
-	* config/tc-i386.c (md_begin): Remove 'internal Error' from as_fatal
-	calls.
-	* config/tc-mips.c (internalError): Remove, replace with abort.
+	* Makefile.am (install, install-info, RECURSIVE_TARGETS): Remove.
+	* Makefile.in: Regenerate.
+	* aclocal.m4: Regenerate.
+	* doc/Makefile.am (install, install-info): Remove.
+	(install-data-local): A new hook for install-info.
+	(AUTOMAKE_OPTIONS): Require automake 1.8.
+	* doc/Makefile.in: Regenerate.
 
-2013-01-08  Yufeng Zhang  <yufeng.zhang@arm.com>
+2004-01-02  Nutan Singh <nutan@kpitcummins.com>
 
-	* config/tc-aarch64.c (parse_operands): Change to compare the result
-	of function call 'parse_sys_reg' with 'PARSE_FAIL' instead of 'FALSE'.
+	* doc/c-sh.texi: Update description about floating point behavior
+	of SH family.
 
-2013-01-07  Nick Clifton  <nickc@redhat.com>
+2004-01-02  Bernardo Innocenti  <bernie@develer.com>
 
-	PR gas/14887
-	* config/tc-arm.c (skip_past_char): Skip whitespace before the
-	anticipated character.
-	* config/tc-arm.c (parse_address_main): Delete skip of whitespace
-	here as it is no longer needed.
+	* configure.in: Add m68k-uClinux target.
+	* configure: Regenerate.
 
-2013-01-06  Andreas Schwab  <schwab@linux-m68k.org>
-
-	* doc/c-mips.texi (MIPS Opts): Fix use of @itemx.
-	* doc/c-score.texi (SCORE-Opts): Likewise.
-	* doc/c-tic54x.texi (TIC54X-Directives): Likewise.
-
-2013-01-04  Juergen Urban <JuergenUrban@gmx.de>
-
-	* config/tc-mips.c: Add support for MIPS r5900.
-	Add M_LQ_AB and M_SQ_AB to support large values for instructions
-	lq and sq.
-	(can_swap_branch_p, get_append_method): Detect some conditional
-	short loops to fix a bug on the r5900 by NOP in the branch delay
-	slot.
-	(M_MUL): Support 3 operands in multu on r5900.
-	(M_TRUNCWS): Support trunc.w.s on r5900 in MIPS ISA I.
-	(s_mipsset): Force 32 bit floating point on r5900.
-	(mips_ip): Check parameter range of instructions mfps and mtps on
-	r5900.
-	* configure.in: Detect CPU type when target string contains r5900
-	(e.g. mips64r5900el-linux-gnu).
-
-2013-01-02  H.J. Lu  <hongjiu.lu@intel.com>
-
-	* as.c (parse_args): Update copyright year to 2013.
-
-2013-01-02  Yufeng Zhang  <yufeng.zhang@arm.com>
-
-	* config/tc-aarch64.c (aarch64_cpus): Add entries for "cortex-a53"
-	and "cortex57".
-
-2013-01-02  Nick Clifton  <nickc@redhat.com>
-
-	PR gas/14987
-	* config/tc-arm.c (parse_address_main): Skip whitespace before a
-	closing bracket.
-
-For older changes see ChangeLog-2012
+For older changes see ChangeLog-0203
 
-Copyright (C) 2013 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
 mode: change-log
 left-margin: 8
