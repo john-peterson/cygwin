@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
 
 #ifdef PROTOTYPES
 void callee (int i)
@@ -9,8 +8,7 @@ void callee (i)
   int  i;
 #endif
 {
-  /* Any output corrupts GDB CLI expect strings.
-     printf("callee: %d\n", i);  */
+  printf("callee: %d\n", i);
 }
 
 #ifdef PROTOTYPES
@@ -23,18 +21,14 @@ main ()
   int  v = 5;
 
   pid = fork ();
-  if (pid == 0) /* set breakpoint here */
+  if (pid == 0)
     {
       v++;
       /* printf ("I'm the child!\n"); */
-      callee (getpid ());
     }
   else
     {
       v--;
       /* printf ("I'm the proud parent of child #%d!\n", pid); */
-      callee (getpid ());
     }
-
-  exit (0); /* at exit */
 }
