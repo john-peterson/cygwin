@@ -1,7 +1,6 @@
 /* fhandler_raw.cc.  See fhandler.h for a description of the fhandler classes.
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2011,
-   2012, 2013 Red Hat, Inc.
+   Copyright 1999, 2000, 2001 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -10,96 +9,458 @@
    details. */
 
 #include "winsup.h"
-
+#include <sys/termios.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
+
 #include <cygwin/rdevio.h>
 #include <sys/mtio.h>
-#include <sys/param.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "perprocess.h"
+#include "security.h"
 #include "fhandler.h"
+#include "path.h"
+#include "dtable.h"
+#include "cygheap.h"
+
+/* static wrapper functions to hide the effect of media changes and
+   bus resets which occurs after a new media is inserted. This is
+   also related to the used tape device.  */
+
+static BOOL write_file (HANDLE fh, const void *buf, DWORD to_write,
+			DWORD *written, int *err)
+{
+  BOOL ret;
+
+  *err = 0;
+  if (!(ret = WriteFile (fh, buf, to_write, written, 0)))
+    {
+      if ((*err = GetLastError ()) == ERROR_MEDIA_CHANGED
+	  || *err == ERROR_BUS_RESET)
+	{
+	  *err = 0;
+	  if (!(ret = WriteFile (fh, buf, to_write, written, 0)))
+	    *err = GetLastError ();
+	}
+    }
+  syscall_printf ("%d (err %d) = WriteFile (%d, %d, write %d, written %d, 0)",
+		  ret, *err, fh, buf, to_write, *written);
+  return ret;
+}
+
+static BOOL read_file (HANDLE fh, void *buf, DWORD to_read,
+		       DWORD *read, int *err)
+{
+  BOOL ret;
+
+  *err = 0;
+  if (!(ret = ReadFile(fh, buf, to_read, read, 0)))
+    {
+      if ((*err = GetLastError ()) == ERROR_MEDIA_CHANGED
+	  || *err == ERROR_BUS_RESET)
+	{
+	  *err = 0;
+	  if (!(ret = ReadFile (fh, buf, to_read, read, 0)))
+	    *err = GetLastError ();
+	}
+    }
+  syscall_printf ("%d (err %d) = ReadFile (%d, %d, to_read %d, read %d, 0)",
+		  ret, *err, fh, buf, to_read, *read);
+  return ret;
+}
 
 /**********************************************************************/
 /* fhandler_dev_raw */
 
-fhandler_dev_raw::fhandler_dev_raw ()
-  : fhandler_base (),
-    status ()
+void
+fhandler_dev_raw::clear (void)
 {
-  need_fork_fixup (true);
-}
-
-fhandler_dev_raw::~fhandler_dev_raw ()
-{
-  if (devbufsiz > 1L)
-    delete [] devbufalloc;
-}
-
-int __reg2
-fhandler_dev_raw::fstat (struct __stat64 *buf)
-{
-  debug_printf ("here");
-
-  fhandler_base::fstat (buf);
-  if (is_auto_device ())
-    {
-      if (get_major () == DEV_TAPE_MAJOR)
-	buf->st_mode = S_IFCHR | STD_RBITS | STD_WBITS | S_IWGRP | S_IWOTH;
-      else
-	buf->st_mode = S_IFBLK | STD_RBITS | STD_WBITS | S_IWGRP | S_IWOTH;
-
-      buf->st_uid = geteuid32 ();
-      buf->st_gid = getegid32 ();
-      buf->st_nlink = 1;
-      buf->st_blksize = PREFERRED_IO_BLKSIZE;
-      time_as_timestruc_t (&buf->st_ctim);
-      buf->st_atim = buf->st_mtim = buf->st_birthtim = buf->st_ctim;
-    }
-  return 0;
+  devbuf = NULL;
+  devbufsiz = 0;
+  devbufstart = 0;
+  devbufend = 0;
+  eom_detected = 0;
+  eof_detected = 0;
+  lastblk_to_read = 0;
+  varblkop = 0;
+  unit = 0;
 }
 
 int
-fhandler_dev_raw::open (int flags, mode_t)
+fhandler_dev_raw::writebuf (void)
 {
-  /* Check for illegal flags. */
-  if (get_major () != DEV_TAPE_MAJOR && (flags & O_APPEND))
+  DWORD written;
+  int ret = 0;
+
+  if (is_writing && devbuf && devbufend)
     {
-      set_errno (EINVAL);
-      return 0;
+      DWORD to_write;
+      int ret = 0;
+
+      memset (devbuf + devbufend, 0, devbufsiz - devbufend);
+      if (get_device () != FH_TAPE)
+	to_write = ((devbufend - 1) / 512 + 1) * 512;
+      else if (varblkop)
+	to_write = devbufend;
+      else
+	to_write = devbufsiz;
+      if (!write_file (get_handle (), devbuf, to_write, &written, &ret)
+	  && is_eom (ret))
+	eom_detected = 1;
+      if (written)
+	has_written = 1;
+      devbufstart = devbufend = 0;
     }
+  is_writing = 0;
+  return ret;
+}
+
+fhandler_dev_raw::fhandler_dev_raw (DWORD devtype, const char *name, int unit) : fhandler_base (devtype, name)
+{
+  clear ();
+  this->unit = unit;
+  set_need_fork_fixup ();
+}
+
+fhandler_dev_raw::~fhandler_dev_raw (void)
+{
+  if (devbufsiz > 1L)
+    delete [] devbuf;
+  clear ();
+}
+
+int
+fhandler_dev_raw::open (const char *path, int flags, mode_t)
+{
+  path_conv real_path (path, PC_SYM_IGNORE);
+  int ret;
+
+  set_name (path, real_path.get_win32 ());
 
   /* Always open a raw device existing and binary. */
   flags &= ~(O_CREAT | O_TRUNC);
   flags |= O_BINARY;
-
-  /* Write-only doesn't work well with raw devices */
-  if ((flags & O_ACCMODE) == O_WRONLY)
-    flags = ((flags & ~O_WRONLY) | O_RDWR);
-
-  int res = fhandler_base::open (flags, 0);
-
-  return res;
+  ret = fhandler_base::open (path, flags);
+  if (ret)
+    {
+      if (devbufsiz > 1L)
+	devbuf = new char [devbufsiz];
+    }
+  else
+    devbufsiz = 0;
+  return ret;
 }
 
 int
-fhandler_dev_raw::dup (fhandler_base *child, int flags)
+fhandler_dev_raw::close (void)
 {
-  int ret = fhandler_base::dup (child, flags);
+  return fhandler_base::close ();
+}
 
-  if (!ret)
+int
+fhandler_dev_raw::fstat (struct stat *buf)
+{
+  if (!buf)
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  memset (buf, 0, sizeof *buf);
+  buf->st_mode = S_IFCHR |
+		 S_IRUSR | S_IWUSR |
+		 S_IRGRP | S_IWGRP |
+		 S_IROTH | S_IWOTH;
+  buf->st_nlink = 1;
+  buf->st_blksize = devbuf ? devbufsiz : 1;
+  buf->st_dev = buf->st_rdev = get_device () << 8 | (unit & 0xff);
+
+  return 0;
+}
+
+int
+fhandler_dev_raw::raw_read (void *ptr, size_t ulen)
+{
+  DWORD bytes_read = 0;
+  DWORD read2;
+  DWORD bytes_to_read;
+  int ret;
+  size_t len = ulen;
+  char *tgt;
+
+  /* In mode O_RDWR the buffer has to be written to device first */
+  ret = writebuf ();
+  if (ret)
+    {
+      set_errno (is_eom (ret) ? ENOSPC : EACCES);
+      return -1;
+    }
+
+  /* Checking a previous end of file */
+  if (eof_detected && !lastblk_to_read)
+    {
+      eof_detected = 0;
+      return 0;
+    }
+
+  /* Checking a previous end of media */
+  if (eom_detected && !lastblk_to_read)
+    {
+      set_errno (ENOSPC);
+      return -1;
+    }
+
+  if (devbuf)
+    {
+      while (len > 0)
+	{
+	  if (devbufstart < devbufend)
+	    {
+	      bytes_to_read = min (len, devbufend - devbufstart);
+	      debug_printf ("read %d bytes from buffer (rest %d)",
+			    bytes_to_read, devbufstart - devbufend);
+	      memcpy (ptr, devbuf + devbufstart, bytes_to_read);
+	      len -= bytes_to_read;
+	      ptr = (void *) ((char *) ptr + bytes_to_read);
+	      bytes_read += bytes_to_read;
+	      devbufstart += bytes_to_read;
+
+	      if (lastblk_to_read)
+		{
+		  lastblk_to_read = 0;
+		  break;
+		}
+	    }
+	  if (len > 0)
+	    {
+	      if (!varblkop && len >= devbufsiz)
+		{
+		  if (get_device () == FH_TAPE)
+		    bytes_to_read = (len / devbufsiz) * devbufsiz;
+		  else
+		    bytes_to_read = (len / 512) * 512;
+		  tgt = (char *) ptr;
+		  debug_printf ("read %d bytes direct from file",bytes_to_read);
+		}
+	      else
+		{
+		  bytes_to_read = devbufsiz;
+		  tgt = devbuf;
+		  if (varblkop)
+		    debug_printf ("read variable bytes from file into buffer");
+		  else
+		    debug_printf ("read %d bytes from file into buffer",
+				  bytes_to_read);
+		}
+	      if (!read_file (get_handle (), tgt, bytes_to_read, &read2, &ret))
+		{
+		  if (!is_eof (ret) && !is_eom (ret))
+		    {
+		      debug_printf ("return -1, set errno to EACCES");
+		      set_errno (EACCES);
+		      return -1;
+		    }
+
+		  if (is_eof (ret))
+		    eof_detected = 1;
+		  else
+		    eom_detected = 1;
+
+		  if (!read2)
+		    {
+		      if (!bytes_read && is_eom (ret))
+			{
+			  debug_printf ("return -1, set errno to ENOSPC");
+			  set_errno (ENOSPC);
+			  return -1;
+			}
+		      break;
+		    }
+		  lastblk_to_read = 1;
+		}
+	      if (! read2)
+	       break;
+	      if (tgt == devbuf)
+		{
+		  devbufstart = 0;
+		  devbufend = read2;
+		}
+	      else
+		{
+		  len -= bytes_to_read;
+		  ptr = (void *) ((char *) ptr + bytes_to_read);
+		  bytes_read += bytes_to_read;
+		}
+	    }
+	}
+    }
+  else if (!read_file (get_handle (), ptr, len, &bytes_read, &ret))
+    {
+      if (!is_eof (ret) && !is_eom (ret))
+	{
+	  debug_printf ("return -1, set errno to EACCES");
+	  set_errno (EACCES);
+	  return -1;
+	}
+      if (bytes_read)
+	{
+	  if (is_eof (ret))
+	    eof_detected = 1;
+	  else
+	    eom_detected = 1;
+	}
+      else if (is_eom (ret))
+	{
+	  debug_printf ("return -1, set errno to ENOSPC");
+	  set_errno (ENOSPC);
+	  return -1;
+	}
+    }
+
+  return bytes_read;
+}
+
+int
+fhandler_dev_raw::raw_write (const void *ptr, size_t len)
+{
+  DWORD bytes_written = 0;
+  DWORD bytes_to_write;
+  DWORD written;
+  char *p = (char *) ptr;
+  char *tgt;
+  int ret;
+
+  /* Checking a previous end of media on tape */
+  if (eom_detected)
+    {
+      set_errno (ENOSPC);
+      return -1;
+    }
+
+  if (!is_writing)
+    {
+      devbufend = devbufstart;
+      devbufstart = 0;
+    }
+  is_writing = 1;
+
+  if (devbuf)
+    {
+      while (len > 0)
+	{
+	  if (!varblkop &&
+	      (len < devbufsiz || devbufend > 0) && devbufend < devbufsiz)
+	    {
+	      bytes_to_write = min (len, devbufsiz - devbufend);
+	      memcpy (devbuf + devbufend, p, bytes_to_write);
+	      bytes_written += bytes_to_write;
+	      devbufend += bytes_to_write;
+	      p += bytes_to_write;
+	      len -= bytes_to_write;
+	    }
+	  else
+	    {
+	      if (varblkop)
+		{
+		  bytes_to_write = len;
+		  tgt = p;
+		}
+	      else if (devbufend == devbufsiz)
+		{
+		  bytes_to_write = devbufsiz;
+		  tgt = devbuf;
+		}
+	      else
+		{
+		  bytes_to_write = (len / devbufsiz) * devbufsiz;
+		  tgt = p;
+		}
+
+	      ret = 0;
+	      write_file (get_handle (), tgt, bytes_to_write, &written, &ret);
+	      if (written)
+		has_written = 1;
+
+	      if (ret)
+		{
+		  if (!is_eom (ret))
+		    {
+		      __seterrno ();
+		      return -1;
+		    }
+
+		  eom_detected = 1;
+
+		  if (!written && !bytes_written)
+		    {
+		      set_errno (ENOSPC);
+		      return -1;
+		    }
+
+		  if (tgt == p)
+		    bytes_written += written;
+
+		  break;	// from while (len > 0)
+		}
+
+	      if (tgt == devbuf)
+		{
+		  if (written != devbufsiz)
+		    memmove (devbuf, devbuf + written, devbufsiz - written);
+		  devbufend = devbufsiz - written;
+		}
+	      else
+		{
+		  len -= written;
+		  p += written;
+		  bytes_written += written;
+		}
+	    }
+	}
+    }
+  else if (len > 0)
+    {
+      if (!write_file (get_handle (), ptr, len, &bytes_written, &ret))
+	{
+	  if (bytes_written)
+	    has_written = 1;
+	  if (!is_eom (ret))
+	    {
+	      set_errno (EACCES);
+	      return -1;
+	    }
+	  eom_detected = 1;
+	  if (!bytes_written)
+	    {
+	      set_errno (ENOSPC);
+	      return -1;
+	    }
+	}
+      has_written = 1;
+    }
+  return bytes_written;
+}
+
+int
+fhandler_dev_raw::dup (fhandler_base *child)
+{
+  int ret = fhandler_base::dup (child);
+
+  if (! ret)
     {
       fhandler_dev_raw *fhc = (fhandler_dev_raw *) child;
 
+      fhc->devbufsiz = devbufsiz;
       if (devbufsiz > 1L)
-	{
-	  /* Create sector-aligned buffer */
-	  fhc->devbufalloc = new char [devbufsiz + devbufalign];
-	  fhc->devbuf = (char *) roundup2 ((uintptr_t) fhc->devbufalloc,
-					   devbufalign);
-	}
+	fhc->devbuf = new char [devbufsiz];
       fhc->devbufstart = 0;
       fhc->devbufend = 0;
-      fhc->lastblk_to_read (false);
+      fhc->eom_detected = eom_detected;
+      fhc->eof_detected = eof_detected;
+      fhc->lastblk_to_read = 0;
+      fhc->varblkop = varblkop;
+      fhc->unit = unit;
     }
   return ret;
 }
@@ -109,24 +470,17 @@ fhandler_dev_raw::fixup_after_fork (HANDLE)
 {
   devbufstart = 0;
   devbufend = 0;
-  lastblk_to_read (false);
+  lastblk_to_read = 0;
 }
 
 void
-fhandler_dev_raw::fixup_after_exec ()
+fhandler_dev_raw::fixup_after_exec (HANDLE)
 {
-  if (!close_on_exec ())
-    {
-      if (devbufsiz > 1L)
-	{
-	  /* Create sector-aligned buffer */
-	  devbufalloc = new char [devbufsiz + devbufalign];
-	  devbuf = (char *) roundup2 ((uintptr_t) devbufalloc, devbufalign);
-	}
-      devbufstart = 0;
-      devbufend = 0;
-      lastblk_to_read (false);
-    }
+  if (devbufsiz > 1L)
+    devbuf = new char [devbufsiz];
+  devbufstart = 0;
+  devbufend = 0;
+  lastblk_to_read = 0;
 }
 
 int
@@ -144,7 +498,7 @@ fhandler_dev_raw::ioctl (unsigned int cmd, void *buf)
 	switch (op->rd_op)
 	  {
 	  case RDSETBLK:
-	    if (get_major () == DEV_TAPE_MAJOR)
+	    if (get_device () == FH_TAPE)
 	      {
 		struct mtop mop;
 
@@ -152,32 +506,25 @@ fhandler_dev_raw::ioctl (unsigned int cmd, void *buf)
 		mop.mt_count = op->rd_parm;
 		ret = ioctl (MTIOCTOP, &mop);
 	      }
-	    else if ((op->rd_parm <= 1 && get_major () != DEV_TAPE_MAJOR)
-		     || (op->rd_parm > 1 && (op->rd_parm % devbufalign))
-		     || (get_flags () & O_DIRECT))
-	      /* The conditions for a valid parameter are:
-		 - The new size is either 0 or 1, both indicating unbuffered
-		   I/O, and the device is a tape device.
-		 - Or, the new buffersize must be a multiple of the
-		   required buffer alignment.
-		 - In the O_DIRECT case, the whole request is invalid. */
+	    else if (op->rd_parm % 512)
+	      ret = ERROR_INVALID_PARAMETER;
+	    else if (devbuf && op->rd_parm < devbufend - devbufstart)
 	      ret = ERROR_INVALID_PARAMETER;
 	    else if (!devbuf || op->rd_parm != devbufsiz)
 	      {
-		char *buf = NULL;
-		_off64_t curpos = lseek (0, SEEK_CUR);
-
-		if (op->rd_parm > 1L)
-		  buf = new char [op->rd_parm + devbufalign];
-
+		char *buf = new char [op->rd_parm];
 		if (devbufsiz > 1L)
-		  delete [] devbufalloc;
+		  {
+		    memcpy (buf, devbuf + devbufstart, devbufend - devbufstart);
+		    devbufend -= devbufstart;
+		    delete [] devbuf;
+		  }
+		else
+		  devbufend = 0;
 
-		devbufalloc = buf;
-		devbuf = (char *) roundup2 ((uintptr_t) buf, devbufalign);
-		devbufsiz = op->rd_parm ?: 1L;
-		devbufstart = devbufend = 0;
-		lseek (curpos, SEEK_SET);
+		devbufstart = 0;
+		devbuf = buf;
+		devbufsiz = op->rd_parm;
 	      }
 	    break;
 	  default:
@@ -191,7 +538,7 @@ fhandler_dev_raw::ioctl (unsigned int cmd, void *buf)
       if (!get)
 	ret = ERROR_INVALID_PARAMETER;
       else
-	get->bufsiz = devbufsiz;
+	get->bufsiz = devbufsiz ? devbufsiz : 1L;
     }
   else
     return fhandler_base::ioctl (cmd, buf);

@@ -1,7 +1,6 @@
 /* termios.cc: termios for WIN32.
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001 Red Hat, Inc.
 
    Written by Doug Evans and Steve Chamberlain of Cygnus Support
    dje@cygnus.com, sac@cygnus.com
@@ -13,16 +12,17 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "cygwin/version.h"
-#include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
 #include "cygerrno.h"
 #include "security.h"
-#include "path.h"
 #include "fhandler.h"
+#include "path.h"
 #include "dtable.h"
 #include "cygheap.h"
+#include "cygwin/version.h"
 #include "perprocess.h"
-#include "cygtls.h"
+#include <sys/termios.h>
 
 /* tcsendbreak: POSIX 7.2.2.1 */
 extern "C" int
@@ -30,17 +30,25 @@ tcsendbreak (int fd, int duration)
 {
   int res = -1;
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto out;
+  if (cygheap->fdtab.not_open (fd))
+    {
+      set_errno (EBADF);
+      goto out;
+    }
 
-  if (!cfd->is_tty ())
+  fhandler_base *fh;
+  fh = cygheap->fdtab[fd];
+
+  if (!fh->is_tty ())
     set_errno (ENOTTY);
-  else if ((res = cfd->bg_check (-SIGTTOU)) > bg_eof)
-    res = cfd->tcsendbreak (duration);
+  else
+    {
+      if ((res = fh->bg_check (-SIGTTOU)) > bg_eof)
+	res = fh->tcsendbreak (duration);
+    }
 
 out:
-  syscall_printf ("%R = tcsendbreak(%d, %d)", res, fd, duration);
+  syscall_printf ("%d = tcsendbreak (%d, %d)", res, fd, duration);
   return res;
 }
 
@@ -48,23 +56,29 @@ out:
 extern "C" int
 tcdrain (int fd)
 {
-  pthread_testcancel ();
-
   int res = -1;
 
   termios_printf ("tcdrain");
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto out;
+  if (cygheap->fdtab.not_open (fd))
+    {
+      set_errno (EBADF);
+      goto out;
+    }
 
-  if (!cfd->is_tty ())
+  fhandler_base *fh;
+  fh = cygheap->fdtab[fd];
+
+  if (!fh->is_tty ())
     set_errno (ENOTTY);
-  else if ((res = cfd->bg_check (-SIGTTOU)) > bg_eof)
-    res = cfd->tcdrain ();
+  else
+    {
+      if ((res = fh->bg_check (-SIGTTOU)) > bg_eof)
+	res = fh->tcdrain ();
+    }
 
 out:
-  syscall_printf ("%R = tcdrain(%d)", res, fd);
+  syscall_printf ("%d = tcdrain (%d)", res, fd);
   return res;
 }
 
@@ -74,19 +88,25 @@ tcflush (int fd, int queue)
 {
   int res = -1;
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto out;
+  if (cygheap->fdtab.not_open (fd))
+    {
+      set_errno (EBADF);
+      goto out;
+    }
 
-  if (!cfd->is_tty ())
+  fhandler_base *fh;
+  fh = cygheap->fdtab[fd];
+
+  if (!fh->is_tty ())
     set_errno (ENOTTY);
-  else if (queue != TCIFLUSH && queue != TCOFLUSH && queue != TCIOFLUSH)
-      set_errno (EINVAL);
-  else if ((res = cfd->bg_check (-SIGTTOU)) > bg_eof)
-    res = cfd->tcflush (queue);
+  else
+    {
+      if ((res = fh->bg_check (-SIGTTOU)) > bg_eof)
+	res = fh->tcflush (queue);
+    }
 
 out:
-  termios_printf ("%R = tcflush(%d, %d)", res, fd, queue);
+  termios_printf ("%d = tcflush (%d, %d)", res, fd, queue);
   return res;
 }
 
@@ -96,17 +116,25 @@ tcflow (int fd, int action)
 {
   int res = -1;
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto out;
+  if (cygheap->fdtab.not_open (fd))
+    {
+      set_errno (EBADF);
+      goto out;
+    }
 
-  if (!cfd->is_tty ())
+  fhandler_base *fh;
+  fh = cygheap->fdtab[fd];
+
+  if (!fh->is_tty ())
     set_errno (ENOTTY);
-  else if ((res = cfd->bg_check (-SIGTTOU)) > bg_eof)
-    res = cfd->tcflow (action);
+  else
+    {
+      if ((res = fh->bg_check (-SIGTTOU)) > bg_eof)
+	res = fh->tcflow (action);
+    }
 
 out:
-  syscall_printf ("%R = tcflow(%d, %d)", res, fd, action);
+  syscall_printf ("%d = tcflow (%d, %d)", res, fd, action);
   return res;
 }
 
@@ -114,55 +142,32 @@ out:
 extern "C" int
 tcsetattr (int fd, int a, const struct termios *t)
 {
-  int res;
-  t = __tonew_termios (t);
-  int e = get_errno ();
+  int res = -1;
 
-  while (1)
+  if (cygheap->fdtab.not_open (fd))
     {
-      res = -1;
-      cygheap_fdget cfd (fd);
-      if (cfd < 0)
-	{
-	  e = get_errno ();
-	  break;
-	}
-
-      if (!cfd->is_tty ())
-	{
-	  e = ENOTTY;
-	  break;
-	}
-
-      res = cfd->bg_check (-SIGTTOU);
-
-      switch (res)
-	{
-	case bg_eof:
-	  e = get_errno ();
-	  break;
-	case bg_ok:
-	  if (cfd.isopen ())
-	    res = cfd->tcsetattr (a, t);
-	  e = get_errno ();
-	  break;
-	case bg_signalled:
-	  if (_my_tls.call_signal_handler ())
-	    continue;
-	  res = -1;
-	  /* fall through intentionally */
-	default:
-	  e = get_errno ();
-	  break;
-	}
-      break;
+      set_errno (EBADF);
+      goto out;
     }
 
-  set_errno (e);
-  termios_printf ("iflag %p, oflag %p, cflag %p, lflag %p, VMIN %d, VTIME %d",
+  t = __tonew_termios (t);
+
+  fhandler_base *fh;
+  fh = cygheap->fdtab[fd];
+
+  if (!fh->is_tty ())
+    set_errno (ENOTTY);
+  else
+    {
+      if ((res = fh->bg_check (-SIGTTOU)) > bg_eof)
+	res = fh->tcsetattr (a, t);
+    }
+
+out:
+  termios_printf ("iflag %x, oflag %x, cflag %x, lflag %x, VMIN %d, VTIME %d",
 	t->c_iflag, t->c_oflag, t->c_cflag, t->c_lflag, t->c_cc[VMIN],
 	t->c_cc[VTIME]);
-  termios_printf ("%R = tcsetattr(%d, %d, %x)", res, fd, a, t);
+  termios_printf ("%d = tcsetattr (%d, %d, %x)", res, fd, a, t);
   return res;
 }
 
@@ -173,16 +178,18 @@ tcgetattr (int fd, struct termios *in_t)
   int res = -1;
   struct termios *t = __makenew_termios (in_t);
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    /* saw an error */;
-  else if (!cfd->is_tty ())
+  if (cygheap->fdtab.not_open (fd))
+    set_errno (EBADF);
+  else if (!cygheap->fdtab[fd]->is_tty ())
     set_errno (ENOTTY);
-  else if ((res = cfd->tcgetattr (t)) == 0)
-    __toapp_termios (in_t, t);
+  else
+    {
+      if ((res = cygheap->fdtab[fd]->tcgetattr (t)) == 0)
+	(void) __toapp_termios (in_t, t);
+    }
 
   if (res)
-    termios_printf ("%R = tcgetattr(%d, %p)", res, fd, in_t);
+    termios_printf ("%d = tcgetattr (%d, %p)", res, fd, in_t);
   else
     termios_printf ("iflag %x, oflag %x, cflag %x, lflag %x, VMIN %d, VTIME %d",
 	  t->c_iflag, t->c_oflag, t->c_cflag, t->c_lflag, t->c_cc[VMIN],
@@ -195,30 +202,16 @@ tcgetattr (int fd, struct termios *in_t)
 extern "C" int
 tcgetpgrp (int fd)
 {
-  int res;
+  int res = -1;
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
+  if (cygheap->fdtab.not_open (fd))
+    set_errno (EBADF);
+  else if (!cygheap->fdtab[fd]->is_tty ())
+    set_errno (ENOTTY);
   else
-    res = cfd->tcgetpgrp ();
+    res = cygheap->fdtab[fd]->tcgetpgrp ();
 
-  termios_printf ("%R = tcgetpgrp(%d)", res, fd);
-  return res;
-}
-
-extern "C" pid_t
-tcgetsid (int fd)
-{
-  int res;
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->tcgetsid ();
-
-  termios_printf ("%R = tcgetsid(%d)", res, fd);
+  termios_printf ("%d = tcgetpgrp (%d)", res, fd);
   return res;
 }
 
@@ -228,15 +221,14 @@ tcsetpgrp (int fd, pid_t pgid)
 {
   int res = -1;
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    /* saw an error */;
-  else if (!cfd->is_tty ())
+  if (cygheap->fdtab.not_open (fd))
+    set_errno (EBADF);
+  else if (!cygheap->fdtab[fd]->is_tty ())
     set_errno (ENOTTY);
   else
-    res = cfd->tcsetpgrp (pgid);
+    res = cygheap->fdtab[fd]->tcsetpgrp (pgid);
 
-  termios_printf ("%R = tcsetpgrp(%d, %d)", res, fd, pgid);
+  termios_printf ("%d = tcsetpgrp (%d, %x)", res, fd, pgid);
   return res;
 }
 
@@ -248,64 +240,16 @@ tcsetpgrp (int fd, pid_t pgid)
 
 /* cfgetospeed: POSIX96 7.1.3.1 */
 extern "C" speed_t
-cfgetospeed (const struct termios *tp)
+cfgetospeed (struct termios *tp)
 {
-  return __tonew_termios (tp)->c_ospeed;
+  return __tonew_termios(tp)->c_ospeed;
 }
 
 /* cfgetispeed: POSIX96 7.1.3.1 */
 extern "C" speed_t
-cfgetispeed (const struct termios *tp)
+cfgetispeed (struct termios *tp)
 {
-  return __tonew_termios (tp)->c_ispeed;
-}
-
-static inline int
-setspeed (speed_t &set_speed, speed_t from_speed)
-{
-  int res;
-  switch (from_speed)
-    {
-    case B0:
-    case B50:
-    case B75:
-    case B110:
-    case B134:
-    case B150:
-    case B200:
-    case B300:
-    case B600:
-    case B1200:
-    case B1800:
-    case B2400:
-    case B4800:
-    case B9600:
-    case B19200:
-    case B38400:
-    case B57600:
-    case B115200:
-    case B128000:
-    case B230400:
-    case B256000:
-    case B460800:
-    case B500000:
-    case B576000:
-    case B921600:
-    case B1000000:
-    case B1152000:
-    case B1500000:
-    case B2000000:
-    case B2500000:
-    case B3000000:
-      set_speed = from_speed;
-      res = 0;
-      break;
-    default:
-      set_errno (EINVAL);
-      res = -1;
-      break;
-    }
-  return res;
+  return __tonew_termios(tp)->c_ispeed;
 }
 
 /* cfsetospeed: POSIX96 7.1.3.1 */
@@ -313,9 +257,9 @@ extern "C" int
 cfsetospeed (struct termios *in_tp, speed_t speed)
 {
   struct termios *tp = __tonew_termios (in_tp);
-  int res = setspeed (tp->c_ospeed, speed);
-  __toapp_termios (in_tp, tp);
-  return res;
+  tp->c_ospeed = speed;
+  (void) __toapp_termios (in_tp, tp);
+  return 0;
 }
 
 /* cfsetispeed: POSIX96 7.1.3.1 */
@@ -323,32 +267,7 @@ extern "C" int
 cfsetispeed (struct termios *in_tp, speed_t speed)
 {
   struct termios *tp = __tonew_termios (in_tp);
-  int res = setspeed (tp->c_ispeed, speed);
-  __toapp_termios (in_tp, tp);
-  return res;
-}
-
-/* cfsetspeed: 4.4BSD */
-extern "C" int
-cfsetspeed (struct termios *in_tp, speed_t speed)
-{
-  struct termios *tp = __tonew_termios (in_tp);
-  int res;
-  /* errors come only from unsupported baud rates, so setspeed() would return
-     identical results in both calls */
-  if ((res = setspeed (tp->c_ospeed, speed)) == 0)
-    setspeed (tp->c_ispeed, speed);
-  __toapp_termios (in_tp, tp);
-  return res;
-}
-
-extern "C" void
-cfmakeraw(struct termios *tp)
-{
-  tp->c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP
-		 | INLCR | IGNCR | ICRNL | IXON);
-  tp->c_oflag &= ~OPOST;
-  tp->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-  tp->c_cflag &= ~(CSIZE | PARENB);
-  tp->c_cflag |= CS8;
+  tp->c_ispeed = speed;
+  (void) __toapp_termios (in_tp, tp);
+  return 0;
 }

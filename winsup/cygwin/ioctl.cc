@@ -1,7 +1,6 @@
 /* ioctl.cc: ioctl routines.
 
-   Copyright 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2006, 2008, 2009, 2011
-   Red Hat, Inc.
+   Copyright 1996, 1998, 1999, 2000, 2001 Red Hat, Inc.
 
    Written by Doug Evans of Cygnus Support
    dje@cygnus.com
@@ -13,51 +12,39 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <sys/ioctl.h>
+#include <errno.h>
 #include "cygerrno.h"
-#include "path.h"
+#include "security.h"
 #include "fhandler.h"
+#include "path.h"
 #include "dtable.h"
 #include "cygheap.h"
+#include <sys/termios.h>
 
 extern "C" int
-ioctl (int fd, int cmd, ...)
+ioctl (int fd, int cmd, void *buf)
 {
+  if (cygheap->fdtab.not_open (fd))
+    {
+      set_errno (EBADF);
+      return -1;
+    }
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    return -1;
-
-  /* check for optional mode argument */
-  va_list ap;
-  va_start (ap, cmd);
-  char *argp = va_arg (ap, char *);
-  va_end (ap);
-
-  debug_printf ("ioctl(fd %d, cmd %p)", fd, cmd);
-  int res;
-  /* FIXME: This stinks.  There are collisions between cmd types
-     depending on whether fd is associated with a pty master or not.
-     Something to fix for Cygwin2.  CGF 2006-06-04 */
-  if (cfd->is_tty () && cfd->get_major () != DEV_PTYM_MAJOR)
+  debug_printf ("fd %d, cmd %x\n", fd, cmd);
+  fhandler_base *fh = cygheap->fdtab[fd];
+  if (fh->is_tty () && fh->get_device () != FH_PTYM)
     switch (cmd)
       {
 	case TCGETA:
-	  res = tcgetattr (fd, (struct termios *) argp);
-	  goto out;
+	  return tcgetattr (fd, (struct termios *) buf);
 	case TCSETA:
-	  res = tcsetattr (fd, TCSANOW, (struct termios *) argp);
-	  goto out;
+	  return tcsetattr (fd, TCSANOW, (struct termios *) buf);
 	case TCSETAW:
-	  res = tcsetattr (fd, TCSADRAIN, (struct termios *) argp);
-	  goto out;
+	  return tcsetattr (fd, TCSADRAIN, (struct termios *) buf);
 	case TCSETAF:
-	  res = tcsetattr (fd, TCSAFLUSH, (struct termios *) argp);
-	  goto out;
+	  return tcsetattr (fd, TCSAFLUSH, (struct termios *) buf);
       }
 
-  res = cfd->ioctl (cmd, argp);
-
-out:
-  syscall_printf ("%R = ioctl(%d, %p, ...)", res, fd, cmd);
-  return res;
+  return fh->ioctl (cmd, buf);
 }

@@ -1,7 +1,8 @@
 /* sigproc.cc: inter/intra signal and sub process handler
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
+
+   Written by Christopher Faylor <cgf@cygnus.com>
 
 This file is part of Cygwin.
 
@@ -10,186 +11,237 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
+#include <stdlib.h>
+#include <time.h>
+#include <sys/wait.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <sys/cygwin.h>
 #include "cygerrno.h"
+#include "sync.h"
 #include "sigproc.h"
-#include "path.h"
+#include "pinfo.h"
+#include "security.h"
 #include "fhandler.h"
+#include "path.h"
 #include "dtable.h"
 #include "cygheap.h"
-#include "child_info_magic.h"
+#include "child_info.h"
+#define NEED_VFORK
+#include "perthread.h"
+#include <assert.h>
 #include "shared_info.h"
-#include "cygtls.h"
-#include "ntdll.h"
-#include "exception.h"
 
 /*
  * Convenience defines
  */
-#define WSSC		  60000	// Wait for signal completion
-#define WPSP		  40000	// Wait for proc_subproc mutex
+#define WSSC		   60000 // Wait for signal completion
+#define WPSP		   40000 // Wait for proc_subproc mutex
+#define WSPX		   20000 // Wait for wait_sig to terminate
+#define WWSP		   20000 // Wait for wait_subproc to terminate
+
+#define WAIT_SIG_PRIORITY		THREAD_PRIORITY_NORMAL
+
+#define TOTSIGS	(NSIG + __SIGOFFSET)
+
+#define wake_wait_subproc() SetEvent (events[0])
+
+#define no_signals_available() (!hwait_sig || !sig_loop_wait)
+
+#define NZOMBIES	256
 
 /*
  * Global variables
  */
-struct sigaction *global_sigs;
-
 const char *__sp_fn ;
 int __sp_ln;
 
 char NO_COPY myself_nowait_dummy[1] = {'0'};// Flag to sig_send that signal goes to
 					//  current process but no wait is required
+char NO_COPY myself_nowait_nonmain_dummy[1] = {'1'};// Flag to sig_send that signal goes to
+					//  current process but no wait is required
+					//  if this is not the main thread.
+
+HANDLE NO_COPY signal_arrived;		// Event signaled when a signal has
+					//  resulted in a user-specified
+					//  function call
+/*
+ * Common variables
+ */
+
+
+/* How long to wait for message/signals.  Normally this is infinite.
+ * On termination, however, these are set to zero as a flag to exit.
+ */
 
 #define Static static NO_COPY
 
-Static HANDLE sig_hold;			// Used to stop signal processing
-Static bool sigheld;			// True if holding signals
+Static DWORD proc_loop_wait = 1000;	// Wait for subprocesses to exit
+Static DWORD sig_loop_wait = INFINITE;	// Wait for signals to arrive
 
-Static int nprocs;			// Number of deceased children
-Static char cprocs[(NPROCS + 1) * sizeof (pinfo)];// All my children info
-#define procs ((pinfo *) cprocs)	// All this just to avoid expensive
-					// constructor operation  at DLL startup
-Static waitq waitq_head;		// Start of queue for wait'ing threads
+Static HANDLE sigcatch_nonmain = NULL;	// The semaphore signaled when
+					//  signals are available for
+					//  processing from non-main thread
+Static HANDLE sigcatch_main = NULL;	// Signalled when main thread sends a
+					//  signal
+Static HANDLE sigcatch_nosync = NULL;	// Signal wait_sig to scan sigtodo
+					//  but not to bother with any
+					//  synchronization
+Static HANDLE sigcomplete_main = NULL;	// Event signaled when a signal has
+					//  finished processing for the main
+					//  thread
+Static HANDLE sigcomplete_nonmain = NULL;// Semaphore raised for non-main
+					//  threads when a signal has finished
+					//  processing
+Static HANDLE hwait_sig = NULL;		// Handle of wait_sig thread
+Static HANDLE hwait_subproc = NULL;	// Handle of sig_subproc thread
 
-Static muto sync_proc_subproc;	// Control access to subproc stuff
+Static HANDLE wait_sig_inited = NULL;	// Control synchronization of
+					//  message queue startup
 
-_cygtls NO_COPY *_sig_tls;
-
-Static HANDLE my_sendsig;
-Static HANDLE my_readsig;
-
-/* Function declarations */
-static int __reg1 checkstate (waitq *);
-static __inline__ bool get_proc_lock (DWORD, DWORD);
-static bool __stdcall remove_proc (int);
-static bool __stdcall stopped_or_terminated (waitq *, _pinfo *);
-static void WINAPI wait_sig (VOID *arg);
-
-/* wait_sig bookkeeping */
-
-class pending_signals
-{
-  sigpacket sigs[NSIG + 1];
-  sigpacket start;
-  sigpacket *end;
-  sigpacket *prev;
-  sigpacket *curr;
-public:
-  void reset () {curr = &start; prev = &start;}
-  void add (sigpacket&);
-  void del ();
-  bool pending () const {return !!start.next;}
-  sigpacket *next ();
-  sigpacket *save () const {return curr;}
-  void restore (sigpacket *saved) {curr = saved;}
-  friend void __reg1 sig_dispatch_pending (bool);;
-  friend void WINAPI wait_sig (VOID *arg);
-};
-
-Static pending_signals sigq;
-
-/* Functions */
-void __stdcall
-sigalloc ()
-{
-  cygheap->sigs = global_sigs =
-    (struct sigaction *) ccalloc_abort (HEAP_SIGS, NSIG, sizeof (struct sigaction));
-  global_sigs[SIGSTOP].sa_flags = SA_RESTART | SA_NODEFER;
-}
-
-void __stdcall
-signal_fixup_after_exec ()
-{
-  global_sigs = cygheap->sigs;
-  /* Set up child's signal handlers */
-  for (int i = 0; i < NSIG; i++)
-    {
-      global_sigs[i].sa_mask = 0;
-      if (global_sigs[i].sa_handler != SIG_IGN)
-	{
-	  global_sigs[i].sa_handler = SIG_DFL;
-	  global_sigs[i].sa_flags &= ~ SA_SIGINFO;
-	}
-    }
-}
-
-/* Get the sync_proc_subproc muto to control access to
- * children, proc arrays.
- * Attempt to handle case where process is exiting as we try to grab
- * the mutex.
+/* Used by WaitForMultipleObjects.  These are handles to child processes.
  */
-static bool
-get_proc_lock (DWORD what, DWORD val)
+Static HANDLE events[PSIZE + 1] = {0};  // All my children's handles++
+#define hchildren (events + 1)		// Where the children handles begin
+Static pinfo pchildren[PSIZE];		// All my children info
+Static int nchildren = 0;		// Number of active children
+Static pinfo zombies[NZOMBIES];		// All my deceased children info
+Static int nzombies = 0;		// Number of deceased children
+
+Static waitq waitq_head = {0, 0, 0, 0, 0, 0, 0};// Start of queue for wait'ing threads
+Static waitq waitq_main;		// Storage for main thread
+
+muto NO_COPY *sync_proc_subproc = NULL;	// Control access to subproc stuff
+
+DWORD NO_COPY sigtid = 0;		// ID of the signal thread
+
+int NO_COPY pending_signals = 0;	// TRUE if signals pending
+
+/* Functions
+ */
+static int __stdcall checkstate (waitq *);
+static __inline__ BOOL get_proc_lock (DWORD, DWORD);
+static HANDLE __stdcall getsem (_pinfo *, const char *, int, int);
+static void __stdcall remove_zombie (int);
+static DWORD WINAPI wait_sig (VOID *arg);
+static int __stdcall stopped_or_terminated (waitq *, _pinfo *);
+static DWORD WINAPI wait_subproc (VOID *);
+
+/* Determine if the parent process is alive.
+ */
+
+BOOL __stdcall
+my_parent_is_alive ()
 {
-  if (!cygwin_finished_initializing)
-    return true;
-  Static int lastwhat = -1;
-  if (!sync_proc_subproc)
+  DWORD res;
+  if (!myself->ppid_handle)
     {
-      sigproc_printf ("sync_proc_subproc is NULL");
-      return false;
+      debug_printf ("No myself->ppid_handle");
+      res = FALSE;
     }
-  if (sync_proc_subproc.acquire (WPSP))
-    {
-      lastwhat = what;
-      return true;
-    }
-  system_printf ("Couldn't acquire %s for(%d,%d), last %d, %E",
-		 sync_proc_subproc.name, what, val, lastwhat);
-  return false;
+  else
+    for (int i = 0; i < 2; i++)
+      switch (res = WaitForSingleObject (myself->ppid_handle, 0))
+	{
+	  case WAIT_OBJECT_0:
+	    debug_printf ("parent dead.");
+	    res = FALSE;
+	    goto out;
+	  case WAIT_TIMEOUT:
+	    debug_printf ("parent still alive");
+	    res = TRUE;
+	    goto out;
+	  case WAIT_FAILED:
+	    DWORD werr = GetLastError ();
+	    if (werr == ERROR_INVALID_HANDLE && i == 0)
+	      continue;
+	    system_printf ("WFSO for myself->ppid_handle(%p) failed, error %d",
+			   myself->ppid_handle, werr);
+	    res = FALSE;
+	    goto out;
+	}
+out:
+  return res;
 }
 
-static bool __stdcall
+__inline static void
+wait_for_me ()
+{
+  /* See if this is the first signal call after initialization.
+   * If so, wait for notification that all initialization has completed.
+   * Then set the handle to NULL to avoid checking this again.
+   */
+  if (wait_sig_inited)
+    {
+      (void) WaitForSingleObject (wait_sig_inited, INFINITE);
+      (void) ForceCloseHandle (wait_sig_inited);
+      wait_sig_inited = NULL;
+    }
+}
+
+static BOOL __stdcall
 proc_can_be_signalled (_pinfo *p)
 {
-  if (!(p->exitcode & EXITCODE_SET))
+  if (p == myself_nowait || p == myself_nowait_nonmain || p == myself)
     {
-      if (ISSTATE (p, PID_INITIALIZING) ||
-	  (((p)->process_state & (PID_ACTIVE | PID_IN_USE)) ==
-	   (PID_ACTIVE | PID_IN_USE)))
-	return true;
+      wait_for_me ();
+      return 1;
     }
 
-  set_errno (ESRCH);
-  return false;
+  return ISSTATE (p, PID_INITIALIZING) ||
+	 (((p)->process_state & (PID_ACTIVE | PID_IN_USE)) ==
+	  (PID_ACTIVE | PID_IN_USE));
 }
 
-bool __reg1
+BOOL __stdcall
 pid_exists (pid_t pid)
 {
-  return pinfo (pid)->exists ();
+  pinfo p (pid);
+  return proc_exists (p);
 }
 
-/* Return true if this is one of our children, false otherwise.  */
-static inline bool __stdcall
+/* Test to determine if a process really exists and is processing signals.
+ */
+BOOL __stdcall
+proc_exists (_pinfo *p)
+{
+  return p && !(p->process_state & (PID_INITIALIZING | PID_EXITED));
+}
+
+/* Return 1 if this is one of our children, zero otherwise.
+   FIXME: This really should be integrated with the rest of the proc_subproc
+   testing.  Scanning these lists twice is inefficient. */
+int __stdcall
 mychild (int pid)
 {
-  for (int i = 0; i < nprocs; i++)
-    if (procs[i]->pid == pid)
-      return true;
-  return false;
+  for (int i = 0; i < nchildren; i++)
+    if (pchildren[i]->pid == pid)
+      return 1;
+  for (int i = 0; i < nzombies; i++)
+    if (zombies[i]->pid == pid)
+      return 1;
+  return 0;
 }
 
 /* Handle all subprocess requests
  */
-int __reg2
+#define vchild (*((pinfo *) val))
+int __stdcall
 proc_subproc (DWORD what, DWORD val)
 {
   int rc = 1;
   int potential_match;
+  _pinfo *child;
   int clearing;
   waitq *w;
 
 #define wval	 ((waitq *) val)
-#define vchild (*((pinfo *) val))
 
   sigproc_printf ("args: %x, %d", what, val);
 
   if (!get_proc_lock (what, val))	// Serialize access to this function
     {
-      system_printf ("couldn't get proc lock. what %d, val %d", what, val);
+      system_printf ("couldn't get proc lock.  Something is wrong.");
       goto out1;
     }
 
@@ -199,42 +251,84 @@ proc_subproc (DWORD what, DWORD val)
      * (usually called from the main thread)
      */
     case PROC_ADDCHILD:
-      /* Filled up process table? */
-      if (nprocs >= NPROCS)
+      if (nchildren >= PSIZE - 1)
 	{
-	  sigproc_printf ("proc table overflow: hit %d processes, pid %d\n",
-			  nprocs, vchild->pid);
 	  rc = 0;
-	  set_errno (EAGAIN);
 	  break;
 	}
-      /* fall through intentionally */
+      pchildren[nchildren] = vchild;
+      hchildren[nchildren] = vchild->hProcess;
+      if (!DuplicateHandle (hMainProc, vchild->hProcess, hMainProc, &vchild->pid_handle,
+			    0, 0, DUPLICATE_SAME_ACCESS))
+	system_printf ("Couldn't duplicate child handle for pid %d, %E", vchild->pid);
+      ProtectHandle1 (vchild->pid_handle, pid_handle);
 
-    case PROC_DETACHED_CHILD:
-      if (vchild != myself)
-	{
-	  vchild->ppid = what == PROC_DETACHED_CHILD ? 1 : myself->pid;
-	  vchild->uid = myself->uid;
-	  vchild->gid = myself->gid;
-	  vchild->pgid = myself->pgid;
-	  vchild->sid = myself->sid;
-	  vchild->ctty = myself->ctty;
-	  vchild->cygstarted = true;
-	  vchild->process_state |= PID_INITIALIZING;
-	}
-      if (what == PROC_DETACHED_CHILD)
-	break;
-      /* fall through intentionally */
+      if (!DuplicateHandle (hMainProc, hMainProc, vchild->hProcess, &vchild->ppid_handle,
+			    0, TRUE, DUPLICATE_SAME_ACCESS))
+	system_printf ("Couldn't duplicate my handle<%p> for pid %d, %E", hMainProc, vchild->pid);
+      vchild->ppid = myself->pid;
+      vchild->uid = myself->uid;
+      vchild->gid = myself->gid;
+      vchild->pgid = myself->pgid;
+      vchild->sid = myself->sid;
+      vchild->ctty = myself->ctty;
+      vchild->process_state |= PID_INITIALIZING | (myself->process_state & PID_USETTY);
 
-    case PROC_REATTACH_CHILD:
-      procs[nprocs] = vchild;
-      rc = procs[nprocs].wait ();
-      if (rc)
+      sigproc_printf ("added pid %d to wait list, slot %d, winpid %p, handle %p",
+		  vchild->pid, nchildren, vchild->dwProcessId,
+		  vchild->hProcess);
+      nchildren++;
+
+      wake_wait_subproc ();
+      break;
+
+    /* A child process had terminated.
+       Possibly this is just due to an exec().  Cygwin implements an exec()
+       as a "handoff" from one windows process to another.  If child->hProcess
+       is different from what is recorded in hchildren, then this is an exec().
+       Otherwise this is a normal child termination event.
+       (called from wait_subproc thread) */
+    case PROC_CHILDTERMINATED:
+      if (hchildren[val] != pchildren[val]->hProcess)
 	{
-	  sigproc_printf ("added pid %d to proc table, slot %d", vchild->pid,
-			  nprocs);
-	  nprocs++;
+	  sigproc_printf ("pid %d[%d], reparented old hProcess %p, new %p",
+		      pchildren[val]->pid, val, hchildren[val], pchildren[val]->hProcess);
+	  ForceCloseHandle1 (hchildren[val], childhProc);
+	  hchildren[val] = pchildren[val]->hProcess; /* Filled out by child */
+	  ProtectHandle1 (pchildren[val]->hProcess, childhProc);
+	  rc = 0;
+	  break;			// This was an exec()
 	}
+
+      sigproc_printf ("pid %d[%d] terminated, handle %p, nchildren %d, nzombies %d",
+		  pchildren[val]->pid, val, hchildren[val], nchildren, nzombies);
+
+      int thiszombie;
+      thiszombie = nzombies;
+      zombies[nzombies] = pchildren[val];	// Add to zombie array
+      zombies[nzombies++]->process_state = PID_ZOMBIE;// Walking dead
+
+      sigproc_printf ("zombifying [%d], pid %d, handle %p, nchildren %d",
+		      val, pchildren[val]->pid, hchildren[val], nchildren);
+      if ((int) val < --nchildren)
+	{
+	  hchildren[val] = hchildren[nchildren];
+	  pchildren[val] = pchildren[nchildren];
+	}
+
+      /* See if we should care about the this terminated process.  If we've
+	 filled up our table or if we're ignoring SIGCHLD, then we immediately
+	 remove the process and move on. Otherwise, this process becomes a zombie
+	 which must be reaped by a wait() call. */
+      if (nzombies >= NZOMBIES
+	  || myself->getsig (SIGCHLD).sa_handler == (void *) SIG_IGN)
+	{
+	  sigproc_printf ("automatically removing zombie %d", thiszombie);
+	  remove_zombie (thiszombie);
+	}
+
+      /* Don't scan the wait queue yet.  Caller will send SIGCHLD to this process.
+	 This will cause an eventual scan of waiters. */
       break;
 
     /* Handle a wait4() operation.  Allocates an event for the calling
@@ -244,7 +338,9 @@ proc_subproc (DWORD what, DWORD val)
     case PROC_WAIT:
       wval->ev = NULL;		// Don't know event flag yet
 
-      if (wval->pid != -1 && wval->pid && !mychild (wval->pid))
+      if (wval->pid <= 0)
+	child = NULL;		// Not looking for a specific pid
+      else if (!mychild (wval->pid))
 	goto out;		// invalid pid.  flag no such child
 
       wval->status = 0;		// Don't know status yet
@@ -255,39 +351,34 @@ proc_subproc (DWORD what, DWORD val)
        */
       if ((wval->ev = wval->thread_ev) == NULL)
 	{
-	  wval->ev = wval->thread_ev = CreateEvent (&sec_none_nih, TRUE, FALSE,
-						    NULL);
-	  ProtectHandle1 (wval->ev, wq_ev);
+	  wval->ev = wval->thread_ev = CreateEvent (&sec_none_nih, TRUE,
+						    FALSE, NULL);
+	  ProtectHandle (wval->ev);
 	}
 
       ResetEvent (wval->ev);
       w = waitq_head.next;
       waitq_head.next = wval;	/* Add at the beginning. */
       wval->next = w;		/* Link in rest of the list. */
-      clearing = false;
+      clearing = 0;
       goto scan_wait;
 
-    case PROC_EXEC_CLEANUP:
-      while (nprocs)
-	remove_proc (0);
-      for (w = &waitq_head; w->next != NULL; w = w->next)
-	CloseHandle (w->next->ev);
-      break;
-
     /* Clear all waiting threads.  Called from exceptions.cc prior to
-       the main thread's dispatch to a signal handler function.
-       (called from wait_sig thread) */
+     * the main thread's dispatch to a signal handler function.
+     * (called from wait_sig thread)
+     */
     case PROC_CLEARWAIT:
       /* Clear all "wait"ing threads. */
       if (val)
 	sigproc_printf ("clear waiting threads");
       else
-	sigproc_printf ("looking for processes to reap, nprocs %d", nprocs);
+	sigproc_printf ("looking for processes to reap");
       clearing = val;
 
     scan_wait:
       /* Scan the linked list of wait()ing threads.  If a wait's parameters
-	 match this pid, then activate it.  */
+       * match this pid, then activate it.
+       */
       for (w = &waitq_head; w->next != NULL; w = w->next)
 	{
 	  if ((potential_match = checkstate (w)) > 0)
@@ -318,1096 +409,924 @@ proc_subproc (DWORD what, DWORD val)
 	  waitq_head.next = NULL;
 	  sigproc_printf ("finished clearing");
 	}
-
-      if (global_sigs[SIGCHLD].sa_handler == (void *) SIG_IGN)
-	for (int i = 0; i < nprocs; i += remove_proc (i))
-	  continue;
+      break;
   }
 
 out:
-  sync_proc_subproc.release ();	// Release the lock
+  sync_proc_subproc->release ();	// Release the lock
 out1:
   sigproc_printf ("returning %d", rc);
   return rc;
-#undef wval
-#undef vchild
-}
-
-// FIXME: This is inelegant
-void
-_cygtls::remove_wq (DWORD wait)
-{
-  if (exit_state < ES_FINAL && waitq_head.next && sync_proc_subproc
-      && sync_proc_subproc.acquire (wait))
-    {
-      for (waitq *w = &waitq_head; w->next != NULL; w = w->next)
-	if (w->next == &wq)
-	  {
-	    ForceCloseHandle1 (wq.thread_ev, wq_ev);
-	    w->next = wq.next;
-	    break;
-	  }
-      sync_proc_subproc.release ();
-    }
 }
 
 /* Terminate the wait_subproc thread.
-   Called on process exit.
-   Also called by spawn_guts to disassociate any subprocesses from this
-   process.  Subprocesses will then know to clean up after themselves and
-   will not become procs.  */
+ * Called on process exit.
+ * Also called by spawn_guts to disassociate any subprocesses from this
+ * process.  Subprocesses will then know to clean up after themselves and
+ * will not become zombies.
+ */
 void __stdcall
-proc_terminate ()
+proc_terminate (void)
 {
-  sigproc_printf ("nprocs %d", nprocs);
-  if (nprocs)
+  sigproc_printf ("nchildren %d, nzombies %d", nchildren, nzombies);
+  /* Signal processing is assumed to be blocked in this routine. */
+  if (hwait_subproc)
     {
-      sync_proc_subproc.acquire (WPSP);
+      int rc;
+      proc_loop_wait = 0;	// Tell wait_subproc thread to exit
+      wake_wait_subproc ();	// Wake wait_subproc loop
 
-      proc_subproc (PROC_CLEARWAIT, 1);
+      /* Wait for wait_subproc thread to exit (but not *too* long) */
+      if ((rc = WaitForSingleObject (hwait_subproc, WWSP)) != WAIT_OBJECT_0)
+	if (rc == WAIT_TIMEOUT)
+	  system_printf ("WFSO(hwait_subproc) timed out");
+	else
+	  system_printf ("WFSO(hwait_subproc), rc %d, %E", rc);
 
-      /* Clean out proc processes from the pid list. */
-      for (int i = 0; i < nprocs; i++)
+      HANDLE h = hwait_subproc;
+      hwait_subproc = NULL;
+      ForceCloseHandle1 (h, hwait_subproc);
+
+      sync_proc_subproc->acquire(WPSP);
+      (void) proc_subproc (PROC_CLEARWAIT, 1);
+
+      /* Clean out zombie processes from the pid list. */
+      int i;
+      for (i = 0; i < nzombies; i++)
 	{
-	  /* If we've execed then the execed process will handle setting ppid
-	     to 1 iff it is a Cygwin process.  */
-	  if (!have_execed || !have_execed_cygwin)
-	    procs[i]->ppid = 1;
-	  if (procs[i].wait_thread)
-	    procs[i].wait_thread->terminate_thread ();
-	  /* Release memory associated with this process unless it is 'myself'.
-	     'myself' is only in the procs table when we've execed.  We reach
-	     here when the next process has finished initializing but we still
-	     can't free the memory used by 'myself' since it is used later on
-	     during cygwin tear down.  */
-	  if (procs[i] != myself)
-	    procs[i].release ();
+	  if (zombies[i]->hProcess)
+	    {
+	      ForceCloseHandle1 (zombies[i]->hProcess, childhProc);
+	      ForceCloseHandle1 (zombies[i]->pid_handle, pid_handle);
+	    }
+	  zombies[i]->process_state = PID_EXITED;	/* CGF FIXME - still needed? */
+	  zombies[i].release();		// FIXME: this breaks older gccs for some reason
 	}
-      nprocs = 0;
-      sync_proc_subproc.release ();
+
+      /* Disassociate my subprocesses */
+      for (i = 0; i < nchildren; i++)
+	{
+	  if (!pchildren[i]->hProcess)
+	    sigproc_printf ("%d(%d) hProcess cleared already?", pchildren[i]->pid,
+			pchildren[i]->dwProcessId);
+	  else
+	    {
+	      ForceCloseHandle1 (pchildren[i]->hProcess, childhProc);
+	      sigproc_printf ("%d(%d) closed child handle", pchildren[i]->pid,
+			      pchildren[i]->dwProcessId);
+	      pchildren[i]->ppid = 1;
+	      if (pchildren[i]->pgid == myself->pid)
+		pchildren[i]->process_state |= PID_ORPHANED;
+	    }
+	  pchildren[i].release ();
+	}
+      nchildren = nzombies = 0;
+      /* Just zero sync_proc_subproc as the delete below seems to cause
+	 problems for older gccs. */
+	sync_proc_subproc = NULL;
     }
   sigproc_printf ("leaving");
 }
 
-/* Clear pending signal */
-void __reg1
-sig_clear (int target_sig)
+/* Clear pending signal from the sigtodo array
+ */
+void __stdcall
+sig_clear (int sig)
 {
-  if (&_my_tls != _sig_tls)
-    sig_send (myself, -target_sig);
+  (void) InterlockedExchange (myself->getsigtodo (sig), 0L);
+  return;
+}
+
+/* Force the wait_sig thread to wake up and scan the sigtodo array.
+ */
+extern "C" int __stdcall
+sig_dispatch_pending (int justwake)
+{
+  if (!hwait_sig)
+    return 0;
+
+  int was_pending = pending_signals;
+#ifdef DEBUGGING
+  sigproc_printf ("pending_signals %d", was_pending);
+#endif
+  if (!was_pending && !justwake)
+#ifdef DEBUGGING
+    sigproc_printf ("no need to wake anything up");
+#else
+    ;
+#endif
   else
     {
-      sigpacket *q;
-      sigpacket *save = sigq.save ();
-      sigq.reset ();
-      while ((q = sigq.next ()))
-	if (q->si.si_signo == target_sig)
-	  {
-	    q->si.si_signo = __SIGDELETE;
-	    break;
-	  }
-      sigq.restore (save);
-    }
-}
-
-extern "C" int
-sigpending (sigset_t *mask)
-{
-  sigset_t outset = (sigset_t) sig_send (myself, __SIGPENDING, &_my_tls);
-  if (outset == SIG_BAD_MASK)
-    return -1;
-  *mask = outset;
-  return 0;
-}
-
-/* Force the wait_sig thread to wake up and scan for pending signals */
-void __reg1
-sig_dispatch_pending (bool fast)
-{
-  if (&_my_tls == _sig_tls)
-    {
+      wait_for_me ();
+      if (!justwake)
+	(void) sig_send (myself, __SIGFLUSH);
+      else if (ReleaseSemaphore (sigcatch_nosync, 1, NULL))
 #ifdef DEBUGGING
-      sigproc_printf ("exit_state %d, cur thread id %p, _sig_tls %p, sigq.start.next %p",
-		      exit_state, GetCurrentThreadId (), _sig_tls, sigq.start.next);
+	sigproc_printf ("woke up wait_sig");
+#else
+	;
 #endif
-      return;
-    }
+      else if (no_signals_available ())
+	/*sigproc_printf ("I'm going away now")*/;
+      else
+	system_printf ("%E releasing sigcatch_nosync(%p)", sigcatch_nosync);
 
-  /* Non-atomically test for any signals pending and wake up wait_sig if any are
-     found.  It's ok if there's a race here since the next call to this function
-     should catch it.
-     FIXME: Eventually, wait_sig should wake up on its own to deal with pending
-     signals. */
-  if (sigq.pending ())
-    sig_send (myself, fast ? __SIGFLUSHFAST : __SIGFLUSH);
+    }
+  return was_pending;
 }
 
-/* Signal thread initialization.  Called from dll_crt0_1.
-   This routine starts the signal handling thread.  */
+/* Message initialization.  Called from dll_crt0_1
+ *
+ * This routine starts the signal handling thread.  The wait_sig_inited
+ * event is used to signal that the thread is ready to handle signals.
+ * We don't wait for this during initialization but instead detect it
+ * in sig_send to gain a little concurrency.
+ */
 void __stdcall
 sigproc_init ()
 {
-  char char_sa_buf[1024];
-  PSECURITY_ATTRIBUTES sa = sec_user_nih ((PSECURITY_ATTRIBUTES) char_sa_buf, cygheap->user.sid());
-  DWORD err = fhandler_pipe::create (sa, &my_readsig, &my_sendsig,
-				     sizeof (sigpacket), "sigwait",
-				     PIPE_ADD_PID);
-  if (err)
+  wait_sig_inited = CreateEvent (&sec_none_nih, TRUE, FALSE, NULL);
+  ProtectHandle (wait_sig_inited);
+
+  /* local event signaled when main thread has been dispatched
+     to a signal handler function. */
+  signal_arrived = CreateEvent(&sec_none_nih, TRUE, FALSE, NULL);
+  ProtectHandle (signal_arrived);
+
+  if (!(hwait_sig = makethread (wait_sig, NULL, 0, "sig")))
     {
-      SetLastError (err);
-      api_fatal ("couldn't create signal pipe, %E");
+      system_printf ("cannot create wait_sig thread, %E");
+      api_fatal ("terminating");
     }
-  ProtectHandle (my_readsig);
-  myself->sendsig = my_sendsig;
-  /* sync_proc_subproc is used by proc_subproc.  It serializes
-     access to the children and proc arrays.  */
-  sync_proc_subproc.init ("sync_proc_subproc");
-  new cygthread (wait_sig, cygself, "sig");
+
+  ProtectHandle (hwait_sig);
+
+  /* sync_proc_subproc is used by proc_subproc.  It serialises
+   * access to the children and zombie arrays.
+   */
+  sync_proc_subproc = new_muto (FALSE, "sync_proc_subproc");
+
+  /* Initialize waitq structure for main thread.  A waitq structure is
+   * allocated for each thread that executes a wait to allow multiple threads
+   * to perform waits.  Pre-allocate a waitq structure for the main thread.
+   */
+  waitq *w;
+  if ((w = (waitq *)waitq_storage.get ()) == NULL)
+    {
+      w = &waitq_main;
+      waitq_storage.set (w);
+    }
+  memset (w, 0, sizeof *w);	// Just to be safe
+
+  myself->getsig (SIGSTOP).sa_flags = SA_RESTART | SA_NODEFER;
+  sigproc_printf ("process/signal handling enabled(%x)", myself->process_state);
+  return;
 }
 
-/* Exit the current thread very carefully.
-   See cgf-000017 in DevNotes for more details on why this is
-   necessary.  */
-void
-exit_thread (DWORD res)
+/* Called on process termination to terminate signal and process threads.
+ */
+void __stdcall
+sigproc_terminate (void)
 {
-# undef ExitThread
-  sigfillset (&_my_tls.sigmask);	/* No signals wanted */
-  lock_process for_now;			/* May block indefinitely when exiting. */
-  if (exit_state)
+  HANDLE h = hwait_sig;
+  hwait_sig = NULL;
+
+  if (GetCurrentThreadId () == sigtid)
     {
-      for_now.release ();
-      Sleep (INFINITE);
+      ForceCloseHandle (sigcomplete_main);
+      for (int i = 0; i < 20; i++)
+	(void) ReleaseSemaphore (sigcomplete_nonmain, 1, NULL);
+      // ForceCloseHandle (sigcomplete_nonmain);
+      // ForceCloseHandle (sigcatch_main);
+      // ForceCloseHandle (sigcatch_nonmain);
+      // ForceCloseHandle (sigcatch_nosync);
+    }
+  proc_terminate ();		// Terminate process handling thread
+
+  if (!sig_loop_wait)
+    sigproc_printf ("sigproc_terminate: sigproc handling not active");
+  else
+    {
+      sigproc_printf ("entering");
+      sig_loop_wait = 0;	// Tell wait_sig to exit when it is
+				//  finished with anything it is doing
+      // sig_dispatch_pending (TRUE);	// wake up and die
+      /* In case of a sigsuspend */
+      SetEvent (signal_arrived);
+
+      /* If !hwait_sig, then the process probably hasn't even finished
+       * its initialization phase.
+       */
+      if (0 && hwait_sig)
+	{
+	  if (GetCurrentThreadId () != sigtid)
+	    WaitForSingleObject (h, 10000);
+	  ForceCloseHandle1 (h, hwait_sig);
+
+
+	  if (GetCurrentThreadId () != sigtid)
+	    {
+	      ForceCloseHandle (sigcomplete_main);
+	      ForceCloseHandle (sigcomplete_nonmain);
+	      ForceCloseHandle (sigcatch_main);
+	      ForceCloseHandle (sigcatch_nonmain);
+	      ForceCloseHandle (sigcatch_nosync);
+	    }
+	}
+      sigproc_printf ("done");
     }
 
-  HANDLE h;
-  if (!DuplicateHandle (GetCurrentProcess (), GetCurrentThread (),
-                        GetCurrentProcess (), &h,
-                        0, FALSE, DUPLICATE_SAME_ACCESS))
-    {
-#ifdef DEBUGGING
-      system_printf ("couldn't duplicate the current thread, %E");
+#if 0
+  /* Set this so that subsequent tests will succeed. */
+  if (!myself->dwProcessId)
+    myself->dwProcessId = GetCurrentProcessId ();
 #endif
-      for_now.release ();
-      ExitThread (res);
-    }
-  ProtectHandle1 (h, exit_thread);
-  /* Tell wait_sig to wait for this thread to exit.  It can then release
-     the lock below and close the above-opened handle. */
-  siginfo_t si = {__SIGTHREADEXIT, SI_KERNEL};
-  si.si_cyg = h;
-  sig_send (myself_nowait, si, &_my_tls);
-  ExitThread (0);
-}
 
-int __reg3
-sig_send (_pinfo *p, int sig, _cygtls *tid)
-{
-  if (sig == __SIGHOLD)
-    sigheld = true;
-  else if (!sigheld)
-    /* nothing */;
-  else if (sig == __SIGFLUSH || sig == __SIGFLUSHFAST)
-    return 0;
-  else if (sig == __SIGNOHOLD)
-    {
-      SetEvent (sig_hold);
-      sigheld = false;
-    }
-  else if (&_my_tls == _main_tls)
-    {
-#ifdef DEBUGGING
-      system_printf ("signal %d sent to %p while signals are on hold", sig, p);
-#endif
-      return -1;
-    }
-  siginfo_t si = {};
-  si.si_signo = sig;
-  si.si_code = SI_KERNEL;
-  return sig_send (p, si, tid);
+  return;
 }
 
 /* Send a signal to another process by raising its signal semaphore.
-   If pinfo *p == NULL, send to the current process.
-   If sending to this process, wait for notification that a signal has
-   completed before returning.  */
-int __reg3
-sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
+ * If pinfo *p == NULL, send to the current process.
+ * If sending to this process, wait for notification that a signal has
+ * completed before returning.
+ */
+int __stdcall
+sig_send (_pinfo *p, int sig, DWORD ebp, bool exception)
 {
   int rc = 1;
-  bool its_me;
-  HANDLE sendsig;
-  sigpacket pack;
-  bool communing = si.si_signo == __SIGCOMMUNE;
+  DWORD tid = GetCurrentThreadId ();
+  BOOL its_me;
+  HANDLE thiscatch = NULL;
+  HANDLE thiscomplete = NULL;
+  BOOL wait_for_completion;
+  sigframe thisframe;
 
-  pack.wakeup = NULL;
-  bool wait_for_completion;
-  if (!(its_me = p == NULL || p == myself || p == myself_nowait))
-    {
-      /* It is possible that the process is not yet ready to receive messages
-       * or that it has exited.  Detect this.
-       */
-      if (!proc_can_be_signalled (p))	/* Is the process accepting messages? */
-	{
-	  sigproc_printf ("invalid pid %d(%x), signal %d",
-			  p->pid, p->process_state, si.si_signo);
-	  goto out;
-	}
-      wait_for_completion = false;
-    }
+  if (p == myself_nowait_nonmain)
+    p = (tid == mainthread.id) ? (_pinfo *) myself : myself_nowait;
+  if (!(its_me = (p == NULL || p == myself || p == myself_nowait)))
+    wait_for_completion = FALSE;
   else
     {
+      if (no_signals_available ())
+	goto out;		// Either exiting or not yet initializing
+      wait_for_me ();
       wait_for_completion = p != myself_nowait;
       p = myself;
     }
 
-
-  if (its_me)
-    sendsig = my_sendsig;
-  else
+  /* It is possible that the process is not yet ready to receive messages
+   * or that it has exited.  Detect this.
+   */
+  if (!proc_can_be_signalled (p))	/* Is the process accepting messages? */
     {
-      HANDLE dupsig;
-      DWORD dwProcessId;
-      for (int i = 0; !p->sendsig && i < 10000; i++)
-	yield ();
-      if (p->sendsig)
-	{
-	  dupsig = p->sendsig;
-	  dwProcessId = p->dwProcessId;
-	}
-      else
-	{
-	  dupsig = p->exec_sendsig;
-	  dwProcessId = p->exec_dwProcessId;
-	}
-      if (!dupsig)
-	{
-	  set_errno (EAGAIN);
-	  sigproc_printf ("sendsig handle never materialized");
-	  goto out;
-	}
-      HANDLE hp = OpenProcess (PROCESS_DUP_HANDLE, false, dwProcessId);
-      if (!hp)
-	{
-	  __seterrno ();
-	  sigproc_printf ("OpenProcess failed, %E");
-	  goto out;
-	}
-      VerifyHandle (hp);
-      if (!DuplicateHandle (hp, dupsig, GetCurrentProcess (), &sendsig, 0,
-			    false, DUPLICATE_SAME_ACCESS) || !sendsig)
-	{
-	  __seterrno ();
-	  sigproc_printf ("DuplicateHandle failed, %E");
-	  CloseHandle (hp);
-	  goto out;
-	}
-      VerifyHandle (sendsig);
-      if (!communing)
-	CloseHandle (hp);
-      else
-	{
-	  si._si_commune._si_process_handle = hp;
-
-	  HANDLE& tome = si._si_commune._si_write_handle;
-	  HANDLE& fromthem = si._si_commune._si_read_handle;
-	  if (!CreatePipeOverlapped (&fromthem, &tome, &sec_all_nih))
-	    {
-	      sigproc_printf ("CreatePipe for __SIGCOMMUNE failed, %E");
-	      __seterrno ();
-	      goto out;
-	    }
-	  if (!DuplicateHandle (GetCurrentProcess (), tome, hp, &tome, 0, false,
-				DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE))
-	    {
-	      sigproc_printf ("DuplicateHandle for __SIGCOMMUNE failed, %E");
-	      __seterrno ();
-	      goto out;
-	    }
-	}
-    }
-
-  sigproc_printf ("sendsig %p, pid %d, signal %d, its_me %d", sendsig, p->pid, si.si_signo, its_me);
-
-  sigset_t pending;
-  if (!its_me)
-    pack.mask = NULL;
-  else if (si.si_signo == __SIGPENDING)
-    pack.mask = &pending;
-  else if (si.si_signo == __SIGFLUSH || si.si_signo > 0)
-    pack.mask = tls ? &tls->sigmask : &_main_tls->sigmask;
-  else
-    pack.mask = NULL;
-
-  pack.si = si;
-  if (!pack.si.si_pid)
-    pack.si.si_pid = myself->pid;
-  if (!pack.si.si_uid)
-    pack.si.si_uid = myself->uid;
-  pack.pid = myself->pid;
-  pack.sigtls = tls;
-  if (wait_for_completion)
-    {
-      pack.wakeup = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
-      sigproc_printf ("wakeup %p", pack.wakeup);
-      ProtectHandle (pack.wakeup);
-    }
-
-  char *leader;
-  size_t packsize;
-  if (!communing || !(si._si_commune._si_code & PICOM_EXTRASTR))
-    {
-      leader = (char *) &pack;
-      packsize = sizeof (pack);
-    }
-  else
-    {
-      size_t n = strlen (si._si_commune._si_str);
-      char *p = leader = (char *) alloca (sizeof (pack) + sizeof (n) + n);
-      memcpy (p, &pack, sizeof (pack)); p += sizeof (pack);
-      memcpy (p, &n, sizeof (n)); p += sizeof (n);
-      memcpy (p, si._si_commune._si_str, n); p += n;
-      packsize = p - leader;
-    }
-
-  DWORD nb;
-  if (!WriteFile (sendsig, leader, packsize, &nb, NULL) || nb != packsize)
-    {
-      /* Couldn't send to the pipe.  This probably means that the
-	 process is exiting.  */
-      if (!its_me)
-	{
-	  sigproc_printf ("WriteFile for pipe %p failed, %E", sendsig);
-	  ForceCloseHandle (sendsig);
-	}
-      else
-	{
-	  if (!p->exec_sendsig)
-	    system_printf ("error sending signal %d to pid %d, pipe handle %p, %E",
-			   si.si_signo, p->pid, sendsig);
-	}
-      if (GetLastError () == ERROR_BROKEN_PIPE)
-	set_errno (ESRCH);
-      else
-	__seterrno ();
+      sigproc_printf ("invalid pid %d(%x), signal %d",
+		  p->pid, p->process_state, sig);
+      set_errno (ESRCH);
       goto out;
     }
 
+  sigproc_printf ("pid %d, signal %d, its_me %d", p->pid, sig, its_me);
+
+  if (its_me)
+    {
+      if (!wait_for_completion)
+	thiscatch = sigcatch_nosync;
+      else if (tid != mainthread.id)
+	{
+	  thiscatch = sigcatch_nonmain;
+	  thiscomplete = sigcomplete_nonmain;
+	}
+      else
+	{
+	  thiscatch = sigcatch_main;
+	  thiscomplete = sigcomplete_main;
+	  thisframe.set (mainthread, ebp, exception);
+	}
+    }
+  else if (!(thiscatch = getsem (p, "sigcatch", 0, 0)))
+    goto out;		  // Couldn't get the semaphore.  getsem issued
+			  //  an error, if appropriate.
+
+#if WHEN_MULTI_THREAD_SIGNALS_WORK
+  signal_dispatch *sd;
+  sd = signal_dispatch_storage.get ();
+  if (sd == NULL)
+    sd = signal_dispatch_storage.create ();
+#endif
+
+  /* Increment the sigtodo array to signify which signal to assert.
+   */
+  (void) InterlockedIncrement (p->getsigtodo (sig));
+
+  /* Notify the process that a signal has arrived.
+   */
+  SetLastError (0);
+
+#if 0
+  int prio;
+  prio = GetThreadPriority (GetCurrentThread ());
+  (void) SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_TIME_CRITICAL);
+#endif
+
+  if (!ReleaseSemaphore (thiscatch, 1, NULL) && (int) GetLastError () > 0)
+    {
+      /* Couldn't signal the semaphore.  This probably means that the
+       * process is exiting.
+       */
+      if (!its_me)
+	ForceCloseHandle (thiscatch);
+      else
+	{
+	  if (no_signals_available ())
+	    sigproc_printf ("I'm going away now");
+	  else if ((int) GetLastError () == -1)
+	    rc = WaitForSingleObject (thiscomplete, 500);
+	  else
+	    system_printf ("error sending signal %d to pid %d, semaphore %p, %E",
+			  sig, p->pid, thiscatch);
+	}
+      goto out;
+    }
 
   /* No need to wait for signal completion unless this was a signal to
-     this process.
-
-     If it was a signal to this process, wait for a dispatched signal.
-     Otherwise just wait for the wait_sig to signal that it has finished
-     processing the signal.  */
-  if (wait_for_completion)
+   * this process.
+   *
+   * If it was a signal to this process, wait for a dispatched signal.
+   * Otherwise just wait for the wait_sig to signal that it has finished
+   * processing the signal.
+   */
+  if (!wait_for_completion)
     {
-      sigproc_printf ("Waiting for pack.wakeup %p", pack.wakeup);
-      rc = WaitForSingleObject (pack.wakeup, WSSC);
-      ForceCloseHandle (pack.wakeup);
+      rc = WAIT_OBJECT_0;
+      sigproc_printf ("Not waiting for sigcomplete.  its_me %d signal %d", its_me, sig);
+      if (!its_me)
+	ForceCloseHandle (thiscatch);
     }
   else
     {
-      rc = WAIT_OBJECT_0;
-      sigproc_printf ("Not waiting for sigcomplete.  its_me %d signal %d",
-		      its_me, si.si_signo);
-      if (!its_me)
-	ForceCloseHandle (sendsig);
+      sigproc_printf ("Waiting for thiscomplete %p", thiscomplete);
+
+      SetLastError (0);
+      rc = WaitForSingleObject (thiscomplete, WSSC);
+      /* Check for strangeness due to this thread being redirected by the
+	 signal handler.  Sometimes a WAIT_TIMEOUT will occur when the
+	 thread hasn't really timed out.  So, check again.
+	 FIXME: This isn't foolproof. */
+      if (rc != WAIT_OBJECT_0 &&
+	  WaitForSingleObject (thiscomplete, 0) == WAIT_OBJECT_0)
+	rc = WAIT_OBJECT_0;
     }
 
-  pack.wakeup = NULL;
+#if 0
+  SetThreadPriority (GetCurrentThread (), prio);
+#endif
+
   if (rc == WAIT_OBJECT_0)
     rc = 0;		// Successful exit
   else
     {
+      /* It's an error unless sig_loop_wait == 0 (the process is exiting). */
+      if (!no_signals_available ())
+	system_printf ("wait for sig_complete event failed, signal %d, rc %d, %E",
+		      sig, rc);
       set_errno (ENOSYS);
       rc = -1;
     }
 
-  if (wait_for_completion && si.si_signo != __SIGFLUSHFAST)
-    _my_tls.call_signal_handler ();
-  goto out;
-
 out:
-  if (communing && rc)
-    {
-      if (si._si_commune._si_process_handle)
-	CloseHandle (si._si_commune._si_process_handle);
-      if (si._si_commune._si_read_handle)
-	CloseHandle (si._si_commune._si_read_handle);
-    }
-  if (pack.wakeup)
-    ForceCloseHandle (pack.wakeup);
-  if (si.si_signo != __SIGPENDING)
-    /* nothing */;
-  else if (!rc)
-    rc = (int) pending;
-  else
-    rc = SIG_BAD_MASK;
-  sigproc_printf ("returning %p from sending signal %d", rc, si.si_signo);
+  sigproc_printf ("returning %d from sending signal %d", rc, sig);
   return rc;
 }
 
-int child_info::retry_count = 0;
+/* Set pending signal from the sigtodo array
+ */
+void __stdcall
+sig_set_pending (int sig)
+{
+  (void) InterlockedIncrement (myself->getsigtodo (sig));
+  return;
+}
+
+/* Initialize the wait_subproc thread.
+ * Called from fork() or spawn() to initialize the handling of subprocesses.
+ */
+void __stdcall
+subproc_init (void)
+{
+  if (hwait_subproc)
+    return;
+
+  /* A "wakeup" handle which can be toggled to make wait_subproc reexamine
+   * the hchildren array.
+   */
+  events[0] = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
+  if (!(hwait_subproc = makethread (wait_subproc, NULL, 0, "proc")))
+    system_printf ("cannot create wait_subproc thread, %E");
+  ProtectHandle (events[0]);
+  ProtectHandle (hwait_subproc);
+  sigproc_printf ("started wait_subproc thread %p", hwait_subproc);
+}
 
 /* Initialize some of the memory block passed to child processes
    by fork/spawn/exec. */
-child_info::child_info (unsigned in_cb, child_info_types chtype,
-			bool need_subproc_ready):
-  cb (in_cb), intro (PROC_MAGIC_GENERIC), magic (CHILD_INFO_MAGIC),
-  type (chtype), cygheap (::cygheap), cygheap_max (::cygheap_max),
-  flag (0), retry (child_info::retry_count), rd_proc_pipe (NULL),
-  wr_proc_pipe (NULL)
+
+void __stdcall
+init_child_info (DWORD chtype, child_info *ch, pid_t pid, HANDLE subproc_ready)
 {
-  /* It appears that when running under WOW64 on Vista 64, the first DWORD
-     value in the datastructure lpReserved2 is pointing to (msv_count in
-     Cygwin), has to reflect the size of that datastructure as used in the
-     Microsoft C runtime (a count value, counting the number of elements in
-     two subsequent arrays, BYTE[count and HANDLE[count]), even though the C
-     runtime isn't used.  Otherwise, if msv_count is 0 or too small, the
-     datastructure gets overwritten.
-
-     This seems to be a bug in Vista's WOW64, which apparently copies the
-     lpReserved2 datastructure not using the cbReserved2 size information,
-     but using the information given in the first DWORD within lpReserved2
-     instead.  32 bit Windows and former WOW64 don't care if msv_count is 0
-     or a sensible non-0 count value.  However, it's not clear if a non-0
-     count doesn't result in trying to evaluate the content, so we do this
-     really only for Vista 64 for now.
-
-     Note: It turns out that a non-zero value *does* harm operation on
-     XP 64 and 2K3 64 (Crash in CreateProcess call).
-
-     The value is sizeof (child_info_*) / 5 which results in a count which
-     covers the full datastructure, plus not more than 4 extra bytes.  This
-     is ok as long as the child_info structure is cosily stored within a bigger
-     datastructure. */
-  msv_count = wincap.needs_count_in_si_lpres2 () ? in_cb / 5 : 0;
-
-  fhandler_union_cb = sizeof (fhandler_union);
-  user_h = cygwin_user_h;
-  if (strace.active ())
-    flag |= _CI_STRACED;
-  if (need_subproc_ready)
-    {
-      subproc_ready = CreateEvent (&sec_all, FALSE, FALSE, NULL);
-      flag |= _CI_ISCYGWIN;
-    }
-  sigproc_printf ("subproc_ready %p", subproc_ready);
-  /* Create an inheritable handle to pass to the child process.  This will
-     allow the child to duplicate handles from the parent to itself. */
-  parent = NULL;
-  if (!DuplicateHandle (GetCurrentProcess (), GetCurrentProcess (),
-			GetCurrentProcess (), &parent, 0, true,
-			DUPLICATE_SAME_ACCESS))
-    system_printf ("couldn't create handle to myself for child, %E");
-}
-
-child_info::~child_info ()
-{
-  cleanup ();
-}
-
-child_info_fork::child_info_fork () :
-  child_info (sizeof *this, _CH_FORK, true),
-  forker_finished (NULL)
-{
-}
-
-child_info_spawn::child_info_spawn (child_info_types chtype, bool need_subproc_ready) :
-  child_info (sizeof *this, chtype, need_subproc_ready)
-{
-  if (type == _CH_EXEC)
-    {
-      hExeced = NULL;
-      if (my_wr_proc_pipe)
-	ev = NULL;
-      else if (!(ev = CreateEvent (&sec_none_nih, false, false, NULL)))
-	api_fatal ("couldn't create signalling event for exec, %E");
-
-      get_proc_lock (PROC_EXECING, 0);
-      /* exit with lock held */
-    }
-}
-
-cygheap_exec_info *
-cygheap_exec_info::alloc ()
-{
- return (cygheap_exec_info *) ccalloc_abort (HEAP_1_EXEC, 1,
-					     sizeof (cygheap_exec_info)
-					     + (nprocs * sizeof (children[0])));
-}
-
-void
-child_info_spawn::wait_for_myself ()
-{
-  postfork (myself);
-  myself.remember (false);
-  WaitForSingleObject (ev, INFINITE);
-}
-
-void
-child_info::cleanup ()
-{
-  if (subproc_ready)
-    {
-      CloseHandle (subproc_ready);
-      subproc_ready = NULL;
-    }
-  if (parent)
-    {
-      CloseHandle (parent);
-      parent = NULL;
-    }
-  if (rd_proc_pipe)
-    {
-      ForceCloseHandle (rd_proc_pipe);
-      rd_proc_pipe = NULL;
-    }
-  if (wr_proc_pipe)
-    {
-      ForceCloseHandle (wr_proc_pipe);
-      wr_proc_pipe = NULL;
-    }
-}
-
-void
-child_info_spawn::cleanup ()
-{
-  if (moreinfo)
-    {
-      if (moreinfo->envp)
-	{
-	  for (char **e = moreinfo->envp; *e; e++)
-	    cfree (*e);
-	  cfree (moreinfo->envp);
-	}
-      if (type != _CH_SPAWN && moreinfo->myself_pinfo)
-	CloseHandle (moreinfo->myself_pinfo);
-      cfree (moreinfo);
-    }
-  moreinfo = NULL;
-  if (ev)
-    {
-      CloseHandle (ev);
-      ev = NULL;
-    }
-  if (type == _CH_EXEC)
-    {
-      if (iscygwin () && hExeced)
-	proc_subproc (PROC_EXEC_CLEANUP, 0);
-      sync_proc_subproc.release ();
-    }
-  type = _CH_NADA;
-  child_info::cleanup ();
-}
-
-/* Record any non-reaped subprocesses to be passed to about-to-be-execed
-   process.  FIXME: There is a race here if the process exits while we
-   are recording it.  */
-inline void
-cygheap_exec_info::record_children ()
-{
-  for (nchildren = 0; nchildren < nprocs; nchildren++)
-    {
-      children[nchildren].pid = procs[nchildren]->pid;
-      children[nchildren].p = procs[nchildren];
-    }
-}
-
-void
-child_info_spawn::record_children ()
-{
-  if (type == _CH_EXEC && iscygwin ())
-    moreinfo->record_children ();
-}
-
-/* Reattach non-reaped subprocesses passed in from the cygwin process
-   which previously operated under this pid.  FIXME: Is there a race here
-   if the process exits during cygwin's exec handoff?  */
-inline void
-cygheap_exec_info::reattach_children (HANDLE parent)
-{
-  for (int i = 0; i < nchildren; i++)
-    {
-      pinfo p (parent, children[i].p, children[i].pid);
-      if (!p)
-	debug_only_printf ("couldn't reattach child %d from previous process", children[i].pid);
-      else if (!p.reattach ())
-	debug_only_printf ("attach of child process %d failed", children[i].pid);
-      else
-	debug_only_printf ("reattached pid %d<%u>, process handle %p, rd_proc_pipe %p->%p",
-			   p->pid, p->dwProcessId, p.hProcess,
-			   children[i].p.rd_proc_pipe, p.rd_proc_pipe);
-    }
-}
-
-void
-child_info_spawn::reattach_children ()
-{
-  moreinfo->reattach_children (parent);
-}
-
-void
-child_info::ready (bool execed)
-{
-  if (!subproc_ready)
-    {
-      sigproc_printf ("subproc_ready not set");
-      return;
-    }
-
-  if (dynamically_loaded)
-    sigproc_printf ("not really ready");
-  else if (!SetEvent (subproc_ready))
-    api_fatal ("SetEvent failed, %E");
-  else
-    sigproc_printf ("signalled %p that I was ready", subproc_ready);
-
-  if (execed)
-    {
-      CloseHandle (subproc_ready);
-      subproc_ready = NULL;
-    }
-}
-
-bool
-child_info::sync (pid_t pid, HANDLE& hProcess, DWORD howlong)
-{
-  bool res;
-  HANDLE w4[2];
-  unsigned n = 0;
-  unsigned nsubproc_ready;
-
-  if (!subproc_ready)
-    nsubproc_ready = WAIT_OBJECT_0 + 3;
-  else
-    {
-      w4[n++] = subproc_ready;
-      nsubproc_ready = 0;
-    }
-  w4[n++] = hProcess;
-
-  sigproc_printf ("n %d, waiting for subproc_ready(%p) and child process(%p)", n, w4[0], w4[1]);
-  DWORD x = WaitForMultipleObjects (n, w4, FALSE, howlong);
-  x -= WAIT_OBJECT_0;
-  if (x >= n)
-    {
-      system_printf ("wait failed, pid %u, %E", pid);
-      res = false;
-    }
-  else
-    {
-      if (x != nsubproc_ready)
-	{
-	  res = false;
-	  GetExitCodeProcess (hProcess, &exit_code);
-	}
-      else
-	{
-	  res = true;
-	  exit_code = STILL_ACTIVE;
-	  if (type == _CH_EXEC && my_wr_proc_pipe)
-	    {
-	      ForceCloseHandle1 (hProcess, childhProc);
-	      hProcess = NULL;
-	    }
-	}
-      sigproc_printf ("pid %u, WFMO returned %d, exit_code %p, res %d", pid, x,
-		      exit_code, res);
-    }
-  return res;
-}
-
-DWORD
-child_info::proc_retry (HANDLE h)
-{
-  if (!exit_code)
-    return EXITCODE_OK;
-  sigproc_printf ("exit_code %p", exit_code);
-  switch (exit_code)
-    {
-    case STILL_ACTIVE:	/* shouldn't happen */
-      sigproc_printf ("STILL_ACTIVE?  How'd we get here?");
-      break;
-    case STATUS_DLL_NOT_FOUND:
-    case STATUS_ACCESS_VIOLATION:
-    case STATUS_ILLEGAL_INSTRUCTION:
-    case STATUS_ILLEGAL_DLL_PSEUDO_RELOCATION: /* pseudo-reloc.c specific */
-      return exit_code;
-    case STATUS_CONTROL_C_EXIT:
-      if (saw_ctrl_c ())
-	return EXITCODE_OK;
-      /* fall through intentionally */
-    case STATUS_DLL_INIT_FAILED:
-    case STATUS_DLL_INIT_FAILED_LOGOFF:
-    case EXITCODE_RETRY:
-      if (retry-- > 0)
-	exit_code = 0;
-      break;
-    case EXITCODE_FORK_FAILED: /* windows prevented us from forking */
-      break;
-
-    /* Count down non-recognized exit codes more quickly since they aren't
-       due to known conditions.  */
-    default:
-      if (!iscygwin () && (exit_code & 0xffff0000) != 0xc0000000)
-	break;
-      if ((retry -= 2) < 0)
-	retry = 0;
-      else
-	exit_code = 0;
-    }
-  if (!exit_code)
-    ForceCloseHandle1 (h, childhProc);
-  return exit_code;
-}
-
-bool
-child_info_fork::abort (const char *fmt, ...)
-{
-  if (fmt)
-    {
-      va_list ap;
-      va_start (ap, fmt);
-      strace_vprintf (SYSTEM, fmt, ap);
-      TerminateProcess (GetCurrentProcess (), EXITCODE_FORK_FAILED);
-    }
-  if (retry > 0)
-    TerminateProcess (GetCurrentProcess (), EXITCODE_RETRY);
-  return false;
+  memset (ch, 0, sizeof *ch);
+  ch->cb = sizeof *ch;
+  ch->type = chtype;
+  ch->cygpid = pid;
+  ch->subproc_ready = subproc_ready;
+  ch->pppid_handle = myself->ppid_handle;
 }
 
 /* Check the state of all of our children to see if any are stopped or
  * terminated.
  */
-static int __reg1
+static int __stdcall
 checkstate (waitq *parent_w)
 {
   int potential_match = 0;
 
-  sigproc_printf ("nprocs %d", nprocs);
+  sigproc_printf ("nchildren %d, nzombies %d", nchildren, nzombies);
 
   /* Check already dead processes first to see if they match the criteria
-   * given in w->next.  */
-  int res;
-  for (int i = 0; i < nprocs; i++)
-    if ((res = stopped_or_terminated (parent_w, procs[i])))
+   * given in w->next.
+   */
+  for (int i = 0; i < nzombies; i++)
+    switch (stopped_or_terminated (parent_w, zombies[i]))
       {
-	remove_proc (i);
+      case -1:
+	potential_match = -1;
+	break;
+      case 1:
+	remove_zombie (i);
 	potential_match = 1;
 	goto out;
       }
 
-  sigproc_printf ("no matching terminated children found");
-  potential_match = -!!nprocs;
+  sigproc_printf ("checking alive children");
+
+  /* No dead terminated children matched.  Check for stopped children. */
+  for (int i = 0; i < nchildren; i++)
+    switch (stopped_or_terminated (parent_w, pchildren[i]))
+      {
+      case -1:
+	potential_match = -1;
+	break;
+      case 1:
+	potential_match = 1;
+	goto out;
+      }
 
 out:
   sigproc_printf ("returning %d", potential_match);
   return potential_match;
 }
 
-/* Remove a proc from procs by swapping it with the last child in the list.
-   Also releases shared memory of exited processes.  */
-static bool __stdcall
-remove_proc (int ci)
+/* Get or create a process specific semaphore used in message passing.
+ */
+static HANDLE __stdcall
+getsem (_pinfo *p, const char *str, int init, int max)
 {
-  if (have_execed)
-    {
-      if (_my_tls._ctinfo != procs[ci].wait_thread)
-	procs[ci].wait_thread->terminate_thread ();
-    }
-  else if (procs[ci]->exists ())
-    return true;
+  HANDLE h;
 
-  sigproc_printf ("removing procs[%d], pid %d, nprocs %d", ci, procs[ci]->pid,
-		  nprocs);
-  if (procs[ci] != myself)
-    procs[ci].release ();
-  if (ci < --nprocs)
+  if (p != NULL)
     {
-      /* Wait for proc_waiter thread to make a copy of this element before
-	 moving it or it may become confused.  The chances are very high that
-	 the proc_waiter thread has already done this by the time we
-	 get here.  */
-      if (!have_execed && !exit_state)
-	while (!procs[nprocs].waiter_ready)
-	  yield ();
-      procs[ci] = procs[nprocs];
+      if (!proc_can_be_signalled (p))
+	{
+	  set_errno (ESRCH);
+	  return NULL;
+	}
+      int wait = 10000;
+      sigproc_printf ("pid %d, ppid %d, wait %d, initializing %x", p->pid, p->ppid, wait,
+		  ISSTATE (p, PID_INITIALIZING));
+      for (int i = 0; ISSTATE (p, PID_INITIALIZING) && i < wait; i++)
+	Sleep (1);
     }
-  return 0;
+
+  SetLastError (0);
+  if (p == NULL)
+    {
+      char sa_buf[1024];
+
+      DWORD winpid = GetCurrentProcessId ();
+      h = CreateSemaphore (allow_ntsec ? sec_user_nih (sa_buf) : &sec_none_nih,
+			   init, max, str = shared_name (str, winpid));
+      p = myself;
+    }
+  else
+    {
+      h = OpenSemaphore (SEMAPHORE_ALL_ACCESS, FALSE,
+			 str = shared_name (str, p->dwProcessId));
+
+      if (h == NULL)
+	{
+	  if (GetLastError () == ERROR_FILE_NOT_FOUND && !proc_exists (p))
+	    set_errno (ESRCH);
+	  else
+	    set_errno (EPERM);
+	  return NULL;
+	}
+    }
+
+  if (!h)
+    {
+      system_printf ("can't %s %s, %E", p ? "open" : "create", str);
+      set_errno (ESRCH);
+    }
+  return h;
+}
+
+/* Get the sync_proc_subproc muto to control access to
+ * children, zombie arrays.
+ * Attempt to handle case where process is exiting as we try to grab
+ * the mutex.
+ */
+static BOOL
+get_proc_lock (DWORD what, DWORD val)
+{
+  Static int lastwhat = -1;
+  if (!sync_proc_subproc)
+    return FALSE;
+  if (sync_proc_subproc->acquire (WPSP))
+    {
+      lastwhat = what;
+      return TRUE;
+    }
+  if (!sync_proc_subproc)
+    return FALSE;
+  system_printf ("Couldn't aquire sync_proc_subproc for(%d,%d), %E, last %d",
+		  what, val, lastwhat);
+  return TRUE;
+}
+
+/* Remove a zombie from zombies by swapping it with the last child in the list.
+ */
+static void __stdcall
+remove_zombie (int ci)
+{
+  sigproc_printf ("removing %d, pid %d, nzombies %d", ci, zombies[ci]->pid,
+		  nzombies);
+
+  if (zombies[ci])
+    {
+      ForceCloseHandle1 (zombies[ci]->hProcess, childhProc);
+      ForceCloseHandle1 (zombies[ci]->pid_handle, pid_handle);
+      zombies[ci].release ();
+    }
+
+  if (ci < --nzombies)
+    zombies[ci] = zombies[nzombies];
+
+  return;
 }
 
 /* Check status of child process vs. waitq member.
-
-   parent_w is the pointer to the parent of the waitq member in question.
-   child is the subprocess being considered.
-
-   Returns non-zero if waiting thread released.  */
-static bool __stdcall
+ *
+ * parent_w is the pointer to the parent of the waitq member in question.
+ * child is the subprocess being considered.
+ *
+ * Returns
+ *   1 if stopped or terminated child matches parent_w->next criteria
+ *  -1 if a non-stopped/terminated child matches parent_w->next criteria
+ *   0 if child does not match parent_w->next criteria
+ */
+static int __stdcall
 stopped_or_terminated (waitq *parent_w, _pinfo *child)
 {
-  int might_match;
+  int potential_match;
   waitq *w = parent_w->next;
 
-  sigproc_printf ("considering pid %d, pgid %d, w->pid %d", child->pid, child->pgid, w->pid);
+  sigproc_printf ("considering pid %d", child->pid);
   if (w->pid == -1)
-    might_match = 1;
+    potential_match = 1;
   else if (w->pid == 0)
-    might_match = child->pgid == myself->pgid;
+    potential_match = child->pgid == myself->pgid;
   else if (w->pid < 0)
-    might_match = child->pgid == -w->pid;
+    potential_match = child->pgid == -w->pid;
   else
-    might_match = (w->pid == child->pid);
+    potential_match = (w->pid == child->pid);
 
-  if (!might_match)
-    return false;
+  if (!potential_match)
+    return 0;
 
-  int terminated;
+  BOOL terminated;
 
-  if (!((terminated = (child->process_state == PID_EXITED))
-	|| ((w->options & WCONTINUED) && child->stopsig == SIGCONT)
-	|| ((w->options & WUNTRACED) && child->stopsig && child->stopsig != SIGCONT)))
-    return false;
-
-  parent_w->next = w->next;	/* successful wait.  remove from wait queue */
-  w->pid = child->pid;
-
-  if (!terminated)
+  if ((terminated = child->process_state == PID_ZOMBIE) ||
+      ((w->options & WUNTRACED) && child->stopsig))
     {
-      sigproc_printf ("stopped child, stop signal %d", child->stopsig);
-      if (child->stopsig == SIGCONT)
-	w->status = __W_CONTINUED;
-      else
-	w->status = (child->stopsig << 8) | 0x7f;
-      child->stopsig = 0;
-    }
-  else
-    {
-      child->process_state = PID_REAPED;
-      w->status = (__uint16_t) child->exitcode;
+      parent_w->next = w->next;	/* successful wait.  remove from wait queue */
+      w->pid = child->pid;
 
-      add_rusage (&myself->rusage_children, &child->rusage_children);
-      add_rusage (&myself->rusage_children, &child->rusage_self);
-
-      if (w->rusage)
+      if (!terminated)
 	{
-	  add_rusage ((struct rusage *) w->rusage, &child->rusage_children);
-	  add_rusage ((struct rusage *) w->rusage, &child->rusage_self);
+	  sigproc_printf ("stopped child");
+	  w->status = (child->stopsig << 8) | 0x7f;
+	  child->stopsig = 0;
 	}
+      else /* Should only get here when child has been moved to the zombies array */
+	{
+	  DWORD status;
+	  if (!GetExitCodeProcess (child->hProcess, &status))
+	    status = 0xffff;
+	  if (status & EXIT_SIGNAL)
+	    w->status = (status >> 8) & 0xff;	/* exited due to signal */
+	  else
+	    w->status = (status & 0xff) << 8;	/* exited via "exit ()" */
+
+	  add_rusage (&myself->rusage_children, &child->rusage_children);
+	  add_rusage (&myself->rusage_children, &child->rusage_self);
+
+	  if (w->rusage)
+	    {
+	      add_rusage ((struct rusage *) w->rusage, &child->rusage_children);
+	      add_rusage ((struct rusage *) w->rusage, &child->rusage_self);
+	    }
+	}
+
+      if (!SetEvent (w->ev))	/* wake up wait4 () immediately */
+	system_printf ("couldn't wake up wait event %p, %E", w->ev);
+      return 1;
     }
 
-  if (!SetEvent (w->ev))	/* wake up wait4 () immediately */
-    system_printf ("couldn't wake up wait event %p, %E", w->ev);
-  return true;
+  return -potential_match;
 }
 
-static void
-talktome (siginfo_t *si)
-{
-  unsigned size = sizeof (*si);
-  sigproc_printf ("pid %d wants some information", si->si_pid);
-  if (si->_si_commune._si_code & PICOM_EXTRASTR)
-    {
-      size_t n;
-      DWORD nb;
-      if (!ReadFile (my_readsig, &n, sizeof (n), &nb, NULL) || nb != sizeof (n))
-	return;
-      siginfo_t *newsi = (siginfo_t *) alloca (size += n + 1);
-      *newsi = *si;
-      newsi->_si_commune._si_str = (char *) (newsi + 1);
-      if (!ReadFile (my_readsig, newsi->_si_commune._si_str, n, &nb, NULL) || nb != n)
-	return;
-      newsi->_si_commune._si_str[n] = '\0';
-      si = newsi;
-    }
-
-  pinfo pi (si->si_pid);
-  if (pi)
-    new cygthread (commune_process, size, si, "commune");
-}
-
-void
-pending_signals::add (sigpacket& pack)
-{
-  sigpacket *se;
-  if (sigs[pack.si.si_signo].si.si_signo)
-    return;
-  se = sigs + pack.si.si_signo;
-  *se = pack;
-  se->mask = &pack.sigtls->sigmask;
-  se->next = NULL;
-  if (end)
-    end->next = se;
-  end = se;
-  if (!start.next)
-    start.next = se;
-}
-
-void
-pending_signals::del ()
-{
-  sigpacket *next = curr->next;
-  prev->next = next;
-  curr->si.si_signo = 0;
-#ifdef DEBUGGING
-  curr->next = NULL;
-#endif
-  if (end == curr)
-    end = prev;
-  curr = next;
-}
-
-sigpacket *
-pending_signals::next ()
-{
-  sigpacket *res;
-  prev = curr;
-  if (!curr || !(curr = curr->next))
-    res = NULL;
-  else
-    res = curr;
-  return res;
-}
-
-/* Process signals by waiting for signal data to arrive in a pipe.
-   Set a completion event if one was specified. */
-static void WINAPI
+/* Process signals by waiting for a semaphore to become signaled.
+ * Then scan an in-memory array representing queued signals.
+ * Executes in a separate thread.
+ *
+ * Signals sent from this process are sent a completion signal so
+ * that returns from kill/raise do not occur until the signal has
+ * has been handled, as per POSIX.
+ */
+static DWORD WINAPI
 wait_sig (VOID *)
 {
-  _sig_tls = &_my_tls;
-  sig_hold = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
+  /* Initialization */
+  (void) SetThreadPriority (hwait_sig, WAIT_SIG_PRIORITY);
 
-  sigproc_printf ("entering ReadFile loop, my_readsig %p, my_sendsig %p",
-		  my_readsig, my_sendsig);
+  /* sigcatch_nosync       - semaphore incremented by sig_dispatch_pending and
+   *			     by foreign processes to force an examination of
+   *			     the sigtodo array.
+   * sigcatch_main	   - ditto for local main thread.
+   * sigcatch_nonmain      - ditto for local non-main threads.
+   *
+   * sigcomplete_main	   - event used to signal main thread on signal
+   *			     completion
+   * sigcomplete_nonmain   - semaphore signaled for non-main thread on signal
+   *			     completion
+   */
+  sigcatch_nosync = getsem (NULL, "sigcatch", 0, MAXLONG);
+  sigcatch_nonmain = CreateSemaphore (&sec_none_nih, 0, MAXLONG, NULL);
+  sigcatch_main = CreateSemaphore (&sec_none_nih, 0, MAXLONG, NULL);
+  sigcomplete_nonmain = CreateSemaphore (&sec_none_nih, 0, MAXLONG, NULL);
+  sigcomplete_main = CreateEvent (&sec_none_nih, FALSE, FALSE, NULL);
+  sigproc_printf ("sigcatch_nonmain %p, sigcatch_main %p", sigcatch_nonmain, sigcatch_main);
 
-  sigpacket pack;
-  pack.si.si_signo = 0;
+  /* Setting dwProcessId flags that this process is now capable of receiving
+   * signals.  Prior to this, dwProcessId was set to the windows pid of
+   * of the original windows process which spawned us unless this was a
+   * "toplevel" process.
+   */
+  myself->dwProcessId = GetCurrentProcessId ();
+  myself->process_state |= PID_ACTIVE;
+  myself->process_state &= ~PID_INITIALIZING;
+
+  ProtectHandle (sigcatch_nosync);
+  ProtectHandle (sigcatch_nonmain);
+  ProtectHandle (sigcatch_main);
+  ProtectHandle (sigcomplete_nonmain);
+  ProtectHandle (sigcomplete_main);
+
+  /* If we've been execed, then there is still a stub left in the previous
+   * windows process waiting to see if it's started a cygwin process or not.
+   * Signalling subproc_ready indicates that we are a cygwin process.
+   */
+  if (child_proc_info && child_proc_info->type == PROC_EXEC)
+    {
+      debug_printf ("subproc_ready %p", child_proc_info->subproc_ready);
+      if (!SetEvent (child_proc_info->subproc_ready))
+	system_printf ("SetEvent (subproc_ready) failed, %E");
+      ForceCloseHandle (child_proc_info->subproc_ready);
+      /* Initialize an "indirect" pid block so that if someone looks up this
+	 process via its Windows PID it will be redirected to the appropriate
+	 Cygwin PID shared memory block. */
+      static pinfo NO_COPY myself_identity;
+      myself_identity.init (cygwin_pid (myself->dwProcessId), PID_EXECED);
+    }
+
+  SetEvent (wait_sig_inited);
+  sigtid = GetCurrentThreadId ();
+
+  HANDLE catchem[] = {sigcatch_main, sigcatch_nonmain, sigcatch_nosync};
+  sigproc_printf ("Ready.  dwProcessid %d", myself->dwProcessId);
   for (;;)
     {
-      if (pack.si.si_signo == __SIGHOLD)
-	WaitForSingleObject (sig_hold, INFINITE);
+      DWORD rc = WaitForMultipleObjects (3, catchem, FALSE, sig_loop_wait);
 
-      DWORD nb;
-      pack.sigtls = NULL;
-      if (!ReadFile (my_readsig, &pack, sizeof (pack), &nb, NULL))
-	break;
-
-      if (nb != sizeof (pack))
+      /* sigproc_terminate sets sig_loop_wait to zero to indicate that
+       * this thread should terminate.
+       */
+      if (rc == WAIT_TIMEOUT)
 	{
-	  system_printf ("short read from signal pipe: %d != %d", nb,
-			 sizeof (pack));
-	  continue;
+	  if (!sig_loop_wait)
+	    break;			// Exiting
+	  else
+	    continue;
 	}
 
-      if (!pack.si.si_signo)
+      if (rc == WAIT_FAILED)
 	{
-#ifdef DEBUGGING
-	  system_printf ("zero signal?");
-#endif
-	  continue;
+	  if (sig_loop_wait != 0)
+	    system_printf ("WFMO failed, %E");
+	  break;
 	}
 
-      /* Don't process signals when we start exiting */
-      if (exit_state > ES_EXIT_STARTING && pack.si.si_signo > 0)
-	continue;
-
-      sigset_t dummy_mask;
-      if (!pack.mask)
+      rc -= WAIT_OBJECT_0;
+      sigproc_printf ("awake");
+      /* A sigcatch semaphore has been signaled.  Scan the sigtodo
+       * array looking for any unprocessed signals.
+       */
+      pending_signals = -1;
+      int saw_pending_signals = 0;
+      int saw_sigchld = 0;
+      int dispatched_sigchld = 0;
+      for (int sig = -__SIGOFFSET; sig < NSIG; sig++)
 	{
-	  dummy_mask = _main_tls->sigmask;
-	  pack.mask = &dummy_mask;
-	}
-
-      sigpacket *q;
-      bool clearwait = false;
-      switch (pack.si.si_signo)
-	{
-	case __SIGCOMMUNE:
-	  talktome (&pack.si);
-	  break;
-	case __SIGSTRACE:
-	  strace.activate (false);
-	  break;
-	case __SIGPENDING:
-	  *pack.mask = 0;
-	  unsigned bit;
-	  sigq.reset ();
-	  while ((q = sigq.next ()))
-	    if (pack.sigtls->sigmask & (bit = SIGTOMASK (q->si.si_signo)))
-	      *pack.mask |= bit;
-	  break;
-	case __SIGHOLD:
-	  goto loop;
-	  break;
-	case __SIGNOHOLD:
-	case __SIGFLUSH:
-	case __SIGFLUSHFAST:
-	  sigq.reset ();
-	  while ((q = sigq.next ()))
+	  while (InterlockedDecrement (myself->getsigtodo (sig)) >= 0)
 	    {
-	      int sig = q->si.si_signo;
-	      if (sig == __SIGDELETE || q->process () > 0)
-		sigq.del ();
-	      if (sig == __SIGNOHOLD && q->si.si_signo == SIGCHLD)
-		clearwait = true;
+	      if (sig == SIGCHLD)
+		saw_sigchld = 1;
+
+	      if (sig > 0 && sig != SIGKILL && sig != SIGSTOP &&
+		  (sigismember (&myself->getsigmask (), sig) ||
+		   main_vfork->pid ||
+		   (sig != SIGCONT && ISSTATE (myself, PID_STOPPED))))
+		{
+		  sigproc_printf ("signal %d blocked", sig);
+		  break;
+		}
+
+	      /* Found a signal to process */
+	      sigproc_printf ("processing signal %d", sig);
+	      switch (sig)
+		{
+		case __SIGFLUSH:
+		  /* just forcing the loop */
+		  break;
+
+		/* Internal signal to force a flush of strace data to disk. */
+		case __SIGSTRACE:
+		  // proc_strace ();	// Dump cached strace.prntf stuff.
+		  break;
+
+		/* A normal UNIX signal */
+		default:
+		  sigproc_printf ("Got signal %d", sig);
+		  int wasdispatched = sig_handle (sig);
+		  if (sig == SIGCHLD && wasdispatched)
+		    dispatched_sigchld = 1;
+		  /* Need to decrement again to offset increment below since
+		     we really do want to decrement in this case. */
+		  InterlockedDecrement (myself->getsigtodo (sig));
+		  goto nextsig;		/* FIXME: shouldn't this allow the loop to continue? */
+		}
 	    }
+
+	nextsig:
+	  /* Decremented too far. */
+	  if (InterlockedIncrement (myself->getsigtodo (sig)) > 0)
+	    saw_pending_signals = 1;
+	}
+
+      if (pending_signals < 0 && !saw_pending_signals)
+	pending_signals = 0;
+
+      if (saw_sigchld)
+	proc_subproc (PROC_CLEARWAIT, 0);
+
+      /* Signal completion of signal handling depending on which semaphore
+       * woke up the WaitForMultipleObjects above.
+       */
+      switch (rc)
+	{
+	case 0:
+	  SetEvent (sigcomplete_main);
+	  sigproc_printf ("set main thread completion event");
 	  break;
-	case __SIGSETPGRP:
-	  init_console_handler (true);
-	  break;
-	case __SIGTHREADEXIT:
-	  {
-	    /* Serialize thread exit as the thread exit code can be interpreted
-	       as the process exit code in some cases when racing with
-	       ExitProcess/TerminateProcess.
-	       So, wait for the thread which sent this signal to exit, then
-	       release the process lock which it held and close it's handle.
-	       See cgf-000017 in DevNotes for more details.
-	       */
-	    HANDLE h = (HANDLE) pack.si.si_cyg;
-	    DWORD res = WaitForSingleObject (h, 5000);
-	    lock_process::force_release (pack.sigtls);
-	    ForceCloseHandle1 (h, exit_thread);
-	    if (res != WAIT_OBJECT_0)
-	      system_printf ("WaitForSingleObject(%p) for thread exit returned %u", h, res);
-	  }
+	case 1:
+	  ReleaseSemaphore (sigcomplete_nonmain, 1, NULL);
 	  break;
 	default:
-	  if (pack.si.si_signo < 0)
-	    sig_clear (-pack.si.si_signo);
-	  else
-	    {
-	      int sig = pack.si.si_signo;
-	      // FIXME: REALLY not right when taking threads into consideration.
-	      // We need a per-thread queue since each thread can have its own
-	      // list of blocked signals.  CGF 2005-08-24
-	      if (sigq.sigs[sig].si.si_signo && sigq.sigs[sig].sigtls == pack.sigtls)
-		sigproc_printf ("signal %d already queued", pack.si.si_signo);
-	      else
-		{
-		  int sigres = pack.process ();
-		  if (sigres <= 0)
-		    {
-#ifdef DEBUGGING2
-		      if (!sigres)
-			system_printf ("Failed to arm signal %d from pid %d", pack.si.si_signo, pack.pid);
-#endif
-		      sigq.add (pack);	// FIXME: Shouldn't add this in !sh condition
-		    }
-		}
-	      if (sig == SIGCHLD)
-		clearwait = true;
-	    }
+	  /* Signal from another process.  No need to synchronize. */
 	  break;
 	}
-      if (clearwait && !have_execed)
-	proc_subproc (PROC_CLEARWAIT, 0);
-    loop:
-      if (pack.wakeup)
-	{
-	  sigproc_printf ("signalling pack.wakeup %p", pack.wakeup);
-	  SetEvent (pack.wakeup);
-	}
+      sigproc_printf ("looping");
     }
+
+  sigproc_printf ("done");
+  return 0;
+}
+
+/* Wait for subprocesses to terminate. Executes in a separate thread. */
+static DWORD WINAPI
+wait_subproc (VOID *)
+{
+  sigproc_printf ("starting");
+  int errloop = 0;
+
+  for (;;)
+    {
+      DWORD rc = WaitForMultipleObjects (nchildren + 1, events, FALSE,
+					 proc_loop_wait);
+      if (rc == WAIT_TIMEOUT)
+	if (!proc_loop_wait)
+	  break;			// Exiting
+	else
+	  continue;
+
+      if (rc == WAIT_FAILED)
+	{
+	  if (!proc_loop_wait)
+	    break;
+
+	  /* It's ok to get an ERROR_INVALID_HANDLE since another thread may have
+	     closed a handle in the children[] array.  So, we try looping a couple
+	     of times to stabilize. FIXME - this is not foolproof.  Probably, this
+	     thread should be responsible for closing the children. */
+	  if (!errloop++)
+	    proc_subproc (PROC_NOTHING, 0);	// Just synchronize and continue
+	  if (errloop < 10)
+	    continue;
+
+	  system_printf ("wait failed. nchildren %d, wait %d, %E",
+			nchildren, proc_loop_wait);
+
+	  for (int i = 0; i <= nchildren; i++)
+	    if ((rc = WaitForSingleObject (events[i], 0)) == WAIT_OBJECT_0 ||
+		rc == WAIT_TIMEOUT)
+	      continue;
+	    else if (i == 0)
+		system_printf ("nchildren %d, event[%d] %p, %E", nchildren, i, events[i]);
+	    else
+	      {
+		system_printf ("nchildren %d, event[%d] %p, pchildren[%d] %p, events[0] %p, %E",
+			       nchildren, i, events[i], i - 1, (_pinfo *) pchildren[i - 1], events[0]);
+		system_printf ("pid %d, dwProcessId %u, hProcess %p, progname '%s'",
+			       pchildren[i - 1]->pid, pchildren[i - 1]->dwProcessId,
+			       pchildren[i - 1]->hProcess, pchildren[i - 1]->progname);
+	      }
+	  break;
+	}
+
+      errloop = 0;
+      rc -= WAIT_OBJECT_0;
+      if (rc-- != 0)
+	{
+	  rc = proc_subproc (PROC_CHILDTERMINATED, rc);
+	  if (!proc_loop_wait)		// Don't bother if wait_subproc is
+	    break;			//  exiting
+
+	  /* Send a SIGCHLD to myself.   We do this here, rather than in proc_subproc
+	     to avoid the proc_subproc lock since the signal thread will eventually
+	     be calling proc_subproc and could unnecessarily block. */
+	  if (rc)
+	    sig_send (myself_nowait, SIGCHLD);
+	}
+      sigproc_printf ("looping");
+    }
+
+  ForceCloseHandle (events[0]);
+  events[0] = NULL;
+  sigproc_printf ("done");
+  return 0;
+}
+
+extern "C" {
+/* Provide a stack frame when calling WaitFor* functions */
+
+#undef WaitForSingleObject
+
+DWORD __stdcall
+WFSO (HANDLE hHandle, DWORD dwMilliseconds)
+{
+  DWORD ret;
+  sigframe thisframe (mainthread);
+  ret = WaitForSingleObject (hHandle, dwMilliseconds);
+  return ret;
+}
+
+#undef WaitForMultipleObjects
+
+DWORD __stdcall
+WFMO (DWORD nCount, CONST HANDLE *lpHandles, BOOL fWaitAll, DWORD dwMilliseconds)
+{
+  DWORD ret;
+  sigframe thisframe (mainthread);
+  ret = WaitForMultipleObjects (nCount, lpHandles, fWaitAll, dwMilliseconds);
+  return ret;
+}
 }

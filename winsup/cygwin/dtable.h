@@ -1,7 +1,6 @@
 /* dtable.h: fd table definition.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,101 +8,76 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
-
 /* Initial and increment values for cygwin's fd table */
 #define NOFILE_INCR    32
-/* Maximum size we allow expanding to.  */
-#define OPEN_MAX_MAX (100 * NOFILE_INCR)
 
 #include "thread.h"
-#include "sync.h"
 
 class suffix_info;
-
-#define BFH_OPTS (PC_NULLEMPTY | PC_FULL | PC_POSIX)
 class dtable
 {
   fhandler_base **fds;
-#ifdef NEWVFORK
   fhandler_base **fds_on_hold;
-#endif
-  fhandler_base **archetypes;
-  unsigned narchetypes;
-  unsigned farchetype;
-  static const int initial_archetype_size = 8;
   int first_fd_for_open;
   int cnt_need_fixup_before;
-  void lock () {lock_process::locker.acquire ();}
-  void unlock () {lock_process::locker.release ();}
+  int console_fds;
 public:
   size_t size;
 
-  dtable () : archetypes (NULL), narchetypes (0), farchetype (0), first_fd_for_open(3), cnt_need_fixup_before(0) {}
+  dtable () : first_fd_for_open(3), cnt_need_fixup_before(0), console_fds(0) {}
   void init () {first_fd_for_open = 3;}
 
   void dec_need_fixup_before ()
     { if (cnt_need_fixup_before > 0) --cnt_need_fixup_before; }
   void inc_need_fixup_before ()
     { cnt_need_fixup_before++; }
-  bool need_fixup_before ()
+  BOOL need_fixup_before ()
     { return cnt_need_fixup_before > 0; }
 
-  void move_fd (int, int);
+  void dec_console_fds ();
+  void inc_console_fds ()
+    { console_fds++; }
+  BOOL has_console_fds ()
+    { return console_fds > 0; }
+
   int vfork_child_dup ();
   void vfork_parent_restore ();
   void vfork_child_fixup ();
-  fhandler_base *dup_worker (fhandler_base *oldfh, int flags);
+  fhandler_base *dup_worker (fhandler_base *oldfh);
   int extend (int howmuch);
-  void fixup_after_fork (HANDLE);
-  void fixup_close (size_t, fhandler_base *);
-
-  inline int not_open (int fd)
-  {
-    lock ();
-    int res = fd < 0 || fd >= (int) size || fds[fd] == NULL;
-    unlock ();
-    return res;
-  }
-  int find_unused_handle (int start);
-  int find_unused_handle () { return find_unused_handle (first_fd_for_open);}
-  void __reg2 release (int fd);
-  void init_std_file_from_handle (int fd, HANDLE handle);
-  int dup3 (int oldfd, int newfd, int flags);
-  void fixup_after_exec ();
-  inline fhandler_base *&operator [](int fd) const { return fds[fd]; }
-  bool select_read (int fd, select_stuff *);
-  bool select_write (int fd, select_stuff *);
-  bool select_except (int fd, select_stuff *);
-  operator fhandler_base **() {return fds;}
-  void stdio_init ();
-  void get_debugger_info ();
-  void set_file_pointers_for_exec ();
-#ifdef NEWVFORK
-  bool in_vfork_cleanup () {return fds_on_hold == fds;}
-#endif
-  fhandler_base *find_archetype (device& dev);
-  fhandler_base **add_archetype ();
-  void delete_archetype (fhandler_base *);
   void fixup_before_exec (DWORD win_proc_id);
   void fixup_before_fork (DWORD win_proc_id);
-  friend void dtable_init ();
-  friend void __stdcall close_all_files (bool);
-  friend int dup_finish (int, int, int);
-  friend class fhandler_disk_file;
-  friend class cygheap_fdmanip;
-  friend class cygheap_fdget;
-  friend class cygheap_fdnew;
-  friend class cygheap_fdenum;
-  friend class lock_process;
+  void fixup_after_fork (HANDLE);
+  fhandler_base *build_fhandler (int fd, DWORD dev, const char *name,
+				 int unit = -1);
+  fhandler_base *build_fhandler (int fd, const char *name, HANDLE h,
+      				 path_conv& pc, unsigned opts = PC_SYM_FOLLOW,
+				 suffix_info *si = NULL);
+  inline int not_open (int fd)
+  {
+    SetResourceLock (LOCK_FD_LIST, READ_LOCK, "not_open");
+
+    int res = fd < 0 || fd >= (int) size || fds[fd] == NULL;
+
+    ReleaseResourceLock (LOCK_FD_LIST, READ_LOCK, "not open");
+    return res;
+  }
+  void reset_unix_path_name (int fd, const char *name);
+  int find_unused_handle (int start);
+  int find_unused_handle () { return find_unused_handle (first_fd_for_open);}
+  void release (int fd);
+  void init_std_file_from_handle (int fd, HANDLE handle, DWORD access);
+  int dup2 (int oldfd, int newfd);
+  void fixup_after_exec (HANDLE);
+  inline fhandler_base *operator [](int fd) const { return fds[fd]; }
+  select_record *select_read (int fd, select_record *s);
+  select_record *select_write (int fd, select_record *s);
+  select_record *select_except (int fd, select_record *s);
+  operator fhandler_base **() {return fds;}
 };
 
-fhandler_base *build_fh_dev (const device&, const char * = NULL);
-fhandler_base *build_fh_name (const char *, unsigned = 0, suffix_info * = NULL);
-fhandler_base *build_fh_pc (path_conv& pc);
-
-void dtable_init ();
-void stdio_init ();
+void dtable_init (void);
+void stdio_init (void);
 extern dtable fdtab;
 
 extern "C" int getfdtabsize ();

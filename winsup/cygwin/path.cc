@@ -1,147 +1,120 @@
 /* path.cc: path support.
 
-     Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-     2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001 Red Hat, Inc.
 
-  This file is part of Cygwin.
+This file is part of Cygwin.
 
-  This software is a copyrighted work licensed under the terms of the
-  Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
-  details. */
+This software is a copyrighted work licensed under the terms of the
+Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
+details. */
 
-  /* This module's job is to
-     - convert between POSIX and Win32 style filenames,
-     - support the `mount' functionality,
-     - support symlinks for files and directories
+/* This module's job is to
+   - convert between POSIX and Win32 style filenames,
+   - support the `mount' functionality,
+   - support symlinks for files and directories
 
-     Pathnames are handled as follows:
+   Pathnames are handled as follows:
 
-     - A \ or : in a path denotes a pure windows spec.
-     - Paths beginning with // (or \\) are not translated (i.e. looked
-       up in the mount table) and are assumed to be UNC path names.
+   - A \ or : in a path denotes a pure windows spec.
+   - Paths beginning with // (or \\) are not translated (i.e. looked
+     up in the mount table) and are assumed to be UNC path names.
 
-     The goal in the above set of rules is to allow both POSIX and Win32
-     flavors of pathnames without either interfering.  The rules are
-     intended to be as close to a superset of both as possible.
+   The goal in the above set of rules is to allow both POSIX and Win32
+   flavors of pathnames without either interfering.  The rules are
+   intended to be as close to a superset of both as possible.
 
-     Note that you can have more than one path to a file.  The mount
-     table is always prefered when translating Win32 paths to POSIX
-     paths.  Win32 paths in mount table entries may be UNC paths or
-     standard Win32 paths starting with <drive-letter>:
+   Note that you can have more than one path to a file.  The mount
+   table is always prefered when translating Win32 paths to POSIX
+   paths.  Win32 paths in mount table entries may be UNC paths or
+   standard Win32 paths starting with <drive-letter>:
 
-     Text vs Binary issues are not considered here in path style
-     decisions, although the appropriate flags are retrieved and
-     stored in various structures.
+   Text vs Binary issues are not considered here in path style
+   decisions, although the appropriate flags are retrieved and
+   stored in various structures.
 
-     Removing mounted filesystem support would simplify things greatly,
-     but having it gives us a mechanism of treating disk that lives on a
-     UNIX machine as having UNIX semantics [it allows one to edit a text
-     file on that disk and not have cr's magically appear and perhaps
-     break apps running on UNIX boxes].  It also useful to be able to
-     layout a hierarchy without changing the underlying directories.
+   Removing mounted filesystem support would simplify things greatly,
+   but having it gives us a mechanism of treating disk that lives on a
+   UNIX machine as having UNIX semantics [it allows one to edit a text
+   file on that disk and not have cr's magically appear and perhaps
+   break apps running on UNIX boxes].  It also useful to be able to
+   layout a hierarchy without changing the underlying directories.
 
-     The semantics of mounting file systems is not intended to precisely
-     follow normal UNIX systems.
+   The semantics of mounting file systems is not intended to precisely
+   follow normal UNIX systems.
 
-     Each DOS drive is defined to have a current directory.  Supporting
-     this would complicate things so for now things are defined so that
-     c: means c:\.
-  */
+   Each DOS drive is defined to have a current directory.  Supporting
+   this would complicate things so for now things are defined so that
+   c: means c:\.  FIXME: Is this still true?
+*/
 
 #include "winsup.h"
-#include "miscfuncs.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mount.h>
+#include <mntent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include <ctype.h>
 #include <winioctl.h>
 #include <wingdi.h>
 #include <winuser.h>
-#include <winnetwk.h>
 #include <winnls.h>
-#include <shlobj.h>
-#include <sys/param.h>
+#include <winnetwk.h>
 #include <sys/cygwin.h>
+#include <cygwin/version.h>
 #include "cygerrno.h"
+#include "perprocess.h"
 #include "security.h"
-#include "path.h"
 #include "fhandler.h"
+#include "path.h"
+#include "sync.h"
+#include "sigproc.h"
+#include "pinfo.h"
 #include "dtable.h"
 #include "cygheap.h"
 #include "shared_info.h"
-#include "cygtls.h"
-#include "tls_pbuf.h"
-#include "environ.h"
+#include "registry.h"
 #include <assert.h>
-#include <ntdll.h>
-#include <wchar.h>
-#include <wctype.h>
+#include "shortcut.h"
 
-suffix_info stat_suffixes[] =
-{
-  suffix_info ("", 1),
-  suffix_info (".exe", 1),
-  suffix_info (NULL)
-};
+#ifdef _MT_SAFE
+#define iteration _reent_winsup ()->_iteration
+#define available_drives _reent_winsup ()->available_drives
+#else
+static int iteration;
+static DWORD available_drives;
+#endif
+
+static int normalize_win32_path (const char *src, char *dst);
+static void slashify (const char *src, char *dst, int trailing_slash_p);
+static void backslashify (const char *src, char *dst, int trailing_slash_p);
 
 struct symlink_info
 {
-  char contents[SYMLINK_MAX + 1];
+  char contents[MAX_PATH + 4];
   char *ext_here;
   int extn;
   unsigned pflags;
   DWORD fileattr;
-  int issymlink;
+  int is_symlink;
   bool ext_tacked_on;
   int error;
-  bool isdevice;
-  _major_t major;
-  _minor_t minor;
-  _mode_t mode;
-  int check (char *path, const suffix_info *suffixes, fs_info &fs,
-	     path_conv_handle &conv_hdl);
-  int set (char *path);
-  bool parse_device (const char *);
-  int check_sysfile (HANDLE h);
-  int check_shortcut (HANDLE h);
-  int check_reparse_point (HANDLE h, bool remote);
-  int check_nfs_symlink (HANDLE h);
-  int posixify (char *srcbuf);
-  bool set_error (int);
+  BOOL case_clash;
+  int check (char *path, const suffix_info *suffixes, unsigned opt);
+  BOOL case_check (char *path);
 };
 
-muto NO_COPY cwdstuff::cwd_lock;
+int pcheck_case = PCHECK_RELAXED; /* Determines the case check behaviour. */
 
-static const GUID GUID_shortcut
-			= { 0x00021401L, 0, 0, {0xc0, 0, 0, 0, 0, 0, 0, 0x46}};
+/* Determine if path prefix matches current cygdrive */
+#define iscygdrive(path) \
+  (path_prefix_p (mount_table->cygdrive, (path), mount_table->cygdrive_len))
 
-enum
-{
-  WSH_FLAG_IDLIST = 0x01,	/* Contains an ITEMIDLIST. */
-  WSH_FLAG_FILE = 0x02,		/* Contains a file locator element. */
-  WSH_FLAG_DESC = 0x04,		/* Contains a description. */
-  WSH_FLAG_RELPATH = 0x08,	/* Contains a relative path. */
-  WSH_FLAG_WD = 0x10,		/* Contains a working dir. */
-  WSH_FLAG_CMDLINE = 0x20,	/* Contains command line args. */
-  WSH_FLAG_ICON = 0x40		/* Contains a custom icon. */
-};
-
-struct win_shortcut_hdr
-{
-  DWORD size;		/* Header size in bytes.  Must contain 0x4c. */
-  GUID magic;		/* GUID of shortcut files. */
-  DWORD flags;	/* Content flags.  See above. */
-
-  /* The next fields from attr to icon_no are always set to 0 in Cygwin
-     and U/Win shortcuts. */
-  DWORD attr;	/* Target file attributes. */
-  FILETIME ctime;	/* These filetime items are never touched by the */
-  FILETIME mtime;	/* system, apparently. Values don't matter. */
-  FILETIME atime;
-  DWORD filesize;	/* Target filesize. */
-  DWORD icon_no;	/* Icon number. */
-
-  DWORD run;		/* Values defined in winuser.h. Use SW_NORMAL. */
-  DWORD hotkey;	/* Hotkey value. Set to 0.  */
-  DWORD dummy[2];	/* Future extension probably. Always 0. */
-};
+#define iscygdrive_device(path) \
+  (iscygdrive(path) && isalpha(path[mount_table->cygdrive_len]) && \
+   (isdirsep(path[mount_table->cygdrive_len + 1]) || \
+    !path[mount_table->cygdrive_len + 1]))
 
 /* Return non-zero if PATH1 is a prefix of PATH2.
    Both are assumed to be of the same path style and / vs \ usage.
@@ -158,124 +131,93 @@ struct win_shortcut_hdr
 */
 
 int
-path_prefix_p (const char *path1, const char *path2, int len1,
-	       bool caseinsensitive)
+path_prefix_p (const char *path1, const char *path2, int len1)
 {
   /* Handle case where PATH1 has trailing '/' and when it doesn't.  */
-  if (len1 > 0 && isdirsep (path1[len1 - 1]))
+  if (len1 > 0 && SLASH_P (path1[len1 - 1]))
     len1--;
 
   if (len1 == 0)
-    return isdirsep (path2[0]) && !isdirsep (path2[1]);
+    return SLASH_P (path2[0]) && !SLASH_P (path2[1]);
 
-  if (isdirsep (path2[len1]) || path2[len1] == 0 || path1[len1 - 1] == ':')
-    return caseinsensitive ? strncasematch (path1, path2, len1)
-			   : !strncmp (path1, path2, len1);
+  if (!pathnmatch (path1, path2, len1))
+    return 0;
 
-  return 0;
+  return SLASH_P (path2[len1]) || path2[len1] == 0 || path1[len1 - 1] == ':';
 }
 
 /* Return non-zero if paths match in first len chars.
    Check is dependent of the case sensitivity setting. */
 int
-pathnmatch (const char *path1, const char *path2, int len, bool caseinsensitive)
+pathnmatch (const char *path1, const char *path2, int len)
 {
-  return caseinsensitive
-	 ? strncasematch (path1, path2, len) : !strncmp (path1, path2, len);
+  return pcheck_case == PCHECK_STRICT ? !strncmp (path1, path2, len)
+				      : strncasematch (path1, path2, len);
 }
 
 /* Return non-zero if paths match. Check is dependent of the case
    sensitivity setting. */
 int
-pathmatch (const char *path1, const char *path2, bool caseinsensitive)
+pathmatch (const char *path1, const char *path2)
 {
-  return caseinsensitive
-	 ? strcasematch (path1, path2) : !strcmp (path1, path2);
-}
-
-/* TODO: This function is used in mkdir and rmdir to generate correct
-   error messages in case of paths ending in /. or /.. components.
-   Right now, normalize_posix_path will just normalize
-   those components away, which changes the semantics.  */
-bool
-has_dot_last_component (const char *dir, bool test_dot_dot)
-{
-  /* SUSv3: . and .. are not allowed as last components in various system
-     calls.  Don't test for backslash path separator since that's a Win32
-     path following Win32 rules. */
-  const char *last_comp = strchr (dir, '\0');
-
-  if (last_comp == dir)
-    return false;	/* Empty string.  Probably shouldn't happen here? */
-
-  /* Detect run of trailing slashes */
-  while (last_comp > dir && *--last_comp == '/')
-    continue;
-
-  /* Detect just a run of slashes or a path that does not end with a slash. */
-  if (*last_comp != '.')
-    return false;
-
-  /* We know we have a trailing dot here.  Check that it really is a standalone "."
-     path component by checking that it is at the beginning of the string or is
-     preceded by a "/" */
-  if (last_comp == dir || *--last_comp == '/')
-    return true;
-
-  /* If we're not checking for '..' we're done.  Ditto if we're now pointing to
-     a non-dot. */
-  if (!test_dot_dot || *last_comp != '.')
-    return false;		/* either not testing for .. or this was not '..' */
-
-  /* Repeat previous test for standalone or path component. */
-  return last_comp == dir || last_comp[-1] == '/';
+  return pcheck_case == PCHECK_STRICT ? !strcmp (path1, path2)
+				      : strcasematch (path1, path2);
 }
 
 /* Normalize a POSIX path.
+   \'s are converted to /'s in the process.
    All duplicate /'s, except for 2 leading /'s, are deleted.
    The result is 0 for success, or an errno error value.  */
 
+#define isslash(c) ((c) == '/')
+
 int
-normalize_posix_path (const char *src, char *dst, char *&tail)
+normalize_posix_path (const char *src, char *dst)
 {
-  const char *in_src = src;
+  const char *src_start = src;
   char *dst_start = dst;
+
   syscall_printf ("src %s", src);
-
-  if ((isdrive (src) && isdirsep (src[2])) || *src == '\\')
-    goto win32_path;
-
-  tail = dst;
+  if (isdrive (src) || strpbrk (src, "\\:"))
+    {
+      cygwin_conv_to_full_posix_path (src, dst);
+      return 0;
+    }
   if (!isslash (src[0]))
     {
       if (!cygheap->cwd.get (dst))
 	return get_errno ();
-      tail = strchr (tail, '\0');
-      if (isslash (dst[0]) && isslash (dst[1]))
-	++dst_start;
+      dst = strchr (dst, '\0');
       if (*src == '.')
 	{
-	  if (tail == dst_start + 1 && *dst_start == '/')
-	     tail--;
+	  if (dst == dst_start + 1 && *dst_start == '/')
+	     --dst;
 	  goto sawdot;
 	}
-      if (tail > dst && !isslash (tail[-1]))
-	*tail++ = '/';
+      if (dst > dst_start && !isslash (dst[-1]))
+	*dst++ = '/';
     }
   /* Two leading /'s?  If so, preserve them.  */
-  else if (isslash (src[1]) && !isslash (src[2]))
+  else if (isslash (src[1]))
     {
-      *tail++ = *src++;
-      ++dst_start;
+      *dst++ = '/';
+      *dst++ = '/';
+      src += 2;
+      if (isslash (*src))
+	{ /* Starts with three or more slashes - reset. */
+	  dst = dst_start;
+	  *dst++ = '/';
+	  src = src_start + 1;
+	}
     }
+  else
+    *dst = '\0';
 
   while (*src)
     {
-      if (*src == '\\')
-	goto win32_path;
       /* Strip runs of /'s.  */
       if (!isslash (*src))
-	*tail++ = *src++;
+	*dst++ = *src++;
       else
 	{
 	  while (*++src)
@@ -291,7 +233,8 @@ normalize_posix_path (const char *src, char *dst, char *&tail)
 		{
 		  if (!src[1])
 		    {
-		      *tail++ = '/';
+		      if (dst == dst_start)
+			*dst++ = '/';
 		      goto done;
 		    }
 		  if (!isslash (src[1]))
@@ -301,15 +244,15 @@ normalize_posix_path (const char *src, char *dst, char *&tail)
 		break;
 	      else
 		{
-		  while (tail > dst_start && !isslash (*--tail))
+		  while (dst > dst_start && !isslash (*--dst))
 		    continue;
 		  src++;
 		}
 	    }
 
-	  *tail++ = '/';
+	  *dst++ = '/';
 	}
-	if ((tail - dst) >= NT_MAX_PATH)
+	if ((dst - dst_start) >= MAX_PATH)
 	  {
 	    debug_printf ("ENAMETOOLONG = normalize_posix_path (%s)", src);
 	    return ENAMETOOLONG;
@@ -317,17 +260,12 @@ normalize_posix_path (const char *src, char *dst, char *&tail)
     }
 
 done:
-  *tail = '\0';
+  *dst = '\0';
+  if (--dst > dst_start && isslash (*dst))
+    *dst = '\0';
 
-  debug_printf ("%s = normalize_posix_path (%s)", dst, in_src);
+  debug_printf ("%s = normalize_posix_path (%s)", dst_start, src_start);
   return 0;
-
-win32_path:
-  int err = normalize_win32_path (in_src, dst, tail);
-  if (!err)
-    for (char *p = dst; (p = strchr (p, '\\')); p++)
-      *p = '/';
-  return err ?: -1;
 }
 
 inline void
@@ -337,22 +275,20 @@ path_conv::add_ext_from_sym (symlink_info &sym)
     {
       known_suffix = path + sym.extn;
       if (sym.ext_tacked_on)
-	strcpy ((char *) known_suffix, sym.ext_here);
+	strcpy (known_suffix, sym.ext_here);
     }
 }
 
-static void __reg2 mkrelpath (char *dst, bool caseinsensitive);
-
+static void __stdcall mkrelpath (char *dst) __attribute__ ((regparm (2)));
 static void __stdcall
-mkrelpath (char *path, bool caseinsensitive)
+mkrelpath (char *path)
 {
-  tmp_pathbuf tp;
-  char *cwd_win32 = tp.c_get ();
+  char cwd_win32[MAX_PATH];
   if (!cygheap->cwd.get (cwd_win32, 0))
     return;
 
   unsigned cwdlen = strlen (cwd_win32);
-  if (!path_prefix_p (cwd_win32, path, cwdlen, caseinsensitive))
+  if (!path_prefix_p (cwd_win32, path, cwdlen))
     return;
 
   size_t n = strlen (path);
@@ -371,186 +307,47 @@ mkrelpath (char *path, bool caseinsensitive)
 }
 
 void
-path_conv::set_normalized_path (const char *path_copy)
+path_conv::update_fs_info (const char* win32_path)
 {
-  if (path_copy)
+  char tmp_buf [MAX_PATH];
+  strncpy (tmp_buf, win32_path, MAX_PATH);
+
+  if (!rootdir (tmp_buf))
     {
-      size_t n = strlen (path_copy) + 1;
-      char *p = (char *) crealloc_abort ((void *) normalized_path, n);
-      normalized_path = (const char *) memcpy (p, path_copy, n);
+      debug_printf ("Cannot get root component of path %s", win32_path);
+      root_dir [0] = fs_name [0] = '\0';
+      fs_flags = fs_serial = 0;
+      sym_opt = 0;
+      return;
     }
-}
 
-static inline void
-str2uni_cat (UNICODE_STRING &tgt, const char *srcstr)
-{
-  int len = sys_mbstowcs (tgt.Buffer + tgt.Length / sizeof (WCHAR),
-			  (tgt.MaximumLength - tgt.Length) / sizeof (WCHAR),
-			  srcstr);
-  if (len)
-    tgt.Length += (len - 1) * sizeof (WCHAR);
-}
-
-PUNICODE_STRING
-get_nt_native_path (const char *path, UNICODE_STRING& upath, bool dos)
-{
-  upath.Length = 0;
-  if (path[0] == '/')		/* special path w/o NT path representation. */
-    str2uni_cat (upath, path);
-  else if (path[0] != '\\')	/* X:\...  or relative path. */
+  if (strcmp (tmp_buf, root_dir) != 0)
     {
-      if (path[1] == ':')	/* X:\... */
+      strncpy (root_dir, tmp_buf, MAX_PATH);
+      drive_type = GetDriveType (root_dir);
+      if (drive_type == DRIVE_REMOTE || (drive_type == DRIVE_UNKNOWN && (root_dir[0] == '\\' && root_dir[1] == '\\')))
+	is_remote_drive = 1;
+      else
+	is_remote_drive = 0;
+
+      if (!GetVolumeInformation (root_dir, NULL, 0, &fs_serial, NULL, &fs_flags,
+				     fs_name, sizeof (fs_name)))
 	{
-	  RtlAppendUnicodeStringToString (&upath, &ro_u_natp);
-	  str2uni_cat (upath, path);
-	  /* The drive letter must be upper case. */
-	  upath.Buffer[4] = towupper (upath.Buffer[4]);
+	  debug_printf ("Cannot get volume information (%s), %E", root_dir);
+	  fs_name [0] = '\0';
+	  fs_flags = fs_serial = 0;
+	  sym_opt = 0;
 	}
       else
-	str2uni_cat (upath, path);
-      transform_chars (&upath, 7);
-    }
-  else if (path[1] != '\\')	/* \Device\... */
-    str2uni_cat (upath, path);
-  else if ((path[2] != '.' && path[2] != '?')
-	   || path[3] != '\\')	/* \\server\share\... */
-    {
-      RtlAppendUnicodeStringToString (&upath, &ro_u_uncp);
-      str2uni_cat (upath, path + 2);
-      transform_chars (&upath, 8);
-    }
-  else				/* \\.\device or \\?\foo */
-    {
-      RtlAppendUnicodeStringToString (&upath, &ro_u_natp);
-      str2uni_cat (upath, path + 4);
-    }
-  if (dos)
-    {
-      /* Unfortunately we can't just use transform_chars with the tfx_rev_chars
-	 table since only leading and trailing spaces and dots are affected.
-	 So we step to every backslash and fix surrounding dots and spaces.
-	 That makes these broken filesystems a bit slower, but, hey. */
-      PWCHAR cp = upath.Buffer + 7;
-      PWCHAR cend = upath.Buffer + upath.Length / sizeof (WCHAR);
-      while (++cp < cend)
-	if (*cp == L'\\')
-	  {
-	    PWCHAR ccp = cp - 1;
-	    while (*ccp == L'.' || *ccp == L' ')
-	      *ccp-- |= 0xf000;
-	    while (cp[1] == L' ')
-	      *++cp |= 0xf000;
-	  }
-      while (*--cp == L'.' || *cp == L' ')
-	*cp |= 0xf000;
-    }
-  return &upath;
-}
-
-PUNICODE_STRING
-path_conv::get_nt_native_path ()
-{
-  PUNICODE_STRING res;
-  if (wide_path)
-    res = &uni_path;
-  else if (!path)
-    res = NULL;
-  else
-    {
-      uni_path.Length = 0;
-      uni_path.MaximumLength = (strlen (path) + 10) * sizeof (WCHAR);
-      wide_path = (PWCHAR) cmalloc_abort (HEAP_STR, uni_path.MaximumLength);
-      uni_path.Buffer = wide_path;
-      ::get_nt_native_path (path, uni_path, has_dos_filenames_only ());
-      res = &uni_path;
-    }
-  return res;
-}
-
-PWCHAR
-path_conv::get_wide_win32_path (PWCHAR wc)
-{
-  get_nt_native_path ();
-  if (!wide_path)
-    return NULL;
-  wcpcpy (wc, wide_path);
-  if (wc[1] == L'?')
-    wc[1] = L'\\';
-  return wc;
-}
-
-void
-warn_msdos (const char *src)
-{
-  if (user_shared->warned_msdos || !dos_file_warning || !cygwin_finished_initializing)
-    return;
-  tmp_pathbuf tp;
-  char *posix_path = tp.c_get ();
-  small_printf ("cygwin warning:\n");
-  if (cygwin_conv_path (CCP_WIN_A_TO_POSIX | CCP_RELATIVE, src,
-			posix_path, NT_MAX_PATH))
-    small_printf ("  MS-DOS style path detected: %ls\n  POSIX equivalent preferred.\n",
-		  src);
-  else
-    small_printf ("  MS-DOS style path detected: %ls\n  Preferred POSIX equivalent is: %ls\n",
-		  src, posix_path);
-  small_printf ("  CYGWIN environment variable option \"nodosfilewarning\" turns off this warning.\n"
-		"  Consult the user's guide for more details about POSIX paths:\n"
-		"    http://cygwin.com/cygwin-ug-net/using.html#using-pathnames\n");
-  user_shared->warned_msdos = true;
-}
-
-static DWORD
-getfileattr (const char *path, bool caseinsensitive) /* path has to be always absolute. */
-{
-  tmp_pathbuf tp;
-  UNICODE_STRING upath;
-  OBJECT_ATTRIBUTES attr;
-  FILE_BASIC_INFORMATION fbi;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-
-  tp.u_get (&upath);
-  InitializeObjectAttributes (&attr, &upath,
-			      caseinsensitive ? OBJ_CASE_INSENSITIVE : 0,
-			      NULL, NULL);
-  get_nt_native_path (path, upath, false);
-
-  status = NtQueryAttributesFile (&attr, &fbi);
-  if (NT_SUCCESS (status))
-    return fbi.FileAttributes;
-
-  if (status != STATUS_OBJECT_NAME_NOT_FOUND
-      && status != STATUS_NO_SUCH_FILE) /* File not found on 9x share */
-    {
-      /* File exists but access denied.  Try to get attribute through
-	 directory query. */
-      UNICODE_STRING dirname, basename;
-      HANDLE dir;
-      FILE_BOTH_DIRECTORY_INFORMATION fdi;
-
-      RtlSplitUnicodePath (&upath, &dirname, &basename);
-      InitializeObjectAttributes (&attr, &dirname,
-				  caseinsensitive ? OBJ_CASE_INSENSITIVE : 0,
-				  NULL, NULL);
-      status = NtOpenFile (&dir, SYNCHRONIZE | FILE_LIST_DIRECTORY,
-			   &attr, &io, FILE_SHARE_VALID_FLAGS,
-			   FILE_SYNCHRONOUS_IO_NONALERT
-			   | FILE_OPEN_FOR_BACKUP_INTENT
-			   | FILE_DIRECTORY_FILE);
-      if (NT_SUCCESS (status))
 	{
-	  status = NtQueryDirectoryFile (dir, NULL, NULL, 0, &io,
-					 &fdi, sizeof fdi,
-					 FileBothDirectoryInformation,
-					 TRUE, &basename, TRUE);
-	  NtClose (dir);
-	  if (NT_SUCCESS (status) || status == STATUS_BUFFER_OVERFLOW)
-	    return fdi.FileAttributes;
+	  /* FIXME: Samba by default returns "NTFS" in file system name, but
+	   * doesn't support Extended Attributes. If there's some fast way to
+	   * distinguish between samba and real ntfs, it should be implemented
+	   * here.
+	   */
+	  sym_opt = (!is_remote_drive && strcmp (fs_name, "NTFS") == 0) ? PC_CHECK_EA : 0;
 	}
     }
-  SetLastError (RtlNtStatusToDosError (status));
-  return INVALID_FILE_ATTRIBUTES;
 }
 
 /* Convert an arbitrary path SRC to a pure Win32 path, suitable for
@@ -566,45 +363,24 @@ getfileattr (const char *path, bool caseinsensitive) /* path has to be always ab
 	SYMLINK_CONTENTS    - just return symlink contents
 */
 
-/* TODO: This implementation is only preliminary.  For internal
-   purposes it's necessary to have a path_conv::check function which
-   takes a UNICODE_STRING src path, otherwise we waste a lot of time
-   for converting back and forth.  The below implementation does
-   realy nothing but converting to char *, until path_conv handles
-   wide-char paths directly. */
-void
-path_conv::check (const UNICODE_STRING *src, unsigned opt,
-		  const suffix_info *suffixes)
-{
-  tmp_pathbuf tp;
-  char *path = tp.c_get ();
-
-  user_shared->warned_msdos = true;
-  sys_wcstombs (path, NT_MAX_PATH, src->Buffer, src->Length / sizeof (WCHAR));
-  path_conv::check (path, opt, suffixes);
-}
-
 void
 path_conv::check (const char *src, unsigned opt,
 		  const suffix_info *suffixes)
 {
-  /* The tmp_buf array is used when expanding symlinks.  It is NT_MAX_PATH * 2
-     in length so that we can hold the expanded symlink plus a trailer.  */
-  tmp_pathbuf tp;
-  char *path_copy = tp.c_get ();
-  char *pathbuf = tp.c_get ();
-  char *tmp_buf = tp.t_get ();
-  char *THIS_path = tp.c_get ();
+  /* This array is used when expanding symlinks.  It is MAX_PATH * 2
+     in length so that we can hold the expanded symlink plus a
+     trailer.  */
+  char path_copy[MAX_PATH + 3];
+  char tmp_buf[2 * MAX_PATH + 3];
   symlink_info sym;
   bool need_directory = 0;
   bool saw_symlinks = 0;
-  bool add_ext = false;
-  bool is_relpath;
-  char *tail, *path_end;
+  int is_relpath;
+  sigframe thisframe (mainthread);
 
 #if 0
   static path_conv last_path_conv;
-  static char last_src[CYG_MAX_PATH];
+  static char last_src[MAX_PATH + 1];
 
   if (*last_src && strcmp (last_src, src) == 0)
     {
@@ -613,87 +389,64 @@ path_conv::check (const char *src, unsigned opt,
     }
 #endif
 
-  myfault efault;
-  if (efault.faulted ())
-    {
-      error = EFAULT;
-      return;
-    }
   int loop = 0;
   path_flags = 0;
   known_suffix = NULL;
-  fileattr = INVALID_FILE_ATTRIBUTES;
-  caseinsensitive = OBJ_CASE_INSENSITIVE;
-  if (wide_path)
-    cfree (wide_path);
-  wide_path = NULL;
-  if (path)
-    {
-      cfree (modifiable_path ());
-      path = NULL;
-    }
-  close_conv_handle ();
-  memset (&dev, 0, sizeof (dev));
-  fs.clear ();
-  if (normalized_path)
-    {
-      cfree ((void *) normalized_path);
-      normalized_path = NULL;
-    }
-  int component = 0;		// Number of translated components
+  fileattr = (DWORD) -1;
+  case_clash = FALSE;
+  devn = unit = 0;
+  root_dir[0] = '\0';
+  fs_name[0] = '\0';
+  fs_flags = fs_serial = 0;
+  sym_opt = 0;
+  drive_type = 0;
+  is_remote_drive = 0;
 
   if (!(opt & PC_NULLEMPTY))
     error = 0;
-  else if (!*src)
-    {
-      error = ENOENT;
-      return;
-    }
+  else if ((error = check_null_empty_str (src)))
+    return;
 
-  bool is_msdos = false;
   /* This loop handles symlink expansion.  */
   for (;;)
     {
       MALLOC_CHECK;
       assert (src);
 
-      is_relpath = !isabspath (src);
-      error = normalize_posix_path (src, path_copy, tail);
-      if (error > 0)
-	return;
-      if (error < 0)
+      char *p = strrchr (src, '\0');
+      /* Detect if the user was looking for a directory.  We have to strip the
+	 trailing slash initially and add it back on at the end due to Windows
+	 brain damage. */
+      if (--p > src)
 	{
-	  if (component == 0)
-	    is_msdos = true;
-	  error = 0;
+	  if (isdirsep (*p))
+	    need_directory = 1;
+	  else if (--p  > src && p[1] == '.' && isdirsep (*p))
+	    need_directory = 1;
 	}
 
-      /* Detect if the user was looking for a directory.  We have to strip the
-	 trailing slash initially while trying to add extensions but take it
-	 into account during processing */
-      if (tail > path_copy + 2 && isslash (tail[-1]))
-	{
-	  need_directory = 1;
-	  *--tail = '\0';
-	}
-      path_end = tail;
+      is_relpath = !isabspath (src);
+      error = normalize_posix_path (src, path_copy);
+      if (error)
+	return;
+
+      char *tail = strchr (path_copy, '\0');   // Point to end of copy
+      char *path_end = tail;
+      tail[1] = '\0';
 
       /* Scan path_copy from right to left looking either for a symlink
 	 or an actual existing file.  If an existing file is found, just
-	 return.  If a symlink is found, exit the for loop.
+	 return.  If a symlink is found exit the for loop.
 	 Also: be careful to preserve the errno returned from
 	 symlink.check as the caller may need it. */
       /* FIXME: Do we have to worry about multiple \'s here? */
-      component = 0;		// Number of translated components
+      int component = 0;		// Number of translated components
       sym.contents[0] = '\0';
 
-      int symlen = 0;
-
-      for (unsigned pflags_or = opt & (PC_NO_ACCESS_CHECK | PC_KEEP_HANDLE);
-	   ;
-	   pflags_or = 0)
+      for (;;)
 	{
 	  const suffix_info *suff;
+	  char pathbuf[MAX_PATH];
 	  char *full_path;
 
 	  /* Don't allow symlink.check to set anything in the path_conv
@@ -701,271 +454,135 @@ path_conv::check (const char *src, unsigned opt,
 	  if (component)
 	    {
 	      suff = NULL;
+	      sym.pflags = 0;
 	      full_path = pathbuf;
 	    }
 	  else
 	    {
 	      suff = suffixes;
-	      full_path = THIS_path;
+	      sym.pflags = path_flags;
+	      full_path = this->path;
 	    }
 
 	  /* Convert to native path spec sans symbolic link info. */
-	  error = mount_table->conv_to_win32_path (path_copy, full_path, dev,
-						   &sym.pflags);
+	  error = mount_table->conv_to_win32_path (path_copy, full_path, devn,
+						   unit, &sym.pflags, 1);
 
 	  if (error)
 	    return;
 
-	  sym.pflags |= pflags_or;
+	  update_fs_info (full_path);
 
-	  if (!dev.exists ())
-	    {
-	      error = ENXIO;
-	      return;
-	    }
-
-	  if (iscygdrive_dev (dev))
-	    {
-	      if (!component)
-		fileattr = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY;
-	      else
-		{
-		  fileattr = getfileattr (THIS_path,
-					  sym.pflags & MOUNT_NOPOSIX);
-		  dev = FH_FS;
-		}
-	      goto out;
-	    }
-	  else if (isdev_dev (dev))
-	    {
-	      /* Just make sure that the path handling goes on as with FH_FS. */
-	    }
-	  else if (isvirtual_dev (dev))
-	    {
-	      /* FIXME: Calling build_fhandler here is not the right way to handle this. */
-	      fhandler_virtual *fh = (fhandler_virtual *) build_fh_dev (dev, path_copy);
-	      virtual_ftype_t file_type;
-	      if (!fh)
-		file_type = virt_none;
-	      else
-		{
-		  file_type = fh->exists ();
-		  if (file_type == virt_symlink)
-		    {
-		      fh->fill_filebuf ();
-		      symlen = sym.set (fh->get_filebuf ());
-		    }
-		  delete fh;
-		}
-	      switch (file_type)
-		{
-		  case virt_directory:
-		  case virt_rootdir:
-		    if (component == 0)
-		      fileattr = FILE_ATTRIBUTE_DIRECTORY;
-		    break;
-		  case virt_file:
-		    if (component == 0)
-		      fileattr = 0;
-		    break;
-		  case virt_symlink:
-		    goto is_virtual_symlink;
-		  case virt_pipe:
-		    if (component == 0)
-		      {
-			fileattr = 0;
-			dev.parse (FH_PIPE);
-		      }
-		    break;
-		  case virt_socket:
-		    if (component == 0)
-		      {
-			fileattr = 0;
-			dev.parse (FH_TCP);
-		      }
-		    break;
-		  case virt_fsdir:
-		  case virt_fsfile:
-		    /* Access to real file or directory via block device
-		       entry in /proc/sys.  Convert to real file and go with
-		       the flow. */
-		    dev.parse (FH_FS);
-		    goto is_fs_via_procsys;
-		  case virt_blk:
-		    /* Block special device.  If the trailing slash has been
-		       requested, the target is the root directory of the
-		       filesystem on this block device.  So we convert this to
-		       a real file and attach the backslash. */
-		    if (component == 0 && need_directory)
-		      {
-			dev.parse (FH_FS);
-			strcat (full_path, "\\");
-			fileattr = FILE_ATTRIBUTE_DIRECTORY
-				   | FILE_ATTRIBUTE_DEVICE;
-			goto out;
-		      }
-		    /*FALLTHRU*/
-		  case virt_chr:
-		    if (component == 0)
-		      fileattr = FILE_ATTRIBUTE_DEVICE;
-		    break;
-		  default:
-		    if (component == 0)
-		      fileattr = INVALID_FILE_ATTRIBUTES;
-		    goto virtual_component_retry;
-		}
-	      if (component == 0 || dev != FH_NETDRIVE)
-		path_flags |= PATH_RO;
-	      goto out;
-	    }
 	  /* devn should not be a device.  If it is, then stop parsing now. */
-	  else if (dev != FH_FS)
+	  if (devn != FH_BAD)
 	    {
 	      fileattr = 0;
-	      path_flags = sym.pflags;
-	      if (component)
-		{
-		  error = ENOTDIR;
-		  return;
-		}
 	      goto out;		/* Found a device.  Stop parsing. */
 	    }
 
-	  /* If path is only a drivename, Windows interprets it as the
-	     current working directory on this drive instead of the root
-	     dir which is what we want. So we need the trailing backslash
-	     in this case. */
+	  /* Eat trailing slashes */
+	  char *dostail = strchr (full_path, '\0');
+
+	  /* If path is only a drivename, Windows interprets it as the current working
+	     directory on this drive instead of the root dir which is what we want. So
+	     we need the trailing backslash in this case. */
+	  while (dostail > full_path + 3 && (*--dostail == '\\'))
+	    *tail = '\0';
+
 	  if (full_path[0] && full_path[1] == ':' && full_path[2] == '\0')
 	    {
 	      full_path[2] = '\\';
 	      full_path[3] = '\0';
 	    }
 
-	  /* If the incoming path was given in DOS notation, always treat
-	     it as caseinsensitive,noacl path.  This must be set before
-	     calling sym.check, otherwise the path is potentially treated
-	     casesensitive. */
-	  if (is_msdos)
-	    sym.pflags |= PATH_NOPOSIX | PATH_NOACL;
-
-is_fs_via_procsys:
-
-	  symlen = sym.check (full_path, suff, fs, conv_handle);
-
-is_virtual_symlink:
-
-	  if (sym.isdevice)
+	  if ((opt & PC_SYM_IGNORE) && pcheck_case == PCHECK_RELAXED)
 	    {
-	      if (component)
-		{
-		  error = ENOTDIR;
-		  return;
-		}
-	      dev.parse (sym.major, sym.minor);
-	      dev.setfs (1);
-	      dev.mode = sym.mode;
-	      fileattr = sym.fileattr;
+	      fileattr = GetFileAttributesA (full_path);
 	      goto out;
 	    }
 
-	  if (sym.pflags & PATH_SOCKET)
-	    {
-	      if (component)
-		{
-		  error = ENOTDIR;
-		  return;
-		}
-	      fileattr = sym.fileattr;
-	      dev.parse (FH_UNIX);
-	      dev.setfs (1);
-	      goto out;
-	    }
+	  int len = sym.check (full_path, suff, opt | sym_opt);
 
-	  if (!component)
+	  if (sym.case_clash)
 	    {
-	      /* Make sure that /dev always exists. */
-	      fileattr = isdev_dev (dev) ? FILE_ATTRIBUTE_DIRECTORY
-					 : sym.fileattr;
-	      path_flags = sym.pflags;
-	    }
-	  else if (isdev_dev (dev))
-	    {
-	      /* If we're looking for a file below /dev, which doesn't exist,
-		 make sure that the device type is converted to FH_FS, so that
-		 subsequent code handles the file correctly.
-		 Unless /dev itself doesn't exist on disk.  In that case /dev
-		 is handled as virtual filesystem, and virtual filesystems are
-		 read-only.  The PC_KEEP_HANDLE check allows to check for
-		 a call from an informational system call.  In that case we
-		 just stick to ENOENT, and the device type doesn't matter
-		 anyway. */
-	      if (sym.error == ENOENT && !(opt & PC_KEEP_HANDLE))
-		sym.error = EROFS;
-	      else
-		dev = FH_FS;
-	    }
-
-	  /* If symlink.check found an existing non-symlink file, then
-	     it sets the appropriate flag.  It also sets any suffix found
-	     into `ext_here'. */
-	  if (!sym.issymlink && sym.fileattr != INVALID_FILE_ATTRIBUTES)
-	    {
-	      error = sym.error;
-	      if (component == 0)
-		add_ext = true;
-	      else if (!(sym.fileattr & FILE_ATTRIBUTE_DIRECTORY))
+	      if (pcheck_case == PCHECK_STRICT)
 		{
-		  error = ENOTDIR;
+		  case_clash = TRUE;
+		  error = ENOENT;
 		  goto out;
 		}
-	      goto out;	// file found
+	      /* If pcheck_case==PCHECK_ADJUST the case_clash is remembered
+		 if the last component is concerned. This allows functions
+		 which shall create files to avoid overriding already existing
+		 files with another case. */
+	      if (!component)
+		case_clash = TRUE;
 	    }
-	  /* Found a symlink if symlen > 0.  If component == 0, then the
-	     src path itself was a symlink.  If !follow_mode then
-	     we're done.  Otherwise we have to insert the path found
-	     into the full path that we are building and perform all of
-	     these operations again on the newly derived path. */
-	  else if (symlen > 0)
+
+	  if (!(opt & PC_SYM_IGNORE))
 	    {
-	      saw_symlinks = 1;
-	      if (component == 0 && !need_directory
-		  && (!(opt & PC_SYM_FOLLOW)
-		      || (is_rep_symlink () && (opt & PC_SYM_NOFOLLOW_REP))))
+	      if (!component)
+		path_flags = sym.pflags;
+
+	      /* If symlink.check found an existing non-symlink file, then
+		 it sets the appropriate flag.  It also sets any suffix found
+		 into `ext_here'. */
+	      if (!sym.is_symlink && sym.fileattr != (DWORD) -1)
 		{
-		  set_symlink (symlen); // last component of path is a symlink.
-		  if (opt & PC_SYM_CONTENTS)
+		  error = sym.error;
+		  if (component == 0)
 		    {
-		      strcpy (THIS_path, sym.contents);
-		      goto out;
+		      fileattr = sym.fileattr;
+		      add_ext_from_sym (sym);
 		    }
-		  add_ext = true;
-		  goto out;
+		  if (pcheck_case == PCHECK_RELAXED)
+		    goto out;	// file found
+		  /* Avoid further symlink evaluation. Only case checks are
+		     done now. */
+		  opt |= PC_SYM_IGNORE;
 		}
-	      /* Following a symlink we can't trust the collected filesystem
-		 information any longer. */
-	      fs.clear ();
-	      /* Close handle, if we have any.  Otherwise we're collecting
-		 handles while following symlinks. */
-	      conv_handle.close ();
-	      break;
+	      /* Found a symlink if len > 0.  If component == 0, then the
+		 src path itself was a symlink.  If !follow_mode then
+		 we're done.  Otherwise we have to insert the path found
+		 into the full path that we are building and perform all of
+		 these operations again on the newly derived path. */
+	      else if (len > 0)
+		{
+		  saw_symlinks = 1;
+		  if (component == 0 && !need_directory && !(opt & PC_SYM_FOLLOW))
+		    {
+		      set_symlink (); // last component of path is a symlink.
+		      fileattr = sym.fileattr;
+		      if (opt & PC_SYM_CONTENTS)
+			{
+			  strcpy (path, sym.contents);
+			  goto out;
+			}
+		      add_ext_from_sym (sym);
+		      if (pcheck_case == PCHECK_RELAXED)
+			goto out;
+		      /* Avoid further symlink evaluation. Only case checks are
+			 done now. */
+		      opt |= PC_SYM_IGNORE;
+		    }
+		  else
+		    break;
+		}
+	      /* No existing file found. */
 	    }
-	  else if (sym.error && sym.error != ENOENT)
-	    {
-	      error = sym.error;
-	      goto out;
-	    }
-	  /* No existing file found. */
 
-virtual_component_retry:
-	  /* Find the new "tail" of the path, e.g. in '/for/bar/baz',
+	  /* Find the "tail" of the path, e.g. in '/for/bar/baz',
 	     /baz is the tail. */
+	  char *newtail = strrchr (path_copy, '/');
 	  if (tail != path_end)
 	    *tail = '/';
-	  while (--tail > path_copy + 1 && *tail != '/') {}
+
 	  /* Exit loop if there is no tail or we are at the
 	     beginning of a UNC path */
-	  if (tail <= path_copy + 1)
+	  if (!newtail || newtail == path_copy || (newtail == path_copy + 1 && newtail[-1] == '/'))
 	    goto out;	// all done
+
+	  tail = newtail;
 
 	  /* Haven't found an existing pathname component yet.
 	     Pinch off the tail and try again. */
@@ -974,7 +591,7 @@ virtual_component_retry:
 	}
 
       /* Arrive here if above loop detected a symlink. */
-      if (++loop > SYMLOOP_MAX)
+      if (++loop > MAX_LINK_DEPTH)
 	{
 	  error = ELOOP;   // Eep.
 	  return;
@@ -982,85 +599,66 @@ virtual_component_retry:
 
       MALLOC_CHECK;
 
+      /* The tail is pointing at a null pointer.  Increment it and get the length.
+	 If the tail was empty then this increment will end up pointing to the extra
+	 \0 added to path_copy above. */
+      int taillen = strlen (++tail);
+      int buflen = strlen (sym.contents);
+      if (buflen + taillen > MAX_PATH)
+	  {
+	    error = ENAMETOOLONG;
+	    strcpy (path, "::ENAMETOOLONG::");
+	    return;
+	  }
 
-      /* Place the link content, possibly with head and/or tail, in tmp_buf */
+      /* Strip off current directory component since this is the part that refers
+	 to the symbolic link. */
+      if ((p = strrchr (path_copy, '/')) == NULL)
+	p = path_copy;
+      else if (p == path_copy)
+	p++;
+      *p = '\0';
 
       char *headptr;
       if (isabspath (sym.contents))
 	headptr = tmp_buf;	/* absolute path */
       else
 	{
-	  /* Copy the first part of the path (with ending /) and point to the end. */
-	  char *prevtail = tail;
-	  while (--prevtail > path_copy  && *prevtail != '/') {}
-	  int headlen = prevtail - path_copy + 1;;
-	  memcpy (tmp_buf, path_copy, headlen);
-	  headptr = &tmp_buf[headlen];
+	  /* Copy the first part of the path and point to the end. */
+	  strcpy (tmp_buf, path_copy);
+	  headptr = strchr (tmp_buf, '\0');
 	}
 
-      /* Make sure there is enough space */
-      if (headptr + symlen >= tmp_buf + (2 * NT_MAX_PATH))
-	{
-	too_long:
-	  error = ENAMETOOLONG;
-	  set_path ("::ENAMETOOLONG::");
-	  return;
-	}
+      /* See if we need to separate first part + symlink contents with a / */
+      if (headptr > tmp_buf && headptr[-1] != '/')
+	*headptr++ = '/';
 
-     /* Copy the symlink contents to the end of tmp_buf.
-	Convert slashes. */
-      for (char *p = sym.contents; *p; p++)
+      /* Copy the symlink contents to the end of tmp_buf.
+	 Convert slashes.  FIXME? */
+      for (p = sym.contents; *p; p++)
 	*headptr++ = *p == '\\' ? '/' : *p;
-      *headptr = '\0';
 
-      /* Copy any tail component (with the 0) */
-      if (tail++ < path_end)
+      /* Copy any tail component */
+      if (tail >= path_end)
+	*headptr = '\0';
+      else
 	{
-	  /* Add a slash if needed. There is space. */
-	  if (*(headptr - 1) != '/')
-	    *headptr++ = '/';
-	  int taillen = path_end - tail + 1;
-	  if (headptr + taillen > tmp_buf + (2 * NT_MAX_PATH))
-	    goto too_long;
-	  memcpy (headptr, tail, taillen);
+	  *headptr++ = '/';
+	  strcpy (headptr, tail);
 	}
 
-      /* Evaluate everything all over again. */
+      /* Now evaluate everything all over again. */
       src = tmp_buf;
     }
 
   if (!(opt & PC_SYM_CONTENTS))
-    add_ext = true;
+    add_ext_from_sym (sym);
 
 out:
-  set_path (THIS_path);
-  if (add_ext)
-    add_ext_from_sym (sym);
-  if (dev == FH_NETDRIVE && component)
-    {
-      /* This case indicates a non-existant resp. a non-retrievable
-	 share.  This happens for instance if the share is a printer.
-	 In this case the path must not be treated like a FH_NETDRIVE,
-	 but like a FH_FS instead, so the usual open call for files
-	 is used on it. */
-      dev.parse (FH_FS);
-    }
-  else if (isproc_dev (dev) && fileattr == INVALID_FILE_ATTRIBUTES)
-    {
-      /* FIXME: Usually we don't set error to ENOENT if a file doesn't
-	 exist.  This is typically indicated by the fileattr content.
-	 So, why here?  The downside is that cygwin_conv_path just gets
-	 an error for these paths so it reports the error back to the
-	 application.  Unlike in all other cases of non-existant files,
-	 for which check doesn't set error, so cygwin_conv_path just
-	 returns the path, as intended. */
-      error = ENOENT;
-      return;
-    }
-  else if (!need_directory || error)
+  /* Deal with Windows stupidity which considers filename\. to be valid
+     even when "filename" is not a directory. */
+  if (!need_directory || error)
     /* nothing to do */;
-  else if (fileattr == INVALID_FILE_ATTRIBUTES)
-    strcat (modifiable_path (), "\\"); /* Reattach trailing dirsep in native path. */
   else if (fileattr & FILE_ATTRIBUTE_DIRECTORY)
     path_flags &= ~PATH_SYMLINK;
   else
@@ -1070,75 +668,40 @@ out:
       return;
     }
 
-  if (dev.isfs ())
+  update_fs_info (path);
+  if (!fs_name[0])
     {
-      if (strncmp (path, "\\\\.\\", 4))
-	{
-	  if (!tail || tail == path)
-	    /* nothing */;
-	  else if (tail[-1] != '\\')
-	    *tail = '\0';
-	  else
-	    {
-	      error = ENOENT;
-	      return;
-	    }
-	}
-
-      /* If FS hasn't been checked already in symlink_info::check, do so now. */
-      if (fs.inited ()|| fs.update (get_nt_native_path (), NULL))
-	{
-	  /* Incoming DOS paths are treated like DOS paths in native
-	     Windows applications.  No ACLs, just default settings. */
-	  if (is_msdos)
-	    fs.has_acls (false);
-	  debug_printf ("this->path(%s), has_acls(%d)", path, fs.has_acls ());
-	  /* CV: We could use this->has_acls() but I want to make sure that
-	     we don't forget that the PATH_NOACL flag must be taken into
-	     account here. */
-	  if (!(path_flags & PATH_NOACL) && fs.has_acls ())
-	    set_exec (0);  /* We really don't know if this is executable or not here
-			      but set it to not executable since it will be figured out
-			      later by anything which cares about this. */
-	}
-      /* If the FS has been found to have unrelibale inodes, note
-	 that in path_flags. */
-      if (!fs.hasgood_inode ())
-	path_flags |= PATH_IHASH;
-      /* If the OS is caseinsensitive or the FS is caseinsensitive,
-	 don't handle path casesensitive. */
-      if (cygwin_shared->obcaseinsensitive || fs.caseinsensitive ())
-	path_flags |= PATH_NOPOSIX;
-      caseinsensitive = (path_flags & PATH_NOPOSIX)
-			? OBJ_CASE_INSENSITIVE : 0;
-      if (exec_state () != dont_know_if_executable)
-	/* ok */;
-      else if (isdir ())
-	set_exec (1);
-      else if (issymlink () || issocket ())
-	set_exec (0);
+      set_has_acls (FALSE);
+      set_has_buggy_open (FALSE);
+    }
+  else
+    {
+      set_isdisk ();
+      debug_printf ("root_dir(%s), this->path(%s), set_has_acls(%d)",
+		    root_dir, this->path, fs_flags & FS_PERSISTENT_ACLS);
+      if (!allow_smbntsec && is_remote_drive)
+	set_has_acls (FALSE);
+      else
+	set_has_acls (fs_flags & FS_PERSISTENT_ACLS);
+      /* Known file systems with buggy open calls. Further explanation
+	 in fhandler.cc (fhandler_disk_file::open). */
+      set_has_buggy_open (strcmp (fs_name, "SUNWNFS") == 0);
     }
 
-  if (opt & PC_NOFULL)
+  if (!(opt & PC_FULL))
     {
       if (is_relpath)
-	{
-	  mkrelpath (this->modifiable_path (), !!caseinsensitive);
-	  /* Invalidate wide_path so that wide relpath can be created
-	     in later calls to get_nt_native_path or get_wide_win32_path. */
-	  if (wide_path)
-	    cfree (wide_path);
-	  wide_path = NULL;
-	}
+	mkrelpath (this->path);
       if (need_directory)
 	{
-	  size_t n = strlen (this->path);
+	  char n = strlen (this->path);
 	  /* Do not add trailing \ to UNC device names like \\.\a: */
 	  if (this->path[n - 1] != '\\' &&
-	      (strncmp (this->path, "\\\\.\\", 4) != 0))
+	      (strncmp (this->path, "\\\\.\\", 4) != 0 ||
+	       !strncasematch (this->path + 4, "unc\\", 4)))
 	    {
-	      this->modifiable_path ()[n] = '\\';
-	      this->modifiable_path ()[n + 1] = '\0';
+	      this->path[n] = '\\';
+	      this->path[n + 1] = '\0';
 	    }
 	}
     }
@@ -1146,19 +709,14 @@ out:
   if (saw_symlinks)
     set_has_symlinks ();
 
-  if (opt & PC_OPEN)
-    path_flags |= PATH_OPEN;
-
-  if (opt & PC_CTTY)
-    path_flags |= PATH_CTTY;
-
-  if (opt & PC_POSIX)
+  if (!error && !(path_flags & (PATH_ALL_EXEC | PATH_NOTEXEC)))
     {
-      if (tail < path_end && tail > path_copy + 1)
-	*tail = '/';
-      set_normalized_path (path_copy);
-      if (is_msdos && !(opt & PC_NOWARN))
-	warn_msdos (src);
+      const char *p = strchr (path, '\0') - 4;
+      if (p >= path &&
+	  (strcasematch (".exe", p) ||
+	   strcasematch (".bat", p) ||
+	   strcasematch (".com", p)))
+	path_flags |= PATH_EXEC;
     }
 
 #if 0
@@ -1170,77 +728,172 @@ out:
 #endif
 }
 
-path_conv::~path_conv ()
+#define deveq(s) (strcasematch (name, (s)))
+#define deveqn(s, n) (strncasematch (name, (s), (n)))
+
+static __inline int
+digits (const char *name)
 {
-  if (normalized_path)
-    {
-      cfree ((void *) normalized_path);
-      normalized_path = NULL;
-    }
-  if (path)
-    {
-      cfree (modifiable_path ());
-      path = NULL;
-    }
-  if (wide_path)
-    {
-      cfree (wide_path);
-      wide_path = NULL;
-    }
-  close_conv_handle ();
+  char *p;
+  int n = strtol(name, &p, 10);
+
+  return p > name && !*p ? n : -1;
 }
 
-bool
-path_conv::is_binary ()
+const char *windows_device_names[] NO_COPY =
 {
-  tmp_pathbuf tp;
-  PWCHAR bintest = tp.w_get ();
-  DWORD bin;
+  NULL,
+  "\\dev\\console",
+  "conin",
+  "conout",
+  "\\dev\\ttym",
+  "\\dev\\tty%d",
+  "\\dev\\ptym",
+  "\\\\.\\com%d",
+  "\\dev\\pipe",
+  "\\dev\\piper",
+  "\\dev\\pipew",
+  "\\dev\\socket",
+  "\\dev\\windows",
 
-  return GetBinaryTypeW (get_wide_win32_path (bintest), &bin)
-	 && (bin == SCS_32BIT_BINARY || bin == SCS_64BIT_BINARY);
+  NULL, NULL, NULL,
+
+  "\\dev\\disk",
+  "\\dev\\fd%d",
+  "\\dev\\st%d",
+  "nul",
+  "\\dev\\zero",
+  "\\dev\\%srandom",
+  "\\dev\\mem",
+  "\\dev\\clipboard",
+  "\\dev\\dsp"
+};
+
+static int
+get_raw_device_number (const char *uxname, const char *w32path, int &unit)
+{
+  DWORD devn = FH_BAD;
+
+  if (strncasematch (w32path, "\\\\.\\tape", 8))
+    {
+      devn = FH_TAPE;
+      unit = digits (w32path + 8);
+      // norewind tape devices have leading n in name
+      if (strncasematch (uxname, "/dev/n", 6))
+	unit += 128;
+    }
+  else if (isdrive (w32path + 4))
+    {
+      devn = FH_FLOPPY;
+      unit = cyg_tolower (w32path[4]) - 'a';
+    }
+  else if (strncasematch (w32path, "\\\\.\\physicaldrive", 17))
+    {
+      devn = FH_FLOPPY;
+      unit = digits (w32path + 17) + 128;
+    }
+  return devn;
 }
 
-/* Helper function to fill the fnoi datastructure for a file. */
-NTSTATUS
-file_get_fnoi (HANDLE h, bool skip_network_open_inf,
-	       PFILE_NETWORK_OPEN_INFORMATION pfnoi)
+int __stdcall
+get_device_number (const char *name, int &unit, BOOL from_conv)
 {
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
+  DWORD devn = FH_BAD;
+  unit = 0;
 
-  /* Some FSes (Netapps) don't implement FileNetworkOpenInformation. */
-  status = skip_network_open_inf ? STATUS_INVALID_PARAMETER
-	   : NtQueryInformationFile (h, &io, pfnoi, sizeof *pfnoi,
-				     FileNetworkOpenInformation);
-  if (status == STATUS_INVALID_PARAMETER || status == STATUS_NOT_IMPLEMENTED)
+  if ((*name == '/' && deveqn ("/dev/", 5)) ||
+      (*name == '\\' && deveqn ("\\dev\\", 5)))
     {
-      /* Apart from accessing Netapps, this also occurs when accessing SMB
-	 share root dirs hosted on NT4 (STATUS_INVALID_PARAMETER), or when
-	 accessing SMB share root dirs from NT4 (STATUS_NOT_IMPLEMENTED). */
-      FILE_BASIC_INFORMATION fbi;
-      FILE_STANDARD_INFORMATION fsi;
-
-      status = NtQueryInformationFile (h, &io, &fbi, sizeof fbi,
-				       FileBasicInformation);
-      if (NT_SUCCESS (status))
+      name += 5;
+      if (deveq ("tty"))
 	{
-	  memcpy (pfnoi, &fbi, 4 * sizeof (LARGE_INTEGER));
-	  if (NT_SUCCESS (NtQueryInformationFile (h, &io, &fsi,
-					 sizeof fsi,
-					 FileStandardInformation)))
+	  if (real_tty_attached (myself))
 	    {
-	      pfnoi->EndOfFile.QuadPart = fsi.EndOfFile.QuadPart;
-	      pfnoi->AllocationSize.QuadPart
-		= fsi.AllocationSize.QuadPart;
+	      unit = myself->ctty;
+	      devn = FH_TTYS;
 	    }
-	  else
-	    pfnoi->EndOfFile.QuadPart
-	      = pfnoi->AllocationSize.QuadPart = 0;
-	  pfnoi->FileAttributes = fbi.FileAttributes;
+	  else if (myself->ctty > 0)
+	    devn = FH_CONSOLE;
 	}
+      else if (deveqn ("tty", 3) && (unit = digits (name + 3)) >= 0)
+	devn = FH_TTYS;
+      else if (deveq ("ttym"))
+	devn = FH_TTYM;
+      else if (deveq ("ptmx"))
+	devn = FH_PTYM;
+      else if (deveq ("windows"))
+	devn = FH_WINDOWS;
+      else if (deveq ("dsp"))
+	devn = FH_OSS_DSP;
+      else if (deveq ("conin"))
+	devn = FH_CONIN;
+      else if (deveq ("conout"))
+	devn = FH_CONOUT;
+      else if (deveq ("null"))
+	devn = FH_NULL;
+      else if (deveq ("zero"))
+	devn = FH_ZERO;
+      else if (deveq ("random") || deveq ("urandom"))
+	{
+	  devn = FH_RANDOM;
+	  unit = 8 + (deveqn ("u", 1) ? 1 : 0); /* Keep unit Linux conformant */
+	}
+      else if (deveq ("mem"))
+	{
+	  devn = FH_MEM;
+	  unit = 1;
+	}
+      else if (deveq ("clipboard"))
+	devn = FH_CLIPBOARD;
+      else if (deveq ("port"))
+	{
+	  devn = FH_MEM;
+	  unit = 4;
+	}
+      else if (deveqn ("com", 3) && (unit = digits (name + 3)) >= 0)
+	devn = FH_SERIAL;
+      else if (deveqn ("ttyS", 4) && (unit = digits (name + 4)) >= 0)
+	devn = FH_SERIAL;
+      else if (deveq ("pipe") || deveq ("piper") || deveq ("pipew"))
+	devn = FH_PIPE;
+      else if (deveq ("tcp") || deveq ("udp") || deveq ("streamsocket")
+	       || deveq ("dgsocket"))
+	devn = FH_SOCKET;
+      else if (!from_conv)
+	devn = get_raw_device_number (name - 5,
+				      path_conv (name - 5,
+						 PC_SYM_IGNORE).get_win32 (),
+				      unit);
     }
-  return status;
+  else if (deveqn ("com", 3) && (unit = digits (name + 3)) >= 0)
+    devn = FH_SERIAL;
+  else if (deveqn ("ttyS", 4) && (unit = digits (name + 4)) >= 0)
+    devn = FH_SERIAL;
+
+  return devn;
+}
+
+/* Return TRUE if src_path is a Win32 device name, filling out the device
+   name in win32_path */
+
+static BOOL
+win32_device_name (const char *src_path, char *win32_path,
+		   DWORD &devn, int &unit)
+{
+  const char *devfmt;
+
+  devn = get_device_number (src_path, unit, TRUE);
+
+  if (devn == FH_BAD)
+    return FALSE;
+
+  if ((devfmt = windows_device_names[FHDEVN (devn)]) == NULL)
+    return FALSE;
+  if (devn == FH_RANDOM)
+    __small_sprintf (win32_path, devfmt, unit == 8 ? "" : "u");
+  else
+    __small_sprintf (win32_path, devfmt, unit);
+  return TRUE;
 }
 
 /* Normalize a Win32 path.
@@ -1249,116 +902,136 @@ file_get_fnoi (HANDLE h, bool skip_network_open_inf,
 
    The result is 0 for success, or an errno error value.
    FIXME: A lot of this should be mergeable with the POSIX critter.  */
-int
-normalize_win32_path (const char *src, char *dst, char *&tail)
+static int
+normalize_win32_path (const char *src, char *dst)
 {
   const char *src_start = src;
+  char *dst_start = dst;
+  char *dst_root_start = dst;
   bool beg_src_slash = isdirsep (src[0]);
 
-  tail = dst;
-  /* Skip long path name prefixes in Win32 or NT syntax. */
-  if (beg_src_slash && (src[1] == '?' || isdirsep (src[1]))
-      && src[2] == '?' && isdirsep (src[3]))
-    {
-      src += 4;
-      if (src[1] != ':') /* native UNC path */
-	src += 2; /* Fortunately the first char is not copied... */
-      else
-	beg_src_slash = false;
-    }
   if (beg_src_slash && isdirsep (src[1]))
     {
-      if (isdirsep (src[2]))
-	{
-	  /* More than two slashes are just folded into one. */
-	  src += 2;
-	  while (isdirsep (src[1]))
-	    ++src;
-	}
-      else
-	{
-	  /* Two slashes start a network or device path. */
-	  *tail++ = '\\';
-	  src++;
-	  if (src[1] == '.' && isdirsep (src[2]))
-	    {
-	      *tail++ = '\\';
-	      *tail++ = '.';
-	      src += 2;
-	    }
-	}
+      *dst++ = '\\';
+      ++src;
     }
-  if (tail == dst)
+  else if (strchr (src, ':') == NULL && *src != '/')
     {
-      if (isdrive (src))
-	/* Always convert drive letter to uppercase for case sensitivity. */
-	*tail++ = cyg_toupper (*src++);
-      else if (*src != '/')
+      if (!cygheap->cwd.get (dst, 0))
+	return get_errno ();
+      if (beg_src_slash)
 	{
-	  if (beg_src_slash)
-	    tail += cygheap->cwd.get_drive (dst);
-	  else if (!cygheap->cwd.get (dst, 0))
-	    return get_errno ();
-	  else
+	  if (dst[1] == ':')
+	    dst[2] = '\0';
+	  else if (slash_unc_prefix_p (dst))
 	    {
-	      tail = strchr (tail, '\0');
-	      if (tail[-1] != '\\')
-		*tail++ = '\\';
+	      char *p = strpbrk (dst + 2, "\\/");
+	      if (p && (p = strpbrk (p + 1, "\\/")))
+		  *p = '\0';
 	    }
 	}
+      if (strlen (dst) + 1 + strlen (src) >= MAX_PATH)
+	{
+	  debug_printf ("ENAMETOOLONG = normalize_win32_path (%s)", src);
+	  return ENAMETOOLONG;
+	}
+      dst += strlen (dst);
+      if (!beg_src_slash)
+	*dst++ = '\\';
     }
 
   while (*src)
     {
       /* Strip duplicate /'s.  */
-      if (isdirsep (src[0]) && isdirsep (src[1]))
+      if (SLASH_P (src[0]) && SLASH_P (src[1]))
 	src++;
       /* Ignore "./".  */
-      else if (src[0] == '.' && isdirsep (src[1])
-	       && (src == src_start || isdirsep (src[-1])))
+      else if (src[0] == '.' && SLASH_P (src[1])
+	       && (src == src_start || SLASH_P (src[-1])))
 	src += 2;
 
       /* Backup if "..".  */
       else if (src[0] == '.' && src[1] == '.'
 	       /* dst must be greater than dst_start */
-	       && tail[-1] == '\\')
+	       && dst[-1] == '\\'
+	       && (SLASH_P (src[2]) || src[2] == 0))
 	{
-	  if (!isdirsep (src[2]) && src[2] != '\0')
-	      *tail++ = *src++;
-	  else
-	    {
-	      /* Back up over /, but not if it's the first one.  */
-	      if (tail > dst + 1)
-		tail--;
-	      /* Now back up to the next /.  */
-	      while (tail > dst + 1 && tail[-1] != '\\' && tail[-2] != ':')
-		tail--;
-	      src += 2;
-	      /* Skip /'s to the next path component. */
-	      while (isdirsep (*src))
-		src++;
-	    }
+	  /* Back up over /, but not if it's the first one.  */
+	  if (dst > dst_root_start + 1)
+	    dst--;
+	  /* Now back up to the next /.  */
+	  while (dst > dst_root_start + 1 && dst[-1] != '\\' && dst[-2] != ':')
+	    dst--;
+	  src += 2;
+	  if (SLASH_P (*src))
+	    src++;
 	}
       /* Otherwise, add char to result.  */
       else
 	{
 	  if (*src == '/')
-	    *tail++ = '\\';
+	    *dst++ = '\\';
 	  else
-	    *tail++ = *src;
-	  src++;
+	    *dst++ = *src;
+	  ++src;
 	}
-      if ((tail - dst) >= NT_MAX_PATH)
+      if ((dst - dst_start) >= MAX_PATH)
 	return ENAMETOOLONG;
     }
-  if (tail > dst + 1 && tail[-1] == '.' && tail[-2] == '\\')
-    tail--;
-  *tail = '\0';
-  debug_printf ("%s = normalize_win32_path (%s)", dst, src_start);
+  *dst = 0;
+  debug_printf ("%s = normalize_win32_path (%s)", dst_start, src_start);
   return 0;
 }
 
 /* Various utilities.  */
+
+/* slashify: Convert all back slashes in src path to forward slashes
+   in dst path.  Add a trailing slash to dst when trailing_slash_p arg
+   is set to 1. */
+
+static void
+slashify (const char *src, char *dst, int trailing_slash_p)
+{
+  const char *start = src;
+
+  while (*src)
+    {
+      if (*src == '\\')
+	*dst++ = '/';
+      else
+	*dst++ = *src;
+      ++src;
+    }
+  if (trailing_slash_p
+      && src > start
+      && !isdirsep (src[-1]))
+    *dst++ = '/';
+  *dst++ = 0;
+}
+
+/* backslashify: Convert all forward slashes in src path to back slashes
+   in dst path.  Add a trailing slash to dst when trailing_slash_p arg
+   is set to 1. */
+
+static void
+backslashify (const char *src, char *dst, int trailing_slash_p)
+{
+  const char *start = src;
+
+  while (*src)
+    {
+      if (*src == '/')
+	*dst++ = '\\';
+      else
+	*dst++ = *src;
+      ++src;
+    }
+  if (trailing_slash_p
+      && src > start
+      && !isdirsep (src[-1]))
+    *dst++ = '\\';
+  *dst++ = 0;
+}
 
 /* nofinalslash: Remove trailing / and \ from SRC (except for the
    first one).  It is ok for src == dst.  */
@@ -1369,765 +1042,1552 @@ nofinalslash (const char *src, char *dst)
   int len = strlen (src);
   if (src != dst)
     memcpy (dst, src, len + 1);
-  while (len > 1 && isdirsep (dst[--len]))
+  while (len > 1 && SLASH_P (dst[--len]))
     dst[len] = '\0';
 }
 
-/* conv_path_list: Convert a list of path names to/from Win32/POSIX. */
+/* slash_unc_prefix_p: Return non-zero if PATH begins with //UNC/SHARE */
 
-static int
-conv_path_list (const char *src, char *dst, size_t size,
-		cygwin_conv_path_t what)
+int __stdcall
+slash_unc_prefix_p (const char *path)
 {
-  tmp_pathbuf tp;
-  char src_delim, dst_delim;
-  size_t len;
-  bool env_cvt = false;
+  char *p = NULL;
+  int ret = (isdirsep (path[0])
+	     && isdirsep (path[1])
+	     && isalpha (path[2])
+	     && path[3] != 0
+	     && !isdirsep (path[3])
+	     && ((p = strpbrk(path + 3, "\\/")) != NULL));
+  if (!ret || p == NULL)
+    return ret;
+  return ret && isalnum (p[1]);
+}
 
-  if (what == (cygwin_conv_path_t) ENV_CVT)
-    {
-      what = CCP_WIN_A_TO_POSIX | CCP_RELATIVE;
-      env_cvt = true;
-    }
-  if ((what & CCP_CONVTYPE_MASK) == CCP_WIN_A_TO_POSIX)
-    {
-      src_delim = ';';
-      dst_delim = ':';
-    }
-  else
-    {
-      src_delim = ':';
-      dst_delim = ';';
-    }
+/* conv_path_list: Convert a list of path names to/from Win32/POSIX.
 
-  char *srcbuf;
-  len = strlen (src) + 1;
-  if (len <= NT_MAX_PATH * sizeof (WCHAR))
-    srcbuf = (char *) tp.w_get ();
-  else
-    srcbuf = (char *) alloca (len);
+   SRC is not a const char * because we temporarily modify it to ease
+   the implementation.
 
-  int err = 0;
-  char *d = dst - 1;
-  bool saw_empty = false;
+   I believe Win32 always has '.' in $PATH.   POSIX obviously doesn't.
+   We certainly don't want to handle that here, but it is something for
+   the caller to think about.  */
+
+static void
+conv_path_list (const char *src, char *dst, int to_posix_p)
+{
+  char *s;
+  char *d = dst;
+  char src_delim = to_posix_p ? ';' : ':';
+  char dst_delim = to_posix_p ? ':' : ';';
+  int (*conv_fn) (const char *, char *) = (to_posix_p
+					   ? cygwin_conv_to_posix_path
+					   : cygwin_conv_to_win32_path);
+
   do
     {
-      char *srcpath = srcbuf;
-      char *s = strccpy (srcpath, &src, src_delim);
-      size_t len = s - srcpath;
-      if (len >= NT_MAX_PATH)
+      s = strchr (src, src_delim);
+      if (s)
 	{
-	  err = ENAMETOOLONG;
-	  break;
-	}
-      /* Paths in Win32 path lists in the environment (%Path%), are often
-	 enclosed in quotes (usually paths with spaces).  Trailing backslashes
-	 are common, too.  Remove them. */
-      if (env_cvt && len)
-	{
-	  if (*srcpath == '"')
-	    {
-	      ++srcpath;
-	      *--s = '\0';
-	      len -= 2;
-	    }
-	  while (len && s[-1] == '\\')
-	    {
-	      *--s = '\0';
-	      --len;
-	    }
-	}
-      if (len)
-	{
-	  ++d;
-	  err = cygwin_conv_path (what, srcpath, d, size - (d - dst));
-	}
-      else if ((what & CCP_CONVTYPE_MASK) == CCP_POSIX_TO_WIN_A)
-	{
-	  ++d;
-	  err = cygwin_conv_path (what, ".", d, size - (d - dst));
+	  *s = 0;
+	  (*conv_fn) (src[0] != 0 ? src : ".", d);
+	  d += strlen (d);
+	  *d++ = dst_delim;
+	  *s = src_delim;
+	  src = s + 1;
 	}
       else
 	{
-	  if (env_cvt)
-	    saw_empty = true;
+	  /* Last one.  */
+	  (*conv_fn) (src[0] != 0 ? src : ".", d);
+	}
+    }
+  while (s != NULL);
+}
+
+/* init: Initialize the mount table.  */
+
+void
+mount_info::init ()
+{
+  nmounts = 0;
+  had_to_create_mount_areas = 0;
+
+  /* Fetch the mount table and cygdrive-related information from
+     the registry.  */
+  from_registry ();
+}
+
+/* conv_to_win32_path: Ensure src_path is a pure Win32 path and store
+   the result in win32_path.
+
+   If win32_path != NULL, the relative path, if possible to keep, is
+   stored in win32_path.  If the relative path isn't possible to keep,
+   the full path is stored.
+
+   If full_win32_path != NULL, the full path is stored there.
+
+   The result is zero for success, or an errno value.
+
+   {,full_}win32_path must have sufficient space (i.e. MAX_PATH bytes).  */
+
+int
+mount_info::conv_to_win32_path (const char *src_path, char *dst,
+				DWORD &devn, int &unit, unsigned *flags,
+				bool no_normalize)
+{
+  while (sys_mount_table_counter < cygwin_shared->sys_mount_table_counter)
+    {
+      init ();
+      sys_mount_table_counter++;
+    }
+  int src_path_len = strlen (src_path);
+  MALLOC_CHECK;
+  unsigned dummy_flags;
+  int chroot_ok = !cygheap->root.exists ();
+
+  devn = FH_BAD;
+  unit = 0;
+
+  if (!flags)
+    flags = &dummy_flags;
+
+  *flags = 0;
+  debug_printf ("conv_to_win32_path (%s)", src_path);
+
+  if (src_path_len >= MAX_PATH)
+    {
+      debug_printf ("ENAMETOOLONG = conv_to_win32_path (%s)", src_path);
+      return ENAMETOOLONG;
+    }
+
+  int i, rc;
+  mount_item *mi = NULL;	/* initialized to avoid compiler warning */
+  char pathbuf[MAX_PATH];
+
+  if (dst == NULL)
+    goto out;		/* Sanity check. */
+
+  /* An MS-DOS spec has either a : or a \.  If this is found, short
+     circuit most of the rest of this function. */
+  if (strpbrk (src_path, ":\\") != NULL || slash_unc_prefix_p (src_path))
+    {
+      debug_printf ("%s already win32", src_path);
+      rc = normalize_win32_path (src_path, dst);
+      if (rc)
+	{
+	  debug_printf ("normalize_win32_path failed, rc %d", rc);
+	  return rc;
+	}
+
+      *flags = set_flags_from_win32_path (dst);
+      goto out;
+    }
+
+  /* Normalize the path, taking out ../../ stuff, we need to do this
+     so that we can move from one mounted directory to another with relative
+     stuff.
+
+     eg mounting c:/foo /foo
+     d:/bar /bar
+
+     cd /bar
+     ls ../foo
+
+     should look in c:/foo, not d:/foo.
+
+     We do this by first getting an absolute UNIX-style path and then
+     converting it to a DOS-style path, looking up the appropriate drive
+     in the mount table.  */
+
+  if (no_normalize)
+    strcpy (pathbuf, src_path);
+  else
+    {
+      rc = normalize_posix_path (src_path, pathbuf);
+
+      if (rc)
+	{
+	  debug_printf ("%d = conv_to_win32_path (%s)", rc, src_path);
+	  *flags = 0;
+	  return rc;
+	}
+    }
+
+  /* See if this is a cygwin "device" */
+  if (win32_device_name (pathbuf, dst, devn, unit))
+    {
+      *flags = MOUNT_BINARY;	/* FIXME: Is this a sensible default for devices? */
+      rc = 0;
+      goto out_no_chroot_check;
+    }
+
+  /* Check if the cygdrive prefix was specified.  If so, just strip
+     off the prefix and transform it into an MS-DOS path. */
+  MALLOC_CHECK;
+  if (iscygdrive_device (pathbuf))
+    {
+      if (!cygdrive_win32_path (pathbuf, dst, 0))
+	return ENOENT;
+      *flags = cygdrive_flags;
+      goto out;
+    }
+
+  int chrooted_path_len;
+  chrooted_path_len = 0;
+  /* Check the mount table for prefix matches. */
+  for (i = 0; i < nmounts; i++)
+    {
+      const char *path;
+      int len;
+
+      mi = mount + posix_sorted[i];
+      if (!cygheap->root.exists ()
+	  || (mi->posix_pathlen == 1 && mi->posix_path[0] == '/'))
+	{
+	  path = mi->posix_path;
+	  len = mi->posix_pathlen;
+	}
+      else if (cygheap->root.posix_ok (mi->posix_path))
+	{
+	  path = cygheap->root.unchroot (mi->posix_path);
+	  chrooted_path_len = len = strlen (path);
+	}
+      else
+	{
+	  chrooted_path_len = 0;
 	  continue;
 	}
-      if (err)
+
+      if (path_prefix_p (path, pathbuf, len))
 	break;
-      d = strchr (d, '\0');
-      *d = dst_delim;
     }
-  while (*src++);
 
-  if (saw_empty)
-    err = EIDRM;
+  if (i >= nmounts)
+    {
+      backslashify (pathbuf, dst, 0);	/* just convert */
+      *flags = 0;
+    }
+  else
+    {
+      int n;
+      const char *native_path;
+      int posix_pathlen;
+      if (chroot_ok || chrooted_path_len || mi->posix_pathlen != 1
+	  || mi->posix_path[0] != '/')
+	{
+	  n = mi->native_pathlen;
+	  native_path = mi->native_path;
+	  posix_pathlen = chrooted_path_len ?: mi->posix_pathlen;
+	  chroot_ok = 1;
+	}
+      else
+	{
+	  n = cygheap->root.native_length ();
+	  native_path = cygheap->root.native_path ();
+	  posix_pathlen = mi->posix_pathlen;
+	  chroot_ok = 1;
+	}
+      memcpy (dst, native_path, n + 1);
+      const char *p = pathbuf + posix_pathlen;
+      if (*p == '/')
+	/* nothing */;
+      else if ((isdrive (dst) && !dst[2]) || *p)
+	dst[n++] = '\\';
+      strcpy (dst + n, p);
+      backslashify (dst, dst, 0);
+      *flags = mi->flags;
+    }
 
-  if (d < dst)
-    d++;
-  *d = '\0';
-  return err;
+ out:
+  MALLOC_CHECK;
+  if (chroot_ok || cygheap->root.ischroot_native (dst))
+    rc = 0;
+  else
+    {
+      debug_printf ("attempt to access outside of chroot '%s = %s'",
+		    cygheap->root.posix_path (), cygheap->root.native_path ());
+      rc = ENOENT;
+    }
+
+ out_no_chroot_check:
+  debug_printf ("src_path %s, dst %s, flags %p, rc %d", src_path, dst, *flags, rc);
+  return rc;
+}
+
+/* cygdrive_posix_path: Build POSIX path used as the
+   mount point for cygdrives created when there is no other way to
+   obtain a POSIX path from a Win32 one. */
+
+void
+mount_info::cygdrive_posix_path (const char *src, char *dst, int trailing_slash_p)
+{
+  int len = cygdrive_len;
+
+  memcpy (dst, cygdrive, len + 1);
+
+  /* Now finish the path off with the drive letter to be used.
+     The cygdrive prefix always ends with a trailing slash so
+     the drive letter is added after the path. */
+  dst[len++] = cyg_tolower (src[0]);
+  if (!src[2] || (SLASH_P (src[2]) && !src[3]))
+    dst[len++] = '\000';
+  else
+    {
+      int n;
+      dst[len++] = '/';
+      if (SLASH_P (src[2]))
+	n = 3;
+      else
+	n = 2;
+      strcpy (dst + len, src + n);
+    }
+  slashify (dst, dst, trailing_slash_p);
+}
+
+int
+mount_info::cygdrive_win32_path (const char *src, char *dst, int trailing_slash_p)
+{
+  const char *p = src + cygdrive_len;
+  if (!isalpha (*p) || (!isdirsep (p[1]) && p[1]))
+    return 0;
+  dst[0] = *p;
+  dst[1] = ':';
+  strcpy (dst + 2, p + 1);
+  backslashify (dst, dst, trailing_slash_p || !dst[2]);
+  debug_printf ("src '%s', dst '%s'", src, dst);
+  return 1;
+}
+
+/* conv_to_posix_path: Ensure src_path is a POSIX path.
+
+   The result is zero for success, or an errno value.
+   posix_path must have sufficient space (i.e. MAX_PATH bytes).
+   If keep_rel_p is non-zero, relative paths stay that way.  */
+
+int
+mount_info::conv_to_posix_path (const char *src_path, char *posix_path,
+				int keep_rel_p)
+{
+  int src_path_len = strlen (src_path);
+  int relative_path_p = !isabspath (src_path);
+  int trailing_slash_p;
+
+  if (src_path_len <= 1)
+    trailing_slash_p = 0;
+  else
+    {
+      const char *lastchar = src_path + src_path_len - 1;
+      trailing_slash_p = SLASH_P (*lastchar) && lastchar[-1] != ':';
+    }
+
+  debug_printf ("conv_to_posix_path (%s, %s, %s)", src_path,
+		keep_rel_p ? "keep-rel" : "no-keep-rel",
+		trailing_slash_p ? "add-slash" : "no-add-slash");
+  MALLOC_CHECK;
+
+  if (src_path_len >= MAX_PATH)
+    {
+      debug_printf ("ENAMETOOLONG");
+      return ENAMETOOLONG;
+    }
+
+  /* FIXME: For now, if the path is relative and it's supposed to stay
+     that way, skip mount table processing. */
+
+  if (keep_rel_p && relative_path_p)
+    {
+      slashify (src_path, posix_path, 0);
+      debug_printf ("%s = conv_to_posix_path (%s)", posix_path, src_path);
+      return 0;
+    }
+
+  char pathbuf[MAX_PATH];
+  int rc = normalize_win32_path (src_path, pathbuf);
+  if (rc != 0)
+    {
+      debug_printf ("%d = conv_to_posix_path (%s)", rc, src_path);
+      return rc;
+    }
+
+  int pathbuflen = strlen (pathbuf);
+  for (int i = 0; i < nmounts; ++i)
+    {
+      mount_item &mi = mount[native_sorted[i]];
+      if (!path_prefix_p (mi.native_path, pathbuf, mi.native_pathlen))
+	continue;
+
+      if (cygheap->root.exists () && !cygheap->root.posix_ok (mi.posix_path))
+	continue;
+
+      /* SRC_PATH is in the mount table. */
+      int nextchar;
+      const char *p = pathbuf + mi.native_pathlen;
+
+      if (!*p || !p[1])
+	nextchar = 0;
+      else if (isdirsep (*p))
+	nextchar = -1;
+      else
+	nextchar = 1;
+
+      int addslash = nextchar > 0 ? 1 : 0;
+      if ((mi.posix_pathlen + (pathbuflen - mi.native_pathlen) + addslash) >= MAX_PATH)
+	return ENAMETOOLONG;
+      strcpy (posix_path, mi.posix_path);
+      if (addslash)
+	strcat (posix_path, "/");
+      if (nextchar)
+	slashify (p,
+		  posix_path + addslash + (mi.posix_pathlen == 1 ? 0 : mi.posix_pathlen),
+		  trailing_slash_p);
+
+      if (cygheap->root.exists ())
+	{
+	  const char *p = cygheap->root.unchroot (posix_path);
+	  memmove (posix_path, p, strlen (p) + 1);
+	}
+      goto out;
+    }
+
+  if (!cygheap->root.exists ())
+    /* nothing */;
+  else if (cygheap->root.ischroot_native (pathbuf))
+    {
+      const char *p = pathbuf + cygheap->root.native_length ();
+      if (*p)
+	slashify (p, posix_path, trailing_slash_p);
+      else
+	{
+	  posix_path[0] = '/';
+	  posix_path[1] = '\0';
+	}
+    }
+  else
+    return ENOENT;
+
+  /* Not in the database.  This should [theoretically] only happen if either
+     the path begins with //, or / isn't mounted, or the path has a drive
+     letter not covered by the mount table.  If it's a relative path then the
+     caller must want an absolute path (otherwise we would have returned
+     above).  So we always return an absolute path at this point. */
+  if (isdrive (pathbuf))
+    cygdrive_posix_path (pathbuf, posix_path, trailing_slash_p);
+  else
+    {
+      /* The use of src_path and not pathbuf here is intentional.
+	 We couldn't translate the path, so just ensure no \'s are present. */
+      slashify (src_path, posix_path, trailing_slash_p);
+    }
+
+out:
+  debug_printf ("%s = conv_to_posix_path (%s)", posix_path, src_path);
+  MALLOC_CHECK;
+  return 0;
+}
+
+/* Return flags associated with a mount point given the win32 path. */
+
+unsigned
+mount_info::set_flags_from_win32_path (const char *p)
+{
+  for (int i = 0; i < nmounts; i++)
+    {
+      mount_item &mi = mount[native_sorted[i]];
+      if (path_prefix_p (mi.native_path, p, mi.native_pathlen))
+	return mi.flags;
+    }
+  return 0;
+}
+
+/* read_mounts: Given a specific regkey, read mounts from under its
+   key. */
+
+void
+mount_info::read_mounts (reg_key& r)
+{
+  char posix_path[MAX_PATH];
+  HKEY key = r.get_key ();
+  DWORD i, posix_path_size;
+  int res;
+
+  /* Loop through subkeys */
+  /* FIXME: we would like to not check MAX_MOUNTS but the heap in the
+     shared area is currently statically allocated so we can't have an
+     arbitrarily large number of mounts. */
+  for (i = 0; ; i++)
+    {
+      char native_path[MAX_PATH];
+      int mount_flags;
+
+      posix_path_size = MAX_PATH;
+      /* FIXME: if maximum posix_path_size is 256, we're going to
+	 run into problems if we ever try to store a mount point that's
+	 over 256 but is under MAX_PATH. */
+      res = RegEnumKeyEx (key, i, posix_path, &posix_path_size, NULL,
+			  NULL, NULL, NULL);
+
+      if (res == ERROR_NO_MORE_ITEMS)
+	break;
+      else if (res != ERROR_SUCCESS)
+	{
+	  debug_printf ("RegEnumKeyEx failed, error %d!\n", res);
+	  break;
+	}
+
+      /* Get a reg_key based on i. */
+      reg_key subkey = reg_key (key, KEY_READ, posix_path, NULL);
+
+      /* Fetch info from the subkey. */
+      subkey.get_string ("native", native_path, sizeof (native_path), "");
+      mount_flags = subkey.get_int ("flags", 0);
+
+      /* Add mount_item corresponding to registry mount point. */
+      res = mount_table->add_item (native_path, posix_path, mount_flags, FALSE);
+      if (res && get_errno () == EMFILE)
+	break; /* The number of entries exceeds MAX_MOUNTS */
+    }
+}
+
+/* from_registry: Build the entire mount table from the registry.  Also,
+   read in cygdrive-related information from its registry location. */
+
+void
+mount_info::from_registry ()
+{
+  /* Use current mount areas if either user or system mount areas
+     already exist.  Otherwise, import old mounts. */
+
+  reg_key r;
+
+  /* Retrieve cygdrive-related information. */
+  read_cygdrive_info_from_registry ();
+
+  nmounts = 0;
+
+  /* First read mounts from user's table. */
+  read_mounts (r);
+
+  /* Then read mounts from system-wide mount table. */
+  reg_key r1 (HKEY_LOCAL_MACHINE, KEY_READ, "SOFTWARE",
+	      CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+	      CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+	      CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+	      NULL);
+  read_mounts (r1);
+
+  /* If we had to create both user and system mount areas, import
+     old mounts. */
+  if (had_to_create_mount_areas == 2)
+    import_v1_mounts ();
+}
+
+/* add_reg_mount: Add mount item to registry.  Return zero on success,
+   non-zero on failure. */
+/* FIXME: Need a mutex to avoid collisions with other tasks. */
+
+int
+mount_info::add_reg_mount (const char * native_path, const char * posix_path, unsigned mountflags)
+{
+  int res = 0;
+
+  /* Add the mount to the right registry location, depending on
+     whether MOUNT_SYSTEM is set in the mount flags. */
+  if (!(mountflags & MOUNT_SYSTEM)) /* current_user mount */
+    {
+      /* reg_key for user mounts in HKEY_CURRENT_USER. */
+      reg_key reg_user;
+
+      /* Start by deleting existing mount if one exists. */
+      res = reg_user.kill (posix_path);
+      if (res != ERROR_SUCCESS && res != ERROR_FILE_NOT_FOUND)
+	goto err;
+
+      /* Create the new mount. */
+      reg_key subkey = reg_key (reg_user.get_key (),
+				KEY_ALL_ACCESS,
+				posix_path, NULL);
+      res = subkey.set_string ("native", native_path);
+      if (res != ERROR_SUCCESS)
+	goto err;
+      res = subkey.set_int ("flags", mountflags);
+    }
+  else /* local_machine mount */
+    {
+      /* reg_key for system mounts in HKEY_LOCAL_MACHINE. */
+      reg_key reg_sys (HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, "SOFTWARE",
+		       CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+		       CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+		       CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+		       NULL);
+
+      /* Start by deleting existing mount if one exists. */
+      res = reg_sys.kill (posix_path);
+      if (res != ERROR_SUCCESS && res != ERROR_FILE_NOT_FOUND)
+	goto err;
+
+      /* Create the new mount. */
+      reg_key subkey = reg_key (reg_sys.get_key (),
+				KEY_ALL_ACCESS,
+				posix_path, NULL);
+      res = subkey.set_string ("native", native_path);
+      if (res != ERROR_SUCCESS)
+	goto err;
+      res = subkey.set_int ("flags", mountflags);
+
+      sys_mount_table_counter++;
+      cygwin_shared->sys_mount_table_counter++;
+    }
+
+  return 0; /* Success */
+ err:
+  __seterrno_from_win_error (res);
+  return -1;
+}
+
+/* del_reg_mount: delete mount item from registry indicated in flags.
+   Return zero on success, non-zero on failure.*/
+/* FIXME: Need a mutex to avoid collisions with other tasks. */
+
+int
+mount_info::del_reg_mount (const char * posix_path, unsigned flags)
+{
+  int res;
+
+  if (!(flags & MOUNT_SYSTEM))	/* Delete from user registry */
+    {
+      reg_key reg_user (KEY_ALL_ACCESS,
+			CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME, NULL);
+      res = reg_user.kill (posix_path);
+    }
+  else					/* Delete from system registry */
+    {
+      sys_mount_table_counter++;
+      cygwin_shared->sys_mount_table_counter++;
+      reg_key reg_sys (HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, "SOFTWARE",
+		       CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+		       CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+		       CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+		       NULL);
+      res = reg_sys.kill (posix_path);
+    }
+
+  if (res != ERROR_SUCCESS)
+    {
+      __seterrno_from_win_error (res);
+      return -1;
+    }
+
+  return 0; /* Success */
+}
+
+/* read_cygdrive_info_from_registry: Read the default prefix and flags
+   to use when creating cygdrives from the special user registry
+   location used to store cygdrive information. */
+
+void
+mount_info::read_cygdrive_info_from_registry ()
+{
+  /* reg_key for user path prefix in HKEY_CURRENT_USER. */
+  reg_key r;
+
+  if (r.get_string (CYGWIN_INFO_CYGDRIVE_PREFIX, cygdrive, sizeof (cygdrive),
+      "") != 0)
+    {
+      /* Didn't find the user path prefix so check the system path prefix. */
+
+      /* reg_key for system path prefix in HKEY_LOCAL_MACHINE.  */
+      reg_key r2 (HKEY_LOCAL_MACHINE, KEY_READ, "SOFTWARE",
+		 CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+		 CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+		 CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+		 NULL);
+
+    if (r2.get_string (CYGWIN_INFO_CYGDRIVE_PREFIX, cygdrive, sizeof (cygdrive),
+	"") != 0)
+      {
+	/* Didn't find either so write the default to the registry and use it.
+	   NOTE: We are writing and using the user path prefix.  */
+	write_cygdrive_info_to_registry (CYGWIN_INFO_CYGDRIVE_DEFAULT_PREFIX,
+					 MOUNT_AUTO);
+      }
+    else
+      {
+	/* Fetch system cygdrive_flags from registry; returns MOUNT_AUTO on
+	   error. */
+	cygdrive_flags = r2.get_int (CYGWIN_INFO_CYGDRIVE_FLAGS, MOUNT_AUTO);
+	slashify (cygdrive, cygdrive, 1);
+	cygdrive_len = strlen(cygdrive);
+      }
+    }
+  else
+    {
+      /* Fetch user cygdrive_flags from registry; returns MOUNT_AUTO on
+	 error. */
+      cygdrive_flags = r.get_int (CYGWIN_INFO_CYGDRIVE_FLAGS, MOUNT_AUTO);
+      slashify (cygdrive, cygdrive, 1);
+      cygdrive_len = strlen(cygdrive);
+    }
+}
+
+/* write_cygdrive_info_to_registry: Write the default prefix and flags
+   to use when creating cygdrives to the special user registry
+   location used to store cygdrive information. */
+
+int
+mount_info::write_cygdrive_info_to_registry (const char *cygdrive_prefix, unsigned flags)
+{
+  /* Determine whether to modify user or system cygdrive path prefix. */
+  HKEY top = (flags & MOUNT_SYSTEM) ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+
+  if (flags & MOUNT_SYSTEM)
+    {
+      sys_mount_table_counter++;
+      cygwin_shared->sys_mount_table_counter++;
+    }
+
+  /* reg_key for user path prefix in HKEY_CURRENT_USER or system path prefix in
+     HKEY_LOCAL_MACHINE.  */
+  reg_key r (top, KEY_ALL_ACCESS, "SOFTWARE",
+	     CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+	     CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+	     CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+	     NULL);
+
+  /* Verify cygdrive prefix starts with a forward slash and if there's
+     another character, it's not a slash. */
+  if ((cygdrive_prefix == NULL) || (*cygdrive_prefix == 0) ||
+      (!isslash (cygdrive_prefix[0])) ||
+      ((cygdrive_prefix[1] != '\0') && (isslash (cygdrive_prefix[1]))))
+      {
+	set_errno (EINVAL);
+	return -1;
+      }
+
+  char hold_cygdrive_prefix[strlen (cygdrive_prefix) + 1];
+  /* Ensure that there is never a final slash */
+  nofinalslash (cygdrive_prefix, hold_cygdrive_prefix);
+
+  int res;
+  res = r.set_string (CYGWIN_INFO_CYGDRIVE_PREFIX, hold_cygdrive_prefix);
+  if (res != ERROR_SUCCESS)
+    {
+      __seterrno_from_win_error (res);
+      return -1;
+    }
+  r.set_int (CYGWIN_INFO_CYGDRIVE_FLAGS, flags);
+
+  /* This also needs to go in the in-memory copy of "cygdrive", but only if
+     appropriate:
+       1. setting user path prefix, or
+       2. overwriting (a previous) system path prefix */
+  if (!(flags & MOUNT_SYSTEM) || (mount_table->cygdrive_flags & MOUNT_SYSTEM))
+    {
+      slashify (cygdrive_prefix, mount_table->cygdrive, 1);
+      mount_table->cygdrive_flags = flags;
+      mount_table->cygdrive_len = strlen(mount_table->cygdrive);
+    }
+
+  return 0;
+}
+
+int
+mount_info::remove_cygdrive_info_from_registry (const char *cygdrive_prefix, unsigned flags)
+{
+  /* Determine whether to modify user or system cygdrive path prefix. */
+  HKEY top = (flags & MOUNT_SYSTEM) ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+
+  if (flags & MOUNT_SYSTEM)
+    {
+      sys_mount_table_counter++;
+      cygwin_shared->sys_mount_table_counter++;
+    }
+
+  /* reg_key for user path prefix in HKEY_CURRENT_USER or system path prefix in
+     HKEY_LOCAL_MACHINE.  */
+  reg_key r (top, KEY_ALL_ACCESS, "SOFTWARE",
+	     CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+	     CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+	     CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+	     NULL);
+
+  /* Delete cygdrive prefix and flags. */
+  int res = r.killvalue (CYGWIN_INFO_CYGDRIVE_PREFIX);
+  int res2 = r.killvalue (CYGWIN_INFO_CYGDRIVE_FLAGS);
+
+  /* Reinitialize the cygdrive path prefix to reflect to removal from the
+     registry. */
+  read_cygdrive_info_from_registry ();
+
+  return (res != ERROR_SUCCESS) ? res : res2;
+}
+
+int
+mount_info::get_cygdrive_info (char *user, char *system, char* user_flags,
+			       char* system_flags)
+{
+  /* Get the user path prefix from HKEY_CURRENT_USER. */
+  reg_key r;
+  int res = r.get_string (CYGWIN_INFO_CYGDRIVE_PREFIX, user, MAX_PATH, "");
+
+  /* Get the user flags, if appropriate */
+  if (res == ERROR_SUCCESS)
+    {
+      int flags = r.get_int (CYGWIN_INFO_CYGDRIVE_FLAGS, MOUNT_AUTO);
+      strcpy (user_flags, (flags & MOUNT_BINARY) ? "binmode" : "textmode");
+    }
+
+  /* Get the system path prefix from HKEY_LOCAL_MACHINE. */
+  reg_key r2 (HKEY_LOCAL_MACHINE, KEY_READ, "SOFTWARE",
+	      CYGWIN_INFO_CYGNUS_REGISTRY_NAME,
+	      CYGWIN_INFO_CYGWIN_REGISTRY_NAME,
+	      CYGWIN_INFO_CYGWIN_MOUNT_REGISTRY_NAME,
+	      NULL);
+  int res2 = r2.get_string (CYGWIN_INFO_CYGDRIVE_PREFIX, system, MAX_PATH, "");
+
+  /* Get the system flags, if appropriate */
+  if (res2 == ERROR_SUCCESS)
+    {
+      int flags = r2.get_int (CYGWIN_INFO_CYGDRIVE_FLAGS, MOUNT_AUTO);
+      strcpy (system_flags, (flags & MOUNT_BINARY) ? "binmode" : "textmode");
+    }
+
+  return (res != ERROR_SUCCESS) ? res : res2;
+}
+
+static mount_item *mounts_for_sort;
+
+/* sort_by_posix_name: qsort callback to sort the mount entries.  Sort
+   user mounts ahead of system mounts to the same POSIX path. */
+/* FIXME: should the user should be able to choose whether to
+   prefer user or system mounts??? */
+static int
+sort_by_posix_name (const void *a, const void *b)
+{
+  mount_item *ap = mounts_for_sort + (*((int*) a));
+  mount_item *bp = mounts_for_sort + (*((int*) b));
+
+  /* Base weighting on longest posix path first so that the most
+     obvious path will be chosen. */
+  size_t alen = strlen (ap->posix_path);
+  size_t blen = strlen (bp->posix_path);
+
+  int res = blen - alen;
+
+  if (res)
+    return res;		/* Path lengths differed */
+
+  /* The two paths were the same length, so just determine normal
+     lexical sorted order. */
+  res = strcmp (ap->posix_path, bp->posix_path);
+
+  if (res == 0)
+   {
+     /* need to select between user and system mount to same POSIX path */
+     if (!(bp->flags & MOUNT_SYSTEM))	/* user mount */
+      return 1;
+     else
+      return -1;
+   }
+
+  return res;
+}
+
+/* sort_by_native_name: qsort callback to sort the mount entries.  Sort
+   user mounts ahead of system mounts to the same POSIX path. */
+/* FIXME: should the user should be able to choose whether to
+   prefer user or system mounts??? */
+static int
+sort_by_native_name (const void *a, const void *b)
+{
+  mount_item *ap = mounts_for_sort + (*((int*) a));
+  mount_item *bp = mounts_for_sort + (*((int*) b));
+
+  /* Base weighting on longest win32 path first so that the most
+     obvious path will be chosen. */
+  size_t alen = strlen (ap->native_path);
+  size_t blen = strlen (bp->native_path);
+
+  int res = blen - alen;
+
+  if (res)
+    return res;		/* Path lengths differed */
+
+  /* The two paths were the same length, so just determine normal
+     lexical sorted order. */
+  res = strcmp (ap->native_path, bp->native_path);
+
+  if (res == 0)
+   {
+     /* need to select between user and system mount to same POSIX path */
+     if (!(bp->flags & MOUNT_SYSTEM))	/* user mount */
+      return 1;
+     else
+      return -1;
+   }
+
+  return res;
+}
+
+void
+mount_info::sort ()
+{
+  for (int i = 0; i < nmounts; i++)
+    native_sorted[i] = posix_sorted[i] = i;
+  /* Sort them into reverse length order, otherwise we won't
+     be able to look for /foo in /.  */
+  mounts_for_sort = mount;	/* ouch. */
+  qsort (posix_sorted, nmounts, sizeof (posix_sorted[0]), sort_by_posix_name);
+  qsort (native_sorted, nmounts, sizeof (native_sorted[0]), sort_by_native_name);
+}
+
+/* Add an entry to the mount table.
+   Returns 0 on success, -1 on failure and errno is set.
+
+   This is where all argument validation is done.  It may not make sense to
+   do this when called internally, but it's cleaner to keep it all here.  */
+
+int
+mount_info::add_item (const char *native, const char *posix, unsigned mountflags, int reg_p)
+{
+  /* Something's wrong if either path is NULL or empty, or if it's
+     not a UNC or absolute path. */
+
+  if ((native == NULL) || (*native == 0) ||
+      (posix == NULL) || (*posix == 0) ||
+      !isabspath (native) || !isabspath (posix) ||
+      slash_unc_prefix_p (posix) || isdrive (posix))
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  /* Make sure both paths do not end in /. */
+  char nativetmp[MAX_PATH];
+  char posixtmp[MAX_PATH];
+
+  backslashify (native, nativetmp, 0);
+  nofinalslash (nativetmp, nativetmp);
+
+  slashify (posix, posixtmp, 0);
+  nofinalslash (posixtmp, posixtmp);
+
+  debug_printf ("%s[%s], %s[%s], %p",
+		native, nativetmp, posix, posixtmp, mountflags);
+
+  /* Duplicate /'s in path are an error. */
+  for (char *p = posixtmp + 1; *p; ++p)
+    {
+      if (p[-1] == '/' && p[0] == '/')
+	{
+	  set_errno (EINVAL);
+	  return -1;
+	}
+    }
+
+  /* Write over an existing mount item with the same POSIX path if
+     it exists and is from the same registry area. */
+  int i;
+  for (i = 0; i < nmounts; i++)
+    {
+      if (strcasematch (mount[i].posix_path, posixtmp) &&
+	  (mount[i].flags & MOUNT_SYSTEM) == (mountflags & MOUNT_SYSTEM))
+	break;
+    }
+
+  if (i == nmounts && nmounts == MAX_MOUNTS)
+    {
+      set_errno (EMFILE);
+      return -1;
+    }
+
+  if (reg_p && add_reg_mount (nativetmp, posixtmp, mountflags))
+    return -1;
+
+  if (i == nmounts)
+    nmounts++;
+  mount[i].init (nativetmp, posixtmp, mountflags);
+  sort ();
+
+  return 0;
+}
+
+/* Delete a mount table entry where path is either a Win32 or POSIX
+   path. Since the mount table is really just a table of aliases,
+   deleting / is ok (although running without a slash mount is
+   strongly discouraged because some programs may run erratically
+   without one).  If MOUNT_SYSTEM is set in flags, remove from system
+   registry, otherwise remove the user registry mount.
+*/
+
+int
+mount_info::del_item (const char *path, unsigned flags, int reg_p)
+{
+  char pathtmp[MAX_PATH];
+  int posix_path_p = FALSE;
+
+  /* Something's wrong if path is NULL or empty. */
+  if (path == NULL || *path == 0 || !isabspath (path))
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  if (slash_unc_prefix_p (path) || strpbrk (path, ":\\"))
+    backslashify (path, pathtmp, 0);
+  else
+    {
+      slashify (path, pathtmp, 0);
+      posix_path_p = TRUE;
+    }
+  nofinalslash (pathtmp, pathtmp);
+
+  if (reg_p && posix_path_p &&
+      del_reg_mount (pathtmp, flags) &&
+      del_reg_mount (path, flags)) /* for old irregular entries */
+    return -1;
+
+  for (int i = 0; i < nmounts; i++)
+    {
+      int ent = native_sorted[i]; /* in the same order as getmntent() */
+      if (((posix_path_p)
+	   ? strcasematch (mount[ent].posix_path, pathtmp)
+	   : strcasematch (mount[ent].native_path, pathtmp)) &&
+	  (mount[ent].flags & MOUNT_SYSTEM) == (flags & MOUNT_SYSTEM))
+	{
+	  if (!posix_path_p &&
+	      reg_p && del_reg_mount (mount[ent].posix_path, flags))
+	    return -1;
+
+	  nmounts--; /* One less mount table entry */
+	  /* Fill in the hole if not at the end of the table */
+	  if (ent < nmounts)
+	    memmove (mount + ent, mount + ent + 1,
+		     sizeof (mount[ent]) * (nmounts - ent));
+	  sort (); /* Resort the table */
+	  return 0;
+	}
+    }
+  set_errno (EINVAL);
+  return -1;
+}
+
+/* read_v1_mounts: Given a reg_key to an old mount table registry area,
+   read in the mounts.  The "which" arg contains zero if we're reading
+   the user area and MOUNT_SYSTEM if we're reading the system area.
+   This way we can store the mounts read in the appropriate place when
+   they are written back to the new registry layout. */
+
+void
+mount_info::read_v1_mounts (reg_key r, unsigned which)
+{
+  unsigned mountflags = 0;
+
+  /* MAX_MOUNTS was 30 when we stopped using the v1 layout */
+  for (int i = 0; i < 30; i++)
+    {
+      char key_name[10];
+      char win32path[MAX_PATH];
+      char unixpath[MAX_PATH];
+
+      __small_sprintf (key_name, "%02x", i);
+
+      reg_key k (r.get_key (), KEY_ALL_ACCESS, key_name, NULL);
+
+      /* The registry names are historical but useful so are left alone.  */
+      k.get_string ("native", win32path, sizeof (win32path), "");
+      k.get_string ("unix", unixpath, sizeof (unixpath), "");
+
+      /* Does this entry contain something?  */
+      if (*win32path != 0)
+	{
+	  mountflags = 0;
+
+	  if (k.get_int ("fbinary", 0))
+	    mountflags |= MOUNT_BINARY;
+
+	  /* Or in zero or MOUNT_SYSTEM depending on which table
+	     we're reading. */
+	  mountflags |= which;
+
+	  int res = mount_table->add_item (win32path, unixpath, mountflags, TRUE);
+	  if (res && get_errno () == EMFILE)
+	    break; /* The number of entries exceeds MAX_MOUNTS */
+	}
+    }
+}
+
+/* import_v1_mounts: If v1 mounts are present, load them and write
+   the new entries to the new registry area. */
+
+void
+mount_info::import_v1_mounts ()
+{
+  reg_key r (HKEY_CURRENT_USER, KEY_ALL_ACCESS,
+	     "SOFTWARE",
+	     "Cygnus Solutions",
+	     "CYGWIN.DLL setup",
+	     "b15.0",
+	     "mounts",
+	     NULL);
+
+  nmounts = 0;
+
+  /* First read mounts from user's table. */
+  read_v1_mounts (r, 0);
+
+  /* Then read mounts from system-wide mount table. */
+  reg_key r1 (HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS,
+	      "SOFTWARE",
+	      "Cygnus Solutions",
+	      "CYGWIN.DLL setup",
+	      "b15.0",
+	      "mounts",
+	      NULL);
+  read_v1_mounts (r1, MOUNT_SYSTEM);
+}
+
+/************************* mount_item class ****************************/
+
+static mntent *
+fillout_mntent (const char *native_path, const char *posix_path, unsigned flags)
+{
+#ifdef _MT_SAFE
+  struct mntent &ret=_reent_winsup()->mntbuf;
+#else
+  static NO_COPY struct mntent ret;
+#endif
+
+  /* Remove drivenum from list if we see a x: style path */
+  if (strlen (native_path) == 2 && native_path[1] == ':')
+    {
+      int drivenum = tolower (native_path[0]) - 'a';
+      if (drivenum >= 0 && drivenum <= 31)
+	available_drives &= ~(1 << drivenum);
+    }
+
+  /* Pass back pointers to mount_table strings reserved for use by
+     getmntent rather than pointers to strings in the internal mount
+     table because the mount table might change, causing weird effects
+     from the getmntent user's point of view. */
+
+  strcpy (_reent_winsup ()->mnt_fsname, native_path);
+  ret.mnt_fsname = _reent_winsup ()->mnt_fsname;
+  strcpy (_reent_winsup ()->mnt_dir, posix_path);
+  ret.mnt_dir = _reent_winsup ()->mnt_dir;
+
+  if (!(flags & MOUNT_SYSTEM))		/* user mount */
+    strcpy (_reent_winsup ()->mnt_type, (char *) "user");
+  else					/* system mount */
+    strcpy (_reent_winsup ()->mnt_type, (char *) "system");
+
+  ret.mnt_type = _reent_winsup ()->mnt_type;
+
+  /* mnt_opts is a string that details mount params such as
+     binary or textmode, or exec.  We don't print
+     `silent' here; it's a magic internal thing. */
+
+  if (!(flags & MOUNT_BINARY))
+    strcpy (_reent_winsup ()->mnt_opts, (char *) "textmode");
+  else
+    strcpy (_reent_winsup ()->mnt_opts, (char *) "binmode");
+
+  if (flags & MOUNT_CYGWIN_EXEC)
+    strcat (_reent_winsup ()->mnt_opts, (char *) ",cygexec");
+  else if (flags & MOUNT_EXEC)
+    strcat (_reent_winsup ()->mnt_opts, (char *) ",exec");
+
+  if ((flags & MOUNT_AUTO))		/* cygdrive */
+    strcat (_reent_winsup ()->mnt_opts, (char *) ",noumount");
+
+  ret.mnt_opts = _reent_winsup ()->mnt_opts;
+
+  ret.mnt_freq = 1;
+  ret.mnt_passno = 1;
+  return &ret;
+}
+
+struct mntent *
+mount_item::getmntent ()
+{
+  return fillout_mntent (native_path, posix_path, flags);
+}
+
+static struct mntent *
+cygdrive_getmntent ()
+{
+  char native_path[4];
+  char posix_path[MAX_PATH];
+  DWORD mask = 1, drive = 'a';
+  struct mntent *ret = NULL;
+
+  while (available_drives)
+    {
+      for (/* nothing */; drive <= 'z'; mask <<= 1, drive++)
+	if (available_drives & mask)
+	  break;
+
+      __small_sprintf (native_path, "%c:\\", drive);
+      if (GetDriveType (native_path) == DRIVE_REMOVABLE ||
+	  GetFileAttributes (native_path) == (DWORD) -1)
+	{
+	  available_drives &= ~mask;
+	  continue;
+	}
+      native_path[2] = '\0';
+      __small_sprintf (posix_path, "%s%c", mount_table->cygdrive, drive);
+      ret = fillout_mntent (native_path, posix_path, mount_table->cygdrive_flags);
+      break;
+    }
+
+  return ret;
+}
+
+struct mntent *
+mount_info::getmntent (int x)
+{
+  if (x < 0 || x >= nmounts)
+    return cygdrive_getmntent ();
+
+  return mount[native_sorted[x]].getmntent ();
+}
+
+/* Fill in the fields of a mount table entry.  */
+
+void
+mount_item::init (const char *native, const char *posix, unsigned mountflags)
+{
+  strcpy ((char *) native_path, native);
+  strcpy ((char *) posix_path, posix);
+
+  native_pathlen = strlen (native_path);
+  posix_pathlen = strlen (posix_path);
+
+  flags = mountflags;
+}
+
+/********************** Mount System Calls **************************/
+
+/* Mount table system calls.
+   Note that these are exported to the application.  */
+
+/* mount: Add a mount to the mount table in memory and to the registry
+   that will cause paths under win32_path to be translated to paths
+   under posix_path. */
+
+extern "C"
+int
+mount (const char *win32_path, const char *posix_path, unsigned flags)
+{
+  int res = -1;
+
+  if (flags & MOUNT_AUTO) /* normal mount */
+    {
+      /* When flags include MOUNT_AUTO, take this to mean that
+	we actually want to change the cygdrive prefix and flags
+	without actually mounting anything. */
+      res = mount_table->write_cygdrive_info_to_registry (posix_path, flags);
+      win32_path = NULL;
+    }
+  else
+    res = mount_table->add_item (win32_path, posix_path, flags, TRUE);
+
+  syscall_printf ("%d = mount (%s, %s, %p)", res, win32_path, posix_path, flags);
+  return res;
+}
+
+/* umount: The standard umount call only has a path parameter.  Since
+   it is not possible for this call to specify whether to remove the
+   mount from the user or global mount registry table, assume the user
+   table. */
+
+extern "C"
+int
+umount (const char *path)
+{
+  return cygwin_umount (path, 0);
+}
+
+/* cygwin_umount: This is like umount but takes an additional flags
+   parameter that specifies whether to umount from the user or system-wide
+   registry area. */
+
+extern "C"
+int
+cygwin_umount (const char *path, unsigned flags)
+{
+  int res = -1;
+
+  if (flags & MOUNT_AUTO)
+    {
+      /* When flags include MOUNT_AUTO, take this to mean that we actually want
+	 to remove the cygdrive prefix and flags without actually unmounting
+	 anything. */
+      res = mount_table->remove_cygdrive_info_from_registry (path, flags);
+    }
+  else
+    {
+      res = mount_table->del_item (path, flags, TRUE);
+    }
+
+  syscall_printf ("%d = cygwin_umount (%s, %d)", res,  path, flags);
+  return res;
+}
+
+extern "C"
+FILE *
+setmntent (const char *filep, const char *)
+{
+  iteration = 0;
+  available_drives = GetLogicalDrives ();
+  return (FILE *) filep;
+}
+
+extern "C"
+struct mntent *
+getmntent (FILE *)
+{
+  return mount_table->getmntent (iteration++);
+}
+
+extern "C"
+int
+endmntent (FILE *)
+{
+  return 1;
 }
 
 /********************** Symbolic Link Support **************************/
 
-/* Create a symlink from FROMPATH to TOPATH. */
-
-extern "C" int
-symlink (const char *oldpath, const char *newpath)
+/* Read symlink from Extended Attribute */
+int
+get_symlink_ea (const char* frompath, char* buf, int buf_size)
 {
-  return symlink_worker (oldpath, newpath, allow_winsymlinks, false);
+  int res = NTReadEA (frompath, SYMLINK_EA_NAME, buf, buf_size);
+  if (res == 0)
+    debug_printf ("Cannot read symlink from EA");
+  return (res - 1);
 }
 
-int
-symlink_worker (const char *oldpath, const char *newpath, bool use_winsym,
-		bool isdevice)
+/* Save symlink to Extended Attribute */
+BOOL
+set_symlink_ea (const char* frompath, const char* topath)
 {
-  int res = -1;
-  size_t len;
-  path_conv win32_newpath, win32_oldpath;
-  char *buf, *cp;
-  SECURITY_ATTRIBUTES sa = sec_none_nih;
-  OBJECT_ATTRIBUTES attr;
-  IO_STATUS_BLOCK io;
-  NTSTATUS status;
-  HANDLE fh;
-  ULONG access = DELETE | FILE_GENERIC_WRITE;
-  tmp_pathbuf tp;
-  unsigned check_opt;
-  bool mk_winsym = use_winsym;
-  bool has_trailing_dirsep = false;
-
-  /* POSIX says that empty 'newpath' is invalid input while empty
-     'oldpath' is valid -- it's symlink resolver job to verify if
-     symlink contents point to existing filesystem object */
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    goto done;
-  if (!*oldpath || !*newpath)
+  if (!NTWriteEA (frompath, SYMLINK_EA_NAME, topath, strlen (topath) + 1))
     {
-      set_errno (ENOENT);
-      goto done;
+      debug_printf ("Cannot save symlink in EA");
+      return FALSE;
     }
+  return TRUE;
+}
 
-  if (strlen (oldpath) > SYMLINK_MAX)
+/* Create a symlink from FROMPATH to TOPATH. */
+
+/* If TRUE create symlinks as Windows shortcuts, if FALSE create symlinks
+   as normal files with magic number and system bit set. */
+int allow_winsymlinks = TRUE;
+
+extern "C"
+int
+symlink (const char *topath, const char *frompath)
+{
+  HANDLE h;
+  int res = -1;
+  path_conv win32_path, win32_topath;
+  char from[MAX_PATH + 5];
+  char cwd[MAX_PATH + 1], *cp = NULL, c = 0;
+  char w32topath[MAX_PATH + 1];
+  DWORD written;
+  SECURITY_ATTRIBUTES sa = sec_none_nih;
+
+  /* POSIX says that empty 'frompath' is invalid input whlie empty
+     'topath' is valid -- it's symlink resolver job to verify if
+     symlink contents point to existing filesystem object */ 
+  if (check_null_empty_str_errno (topath) == EFAULT ||
+      check_null_empty_str_errno (frompath))
+    goto done;
+
+  if (strlen (topath) >= MAX_PATH)
     {
       set_errno (ENAMETOOLONG);
       goto done;
     }
 
-  /* Trailing dirsep is a no-no. */
-  len = strlen (newpath);
-  has_trailing_dirsep = isdirsep (newpath[len - 1]);
-  if (has_trailing_dirsep)
+  win32_path.check (frompath, PC_SYM_NOFOLLOW);
+  if (allow_winsymlinks && !win32_path.error)
     {
-      newpath = strdup (newpath);
-      ((char *) newpath)[len - 1] = '\0';
+      strcpy (from, frompath);
+      strcat (from, ".lnk");
+      win32_path.check (from, PC_SYM_NOFOLLOW);
     }
 
-  check_opt = PC_SYM_NOFOLLOW | PC_POSIX | (isdevice ? PC_NOWARN : 0);
-  /* We need the normalized full path below. */
-  win32_newpath.check (newpath, check_opt, stat_suffixes);
-  /* MVFS doesn't handle the SYSTEM DOS attribute, but it handles the R/O
-     attribute.  Therefore we create symlinks on MVFS always as shortcuts. */
-  mk_winsym |= win32_newpath.fs_is_mvfs ();
-
-  if (mk_winsym && !win32_newpath.exists ()
-      && (isdevice || !win32_newpath.fs_is_nfs ()))
+  if (win32_path.error)
     {
-      char *newplnk = tp.c_get ();
-      stpcpy (stpcpy (newplnk, newpath), ".lnk");
-      win32_newpath.check (newplnk, check_opt);
-    }
-
-  if (win32_newpath.error)
-    {
-      set_errno (win32_newpath.error);
+      set_errno (win32_path.case_clash ? ECASECLASH : win32_path.error);
       goto done;
     }
 
-  syscall_printf ("symlink (%s, %S)", oldpath,
-		  win32_newpath.get_nt_native_path ());
+  syscall_printf ("symlink (%s, %s)", topath, win32_path.get_win32 ());
 
-  if ((!isdevice && win32_newpath.exists ())
-      || win32_newpath.is_auto_device ())
+  if (win32_path.is_device () || win32_path.exists ())
     {
       set_errno (EEXIST);
       goto done;
     }
-  if (has_trailing_dirsep && !win32_newpath.exists ())
+
+  if (allow_winsymlinks)
     {
-      set_errno (ENOENT);
-      goto done;
+      if (!isabspath (topath))
+	{
+	  getcwd (cwd, MAX_PATH + 1);
+	  if ((cp = strrchr (from, '/')) || (cp = strrchr (from, '\\')))
+	    {
+	      c = *cp;
+	      *cp = '\0';
+	      chdir (from);
+	    }
+	  backslashify (topath, w32topath, 0);
+	}
+      if (!cp || GetFileAttributes (w32topath) == (DWORD)-1)
+	{
+	  win32_topath.check (topath, PC_SYM_NOFOLLOW);
+	  if (!cp || win32_topath.error != ENOENT)
+	    strcpy (w32topath, win32_topath);
+	}
+      if (cp)
+	{
+	  *cp = c;
+	  chdir (cwd);
+	}
     }
 
-  if (!isdevice && win32_newpath.fs_is_nfs ())
+  if (allow_ntsec && win32_path.has_acls ())
+    set_security_attribute (S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO,
+			    &sa, alloca (4096), 4096);
+
+  h = CreateFileA(win32_path, GENERIC_WRITE, 0, &sa,
+		  CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
+  if (h == INVALID_HANDLE_VALUE)
+      __seterrno ();
+  else
     {
-      /* On NFS, create symlinks by calling NtCreateFile with an EA of type
-	 NfsSymlinkTargetName containing ... the symlink target name. */
-      PFILE_FULL_EA_INFORMATION pffei = (PFILE_FULL_EA_INFORMATION) tp.w_get ();
-      pffei->NextEntryOffset = 0;
-      pffei->Flags = 0;
-      pffei->EaNameLength = sizeof (NFS_SYML_TARGET) - 1;
-      char *EaValue = stpcpy (pffei->EaName, NFS_SYML_TARGET) + 1;
-      pffei->EaValueLength = sizeof (WCHAR) *
-	(sys_mbstowcs ((PWCHAR) EaValue, NT_MAX_PATH, oldpath) - 1);
-      status = NtCreateFile (&fh, FILE_WRITE_DATA | FILE_WRITE_EA | SYNCHRONIZE,
-			     win32_newpath.get_object_attr (attr, sa),
-			     &io, NULL, FILE_ATTRIBUTE_SYSTEM,
-			     FILE_SHARE_VALID_FLAGS, FILE_CREATE,
-			     FILE_SYNCHRONOUS_IO_NONALERT
-			     | FILE_OPEN_FOR_BACKUP_INTENT,
-			     pffei, NT_MAX_PATH * sizeof (WCHAR));
-      if (!NT_SUCCESS (status))
+      BOOL success;
+
+      if (allow_winsymlinks)
 	{
-	  __seterrno_from_nt_status (status);
-	  goto done;
-	}
-      NtClose (fh);
-      res = 0;
-      goto done;
-    }
-
-  if (mk_winsym)
-    {
-      ITEMIDLIST *pidl = NULL;
-      size_t full_len = 0;
-      unsigned short oldpath_len, desc_len, relpath_len, pidl_len = 0;
-      char desc[MAX_PATH + 1], *relpath;
-
-      if (!isdevice)
-	{
-	  /* First create an IDLIST to learn how big our shortcut is
-	     going to be. */
-	  IShellFolder *psl;
-
-	  /* The symlink target is relative to the directory in which
-	     the symlink gets created, not relative to the cwd.  Therefore
-	     we have to mangle the path quite a bit before calling path_conv. */
-	if (isabspath (oldpath))
-	  win32_oldpath.check (oldpath,
-			       PC_SYM_NOFOLLOW,
-			       stat_suffixes);
-	else
-	    {
-	      len = strrchr (win32_newpath.normalized_path, '/')
-		    - win32_newpath.normalized_path + 1;
-	      char *absoldpath = tp.t_get ();
-	      stpcpy (stpncpy (absoldpath, win32_newpath.normalized_path, len),
-		      oldpath);
-	      win32_oldpath.check (absoldpath, PC_SYM_NOFOLLOW, stat_suffixes);
-	    }
-	  if (SUCCEEDED (SHGetDesktopFolder (&psl)))
-	    {
-	      WCHAR wc_path[win32_oldpath.get_wide_win32_path_len () + 1];
-	      win32_oldpath.get_wide_win32_path (wc_path);
-	      /* Amazing but true:  Even though the ParseDisplayName method
-		 takes a wide char path name, it does not understand the
-		 Win32 prefix for long pathnames!  So we have to tack off
-		 the prefix and convert the path to the "normal" syntax
-		 for ParseDisplayName.  */
-	      WCHAR *wc = wc_path + 4;
-	      if (wc[1] != L':') /* native UNC path */
-		*(wc += 2) = L'\\';
-	      HRESULT res;
-	      if (SUCCEEDED (res = psl->ParseDisplayName (NULL, NULL, wc, NULL,
-						    &pidl, NULL)))
-		{
-		  ITEMIDLIST *p;
-
-		  for (p = pidl; p->mkid.cb > 0;
-		       p = (ITEMIDLIST *)((char *) p + p->mkid.cb))
-		    ;
-		  pidl_len = (char *) p - (char *) pidl + 2;
-		}
-	      psl->Release ();
-	    }
-	}
-      /* Compute size of shortcut file. */
-      full_len = sizeof (win_shortcut_hdr);
-      if (pidl_len)
-	full_len += sizeof (unsigned short) + pidl_len;
-      oldpath_len = strlen (oldpath);
-      /* Unfortunately the length of the description is restricted to a
-	 length of MAX_PATH up to NT4, and to a length of 2000 bytes
-	 since W2K.  We don't want to add considerations for the different
-	 lengths and even 2000 bytes is not enough for long path names.
-	 So what we do here is to set the description to the POSIX path
-	 only if the path is not longer than MAX_PATH characters.  We
-	 append the full path name after the regular shortcut data
-	 (see below), which works fine with Windows Explorer as well
-	 as older Cygwin versions (as long as the whole file isn't bigger
-	 than 8K).  The description field is only used for backward
-	 compatibility to older Cygwin versions and those versions are
-	 not capable of handling long path names anyway. */
-      desc_len = stpcpy (desc, oldpath_len > MAX_PATH
-			       ? "[path too long]" : oldpath) - desc;
-      full_len += sizeof (unsigned short) + desc_len;
-      /* Devices get the oldpath string unchanged as relative path. */
-      if (isdevice)
-	{
-	  relpath_len = oldpath_len;
-	  stpcpy (relpath = tp.c_get (), oldpath);
+	  create_shortcut_header ();
+	  /* Don't change the datatypes of `len' and `win_len' since
+	     their sizeof is used when writing. */
+	  unsigned short len = strlen (topath);
+	  unsigned short win_len = strlen (w32topath);
+	  success = WriteFile (h, shortcut_header, SHORTCUT_HDR_SIZE,
+			       &written, NULL)
+		    && written == SHORTCUT_HDR_SIZE
+		    && WriteFile (h, &len, sizeof len, &written, NULL)
+		    && written == sizeof len
+		    && WriteFile (h, topath, len, &written, NULL)
+		    && written == len
+		    && WriteFile (h, &win_len, sizeof win_len, &written, NULL)
+		    && written == sizeof win_len
+		    && WriteFile (h, w32topath, win_len, &written, NULL)
+		    && written == win_len;
 	}
       else
 	{
-	  relpath_len = strlen (win32_oldpath.get_win32 ());
-	  stpcpy (relpath = tp.c_get (), win32_oldpath.get_win32 ());
+	  /* This is the old technique creating a symlink. */
+	  char buf[sizeof (SYMLINK_COOKIE) + MAX_PATH + 10];
+
+	  __small_sprintf (buf, "%s%s", SYMLINK_COOKIE, topath);
+	  DWORD len = strlen (buf) + 1;
+
+	  /* Note that the terminating nul is written.  */
+	  success = WriteFile (h, buf, len, &written, NULL)
+		    || written != len;
+
 	}
-      full_len += sizeof (unsigned short) + relpath_len;
-      full_len += sizeof (unsigned short) + oldpath_len;
-      /* 1 byte more for trailing 0 written by stpcpy. */
-      if (full_len < NT_MAX_PATH * sizeof (WCHAR))
-	buf = (char *) tp.w_get ();
+      if (success)
+	{
+	  CloseHandle (h);
+	  if (!allow_ntsec && allow_ntea)
+	    set_file_attribute (win32_path.has_acls (),
+				win32_path.get_win32 (),
+				S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO);
+	  SetFileAttributesA (win32_path.get_win32 (),
+			      allow_winsymlinks ? FILE_ATTRIBUTE_READONLY
+						: FILE_ATTRIBUTE_SYSTEM);
+	  if (win32_path.fs_fast_ea ())
+	    set_symlink_ea (win32_path, topath);
+	  res = 0;
+	}
       else
-	buf = (char *) alloca (full_len + 1);
-
-      /* Create shortcut header */
-      win_shortcut_hdr *shortcut_header = (win_shortcut_hdr *) buf;
-      memset (shortcut_header, 0, sizeof *shortcut_header);
-      shortcut_header->size = sizeof *shortcut_header;
-      shortcut_header->magic = GUID_shortcut;
-      shortcut_header->flags = (WSH_FLAG_DESC | WSH_FLAG_RELPATH);
-      if (pidl)
-	shortcut_header->flags |= WSH_FLAG_IDLIST;
-      shortcut_header->run = SW_NORMAL;
-      cp = buf + sizeof (win_shortcut_hdr);
-
-      /* Create IDLIST */
-      if (pidl)
 	{
-	  *(unsigned short *)cp = pidl_len;
-	  memcpy (cp += 2, pidl, pidl_len);
-	  cp += pidl_len;
-	  CoTaskMemFree (pidl);
-	}
-
-      /* Create description */
-      *(unsigned short *)cp = desc_len;
-      cp = stpcpy (cp += 2, desc);
-
-      /* Create relpath */
-      *(unsigned short *)cp = relpath_len;
-      cp = stpcpy (cp += 2, relpath);
-
-      /* Append the POSIX path after the regular shortcut data for
-	 the long path support. */
-      unsigned short *plen = (unsigned short *) cp;
-      cp += 2;
-      *(PWCHAR) cp = 0xfeff;		/* BOM */
-      cp += 2;
-      *plen = sys_mbstowcs ((PWCHAR) cp, NT_MAX_PATH, oldpath) * sizeof (WCHAR);
-      cp += *plen;
-    }
-  else
-    {
-      /* Default technique creating a symlink. */
-      buf = (char *) tp.w_get ();
-      cp = stpcpy (buf, SYMLINK_COOKIE);
-      *(PWCHAR) cp = 0xfeff;		/* BOM */
-      cp += 2;
-      /* Note that the terminating nul is written.  */
-      cp += sys_mbstowcs ((PWCHAR) cp, NT_MAX_PATH, oldpath) * sizeof (WCHAR);
-    }
-
-  if (isdevice && win32_newpath.exists ())
-    {
-      status = NtOpenFile (&fh, FILE_WRITE_ATTRIBUTES,
-			   win32_newpath.get_object_attr (attr, sa),
-			   &io, 0, FILE_OPEN_FOR_BACKUP_INTENT);
-      if (!NT_SUCCESS (status))
-	{
-	  __seterrno_from_nt_status (status);
-	  goto done;
-	}
-      status = NtSetAttributesFile (fh, FILE_ATTRIBUTE_NORMAL);
-      NtClose (fh);
-      if (!NT_SUCCESS (status))
-	{
-	  __seterrno_from_nt_status (status);
-	  goto done;
+	  __seterrno ();
+	  CloseHandle (h);
+	  DeleteFileA (win32_path.get_win32 ());
 	}
     }
-  else if (!isdevice && win32_newpath.has_acls () && !win32_newpath.isremote ())
-    /* If the filesystem supports ACLs, we will overwrite the DACL after the
-       call to NtCreateFile.  This requires a handle with READ_CONTROL and
-       WRITE_DAC access, otherwise get_file_sd and set_file_sd both have to
-       open the file again.
-       FIXME: On remote NTFS shares open sometimes fails because even the
-       creator of the file doesn't have the right to change the DACL.
-       I don't know what setting that is or how to recognize such a share,
-       so for now we don't request WRITE_DAC on remote drives. */
-    access |= READ_CONTROL | WRITE_DAC;
-
-  status = NtCreateFile (&fh, access, win32_newpath.get_object_attr (attr, sa),
-			 &io, NULL, FILE_ATTRIBUTE_NORMAL,
-			 FILE_SHARE_VALID_FLAGS,
-			 isdevice ? FILE_OVERWRITE_IF : FILE_CREATE,
-			 FILE_SYNCHRONOUS_IO_NONALERT
-			 | FILE_NON_DIRECTORY_FILE
-			 | FILE_OPEN_FOR_BACKUP_INTENT,
-			 NULL, 0);
-  if (!NT_SUCCESS (status))
-    {
-      __seterrno_from_nt_status (status);
-      goto done;
-    }
-  if (win32_newpath.has_acls ())
-    set_file_attribute (fh, win32_newpath, ILLEGAL_UID, ILLEGAL_GID,
-			(io.Information == FILE_CREATED ? S_JUSTCREATED : 0)
-			| S_IFLNK | STD_RBITS | STD_WBITS);
-  status = NtWriteFile (fh, NULL, NULL, NULL, &io, buf, cp - buf, NULL, NULL);
-  if (NT_SUCCESS (status) && io.Information == (ULONG) (cp - buf))
-    {
-      status = NtSetAttributesFile (fh, mk_winsym ? FILE_ATTRIBUTE_READONLY
-						  : FILE_ATTRIBUTE_SYSTEM);
-      if (!NT_SUCCESS (status))
-	debug_printf ("Setting attributes failed, status = %p", status);
-      res = 0;
-    }
-  else
-    {
-      __seterrno_from_nt_status (status);
-      FILE_DISPOSITION_INFORMATION fdi = { TRUE };
-      status = NtSetInformationFile (fh, &io, &fdi, sizeof fdi,
-				     FileDispositionInformation);
-      if (!NT_SUCCESS (status))
-	debug_printf ("Setting delete dispostion failed, status = %p", status);
-    }
-  NtClose (fh);
 
 done:
-  syscall_printf ("%d = symlink_worker(%s, %s, %d, %d)", res, oldpath,
-		  newpath, mk_winsym, isdevice);
-  if (has_trailing_dirsep)
-    free ((void *) newpath);
+  syscall_printf ("%d = symlink (%s, %s)", res, topath, frompath);
   return res;
 }
 
-static bool
-cmp_shortcut_header (win_shortcut_hdr *file_header)
+static int
+check_sysfile (const char *path, DWORD fileattr, HANDLE h,
+	       char *contents, int *error, unsigned *pflags)
 {
-  /* A Cygwin or U/Win shortcut only contains a description and a relpath.
-     Cygwin shortcuts also might contain an ITEMIDLIST. The run type is
-     always set to SW_NORMAL. */
-  return file_header->size == sizeof (win_shortcut_hdr)
-      && !memcmp (&file_header->magic, &GUID_shortcut, sizeof GUID_shortcut)
-      && (file_header->flags & ~WSH_FLAG_IDLIST)
-	 == (WSH_FLAG_DESC | WSH_FLAG_RELPATH)
-      && file_header->run == SW_NORMAL;
-}
-
-int
-symlink_info::check_shortcut (HANDLE h)
-{
-  tmp_pathbuf tp;
-  win_shortcut_hdr *file_header;
-  char *buf, *cp;
-  unsigned short len;
-  int res = 0;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  FILE_STANDARD_INFORMATION fsi;
-  LARGE_INTEGER off = { QuadPart:0LL };
-
-  status = NtQueryInformationFile (h, &io, &fsi, sizeof fsi,
-				   FileStandardInformation);
-  if (!NT_SUCCESS (status))
-    {
-      set_error (EIO);
-      return 0;
-    }
-  if (fsi.EndOfFile.QuadPart <= sizeof (win_shortcut_hdr)
-      || fsi.EndOfFile.QuadPart > 4 * 65536)
-    return 0;
-  if (fsi.EndOfFile.LowPart < NT_MAX_PATH * sizeof (WCHAR))
-    buf = (char *) tp.w_get ();
-  else
-    buf = (char *) alloca (fsi.EndOfFile.LowPart + 1);
-  status = NtReadFile (h, NULL, NULL, NULL, &io, buf, fsi.EndOfFile.LowPart,
-		       &off, NULL);
-  if (!NT_SUCCESS (status))
-    {
-      if (status != STATUS_END_OF_FILE)
-	set_error (EIO);
-      return 0;
-    }
-  file_header = (win_shortcut_hdr *) buf;
-  if (io.Information != fsi.EndOfFile.LowPart
-      || !cmp_shortcut_header (file_header))
-    return 0;
-  cp = buf + sizeof (win_shortcut_hdr);
-  if (file_header->flags & WSH_FLAG_IDLIST) /* Skip ITEMIDLIST */
-    cp += *(unsigned short *) cp + 2;
-  if (!(len = *(unsigned short *) cp))
-    return 0;
-  cp += 2;
-  /* Check if this is a device file - these start with the sequence :\\ */
-  if (strncmp (cp, ":\\", 2) == 0)
-    res = strlen (strcpy (contents, cp)); /* Don't mess with device files */
-  else
-    {
-      /* Has appended full path?  If so, use it instead of description. */
-      unsigned short relpath_len = *(unsigned short *) (cp + len);
-      if (cp + len + 2 + relpath_len < buf + fsi.EndOfFile.LowPart)
-	{
-	  cp += len + 2 + relpath_len;
-	  len = *(unsigned short *) cp;
-	  cp += 2;
-	}
-      if (*(PWCHAR) cp == 0xfeff)	/* BOM */
-	{
-	  char *tmpbuf = tp.c_get ();
-	  if (sys_wcstombs (tmpbuf, NT_MAX_PATH, (PWCHAR) (cp + 2))
-	      > SYMLINK_MAX + 1)
-	    return 0;
-	  res = posixify (tmpbuf);
-	}
-      else if (len > SYMLINK_MAX)
-	return 0;
-      else
-	{
-	  cp[len] = '\0';
-	  res = posixify (cp);
-	}
-    }
-  if (res) /* It's a symlink.  */
-    pflags |= PATH_SYMLINK | PATH_LNK;
-  return res;
-}
-
-int
-symlink_info::check_sysfile (HANDLE h)
-{
-  tmp_pathbuf tp;
   char cookie_buf[sizeof (SYMLINK_COOKIE) - 1];
-  char *srcbuf = tp.c_get ();
+  DWORD got;
   int res = 0;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  bool interix_symlink = false;
-  LARGE_INTEGER off = { QuadPart:0LL };
 
-  status = NtReadFile (h, NULL, NULL, NULL, &io, cookie_buf,
-		       sizeof (cookie_buf), &off, NULL);
-  if (!NT_SUCCESS (status))
+  if (!ReadFile (h, cookie_buf, sizeof (cookie_buf), &got, 0))
     {
-      debug_printf ("ReadFile1 failed %p", status);
-      if (status != STATUS_END_OF_FILE)
-	set_error (EIO);
-      return 0;
+      debug_printf ("ReadFile1 failed");
+      *error = EIO;
     }
-  off.QuadPart = io.Information;
-  if (io.Information == sizeof (cookie_buf)
+  else if (got == sizeof (cookie_buf)
 	   && memcmp (cookie_buf, SYMLINK_COOKIE, sizeof (cookie_buf)) == 0)
     {
       /* It's a symlink.  */
-      pflags |= PATH_SYMLINK;
-    }
-  else if (io.Information == sizeof (cookie_buf)
-	   && memcmp (cookie_buf, SOCKET_COOKIE, sizeof (cookie_buf)) == 0)
-    pflags |= PATH_SOCKET;
-  else if (io.Information >= sizeof (INTERIX_SYMLINK_COOKIE)
-	   && memcmp (cookie_buf, INTERIX_SYMLINK_COOKIE,
-		      sizeof (INTERIX_SYMLINK_COOKIE) - 1) == 0)
-    {
-      /* It's an Interix symlink.  */
-      pflags |= PATH_SYMLINK;
-      interix_symlink = true;
-      /* Interix symlink cookies are shorter than Cygwin symlink cookies, so
-	 in case of an Interix symlink cooky we have read too far into the
-	 file.  Set file pointer back to the position right after the cookie. */
-      off.QuadPart = sizeof (INTERIX_SYMLINK_COOKIE) - 1;
-    }
-  if (pflags & PATH_SYMLINK)
-    {
-      status = NtReadFile (h, NULL, NULL, NULL, &io, srcbuf,
-			   NT_MAX_PATH, &off, NULL);
-      if (!NT_SUCCESS (status))
+      *pflags = PATH_SYMLINK;
+
+      res = ReadFile (h, contents, MAX_PATH + 1, &got, 0);
+      if (!res)
 	{
 	  debug_printf ("ReadFile2 failed");
-	  if (status != STATUS_END_OF_FILE)
-	    set_error (EIO);
+	  *error = EIO;
 	}
-      else if (*(PWCHAR) srcbuf == 0xfeff 	/* BOM */
-	       || interix_symlink)
-	{
-	  /* Add trailing 0 to Interix symlink target.  Skip BOM in Cygwin
-	     symlinks. */
-	  if (interix_symlink)
-	    ((PWCHAR) srcbuf)[io.Information / sizeof (WCHAR)] = L'\0';
-	  else
-	    srcbuf += 2;
-	  char *tmpbuf = tp.c_get ();
-	  if (sys_wcstombs (tmpbuf, NT_MAX_PATH, (PWCHAR) srcbuf)
-	      > SYMLINK_MAX + 1)
-	    debug_printf ("symlink string too long");
-	  else
-	    res = posixify (tmpbuf);
-	}
-      else if (io.Information > SYMLINK_MAX + 1)
-	debug_printf ("symlink string too long");
       else
-	res = posixify (srcbuf);
-    }
-  return res;
-}
-
-int
-symlink_info::check_reparse_point (HANDLE h, bool remote)
-{
-  tmp_pathbuf tp;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  PREPARSE_DATA_BUFFER rp = (PREPARSE_DATA_BUFFER) tp.c_get ();
-  UNICODE_STRING subst;
-  char srcbuf[SYMLINK_MAX + 7];
-
-  /* On remote drives or under heavy load, NtFsControlFile can return with
-     STATUS_PENDING.  If so, instead of creating an event object, just set
-     io.Status to an invalid value and perform a minimal wait until io.Status
-     changed. */
-  memset (&io, 0xff, sizeof io);
-  status = NtFsControlFile (h, NULL, NULL, NULL, &io,
-			    FSCTL_GET_REPARSE_POINT, NULL, 0, (LPVOID) rp,
-			    MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
-  if (status == STATUS_PENDING)
-    {
-      while (io.Status == (NTSTATUS) 0xffffffff)
-      	Sleep (1L);
-      status = io.Status;
-    }
-  if (!NT_SUCCESS (status))
-    {
-      debug_printf ("NtFsControlFile(FSCTL_GET_REPARSE_POINT) failed, %p",
-		    status);
-      set_error (EIO);
-      return 0;
-    }
-  if (rp->ReparseTag == IO_REPARSE_TAG_SYMLINK)
-    /* Windows evaluates native symlink literally.  If a remote symlink points
-       to, say, C:\foo, it will be handled as if the target is the local file
-       C:\foo.  That comes in handy since that's how symlinks are treated under
-       POSIX as well. */
-    RtlInitCountedUnicodeString (&subst,
-		  (WCHAR *)((char *)rp->SymbolicLinkReparseBuffer.PathBuffer
-			+ rp->SymbolicLinkReparseBuffer.SubstituteNameOffset),
-		  rp->SymbolicLinkReparseBuffer.SubstituteNameLength);
-  else if (!remote && rp->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT)
-    {
-      /* Don't handle junctions on remote filesystems as symlinks.  This type
-	 of reparse point is handled transparently by the OS so that the
-	 target of the junction is the remote directory it is supposed to
-	 point to.  If we handle it as symlink, it will be mistreated as
-	 pointing to a dir on the local system. */
-      RtlInitCountedUnicodeString (&subst,
-		  (WCHAR *)((char *)rp->MountPointReparseBuffer.PathBuffer
-			  + rp->MountPointReparseBuffer.SubstituteNameOffset),
-		  rp->MountPointReparseBuffer.SubstituteNameLength);
-      if (RtlEqualUnicodePathPrefix (&subst, &ro_u_volume, TRUE))
 	{
-	  /* Volume mount point.  Not treated as symlink. The return
-	     value of -1 is a hint for the caller to treat this as a
-	     volume mount point. */
-	  return -1;
+	  /* Versions prior to b16 stored several trailing
+	     NULs with the path (to fill the path out to 1024
+	     chars).  Current versions only store one trailing
+	     NUL.  The length returned is the path without
+	     *any* trailing NULs.  We also have to handle (or
+	     at least not die from) corrupted paths.  */
+	  if (memchr (contents, 0, got) != NULL)
+	    res = strlen (contents);
+	  else
+	    res = got;
 	}
     }
+  else if (got == sizeof (cookie_buf)
+	   && memcmp (cookie_buf, SOCKET_COOKIE, sizeof (cookie_buf)) == 0)
+    *pflags |= PATH_SOCKET;
   else
     {
-      /* Maybe it's a reparse point, but it's certainly not one we recognize.
-	 Drop REPARSE attribute so we don't try to use the flag accidentally.
-	 It's just some arbitrary file or directory for us. */
-      fileattr &= ~FILE_ATTRIBUTE_REPARSE_POINT;
-      return 0;
-    }
-  sys_wcstombs (srcbuf, SYMLINK_MAX + 7, subst.Buffer,
-		subst.Length / sizeof (WCHAR));
-  pflags |= PATH_SYMLINK | PATH_REP;
-  /* A symlink is never a directory. */
-  fileattr &= ~FILE_ATTRIBUTE_DIRECTORY;
-  return posixify (srcbuf);
-}
+      /* Not a symlink, see if executable.  */
+      if (*pflags & PATH_ALL_EXEC)
+	/* Nothing to do */;
+      else if (has_exec_chars (cookie_buf, got))
+	*pflags |= PATH_EXEC;
+      else
+	*pflags |= PATH_NOTEXEC;
+      }
+  syscall_printf ("%d = symlink.check_sysfile (%s, %s) (%p)",
+		  res, path, contents, *pflags);
 
-int
-symlink_info::check_nfs_symlink (HANDLE h)
-{
-  tmp_pathbuf tp;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  struct {
-    FILE_GET_EA_INFORMATION fgei;
-    char buf[sizeof (NFS_SYML_TARGET)];
-  } fgei_buf;
-  PFILE_FULL_EA_INFORMATION pffei;
-  int res = 0;
-
-  /* To find out if the file is a symlink and to get the symlink target,
-     try to fetch the NfsSymlinkTargetName EA. */
-  fgei_buf.fgei.NextEntryOffset = 0;
-  fgei_buf.fgei.EaNameLength = sizeof (NFS_SYML_TARGET) - 1;
-  stpcpy (fgei_buf.fgei.EaName, NFS_SYML_TARGET);
-  pffei = (PFILE_FULL_EA_INFORMATION) tp.w_get ();
-  status = NtQueryEaFile (h, &io, pffei, NT_MAX_PATH * sizeof (WCHAR), TRUE,
-			  &fgei_buf.fgei, sizeof fgei_buf, NULL, TRUE);
-  if (NT_SUCCESS (status) && pffei->EaValueLength > 0)
-    {
-      PWCHAR spath = (PWCHAR)
-		     (pffei->EaName + pffei->EaNameLength + 1);
-      res = sys_wcstombs (contents, SYMLINK_MAX + 1,
-			  spath, pffei->EaValueLength) - 1;
-      pflags |= PATH_SYMLINK;
-    }
+  CloseHandle (h);
   return res;
-}
-
-int
-symlink_info::posixify (char *srcbuf)
-{
-  /* The definition for a path in a native symlink is a bit weird.  The Flags
-     value seem to contain 0 for absolute paths (stored as NT native path)
-     and 1 for relative paths.  Relative paths are paths not starting with a
-     drive letter.  These are not converted to NT native, but stored as
-     given.  A path starting with a single backslash is relative to the
-     current drive thus a "relative" value (Flags == 1).
-     Funny enough it's possible to store paths with slashes instead of
-     backslashes, but they are evaluated incorrectly by subsequent Windows
-     calls like CreateFile (ERROR_INVALID_NAME).  So, what we do here is to
-     take paths starting with slashes at face value, evaluating them as
-     Cygwin specific POSIX paths.
-     A path starting with two slashes(!) or backslashes is converted into an
-     NT UNC path.  Unfortunately, in contrast to POSIX rules, paths starting
-     with three or more (back)slashes are also converted into UNC paths,
-     just incorrectly sticking to one redundant leading backslash.  We go
-     along with this behaviour to avoid scenarios in which native tools access
-     other files than Cygwin.
-     The above rules are used exactly the same way on Cygwin specific symlinks
-     (sysfiles and shortcuts) to eliminate non-POSIX paths in the output. */
-
-  /* Eliminate native NT prefixes. */
-  if (srcbuf[0] == '\\' && !strncmp (srcbuf + 1, "??\\", 3))
-    {
-      srcbuf += 4;
-      if (srcbuf[1] != ':') /* native UNC path */
-	*(srcbuf += 2) = '\\';
-    }
-  if (isdrive (srcbuf))
-    mount_table->conv_to_posix_path (srcbuf, contents, 0);
-  else if (srcbuf[0] == '\\')
-    {
-      if (srcbuf[1] == '\\') /* UNC path */
-	slashify (srcbuf, contents, 0);
-      else /* Paths starting with \ are current drive relative. */
-	{
-	  char cvtbuf[SYMLINK_MAX + 1];
-
-	  stpcpy (cvtbuf + cygheap->cwd.get_drive (cvtbuf), srcbuf);
-	  mount_table->conv_to_posix_path (cvtbuf, contents, 0);
-	}
-    }
-  else /* Everything else is taken as is. */
-    slashify (srcbuf, contents, 0);
-  return strlen (contents);
 }
 
 enum
@@ -2136,7 +2596,6 @@ enum
   SCAN_LNK,
   SCAN_HASLNK,
   SCAN_JUSTCHECK,
-  SCAN_JUSTCHECKTHIS, /* Never try to append a suffix. */
   SCAN_APPENDLNK,
   SCAN_EXTRALNK,
   SCAN_DONE,
@@ -2151,7 +2610,7 @@ public:
   const char *path;
   char *has (const char *, const suffix_info *);
   int next ();
-  int lnk_match () {return nextstate >= SCAN_APPENDLNK;}
+  int lnk_match () {return nextstate >= SCAN_EXTRALNK;}
 };
 
 char *
@@ -2160,9 +2619,7 @@ suffix_scan::has (const char *in_path, const suffix_info *in_suffixes)
   nextstate = SCAN_BEG;
   suffixes = suffixes_start = in_suffixes;
 
-  const char *fname = strrchr (in_path, '\\');
-  fname = fname ? fname + 1 : in_path;
-  char *ext_here = strrchr (fname, '.');
+  char *ext_here = strrchr (in_path, '.');
   path = in_path;
   eopath = strchr (path, '\0');
 
@@ -2173,7 +2630,7 @@ suffix_scan::has (const char *in_path, const suffix_info *in_suffixes)
     {
       /* Check if the extension matches a known extension */
       for (const suffix_info *ex = in_suffixes; ex->name != NULL; ex++)
-	if (ascii_strcasematch (ext_here, ex->name))
+	if (strcasematch (ext_here, ex->name))
 	  {
 	    nextstate = SCAN_JUSTCHECK;
 	    suffixes = NULL;	/* Has an extension so don't scan for one. */
@@ -2182,7 +2639,7 @@ suffix_scan::has (const char *in_path, const suffix_info *in_suffixes)
     }
 
   /* Didn't match.  Use last resort -- .lnk. */
-  if (ascii_strcasematch (ext_here, ".lnk"))
+  if (strcasematch (ext_here, ".lnk"))
     {
       nextstate = SCAN_HASLNK;
       suffixes = NULL;
@@ -2192,58 +2649,16 @@ suffix_scan::has (const char *in_path, const suffix_info *in_suffixes)
   ext_here = eopath;
 
  done:
-  /* Avoid attaching suffixes if the resulting filename would be invalid. */
-  if (eopath - fname > NAME_MAX - 4)
-    {
-      nextstate = SCAN_JUSTCHECKTHIS;
-      suffixes = NULL;
-    }
   return ext_here;
 }
 
 int
 suffix_scan::next ()
 {
-  for (;;)
+  if (suffixes)
     {
-      if (!suffixes)
-	switch (nextstate)
-	  {
-	  case SCAN_BEG:
-	    suffixes = suffixes_start;
-	    if (!suffixes)
-	      {
-		nextstate = SCAN_LNK;
-		return 1;
-	      }
-	    nextstate = SCAN_EXTRALNK;
-	    /* fall through to suffix checking below */
-	    break;
-	  case SCAN_HASLNK:
-	    nextstate = SCAN_APPENDLNK;	/* Skip SCAN_BEG */
-	    return 1;
-	  case SCAN_EXTRALNK:
-	    nextstate = SCAN_DONE;
-	    *eopath = '\0';
-	    return 0;
-	  case SCAN_JUSTCHECK:
-	    nextstate = SCAN_LNK;
-	    return 1;
-	  case SCAN_JUSTCHECKTHIS:
-	    nextstate = SCAN_DONE;
-	    return 1;
-	  case SCAN_LNK:
-	  case SCAN_APPENDLNK:
-	    strcat (eopath, ".lnk");
-	    nextstate = SCAN_DONE;
-	    return 1;
-	  default:
-	    *eopath = '\0';
-	    return 0;
-	  }
-
       while (suffixes && suffixes->name)
-	if (nextstate == SCAN_EXTRALNK && !suffixes->addon)
+	if (!suffixes->addon)
 	  suffixes++;
 	else
 	  {
@@ -2255,59 +2670,39 @@ suffix_scan::next ()
 	  }
       suffixes = NULL;
     }
-}
 
-bool
-symlink_info::set_error (int in_errno)
-{
-  bool res;
-  if (!(pflags & PATH_NO_ACCESS_CHECK) || in_errno == ENAMETOOLONG || in_errno == EIO)
+  switch (nextstate)
     {
-      error = in_errno;
-      res = true;
+    case SCAN_BEG:
+      suffixes = suffixes_start;
+      if (!suffixes)
+	nextstate = SCAN_LNK;
+      else
+	{
+	  if (!*suffixes->name)
+	    suffixes++;
+	  nextstate = SCAN_EXTRALNK;
+	}
+      return 1;
+    case SCAN_HASLNK:
+      nextstate = SCAN_EXTRALNK;	/* Skip SCAN_BEG */
+      return 1;
+    case SCAN_LNK:
+    case SCAN_EXTRALNK:
+      strcpy (eopath, ".lnk");
+      nextstate = SCAN_DONE;
+      return 1;
+    case SCAN_JUSTCHECK:
+      nextstate = SCAN_APPENDLNK;
+      return 1;
+    case SCAN_APPENDLNK:
+      strcat (eopath, ".lnk");
+      nextstate = SCAN_DONE;
+      return 1;
+    default:
+      *eopath = '\0';
+      return 0;
     }
-  else if (in_errno == ENOENT)
-    res = true;
-  else
-    {
-      fileattr = FILE_ATTRIBUTE_NORMAL;
-      res = false;
-    }
-  return res;
-}
-
-bool
-symlink_info::parse_device (const char *contents)
-{
-  char *endptr;
-  _major_t mymajor;
-  _major_t myminor;
-  _mode_t mymode;
-
-  mymajor = strtol (contents += 2, &endptr, 16);
-  if (endptr == contents)
-    return isdevice = false;
-
-  contents = endptr;
-  myminor = strtol (++contents, &endptr, 16);
-  if (endptr == contents)
-    return isdevice = false;
-
-  contents = endptr;
-  mymode = strtol (++contents, &endptr, 16);
-  if (endptr == contents)
-    return isdevice = false;
-
-  if ((mymode & S_IFMT) == S_IFIFO)
-    {
-      mymajor = _major (FH_FIFO);
-      myminor = _minor (FH_FIFO);
-    }
-
-  major = mymajor;
-  minor = myminor;
-  mode = mymode;
-  return isdevice = true;
 }
 
 /* Check if PATH is a symlink.  PATH must be a valid Win32 path name.
@@ -2328,452 +2723,164 @@ symlink_info::parse_device (const char *contents)
    stored into BUF if PATH is a symlink.  */
 
 int
-symlink_info::check (char *path, const suffix_info *suffixes, fs_info &fs,
-		     path_conv_handle &conv_hdl)
+symlink_info::check (char *path, const suffix_info *suffixes, unsigned opt)
 {
-  int res;
   HANDLE h;
-  NTSTATUS status;
-  UNICODE_STRING upath;
-  OBJECT_ATTRIBUTES attr;
-  IO_STATUS_BLOCK io;
+  int res = 0;
   suffix_scan suffix;
-
-  const ULONG ci_flag = cygwin_shared->obcaseinsensitive
-			|| (pflags & PATH_NOPOSIX) ? OBJ_CASE_INSENSITIVE : 0;
-  /* TODO: Temporarily do all char->UNICODE conversion here.  This should
-     already be slightly faster than using Ascii functions. */
-  tmp_pathbuf tp;
-  tp.u_get (&upath);
-  InitializeObjectAttributes (&attr, &upath, ci_flag, NULL, NULL);
-
-  /* This label is used in case we encounter a FS which only handles
-     DOS paths.  See below. */
-  bool restarted = false;
-restart:
-
-  h = NULL;
-  res = 0;
   contents[0] = '\0';
-  issymlink = true;
-  isdevice = false;
-  major = 0;
-  minor = 0;
-  mode = 0;
-  pflags &= ~(PATH_SYMLINK | PATH_LNK | PATH_REP);
 
+  is_symlink = TRUE;
   ext_here = suffix.has (path, suffixes);
   extn = ext_here - path;
 
-  PVOID eabuf = &nfs_aol_ffei;
-  ULONG easize = sizeof nfs_aol_ffei;
+  pflags &= ~PATH_SYMLINK;
 
-  bool had_ext = !!*ext_here;
+  case_clash = FALSE;
+
   while (suffix.next ())
     {
       error = 0;
-      get_nt_native_path (suffix.path, upath, pflags & PATH_DOS);
-      if (h)
+      fileattr = GetFileAttributesA (suffix.path);
+      if (fileattr == (DWORD) -1)
 	{
-	  NtClose (h);
-	  h = NULL;
-	}
-      /* The EA given to NtCreateFile allows to get a handle to a symlink on
-	 an NFS share, rather than getting a handle to the target of the
-	 symlink (which would spoil the task of this method quite a bit).
-	 Fortunately it's ignored on most other file systems so we don't have
-	 to special case NFS too much. */
-      status = NtCreateFile (&h,
-			     READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_READ_EA,
-			     &attr, &io, NULL, 0, FILE_SHARE_VALID_FLAGS,
-			     FILE_OPEN,
-			     FILE_OPEN_REPARSE_POINT
-			     | FILE_OPEN_FOR_BACKUP_INTENT,
-			     eabuf, easize);
-      debug_printf ("%p = NtCreateFile (%S)", status, &upath);
-      /* No right to access EAs or EAs not supported? */
-      if (!NT_SUCCESS (status)
-	  && (status == STATUS_ACCESS_DENIED
-	      || status == STATUS_EAS_NOT_SUPPORTED
-	      || status == STATUS_NOT_SUPPORTED
-	      || status == STATUS_INVALID_NETWORK_RESPONSE
-	      /* Or a bug in Samba 3.2.x (x <= 7) when accessing a share's
-		 root dir which has EAs enabled? */
-	      || status == STATUS_INVALID_PARAMETER))
-	{
-	  /* If EAs are not supported, there's no sense to check them again
-	     with suffixes attached.  So we set eabuf/easize to 0 here once. */
-	  if (status == STATUS_EAS_NOT_SUPPORTED
-	      || status == STATUS_NOT_SUPPORTED)
-	    {
-	      eabuf = NULL;
-	      easize = 0;
-	    }
-	  status = NtOpenFile (&h, READ_CONTROL | FILE_READ_ATTRIBUTES,
-			       &attr, &io, FILE_SHARE_VALID_FLAGS,
-			       FILE_OPEN_REPARSE_POINT
-			       | FILE_OPEN_FOR_BACKUP_INTENT);
-	  debug_printf ("%p = NtOpenFile (no-EAs %S)", status, &upath);
-	}
-      if (status == STATUS_OBJECT_NAME_NOT_FOUND)
-	{
-	  if (ci_flag == 0 && wincap.has_broken_udf ()
-	      && (!fs.inited () || fs.is_udf ()))
-	    {
-	      /* On NT 5.x UDF is broken (at least) in terms of case
-		 sensitivity.  When trying to open a file case sensitive,
-		 the file appears to be non-existant.  Another bug is
-		 described in fs_info::update. */
-	      attr.Attributes = OBJ_CASE_INSENSITIVE;
-	      status = NtOpenFile (&h, READ_CONTROL | FILE_READ_ATTRIBUTES,
-				   &attr, &io, FILE_SHARE_VALID_FLAGS,
-				   FILE_OPEN_REPARSE_POINT
-				   | FILE_OPEN_FOR_BACKUP_INTENT);
-	      debug_printf ("%p = NtOpenFile (broken-UDF, %S)", status, &upath);
-	      attr.Attributes = 0;
-	      if (NT_SUCCESS (status))
-		{
-		  if (!fs.inited ())
-		    fs.update (&upath, h);
-		  if (!fs.is_udf ())
-		    {
-		      NtClose (h);
-		      h = NULL;
-		      status = STATUS_OBJECT_NAME_NOT_FOUND;
-		    }
-		}
-	    }
-	  /* There are filesystems out in the wild (Netapp, NWFS, and others)
-	     which are uncapable of generating pathnames outside the Win32
-	     rules.  That means, filenames on these FSes must not have a
-	     leading space or trailing dots and spaces.  This code snippet
-	     manages them.  I really hope it's streamlined enough not to
-	     slow down normal operation.  This extra check only kicks in if
-	     we encountered a STATUS_OBJECT_NAME_NOT_FOUND *and* we didn't
-	     already attach a suffix *and* the above special case for UDF
-	     on XP didn't succeeed. */
-	  if (!restarted && !*ext_here && !(pflags & PATH_DOS) && !fs.inited ())
-	    {
-	      /* Check for trailing dot or space or leading space in
-		 last component. */
-	      char *p = ext_here - 1;
-	      if (*p != '.' && *p != ' ')
-		{
-		  while (*--p != '\\')
-		    ;
-		  if (*++p != ' ')
-		    p = NULL;
-		}
-	      if (p)
-		{
-		  /* If so, check if file resides on one of the known broken
-		     FSes only supporting filenames following DOS rules. */
-		  if (!fs.inited ())
-		    fs.update (&upath, NULL);
-		  if (fs.has_dos_filenames_only ())
-		    {
-		      /* If so, try again.  Since we now know the FS, the
-			 filenames will be tweaked to follow DOS rules via the
-			 third parameter in the call to get_nt_native_path. */
-		      pflags |= PATH_DOS;
-		      restarted = true;
-		      goto restart;
-		    }
-		}
-	    }
-	}
-
-      if (NT_SUCCESS (status)
-	  /* Check file system while we're having the file open anyway.
-	     This speeds up path_conv noticably (~10%). */
-	  && (fs.inited () || fs.update (&upath, h)))
-	{
-	  if (fs.is_nfs ())
-	    {
-	      status = nfs_fetch_fattr3 (h, conv_hdl.nfsattr ());
-	      if (NT_SUCCESS (status))
-		fileattr = ((conv_hdl.nfsattr ()->type & 7) == NF3DIR)
-			    ? FILE_ATTRIBUTE_DIRECTORY : 0;
-	    }
-	  else
-	    {
-	      status = file_get_fnoi (h, fs.is_netapp (), conv_hdl.fnoi ());
-	      if (NT_SUCCESS (status))
-		fileattr = conv_hdl.fnoi ()->FileAttributes;
-	    }
-	}
-      if (!NT_SUCCESS (status))
-	{
-	  debug_printf ("%p = NtQueryInformationFile (%S)", status, &upath);
-	  fileattr = INVALID_FILE_ATTRIBUTES;
-
-	  /* One of the inner path components is invalid, or the path contains
-	     invalid characters.  Bail out with ENOENT.
-
-	     Note that additional STATUS_OBJECT_PATH_INVALID and
-	     STATUS_OBJECT_PATH_SYNTAX_BAD status codes exist.  The first one
-	     is seemingly not generated by NtQueryInformationFile, the latter
-	     is only generated if the path is no absolute path within the
-	     NT name space, which should not happen and would point to an
-	     error in get_nt_native_path.  Both status codes are deliberately
-	     not tested here unless proved necessary. */
-	  if (status == STATUS_OBJECT_PATH_NOT_FOUND
-	      || status == STATUS_OBJECT_NAME_INVALID
-	      || status == STATUS_BAD_NETWORK_PATH
-	      || status == STATUS_BAD_NETWORK_NAME
-	      || status == STATUS_NO_MEDIA_IN_DEVICE)
-	    {
-	      set_error (ENOENT);
-	      goto file_not_symlink;
-	    }
-	  if (status != STATUS_OBJECT_NAME_NOT_FOUND
-	      && status != STATUS_NO_SUCH_FILE) /* ENOENT on NFS or 9x share */
-	    {
-	      /* The file exists, but the user can't access it for one reason
-		 or the other.  To get the file attributes we try to access the
-		 information by opening the parent directory and getting the
-		 file attributes using a matching NtQueryDirectoryFile call. */
-	      UNICODE_STRING dirname, basename;
-	      OBJECT_ATTRIBUTES dattr;
-	      HANDLE dir;
-	      struct {
-		FILE_BOTH_DIRECTORY_INFORMATION fdi;
-		WCHAR dummy_buf[NAME_MAX + 1];
-	      } fdi_buf;
-
-	      RtlSplitUnicodePath (&upath, &dirname, &basename);
-	      InitializeObjectAttributes (&dattr, &dirname, ci_flag,
-					  NULL, NULL);
-	      status = NtOpenFile (&dir, SYNCHRONIZE | FILE_LIST_DIRECTORY,
-				   &dattr, &io, FILE_SHARE_VALID_FLAGS,
-				   FILE_SYNCHRONOUS_IO_NONALERT
-				   | FILE_OPEN_FOR_BACKUP_INTENT
-				   | FILE_DIRECTORY_FILE);
-	      if (!NT_SUCCESS (status))
-		{
-		  debug_printf ("%p = NtOpenFile(%S)", status, &dirname);
-		  /* There's a special case if the file is itself the root
-		     of a drive which is not accessible by the current user.
-		     This case is only recognized by the length of the
-		     basename part.  If it's 0, the incoming file is the
-		     root of a drive.  So we at least know it's a directory. */
-		  fileattr = basename.Length ? 0 : FILE_ATTRIBUTE_DIRECTORY;
-		}
-	      else
-		{
-		  status = NtQueryDirectoryFile (dir, NULL, NULL, NULL, &io,
-						 &fdi_buf, sizeof fdi_buf,
-						 FileBothDirectoryInformation,
-						 TRUE, &basename, TRUE);
-		  /* Take the opportunity to check file system while we're
-		     having the handle to the parent dir. */
-		  fs.update (&upath, dir);
-		  NtClose (dir);
-		  if (!NT_SUCCESS (status))
-		    {
-		      debug_printf ("%p = NtQueryDirectoryFile(%S)",
-				    status, &dirname);
-		      if (status == STATUS_NO_SUCH_FILE)
-			{
-			  /* This can happen when trying to access files
-			     which match DOS device names on SMB shares.
-			     NtOpenFile failed with STATUS_ACCESS_DENIED,
-			     but the NtQueryDirectoryFile tells us the
-			     file doesn't exist.  We're suspicious in this
-			     case and retry with the next suffix instead of
-			     just giving up. */
-			  set_error (ENOENT);
-			  continue;
-			}
-		      fileattr = 0;
-		    }
-		  else
-		    {
-		      PFILE_NETWORK_OPEN_INFORMATION pfnoi = conv_hdl.fnoi ();
-
-		      fileattr = fdi_buf.fdi.FileAttributes;
-		      memcpy (pfnoi, &fdi_buf.fdi.CreationTime, sizeof *pfnoi);
-		      /* Amazing, but true:  The FILE_NETWORK_OPEN_INFORMATION
-			 structure has the AllocationSize and EndOfFile members
-			 interchanged relative to the directory information
-			 classes. */
-		      pfnoi->AllocationSize.QuadPart
-			= fdi_buf.fdi.AllocationSize.QuadPart;
-		      pfnoi->EndOfFile.QuadPart
-			= fdi_buf.fdi.EndOfFile.QuadPart;
-		    }
-		}
-	      ext_tacked_on = !!*ext_here;
-	      goto file_not_symlink;
-	    }
-	  set_error (ENOENT);
+	  /* The GetFileAttributesA call can fail for reasons that don't
+	     matter, so we just return 0.  For example, getting the
+	     attributes of \\HOST will typically fail.  */
+	  debug_printf ("GetFileAttributesA (%s) failed", suffix.path);
+	  error = geterrno_from_win_error (GetLastError (), EACCES);
 	  continue;
 	}
+
 
       ext_tacked_on = !!*ext_here;
-      /* Don't allow to returns directories with appended suffix.  If we found
-	 a directory with a suffix which has been appended here, then this
-	 directory doesn't match the request.  So, just do as usual if file
-	 hasn't been found. */
-      if (ext_tacked_on && !had_ext && (fileattr & FILE_ATTRIBUTE_DIRECTORY))
+
+      if (pcheck_case != PCHECK_RELAXED && !case_check (path)
+	  || (opt & PC_SYM_IGNORE))
+	goto file_not_symlink;
+
+      int sym_check;
+
+      sym_check = 0;
+
+      if (fileattr & FILE_ATTRIBUTE_DIRECTORY)
+	goto file_not_symlink;
+
+      /* Windows shortcuts are treated as symlinks. */
+      if (suffix.lnk_match ())
+	sym_check = 1;
+
+      /* This is the old Cygwin method creating symlinks: */
+      /* A symlink will have the `system' file attribute. */
+      /* Only files can be symlinks (which can be symlinks to directories). */
+      if (fileattr & FILE_ATTRIBUTE_SYSTEM)
+	sym_check = 2;
+
+      if (!sym_check)
+	goto file_not_symlink;
+
+      if (sym_check > 0 && opt & PC_CHECK_EA &&
+	  (res = get_symlink_ea (suffix.path, contents, sizeof (contents))) > 0)
 	{
-	  set_error (ENOENT);
-	  continue;
+	  pflags = PATH_SYMLINK;
+	  debug_printf ("Got symlink from EA: %s", contents);
+	  break;
 	}
 
+      /* Open the file.  */
+
+      h = CreateFileA (suffix.path, GENERIC_READ, FILE_SHARE_READ, &sec_none_nih, OPEN_EXISTING,
+		       FILE_ATTRIBUTE_NORMAL, 0);
       res = -1;
+      if (h == INVALID_HANDLE_VALUE)
+	goto file_not_symlink;
 
-      /* Reparse points are potentially symlinks.  This check must be
-	 performed before checking the SYSTEM attribute for sysfile
-	 symlinks, since reparse points can have this flag set, too.
-	 For instance, Vista starts to create a couple of reparse points
-	 with SYSTEM and HIDDEN flags set. */
-      if ((fileattr & FILE_ATTRIBUTE_REPARSE_POINT))
+      /* FIXME: if symlink isn't present in EA, but EAs are supported,
+       * should we write it there?
+       */
+      switch (sym_check)
 	{
-	  res = check_reparse_point (h, fs.is_remote_drive ());
-	  if (res == -1)
-	    {
-	      /* Volume mount point.  The filesystem information for the top
-		 level directory should be for the volume top level directory,
-		 rather than for the reparse point itself.  So we fetch the
-		 filesystem information again, but with a NULL handle.
-		 This does what we want because fs_info::update opens the
-		 handle without FILE_OPEN_REPARSE_POINT. */
-	      fs.update (&upath, NULL);
-	      /* Make sure the open handle is not used in later stat calls.
-		 The handle has been opened with the FILE_OPEN_REPARSE_POINT
-		 flag, so it's a handle to the reparse point, not a handle
-		 to the volumes root dir. */
-	      pflags &= ~PC_KEEP_HANDLE;
-	    }
-	  else if (res)
-	    {
-	      /* A symlink is never a directory. */
-	      conv_hdl.fnoi ()->FileAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
-	      break;
-	    }
-	}
+	case 1:
+	  res = check_shortcut (suffix.path, fileattr, h, contents, &error, &pflags);
+	  if (res)
+	    break;
+	  /* If searching for `foo' and then finding a `foo.lnk' which is
+	     no shortcut, return the same as if file not found. */
+	  if (!suffix.lnk_match () || !ext_tacked_on)
+	    goto file_not_symlink;
 
-      /* Windows shortcuts are potentially treated as symlinks.  Valid Cygwin
-	 & U/WIN shortcuts are R/O, but definitely not directories. */
-      else if ((fileattr & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_DIRECTORY))
-	  == FILE_ATTRIBUTE_READONLY && suffix.lnk_match ())
-	{
-	  HANDLE sym_h;
-
-	  status = NtOpenFile (&sym_h, SYNCHRONIZE | GENERIC_READ, &attr, &io,
-			       FILE_SHARE_VALID_FLAGS,
-			       FILE_OPEN_FOR_BACKUP_INTENT
-			       | FILE_SYNCHRONOUS_IO_NONALERT);
-	  if (!NT_SUCCESS (status))
-	    res = 0;
-	  else
-	    {
-	      res = check_shortcut (sym_h);
-	      NtClose (sym_h);
-	    }
+	  fileattr = (DWORD) -1;
+	  continue;		/* in case we're going to tack *another* .lnk on this filename. */
+	case 2:
+	  res = check_sysfile (suffix.path, fileattr, h, contents, &error, &pflags);
 	  if (!res)
-	    {
-	      /* If searching for `foo' and then finding a `foo.lnk' which
-		 is no shortcut, return the same as if file not found. */
-	      if (ext_tacked_on)
-		{
-		  fileattr = INVALID_FILE_ATTRIBUTES;
-		  set_error (ENOENT);
-		  continue;
-		}
-	    }
-	  else if (contents[0] != ':' || contents[1] != '\\'
-		   || !parse_device (contents))
-	    break;
+	    goto file_not_symlink;
+	  break;
 	}
+      break;
 
-      /* If searching for `foo' and then finding a `foo.lnk' which is
-	 no shortcut, return the same as if file not found. */
-      else if (suffix.lnk_match () && ext_tacked_on)
-	{
-	  fileattr = INVALID_FILE_ATTRIBUTES;
-	  set_error (ENOENT);
-	  continue;
-	}
-
-      /* This is the old Cygwin method creating symlinks.  A symlink will
-	 have the `system' file attribute.  Only files can be symlinks
-	 (which can be symlinks to directories). */
-      else if ((fileattr & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_DIRECTORY))
-	       == FILE_ATTRIBUTE_SYSTEM)
-	{
-	  HANDLE sym_h;
-
-	  status = NtOpenFile (&sym_h, SYNCHRONIZE | GENERIC_READ, &attr, &io,
-			       FILE_SHARE_VALID_FLAGS,
-			       FILE_OPEN_FOR_BACKUP_INTENT
-			       | FILE_SYNCHRONOUS_IO_NONALERT);
-
-	  if (!NT_SUCCESS (status))
-	    res = 0;
-	  else
-	    {
-	      res = check_sysfile (sym_h);
-	      NtClose (sym_h);
-	    }
-	  if (res)
-	    break;
-	}
-
-      /* If the file is on an NFS share and could be opened with extended
-	 attributes, check if it's a symlink.  Only files can be symlinks
-	 (which can be symlinks to directories). */
-      else if (fs.is_nfs () && (conv_hdl.nfsattr ()->type & 7) == NF3LNK)
-	{
-	  res = check_nfs_symlink (h);
-	  if (res)
-	    break;
-	}
-
-    /* Normal file. */
     file_not_symlink:
-      issymlink = false;
-      syscall_printf ("%s", isdevice ? "is a device" : "not a symlink");
+      is_symlink = FALSE;
+      syscall_printf ("not a symlink");
       res = 0;
       break;
     }
 
-  if (h)
-    {
-      if (pflags & PC_KEEP_HANDLE)
-	conv_hdl.set (h);
-      else
-	NtClose (h);
-    }
-
-  syscall_printf ("%d = symlink.check(%s, %p) (%p)",
+  syscall_printf ("%d = symlink.check (%s, %p) (%p)",
 		  res, suffix.path, contents, pflags);
   return res;
 }
 
-/* "path" is the path in a virtual symlink.  Set a symlink_info struct from
-   that and proceed with further path checking afterwards. */
-int
-symlink_info::set (char *path)
+/* Check the correct case of the last path component (given in DOS style).
+   Adjust the case in this->path if pcheck_case == PCHECK_ADJUST or return
+   FALSE if pcheck_case == PCHECK_STRICT.
+   Dont't call if pcheck_case == PCHECK_RELAXED.
+*/
+
+BOOL
+symlink_info::case_check (char *path)
 {
-  strcpy (contents, path);
-  pflags = PATH_SYMLINK;
-  fileattr = FILE_ATTRIBUTE_NORMAL;
-  error = 0;
-  issymlink = true;
-  isdevice = false;
-  ext_tacked_on = false;
-  ext_here = NULL;
-  extn = major = minor = mode = 0;
-  return strlen (path);
+  WIN32_FIND_DATA data;
+  HANDLE h;
+  char *c;
+
+  /* Set a pointer to the beginning of the last component. */
+  if (!(c = strrchr (path, '\\')))
+    c = path;
+  else
+    ++c;
+
+  if ((h = FindFirstFile (path, &data))
+      != INVALID_HANDLE_VALUE)
+    {
+      FindClose (h);
+
+      /* If that part of the component exists, check the case. */
+      if (strcmp (c, data.cFileName))
+	{
+	  case_clash = TRUE;
+
+	  /* If check is set to STRICT, a wrong case results
+	     in returning a ENOENT. */
+	  if (pcheck_case == PCHECK_STRICT)
+	    return FALSE;
+
+	  /* PCHECK_ADJUST adjusts the case in the incoming
+	     path which points to the path in *this. */
+	  strcpy (c, data.cFileName);
+	}
+    }
+  return TRUE;
 }
 
 /* readlink system call */
 
-extern "C" ssize_t
-readlink (const char *path, char *buf, size_t buflen)
+extern "C"
+int
+readlink (const char *path, char *buf, int buflen)
 {
+  extern suffix_info stat_suffixes[];
+
   if (buflen < 0)
     {
       set_errno (ENAMETOOLONG);
@@ -2797,13 +2904,12 @@ readlink (const char *path, char *buf, size_t buflen)
 
   if (!pathbuf.issymlink ())
     {
-      if (pathbuf.exists ())
+      if (pathbuf.fileattr != (DWORD) -1)
 	set_errno (EINVAL);
       return -1;
     }
 
-  size_t pathbuf_len = strlen (pathbuf.get_win32 ());
-  ssize_t len = MIN (buflen, pathbuf_len);
+  int len = min (buflen, (int) strlen (pathbuf.get_win32 ()));
   memcpy (buf, pathbuf.get_win32 (), len);
 
   /* errno set by symlink.check if error */
@@ -2817,151 +2923,209 @@ readlink (const char *path, char *buf, size_t buflen)
    done during the opendir call and the hash or the filename within
    the directory.  FIXME: Not bullet-proof. */
 /* Cygwin internal */
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, PUNICODE_STRING name)
+
+unsigned long __stdcall
+hash_path_name (unsigned long hash, const char *name)
 {
-  if (name->Length == 0)
+  if (!*name)
     return hash;
 
-  /* Build up hash. Name is already normalized */
-  USHORT len = name->Length / sizeof (WCHAR);
-  for (USHORT idx = 0; idx < len; ++idx)
-    hash = RtlUpcaseUnicodeChar (name->Buffer[idx])
-	   + (hash << 6) + (hash << 16) - hash;
+  /* Perform some initial permutations on the pathname if this is
+     not "seeded" */
+  if (!hash)
+    {
+      /* Simplistic handling of drives.  If there is a drive specified,
+	 make sure that the initial letter is upper case.  If there is
+	 no \ after the ':' assume access through the root directory
+	 of that drive.
+	 FIXME:  Should really honor MS-Windows convention of using
+	 the environment to track current directory on various drives. */
+      if (name[1] == ':')
+	{
+	  char *nn, *newname = (char *) alloca (strlen (name) + 2);
+	  nn = newname;
+	  *nn = isupper (*name) ? cyg_tolower (*name) : *name;
+	  *++nn = ':';
+	  name += 2;
+	  if (*name != '\\')
+	    *++nn = '\\';
+	  strcpy (++nn, name);
+	  name = newname;
+	  goto hashit;
+	}
+
+      /* Fill out the hashed path name with the current working directory if
+	 this is not an absolute path and there is no pre-specified hash value.
+	 Otherwise the inodes same will differ depending on whether a file is
+	 referenced with an absolute value or relatively. */
+
+      if (!hash && !isabspath (name))
+	{
+	  hash = cygheap->cwd.get_hash ();
+	  if (name[0] == '.' && name[1] == '\0')
+	    return hash;
+	  hash += hash_path_name (hash, "\\");
+	}
+    }
+
+hashit:
+  /* Build up hash.  Ignore single trailing slash or \a\b\ != \a\b or
+     \a\b\.  but allow a single \ if that's all there is. */
+  do
+    {
+      int ch = cyg_tolower(*name);
+      hash += ch + (ch << 17);
+      hash ^= hash >> 2;
+    }
+  while (*++name != '\0' &&
+	 !(*name == '\\' && (!name[1] || (name[1] == '.' && !name[2]))));
   return hash;
 }
 
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, PCWSTR name)
-{
-  UNICODE_STRING uname;
-  RtlInitUnicodeString (&uname, name);
-  return hash_path_name (hash, &uname);
-}
-
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, const char *name)
-{
-  UNICODE_STRING uname;
-  RtlCreateUnicodeStringFromAsciiz (&uname, name);
-  __ino64_t ret = hash_path_name (hash, &uname);
-  RtlFreeUnicodeString (&uname);
-  return ret;
-}
-
-extern "C" char *
+char *
 getcwd (char *buf, size_t ulen)
 {
   char* res = NULL;
-  myfault efault;
-  if (efault.faulted (EFAULT))
-      /* errno set */;
-  else if (ulen == 0 && buf)
+  if (ulen == 0)
     set_errno (EINVAL);
-  else
+  else if (!__check_null_invalid_struct_errno (buf, ulen))
     res = cygheap->cwd.get (buf, 1, 1, ulen);
   return res;
 }
 
-/* getwd: Legacy. */
-extern "C" char *
+/* getwd: standards? */
+extern "C"
+char *
 getwd (char *buf)
 {
-  return getcwd (buf, PATH_MAX + 1);  /*Per SuSv3!*/
-}
-
-extern "C" char *
-get_current_dir_name (void)
-{
-  const char *pwd = getenv ("PWD");
-  char *cwd = getcwd (NULL, 0);
-  struct __stat64 pwdbuf, cwdbuf;
-
-  if (pwd && strcmp (pwd, cwd) != 0
-      && stat64 (pwd, &pwdbuf) == 0
-      && stat64 (cwd, &cwdbuf) == 0
-      && pwdbuf.st_dev == cwdbuf.st_dev
-      && pwdbuf.st_ino == cwdbuf.st_ino)
-    {
-      cwd = (char *) realloc (cwd, strlen (pwd) + 1);
-      strcpy (cwd, pwd);
-    }
-
-  return cwd;
+  return getcwd (buf, MAX_PATH);
 }
 
 /* chdir: POSIX 5.2.1.1 */
 extern "C" int
 chdir (const char *in_dir)
 {
-  myfault efault;
-  if (efault.faulted (EFAULT))
+  if (check_null_empty_str_errno (in_dir))
     return -1;
-  if (!*in_dir)
+
+  syscall_printf ("dir '%s'", in_dir);
+
+  char *s;
+  char dir[strlen (in_dir) + 1];
+  strcpy (dir, in_dir);
+  /* Incredibly. Windows allows you to specify a path with trailing
+     whitespace to SetCurrentDirectory.  This doesn't work too well
+     with other parts of the API, though, apparently.  So nuke trailing
+     white space. */
+  for (s = strchr (dir, '\0'); --s >= dir && isspace ((unsigned int) (*s & 0xff)); )
+    *s = '\0';
+
+  if (!*s)
     {
       set_errno (ENOENT);
       return -1;
     }
 
-  syscall_printf ("dir '%s'", in_dir);
-
   /* Convert path.  First argument ensures that we don't check for NULL/empty/invalid
      again. */
-  path_conv path (PC_NONULLEMPTY, in_dir, PC_SYM_FOLLOW | PC_POSIX);
+  path_conv path (PC_NONULLEMPTY, dir, PC_FULL | PC_SYM_FOLLOW);
   if (path.error)
     {
       set_errno (path.error);
-      syscall_printf ("-1 = chdir (%s)", in_dir);
+      syscall_printf ("-1 = chdir (%s)", dir);
       return -1;
     }
 
-  int res = -1;
-  const char *posix_cwd = NULL;
-  int devn = path.get_devn ();
-  if (!path.exists ())
-    set_errno (ENOENT);
-  else if (!path.isdir ())
-    set_errno (ENOTDIR);
-  else if (!isvirtual_dev (devn))
-    {
-      /* The sequence chdir("xx"); chdir(".."); must be a noop if xx
-	 is not a symlink. This is exploited by find.exe.
-	 The posix_cwd is just path.normalized_path.
-	 In other cases we let cwd.set obtain the Posix path through
-	 the mount table. */
-      if (!isdrive(path.normalized_path))
-	posix_cwd = path.normalized_path;
-      res = 0;
-    }
-  else
-   {
-     posix_cwd = path.normalized_path;
-     res = 0;
-   }
 
-  if (!res)
-    res = cygheap->cwd.set (&path, posix_cwd);
+  /* Look for trailing path component consisting entirely of dots.  This
+     is needed only in case of chdir since Windows simply ignores count
+     of dots > 2 here instead of returning an error code.  Counts of dots
+     <= 2 are already eliminated by normalize_posix_path. */
+  const char *p = strrchr (dir, '/');
+  if (!p)
+    p = dir;
+  else
+    p++;
+
+  size_t len = strlen (p);
+  if (len > 2 && strspn (p, ".") == len)
+    {
+      set_errno (ENOENT);
+      return -1;
+    }
+
+  char *native_dir = path.get_win32 ();
+
+  /* Check to see if path translates to something like C:.
+     If it does, append a \ to the native directory specification to
+     defeat the Windows 95 (i.e. MS-DOS) tendency of returning to
+     the last directory visited on the given drive. */
+  if (isdrive (native_dir) && !native_dir[2])
+    {
+      native_dir[2] = '\\';
+      native_dir[3] = '\0';
+    }
+  int res = SetCurrentDirectoryA (native_dir) ? 0 : -1;
+
+  /* If res < 0, we didn't change to a new directory.
+     Otherwise, set the current windows and posix directory cache from input.
+     If the specified directory is a MS-DOS style directory or if the directory
+     was symlinked, convert the MS-DOS path back to posix style.  Otherwise just
+     store the given directory.  This allows things like "find", which traverse
+     directory trees, to work correctly with Cygwin mounted directories.
+     FIXME: Is just storing the posixized windows directory the correct thing to
+     do when we detect a symlink?  Should we instead rebuild the posix path from
+     the input by traversing links?  This would be an expensive operation but
+     we'll see if Cygwin mailing list users whine about the current behavior. */
+  if (res == -1)
+    __seterrno ();
+  else if (!path.has_symlinks () && strpbrk (dir, ":\\") == NULL
+	   && pcheck_case == PCHECK_RELAXED)
+    cygheap->cwd.set (path, dir);
+  else
+    cygheap->cwd.set (path, NULL);
 
   /* Note that we're accessing cwd.posix without a lock here.  I didn't think
      it was worth locking just for strace. */
-  syscall_printf ("%R = chdir() cygheap->cwd.posix '%s' native '%S'", res,
-		  cygheap->cwd.get_posix (), path.get_nt_native_path ());
+  syscall_printf ("%d = chdir() cygheap->cwd.posix '%s' native '%s'", res,
+		  cygheap->cwd.posix, native_dir);
   MALLOC_CHECK;
   return res;
 }
 
-extern "C" int
+extern "C"
+int
 fchdir (int fd)
 {
-  int res;
-  cygheap_fdget cfd (fd);
-  if (cfd >= 0)
-    res = chdir (cfd->get_name ());
-  else
-    res = -1;
+  sigframe thisframe (mainthread);
 
-  syscall_printf ("%R = fchdir(%d)", res, fd);
-  return res;
+  if (cygheap->fdtab.not_open (fd))
+    {
+      syscall_printf ("-1 = fchdir (%d)", fd);
+      set_errno (EBADF);
+      return -1;
+    }
+  SetResourceLock (LOCK_FD_LIST, WRITE_LOCK | READ_LOCK, "fchdir");
+  int ret = chdir (cygheap->fdtab[fd]->get_name ());
+  if (ret == 0)
+    {
+      /* The name in the fhandler is explicitely overwritten with the full path.
+	 Otherwise fchmod() to a path originally given as a relative path could
+	 end up in a completely different directory. Imagine:
+
+	   fd = open ("..");
+	   fchmod(fd);
+	   fchmod(fd);
+
+	 The 2nd fchmod should chdir to the same dir as the first call, not
+	 to it's parent dir. */
+      char posix_path[MAX_PATH];
+      cygheap->fdtab.reset_unix_path_name (fd, cygheap->cwd.get (posix_path, 1, 1));
+    }
+
+  ReleaseResourceLock (LOCK_FD_LIST, WRITE_LOCK | READ_LOCK, "fchdir");
+  syscall_printf ("%d = fchdir (%d)", ret, fd);
+  return ret;
 }
 
 /******************** Exported Path Routines *********************/
@@ -2969,287 +3133,83 @@ fchdir (int fd)
 /* Cover functions to the path conversion routines.
    These are exported to the world as cygwin_foo by cygwin.din.  */
 
-#define return_with_errno(x) \
-  do {\
-    int err = (x);\
-    if (!err)\
-     return 0;\
-    set_errno (err);\
-    return -1;\
-  } while (0)
-
-extern "C" ssize_t
-cygwin_conv_path (cygwin_conv_path_t what, const void *from, void *to,
-		  size_t size)
+extern "C"
+int
+cygwin_conv_to_win32_path (const char *path, char *win32_path)
 {
-  tmp_pathbuf tp;
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  path_conv p;
-  size_t lsiz = 0;
-  char *buf = NULL;
-  PWCHAR path = NULL;
-  int error = 0;
-  bool relative = !!(what & CCP_RELATIVE);
-  what &= CCP_CONVTYPE_MASK;
-
-  switch (what)
+  path_conv p (path, PC_SYM_FOLLOW);
+  if (p.error)
     {
-    case CCP_POSIX_TO_WIN_A:
-      {
-	p.check ((const char *) from,
-		 PC_POSIX | PC_SYM_FOLLOW | PC_SYM_NOFOLLOW_REP
-		 | PC_NO_ACCESS_CHECK | PC_NOWARN | (relative ? PC_NOFULL : 0));
-	if (p.error)
-	  return_with_errno (p.error);
-	PUNICODE_STRING up = p.get_nt_native_path ();
-	buf = tp.c_get ();
-	sys_wcstombs (buf, NT_MAX_PATH,
-		      up->Buffer, up->Length / sizeof (WCHAR));
-	/* Convert native path to standard DOS path. */
-	if (!strncmp (buf, "\\??\\", 4))
-	  {
-	    buf += 4;
-	    if (buf[1] != ':') /* native UNC path */
-	      *(buf += 2) = '\\';
-	  }
-	else if (*buf == '\\')
-	  {
-	    /* Device name points to somewhere else in the NT namespace.
-	       Use GLOBALROOT prefix to convert to Win32 path. */
-	    char *p = buf + sys_wcstombs (buf, NT_MAX_PATH,
-					  ro_u_globalroot.Buffer,
-					  ro_u_globalroot.Length
-					  / sizeof (WCHAR));
-	    sys_wcstombs (p, NT_MAX_PATH - (p - buf),
-			  up->Buffer, up->Length / sizeof (WCHAR));
-	  }
-	lsiz = strlen (buf) + 1;
-	/* TODO: Incoming "." is a special case which leads to a trailing
-	   backslash ".\\" in the Win32 path.  That's a result of the
-	   conversion in normalize_posix_path.  This should not occur
-	   so the below code is just a band-aid. */
-	if (relative && !strcmp ((const char *) from, ".")
-	    && !strcmp (buf, ".\\"))
-	  {
-	    lsiz = 2;
-	    buf[1] = '\0';
-	  }
-      }
-      break;
-    case CCP_POSIX_TO_WIN_W:
-      p.check ((const char *) from,
-	       PC_POSIX | PC_SYM_FOLLOW | PC_SYM_NOFOLLOW_REP
-	       | PC_NO_ACCESS_CHECK | PC_NOWARN | (relative ? PC_NOFULL : 0));
-      if (p.error)
-	return_with_errno (p.error);
-      /* Relative Windows paths are always restricted to MAX_PATH chars. */
-      if (relative && !isabspath (p.get_win32 ())
-	  && sys_mbstowcs (NULL, 0, p.get_win32 ()) > MAX_PATH)
-	{
-	  /* Recreate as absolute path. */
-	  p.check ((const char *) from, PC_POSIX | PC_SYM_FOLLOW
-					| PC_NO_ACCESS_CHECK | PC_NOWARN);
-	  if (p.error)
-	    return_with_errno (p.error);
-	}
-      lsiz = p.get_wide_win32_path_len () + 1;
-      path = p.get_nt_native_path ()->Buffer;
-
-      /* Convert native path to standard DOS path. */
-      if (!wcsncmp (path, L"\\??\\", 4))
-	{
-	  path[1] = L'\\';
-
-	  /* Drop long path prefix for short pathnames.  Unfortunately there's
-	     quite a bunch of Win32 functions, especially in user32.dll,
-	     apparently, which don't grok long path names at all, not even
-	     in the UNICODE API. */
-	  if ((path[5] == L':' && lsiz <= MAX_PATH + 4)
-	      || (!wcsncmp (path + 4, L"UNC\\", 4) && lsiz <= MAX_PATH + 6))
-	    {
-	      path += 4;
-	      lsiz -= 4;
-	      if (path[1] != L':')
-		{
-		  *(path += 2) = '\\';
-		  lsiz -= 2;
-		}
-	    }
-	}
-      else if (*path == L'\\')
-	{
-	  /* Device name points to somewhere else in the NT namespace.
-	     Use GLOBALROOT prefix to convert to Win32 path. */
-	  to = (void *) wcpcpy ((wchar_t *) to, ro_u_globalroot.Buffer);
-	  lsiz += ro_u_globalroot.Length / sizeof (WCHAR);
-	}
-      /* TODO: Same ".\\" band-aid as in CCP_POSIX_TO_WIN_A case. */
-      if (relative && !strcmp ((const char *) from, ".")
-	  && !wcscmp (path, L".\\"))
-	{
-	  lsiz = 2;
-	  path[1] = L'\0';
-	}
-      lsiz *= sizeof (WCHAR);
-      break;
-    case CCP_WIN_A_TO_POSIX:
-      buf = tp.c_get ();
-      error = mount_table->conv_to_posix_path ((const char *) from, buf,
-					       relative);
-      if (error)
-	return_with_errno (error);
-      lsiz = strlen (buf) + 1;
-      break;
-    case CCP_WIN_W_TO_POSIX:
-      buf = tp.c_get ();
-      error = mount_table->conv_to_posix_path ((const PWCHAR) from, buf,
-					       relative);
-      if (error)
-	return_with_errno (error);
-      lsiz = strlen (buf) + 1;
-      break;
-    default:
-      set_errno (EINVAL);
+      set_errno (p.error);
       return -1;
     }
-  if (!size)
-    return lsiz;
-  if (size < lsiz)
-    {
-      set_errno (ENOSPC);
-      return -1;
-    }
-  switch (what)
-    {
-    case CCP_POSIX_TO_WIN_A:
-    case CCP_WIN_A_TO_POSIX:
-    case CCP_WIN_W_TO_POSIX:
-      stpcpy ((char *) to, buf);
-      break;
-    case CCP_POSIX_TO_WIN_W:
-      wcpcpy ((PWCHAR) to, path);
-      break;
-    }
+
+  strcpy (win32_path, p.get_win32 ());
   return 0;
 }
 
-extern "C" void *
-cygwin_create_path (cygwin_conv_path_t what, const void *from)
-{
-  void *to;
-  ssize_t size = cygwin_conv_path (what, from, NULL, 0);
-  if (size <= 0)
-    to = NULL;
-  else if (!(to = malloc (size)))
-    to = NULL;
-  if (cygwin_conv_path (what, from, to, size) == -1)
-    {
-      free (to);
-      to = NULL;
-    }
-  return to;
-}
-
-
-extern "C" int
-cygwin_conv_to_win32_path (const char *path, char *win32_path)
-{
-  return cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_RELATIVE, path, win32_path,
-			   MAX_PATH);
-}
-
-extern "C" int
+extern "C"
+int
 cygwin_conv_to_full_win32_path (const char *path, char *win32_path)
 {
-  return cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, path, win32_path,
-			   MAX_PATH);
+  path_conv p (path, PC_SYM_FOLLOW | PC_FULL);
+  if (p.error)
+    {
+      set_errno (p.error);
+      return -1;
+    }
+
+  strcpy (win32_path, p.get_win32 ());
+  return 0;
 }
 
 /* This is exported to the world as cygwin_foo by cygwin.din.  */
 
-extern "C" int
+extern "C"
+int
 cygwin_conv_to_posix_path (const char *path, char *posix_path)
 {
-  return cygwin_conv_path (CCP_WIN_A_TO_POSIX | CCP_RELATIVE, path, posix_path,
-			   MAX_PATH);
+  if (check_null_empty_str_errno (path))
+    return -1;
+  mount_table->conv_to_posix_path (path, posix_path, 1);
+  return 0;
 }
 
-extern "C" int
+extern "C"
+int
 cygwin_conv_to_full_posix_path (const char *path, char *posix_path)
 {
-  return cygwin_conv_path (CCP_WIN_A_TO_POSIX | CCP_ABSOLUTE, path, posix_path,
-			   MAX_PATH);
+  if (check_null_empty_str_errno (path))
+    return -1;
+  mount_table->conv_to_posix_path (path, posix_path, 0);
+  return 0;
 }
 
-/* The realpath function is required by POSIX:2008.  */
+/* The realpath function is supported on some UNIX systems.  */
 
-extern "C" char *
+extern "C"
+char *
 realpath (const char *path, char *resolved)
 {
-  /* Make sure the right errno is returned if path is NULL. */
-  if (!path)
-    {
-      set_errno (EINVAL);
-      return NULL;
-    }
+  int err;
 
-  /* Guard reading from a potentially invalid path and writing to a
-     potentially invalid resolved. */
-  tmp_pathbuf tp;
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return NULL;
+  path_conv real_path (path, PC_SYM_FOLLOW | PC_FULL);
 
-  /* Win32 drive letter paths have to be converted to a POSIX path first,
-     because path_conv leaves the incoming path untouched except for
-     converting backslashes to forward slashes. */
-  char *tpath;
-  if (isdrive (path))
-    {
-      tpath = tp.c_get ();
-      mount_table->conv_to_posix_path (path, tpath, 0);
-    }
+  if (real_path.error)
+    err = real_path.error;
   else
-    tpath = (char *) path;
-
-  path_conv real_path (tpath, PC_SYM_FOLLOW | PC_POSIX, stat_suffixes);
-
-
-  /* POSIX 2008 requires malloc'ing if resolved is NULL, and states
-     that using non-NULL resolved is asking for portability
-     problems.  */
-
-  if (!real_path.error && real_path.exists ())
     {
-      if (!resolved)
-	{
-	  resolved = (char *) malloc (strlen (real_path.normalized_path) + 1);
-	  if (!resolved)
-	    return NULL;
-	}
-      strcpy (resolved, real_path.normalized_path);
-      return resolved;
+      err = mount_table->conv_to_posix_path (real_path.get_win32 (), resolved, 0);
+      if (err == 0)
+	return resolved;
     }
 
-  /* FIXME: on error, Linux puts the name of the path
-     component which could not be resolved into RESOLVED, but POSIX
-     does not require this.  */
-  if (resolved)
-    resolved[0] = '\0';
-  set_errno (real_path.error ?: ENOENT);
-  return NULL;
-}
+  /* FIXME: on error, we are supposed to put the name of the path
+     component which could not be resolved into RESOLVED.  */
+  resolved[0] = '\0';
 
-/* Linux provides this extension.  Since the only portable use of
-   realpath requires a NULL second argument, we might as well have a
-   one-argument wrapper.  */
-extern "C" char *
-canonicalize_file_name (const char *path)
-{
-  return realpath (path, NULL);
+  set_errno (err);
+  return NULL;
 }
 
 /* Return non-zero if path is a POSIX path list.
@@ -3268,7 +3228,8 @@ DOCTOOL-START
 DOCTOOL-END
   */
 
-extern "C" int
+extern "C"
+int
 cygwin_posix_path_list_p (const char *path)
 {
   int posix_p = !(strchr (path, ';') || isdrive (path));
@@ -3281,30 +3242,23 @@ cygwin_posix_path_list_p (const char *path)
    allows the caller to use alloca if it wants.  */
 
 static int
-conv_path_list_buf_size (const char *path_list, bool to_posix)
+conv_path_list_buf_size (const char *path_list, int to_posix_p)
 {
   int i, num_elms, max_mount_path_len, size;
   const char *p;
 
-  path_conv pc(".", PC_POSIX);
   /* The theory is that an upper bound is
      current_size + (num_elms * max_mount_path_len)  */
-  /* FIXME: This method is questionable in the long run. */
 
-  unsigned nrel;
-  char delim = to_posix ? ';' : ':';
-  for (p = path_list, num_elms = nrel = 0; p; num_elms++)
-    {
-      if (!isabspath (p))
-	nrel++;
-      p = strchr (++p, delim);
-    }
+  char delim = to_posix_p ? ';' : ':';
+  p = path_list;
+  for (num_elms = 1; (p = strchr (p, delim)) != NULL; ++num_elms)
+    ++p;
 
   /* 7: strlen ("//c") + slop, a conservative initial value */
-  for (max_mount_path_len = sizeof ("/cygdrive/X"), i = 0;
-       i < mount_table->nmounts; i++)
+  for (max_mount_path_len = 7, i = 0; i < mount_table->nmounts; ++i)
     {
-      int mount_len = (to_posix
+      int mount_len = (to_posix_p
 		       ? mount_table->mount[i].posix_pathlen
 		       : mount_table->mount[i].native_pathlen);
       if (max_mount_path_len < mount_len)
@@ -3312,100 +3266,38 @@ conv_path_list_buf_size (const char *path_list, bool to_posix)
     }
 
   /* 100: slop */
-  size = strlen (path_list)
-    + (num_elms * max_mount_path_len)
-    + (nrel * strlen (to_posix ? pc.normalized_path : pc.get_win32 ()))
-    + 100;
-
+  size = strlen (path_list) + (num_elms * max_mount_path_len) + 100;
   return size;
 }
 
-
-extern "C" int
+extern "C"
+int
 cygwin_win32_to_posix_path_list_buf_size (const char *path_list)
 {
-  return conv_path_list_buf_size (path_list, true);
+  return conv_path_list_buf_size (path_list, 1);
 }
 
-extern "C" int
+extern "C"
+int
 cygwin_posix_to_win32_path_list_buf_size (const char *path_list)
 {
-  return conv_path_list_buf_size (path_list, false);
+  return conv_path_list_buf_size (path_list, 0);
 }
 
-extern "C" ssize_t
-env_PATH_to_posix (const void *win32, void *posix, size_t size)
-{
-  return_with_errno (conv_path_list ((const char *) win32, (char *) posix,
-				     size, ENV_CVT));
-}
-
-extern "C" int
+extern "C"
+int
 cygwin_win32_to_posix_path_list (const char *win32, char *posix)
 {
-  return_with_errno (conv_path_list (win32, posix, MAX_PATH,
-		     CCP_WIN_A_TO_POSIX | CCP_RELATIVE));
+  conv_path_list (win32, posix, 1);
+  return 0;
 }
 
-extern "C" int
+extern "C"
+int
 cygwin_posix_to_win32_path_list (const char *posix, char *win32)
 {
-  return_with_errno (conv_path_list (posix, win32, MAX_PATH,
-		     CCP_POSIX_TO_WIN_A | CCP_RELATIVE));
-}
-
-extern "C" ssize_t
-cygwin_conv_path_list (cygwin_conv_path_t what, const void *from, void *to,
-		       size_t size)
-{
-  int ret;
-  char *winp = NULL;
-  void *orig_to = NULL;
-  size_t orig_size = (size_t) -1;
-  tmp_pathbuf tp;
-
-  switch (what & CCP_CONVTYPE_MASK)
-    {
-    case CCP_WIN_W_TO_POSIX:
-      if (!sys_wcstombs_alloc (&winp, HEAP_NOTHEAP, (const wchar_t *) from,
-			       (size_t) -1))
-	return -1;
-      what = (what & ~CCP_CONVTYPE_MASK) | CCP_WIN_A_TO_POSIX;
-      from = (const void *) winp;
-      break;
-    case CCP_POSIX_TO_WIN_W:
-      if (size == 0)
-	return conv_path_list_buf_size ((const char *) from, 0)
-	       * sizeof (WCHAR);
-      what = (what & ~CCP_CONVTYPE_MASK) | CCP_POSIX_TO_WIN_A;
-      orig_to = to;
-      orig_size = size;
-      to = (void *) tp.w_get ();
-      size = 65536;
-      break;
-    }
-  switch (what & CCP_CONVTYPE_MASK)
-    {
-    case CCP_WIN_A_TO_POSIX:
-    case CCP_POSIX_TO_WIN_A:
-      if (size == 0)
-	return conv_path_list_buf_size ((const char *) from,
-					what == CCP_WIN_A_TO_POSIX);
-      ret = conv_path_list ((const char *) from, (char *) to, size, what);
-      /* Free winp buffer in case of CCP_WIN_W_TO_POSIX. */
-      if (winp)
-      	free (winp);
-      /* Convert to WCHAR in case of CCP_POSIX_TO_WIN_W. */
-      if (orig_to)
-	sys_mbstowcs ((wchar_t *) orig_to, size / sizeof (WCHAR),
-		      (const char *) to, (size_t) -1);
-      return_with_errno (ret);
-      break;
-    default:
-      break;
-    }
-  set_errno (EINVAL);
-  return -1;
+  conv_path_list (posix, win32, 0);
+  return 0;
 }
 
 /* cygwin_split_path: Split a path into directory and file name parts.
@@ -3427,7 +3319,8 @@ cygwin_conv_path_list (cygwin_conv_path_t what, const void *from, void *to,
    c:/foo -> `c:/' / `foo'
  */
 
-extern "C" void
+extern "C"
+void
 cygwin_split_path (const char *path, char *dir, char *file)
 {
   int dir_started_p = 0;
@@ -3445,7 +3338,7 @@ cygwin_split_path (const char *path, char *dir, char *file)
 	  *file = 0;
 	  return;
 	}
-      if (isdirsep (*path))
+      if (SLASH_P (*path))
 	++path;
       dir_started_p = 1;
     }
@@ -3454,7 +3347,7 @@ cygwin_split_path (const char *path, char *dir, char *file)
      We pretend as if they don't exist.  */
   const char *end = path + strlen (path);
   /* path + 1: keep leading slash.  */
-  while (end > path + 1 && isdirsep (end[-1]))
+  while (end > path + 1 && SLASH_P (end[-1]))
     --end;
 
   /* At this point, END points to one beyond the last character
@@ -3463,7 +3356,7 @@ cygwin_split_path (const char *path, char *dir, char *file)
   /* Point LAST_SLASH at the last slash (duh...).  */
   const char *last_slash;
   for (last_slash = end - 1; last_slash >= path; --last_slash)
-    if (isdirsep (*last_slash))
+    if (SLASH_P (*last_slash))
       break;
 
   if (last_slash == path)
@@ -3489,729 +3382,95 @@ cygwin_split_path (const char *path, char *dir, char *file)
   file[end - last_slash - 1] = 0;
 }
 
-static inline void
-copy_cwd_str (PUNICODE_STRING tgt, PUNICODE_STRING src)
-{
-  RtlCopyUnicodeString (tgt, src);
-  if (tgt->Buffer[tgt->Length / sizeof (WCHAR) - 1] != L'\\')
-    {
-      tgt->Buffer[tgt->Length / sizeof (WCHAR)] = L'\\';
-      tgt->Length += sizeof (WCHAR);
-    }
-}
-
 /*****************************************************************************/
 
-/* The find_fast_cwd_pointer function and parts of the
-   cwdstuff::override_win32_cwd method are based on code using the
-   following license:
-
-   Copyright 2010 John Carey. All rights reserved.
-
-   Redistribution and use in source and binary forms, with or without
-   modification, are permitted provided that the following conditions
-   are met:
-
-      1. Redistributions of source code must retain the above
-      copyright notice, this list of conditions and the following
-      disclaimer.
-
-      2. Redistributions in binary form must reproduce the above
-      copyright notice, this list of conditions and the following
-      disclaimer in the documentation and/or other materials provided
-      with the distribution.
-
-   THIS SOFTWARE IS PROVIDED BY JOHN CAREY ``AS IS'' AND ANY EXPRESS
-   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-   ARE DISCLAIMED. IN NO EVENT SHALL JOHN CAREY OR CONTRIBUTORS BE
-   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
-   OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-   BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-   LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
-   USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
-   DAMAGE. */
-
-void
-fcwd_access_t::SetFSCharacteristics (LONG val)
+/* Return the hash value for the current win32 value.
+   This is used when constructing inodes. */
+DWORD
+cwdstuff::get_hash ()
 {
-  /* Special case FSCharacteristics.  Didn't exist originally. */
-  switch (fast_cwd_version ())
-    {
-    case FCWD_OLD:
-      break;
-    case FCWD_W7:
-      f7.FSCharacteristics = val;
-      break;
-    case FCWD_W8:
-      f8.FSCharacteristics = val;
-      break;
-    }
-}
-
-fcwd_version_t &
-fcwd_access_t::fast_cwd_version ()
-{
-  return cygheap->cwd.fast_cwd_version;
-}
-
-void
-fcwd_access_t::CopyPath (UNICODE_STRING &target)
-{
-  /* Copy the Path contents over into the UNICODE_STRING referenced by
-     target.  This is used to set the CurrentDirectoryName in the
-     user parameter block. */
-  target = Path ();
-}
-
-void
-fcwd_access_t::Free (PVOID heap)
-{
-  /* Decrement the reference count.  If it's down to 0, free
-     structure from heap. */
-  if (this && InterlockedDecrement (&ReferenceCount ()) == 0)
-    {
-      /* In contrast to pre-Vista, the handle on init is always a
-	 fresh one and not the handle inherited from the parent
-	 process.  So we always have to close it here.  However, the
-	 handle could be NULL, if we cd'ed into a virtual dir. */
-      HANDLE h = DirectoryHandle ();
-      if (h)
-	NtClose (h);
-      RtlFreeHeap (heap, 0, this);
-    }
-}
-
-void
-fcwd_access_t::FillIn (HANDLE dir, PUNICODE_STRING name,
-			ULONG old_dismount_count)
-{
-  /* Fill in all values into this FAST_CWD structure. */
-  DirectoryHandle () = dir;
-  ReferenceCount () = 1;
-  OldDismountCount () = old_dismount_count;
-  /* The new structure stores the device characteristics of the
-     volume holding the dir.  RtlGetCurrentDirectory_U checks
-     if the FILE_REMOVABLE_MEDIA flag is set and, if so, checks if
-     the volume is still the same as the one used when opening
-     the directory handle.
-     We don't call NtQueryVolumeInformationFile for the \\?\PIPE,
-     though.  It just returns STATUS_INVALID_HANDLE anyway. */
-  if (fast_cwd_version () != FCWD_OLD)
-    {
-      SetFSCharacteristics (0);
-      if (name != &ro_u_pipedir)
-	{
-	  IO_STATUS_BLOCK io;
-	  FILE_FS_DEVICE_INFORMATION ffdi;
-	  if (NT_SUCCESS (NtQueryVolumeInformationFile (dir, &io, &ffdi,
-			  sizeof ffdi, FileFsDeviceInformation)))
-	    SetFSCharacteristics (ffdi.Characteristics);
-	}
-    }
-  RtlInitEmptyUnicodeString (&Path (), Buffer (),
-			     MAX_PATH * sizeof (WCHAR));
-  copy_cwd_str (&Path (), name);
-}
-
-void
-fcwd_access_t::SetDirHandleFromBufferPointer (PWCHAR buf_p, HANDLE dir)
-{
-  /* Input: The buffer pointer as it's stored in the user parameter block
-     and a directory handle.
-     This function computes the address to the FAST_CWD structure based
-     on the version and overwrites the directory handle.  It is only
-     used if we couldn't figure out the address of fast_cwd_ptr. */
-  fcwd_access_t *f_cwd;
-  switch (fast_cwd_version ())
-    {
-    case FCWD_OLD:
-    default:
-      f_cwd = (fcwd_access_t *)
-	((PBYTE) buf_p - __builtin_offsetof (FAST_CWD_OLD, Buffer));
-    case FCWD_W7:
-      f_cwd = (fcwd_access_t *)
-	((PBYTE) buf_p - __builtin_offsetof (FAST_CWD_7, Buffer));
-    case FCWD_W8:
-      f_cwd = (fcwd_access_t *)
-	((PBYTE) buf_p - __builtin_offsetof (FAST_CWD_8, Buffer));
-    }
-  f_cwd->DirectoryHandle () = dir;
-}
-
-void
-fcwd_access_t::SetVersionFromPointer (PBYTE buf_p, bool is_buffer)
-{
-  /* Given a pointer to the FAST_CWD structure (is_buffer == false) or a
-     pointer to the Buffer within (is_buffer == true), this function
-     computes the FAST_CWD version by checking that Path.MaximumLength
-     equals MAX_PATH, and that Path.Buffer == Buffer. */
-  if (is_buffer)
-    buf_p -= __builtin_offsetof (FAST_CWD_8, Buffer);
-  fcwd_access_t *f_cwd = (fcwd_access_t *) buf_p;
-  if (f_cwd->f8.Path.MaximumLength == MAX_PATH * sizeof (WCHAR)
-      && f_cwd->f8.Path.Buffer == f_cwd->f8.Buffer)
-    fast_cwd_version () = FCWD_W8;
-  else if (f_cwd->f7.Path.MaximumLength == MAX_PATH * sizeof (WCHAR)
-	   && f_cwd->f7.Path.Buffer == f_cwd->f7.Buffer)
-    fast_cwd_version () = FCWD_W7;
-  else
-    fast_cwd_version () = FCWD_OLD;
-}
-
-#define peek32(x)	(*(uint32_t *)(x))
-
-/* This function scans the code in ntdll.dll to find the address of the
-   global variable used to access the CWD starting with Vista.  While the
-   pointer is global, it's not exported from the DLL, unfortunately.
-   Therefore we have to use some knowledge to figure out the address.
-
-   This code has been tested on Vista 32/64 bit, Server 2008 32/64 bit,
-   Windows 7 32/64 bit, Server 2008 R2 (which is only 64 bit anyway),
-   and W8CP 32/64 bit.  There's some hope this will still work for
-   Windows 8 RTM... */
-static fcwd_access_t **
-find_fast_cwd_pointer ()
-{
-  /* Fetch entry points of relevant functions in ntdll.dll. */
-  HMODULE ntdll = GetModuleHandle ("ntdll.dll");
-  if (!ntdll)
-    return NULL;
-  const uint8_t *get_dir = (const uint8_t *)
-			   GetProcAddress (ntdll, "RtlGetCurrentDirectory_U");
-  const uint8_t *ent_crit = (const uint8_t *)
-			    GetProcAddress (ntdll, "RtlEnterCriticalSection");
-  if (!get_dir || !ent_crit)
-    return NULL;
-  /* Search first relative call instruction in RtlGetCurrentDirectory_U. */
-  const uint8_t *rcall = (const uint8_t *) memchr (get_dir, 0xe8, 32);
-  if (!rcall)
-    return NULL;
-  /* Fetch offset from instruction and compute address of called function.
-     This function actually fetches the current FAST_CWD instance and
-     performs some other actions, not important to us. */
-  ptrdiff_t offset = (ptrdiff_t) peek32 (rcall + 1);
-  const uint8_t *use_cwd = rcall + 5 + offset;
-  /* Find first "push edi" instruction. */
-  const uint8_t *pushedi = (const uint8_t *) memchr (use_cwd, 0x57, 32);
-  /* ...which should be followed by "mov edi, crit-sect-addr" then
-     "push edi", or by just a single "push crit-sect-addr". */
-  const uint8_t *movedi = pushedi + 1;
-  const uint8_t *mov_pfast_cwd;
-  if (movedi[0] == 0x8b && movedi[1] == 0xff)	/* mov edi,edi -> W8 */
-    {
-      /* Windows 8 CP 32 bit (after a Windows Update?) does not call
-	 RtlEnterCriticalSection.  For some reason the function manipulates
-	 the FastPebLock manually, kind of like RtlEnterCriticalSection has
-	 been converted to an inline function.
-
-	 Next we search for a `mov eax, some address'.  This address points
-	 to the LockCount member of the FastPebLock structure, so the address
-	 is equal to FastPebLock + 4. */
-      const uint8_t *moveax = (const uint8_t *) memchr (movedi, 0xb8, 16);
-      if (!moveax)
-	return NULL;
-      offset = (ptrdiff_t) peek32 (moveax + 1) - 4;
-      /* Compare the address with the known PEB lock as stored in the PEB. */
-      if ((PRTL_CRITICAL_SECTION) offset != NtCurrentTeb ()->Peb->FastPebLock)
-	return NULL;
-      /* Now search for the mov instruction fetching the address of the global
-	 PFAST_CWD *. */
-      mov_pfast_cwd = moveax;
-      do
-	{
-	  mov_pfast_cwd = (const uint8_t *) memchr (++mov_pfast_cwd, 0x8b, 48);
-	}
-      while (mov_pfast_cwd && mov_pfast_cwd[1] != 0x1d
-	     && (mov_pfast_cwd - moveax) < 48);
-      if (!mov_pfast_cwd || mov_pfast_cwd[1] != 0x1d)
-	return NULL;
-    }
-  else
-    {
-      if (movedi[0] == 0xbf && movedi[5] == 0x57)
-	rcall = movedi + 6;
-      else if (movedi[0] == 0x68)
-	rcall = movedi + 5;
-      else
-	return NULL;
-      /* Compare the address used for the critical section with the known
-	 PEB lock as stored in the PEB. */
-      if ((PRTL_CRITICAL_SECTION) peek32 (movedi + 1)
-	  != NtCurrentTeb ()->Peb->FastPebLock)
-	return NULL;
-      /* To check we are seeing the right code, we check our expectation that
-	 the next instruction is a relative call into RtlEnterCriticalSection. */
-      if (rcall[0] != 0xe8)
-	return NULL;
-      /* Check that this is a relative call to RtlEnterCriticalSection. */
-      offset = (ptrdiff_t) peek32 (rcall + 1);
-      if (rcall + 5 + offset != ent_crit)
-	return NULL;
-      mov_pfast_cwd = rcall + 5;
-    }
-  /* After locking the critical section, the code should read the global
-     PFAST_CWD * pointer that is guarded by that critical section. */
-  if (mov_pfast_cwd[0] != 0x8b)
-    return NULL;
-  return (fcwd_access_t **) peek32 (mov_pfast_cwd + 2);
-}
-
-static fcwd_access_t **
-find_fast_cwd ()
-{
-  /* Fetch the pointer but don't set the global fast_cwd_ptr yet.  First
-     we have to make sure we know the version of the FAST_CWD structure
-     used on the system. */
-  fcwd_access_t **f_cwd_ptr = find_fast_cwd_pointer ();
-  if (!f_cwd_ptr)
-    system_printf ("WARNING: Couldn't compute FAST_CWD pointer.  "
-		   "Please report this problem to\nthe public mailing "
-		   "list cygwin@cygwin.com");
-  if (f_cwd_ptr && *f_cwd_ptr)
-    {
-      /* Just evaluate structure version. */
-      fcwd_access_t::SetVersionFromPointer ((PBYTE) *f_cwd_ptr, false);
-    }
-  else
-    {
-      /* If we couldn't fetch fast_cwd_ptr, or if fast_cwd_ptr is NULL(*)
-	 we have to figure out the version from the Buffer pointer in the
-	 ProcessParameters.
-
-	 (*) This is very unlikely to happen when starting the first
-	 Cygwin process, since it only happens when starting the
-	 process in a directory which can't be used as CWD by Win32, or
-	 if the directory doesn't exist.  But *if* it happens, we have
-	 no valid FAST_CWD structure, even though upp_cwd_str.Buffer is
-	 not NULL in that case.  So we let the OS create a valid
-	 FAST_CWD structure temporarily to have something to work with.
-	 We know the pipe FS works. */
-      PEB &peb = *NtCurrentTeb ()->Peb;
-
-      if (f_cwd_ptr	/* so *f_cwd_ptr == NULL */
-	  && !NT_SUCCESS (RtlSetCurrentDirectory_U (&ro_u_pipedir)))
-	api_fatal ("Couldn't set directory to %S temporarily.\n"
-		   "Cannot continue.", &ro_u_pipedir);
-      RtlEnterCriticalSection (peb.FastPebLock);
-      fcwd_access_t::SetVersionFromPointer
-	((PBYTE) peb.ProcessParameters->CurrentDirectoryName.Buffer, true);
-      RtlLeaveCriticalSection (peb.FastPebLock);
-    }
-  /* Eventually, after we set the version as well, set fast_cwd_ptr. */
-  return f_cwd_ptr;
-}
-
-void
-cwdstuff::override_win32_cwd (bool init, ULONG old_dismount_count)
-{
-  HANDLE h = NULL;
-
-  PEB &peb = *NtCurrentTeb ()->Peb;
-  UNICODE_STRING &upp_cwd_str = peb.ProcessParameters->CurrentDirectoryName;
-  HANDLE &upp_cwd_hdl = peb.ProcessParameters->CurrentDirectoryHandle;
-
-  if (wincap.has_fast_cwd ())
-    {
-      if (fast_cwd_ptr == (fcwd_access_t **) -1)
-	fast_cwd_ptr = find_fast_cwd ();
-      if (fast_cwd_ptr)
-	{
-	  /* Default method starting with Vista.  If we got a valid value for
-	     fast_cwd_ptr, we can simply replace the RtlSetCurrentDirectory_U
-	     function entirely, just as on pre-Vista. */
-	  PVOID heap = peb.ProcessHeap;
-	  /* First allocate a new fcwd_access_t structure on the heap.
-	     The new fcwd_access_t structure is 4 byte bigger than the old one,
-	     but we simply don't care, so we allocate always room for the
-	     new one. */
-	  fcwd_access_t *f_cwd = (fcwd_access_t *)
-			    RtlAllocateHeap (heap, 0, sizeof (fcwd_access_t));
-	  if (!f_cwd)
-	    {
-	      debug_printf ("RtlAllocateHeap failed");
-	      return;
-	    }
-	  /* Fill in the values. */
-	  f_cwd->FillIn (dir, error ? &ro_u_pipedir : &win32,
-			 old_dismount_count);
-	  /* Use PEB lock when switching fast_cwd_ptr to the new FAST_CWD
-	     structure and writing the CWD to the user process parameter
-	     block.  This is equivalent to calling RtlAcquirePebLock/
-	     RtlReleasePebLock, but without having to go through the FS
-	     selector again. */
-	  RtlEnterCriticalSection (peb.FastPebLock);
-	  fcwd_access_t *old_cwd = *fast_cwd_ptr;
-	  *fast_cwd_ptr = f_cwd;
-	  f_cwd->CopyPath (upp_cwd_str);
-	  upp_cwd_hdl = dir;
-	  RtlLeaveCriticalSection (peb.FastPebLock);
-	  old_cwd->Free (heap);
-	}
-      else
-	{
-	  /* This is more a hack, and it's only used on Vista and later if we
-	     failed to find the fast_cwd_ptr value.  What we do here is to call
-	     RtlSetCurrentDirectory_U and let it set up a new FAST_CWD
-	     structure.  Afterwards, compute the address of that structure
-	     utilizing the fact that the buffer address in the user process
-	     parameter block is actually pointing to the buffer in that
-	     FAST_CWD structure.  Then replace the directory handle in that
-	     structure with our own handle and close the original one.
-
-	     Note that the call to RtlSetCurrentDirectory_U also closes our
-	     old dir handle, so there won't be any handle left open.
-
-	     This method is prone to two race conditions:
-
-	     - Due to the way RtlSetCurrentDirectory_U opens the directory
-	       handle, the directory is locked against deletion or renaming
-	       between the RtlSetCurrentDirectory_U and the subsequent NtClose
-	       call.
-
-	     - When another thread calls SetCurrentDirectory at exactly the
-	       same time, a crash might occur, or worse, unrelated data could
-	       be overwritten or NtClose could be called on an unrelated handle.
-
-	     Therefore, use this *only* as a fallback. */
-	  if (!init)
-	    {
-	      NTSTATUS status =
-		RtlSetCurrentDirectory_U (error ? &ro_u_pipedir : &win32);
-	      if (!NT_SUCCESS (status))
-		{
-		  debug_printf ("RtlSetCurrentDirectory_U(%S) failed, %p",
-				error ? &ro_u_pipedir : &win32, status);
-		  return;
-		}
-	    }
-	  else if (upp_cwd_hdl == NULL)
-	    return;
-	  RtlEnterCriticalSection (peb.FastPebLock);
-	  fcwd_access_t::SetDirHandleFromBufferPointer(upp_cwd_str.Buffer, dir);
-	  h = upp_cwd_hdl;
-	  upp_cwd_hdl = dir;
-	  RtlLeaveCriticalSection (peb.FastPebLock);
-	  /* In contrast to pre-Vista, the handle on init is always a fresh one
-	     and not the handle inherited from the parent process.  So we always
-	     have to close it here. */
-	  NtClose (h);
-	}
-    }
-  else
-    {
-      /* This method is used for all pre-Vista OSes.  We simply set the values
-	 for the CWD in the user process parameter block entirely by ourselves
-	 under PEB lock condition.  This is how RtlSetCurrentDirectory_U worked
-	 in these older OSes, so we're safe.
-
-	 Note that we can't just RtlEnterCriticalSection (peb.FastPebLock)
-	 on pre-Vista.  RtlAcquirePebLock was way more complicated back then. */
-      RtlAcquirePebLock ();
-      if (!init)
-	copy_cwd_str (&upp_cwd_str, error ? &ro_u_pipedir : &win32);
-      h = upp_cwd_hdl;
-      upp_cwd_hdl = dir;
-      RtlReleasePebLock ();
-      /* Only on init, the handle is potentially a native handle.  However,
-	 if it's identical to dir, it's the inherited handle from a Cygwin
-	 parent process and must not be closed. */
-      if (h && h != dir)
-	NtClose (h);
-    }
+  DWORD hashnow;
+  lock->acquire ();
+  hashnow = hash;
+  lock->release ();
+  return hashnow;
 }
 
 /* Initialize cygcwd 'muto' for serializing access to cwd info. */
 void
 cwdstuff::init ()
 {
-  cwd_lock.init ("cwd_lock");
-
-  /* Cygwin processes inherit the cwd from their parent.  If the win32 path
-     buffer is not NULL, the cwd struct is already set up, and we only
-     have to override the Win32 CWD with ours. */
-  if (win32.Buffer)
-    override_win32_cwd (true, SharedUserData.DismountCount);
-  else
-    {
-      /* Initialize fast_cwd stuff. */
-      fast_cwd_ptr = (fcwd_access_t **) -1;
-      fast_cwd_version = FCWD_W7;
-      /* Initially re-open the cwd to allow POSIX semantics. */
-      set (NULL, NULL);
-    }
+  lock = new_muto (FALSE, "cwd");
 }
 
-/* Chdir and fill out the elements of a cwdstuff struct. */
-int
-cwdstuff::set (path_conv *nat_cwd, const char *posix_cwd)
+/* Get initial cwd.  Should only be called once in a
+   process tree. */
+bool
+cwdstuff::get_initial ()
 {
-  NTSTATUS status;
-  UNICODE_STRING upath;
-  PEB &peb = *NtCurrentTeb ()->Peb;
-  bool virtual_path = false;
-  bool unc_path = false;
-  bool inaccessible_path = false;
+  lock->acquire ();
 
-  /* Here are the problems with using SetCurrentDirectory.  Just skip this
-     comment if you don't like whining.
+  if (win32)
+    return 1;
 
-     - SetCurrentDirectory only supports paths of up to MAX_PATH - 1 chars,
-       including a trailing backslash.  That's an absolute restriction, even
-       in the UNICODE API.
-
-     - SetCurrentDirectory fails for directories with strict permissions even
-       for processes with the SE_BACKUP_NAME privilege enabled.  The reason
-       is apparently that SetCurrentDirectory calls NtOpenFile without the
-       FILE_OPEN_FOR_BACKUP_INTENT flag set.
-
-     - SetCurrentDirectory does not support case-sensitivity.
-
-     - Unlinking a cwd fails because SetCurrentDirectory seems to open
-       directories so that deleting the directory is disallowed.
-
-     - SetCurrentDirectory can naturally not work on virtual Cygwin paths
-       like /proc or /cygdrive.
-
-     Unfortunately, even though we have access to the Win32 process parameter
-     block, we can't just replace the directory handle.  Starting with Vista,
-     the handle is used elsewhere, and just replacing the handle in the process
-     parameter block shows quite surprising results.
-     FIXME: If we ever find a *safe* way to replace the directory handle in
-     the process parameter block, we're back in business.
-
-     Nevertheless, doing entirely without SetCurrentDirectory is not really
-     feasible, because it breaks too many mixed applications using the Win32
-     API.
-
-     Therefore we handle the CWD all by ourselves and just keep the Win32
-     CWD in sync.  However, to avoid surprising behaviour in the Win32 API
-     when we are in a CWD which is inaccessible as Win32 CWD, we set the
-     Win32 CWD to a "weird" directory in which all relative filesystem-related
-     calls fail. */
-
-  cwd_lock.acquire ();
-
-  if (nat_cwd)
+  int i;
+  DWORD len, dlen;
+  for (i = 0, dlen = MAX_PATH, len = 0; i < 3; dlen *= 2, i++)
     {
-      upath = *nat_cwd->get_nt_native_path ();
-      if (nat_cwd->isspecial ())
-	virtual_path = true;
+      win32 = (char *) crealloc (win32, dlen + 2);
+      if ((len = GetCurrentDirectoryA (dlen, win32)) < dlen)
+	break;
     }
 
-  /* Memorize old DismountCount before opening the dir.  This value is
-     stored in the FAST_CWD structure on Vista and later.  It would be
-     simpler to fetch the old DismountCount in override_win32_cwd, but
-     Windows also fetches it before opening the directory handle.  It's
-     not quite clear if that's really required, but since we don't know
-     the side effects of this action, we better follow Windows' lead. */
-  ULONG old_dismount_count = SharedUserData.DismountCount;
-  /* Open a directory handle with FILE_OPEN_FOR_BACKUP_INTENT and with all
-     sharing flags set.  The handle is right now used in exceptions.cc only,
-     but that might change in future. */
-  HANDLE h = NULL;
-  if (!virtual_path)
+  if (len == 0)
     {
-      IO_STATUS_BLOCK io;
-      OBJECT_ATTRIBUTES attr;
-
-      if (!nat_cwd)
-	{
-	  /* On init, just reopen Win32 CWD with desired access flags.
-	     We can access the PEB without lock, because no other thread
-	     can change the CWD. */
-	  RtlInitUnicodeString (&upath, L"");
-	  InitializeObjectAttributes (&attr, &upath,
-			OBJ_CASE_INSENSITIVE | OBJ_INHERIT,
-			peb.ProcessParameters->CurrentDirectoryHandle, NULL);
-	}
-      else
-	InitializeObjectAttributes (&attr, &upath,
-			nat_cwd->objcaseinsensitive () | OBJ_INHERIT,
-			NULL, NULL);
-      /* First try without FILE_OPEN_FOR_BACKUP_INTENT, to find out if the
-	 directory is valid for Win32 apps.  And, no, we can't just call
-	 SetCurrentDirectory here, since that would potentially break
-	 case-sensitivity. */
-      status = NtOpenFile (&h, SYNCHRONIZE | FILE_TRAVERSE, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS,
-			   FILE_DIRECTORY_FILE
-			   | FILE_SYNCHRONOUS_IO_NONALERT);
-      if (status == STATUS_ACCESS_DENIED)
-	{
-	  status = NtOpenFile (&h, SYNCHRONIZE | FILE_TRAVERSE, &attr, &io,
-			       FILE_SHARE_VALID_FLAGS,
-			       FILE_DIRECTORY_FILE
-			       | FILE_SYNCHRONOUS_IO_NONALERT
-			       | FILE_OPEN_FOR_BACKUP_INTENT);
-	  inaccessible_path = true;
-	}
-      if (!NT_SUCCESS (status))
-	{
-	  cwd_lock.release ();
-	  __seterrno_from_nt_status (status);
-	  return -1;
-	}
+      __seterrno ();
+      lock->release ();
+      debug_printf ("get_initial_cwd failed, %E");
+      lock->release ();
+      return 0;
     }
-  /* Set new handle.  Note that we simply overwrite the old handle here
-     without closing it.  The handle is also used as Win32 CWD handle in
-     the user parameter block, and it will be closed in override_win32_cwd,
-     if required. */
-  dir = h;
-
-  if (!nat_cwd)
-    {
-      /* On init, just fetch the Win32 dir from the PEB.  We can access
-	 the PEB without lock, because no other thread can change the CWD
-	 at that time. */
-      PUNICODE_STRING pdir = &peb.ProcessParameters->CurrentDirectoryName;
-      RtlInitEmptyUnicodeString (&win32,
-				 (PWCHAR) crealloc_abort (win32.Buffer,
-							  pdir->Length
-							  + sizeof (WCHAR)),
-				 pdir->Length + sizeof (WCHAR));
-      RtlCopyUnicodeString (&win32, pdir);
-
-      PWSTR eoBuffer = win32.Buffer + (win32.Length / sizeof (WCHAR));
-      /* Remove trailing slash if one exists. */
-      if ((eoBuffer - win32.Buffer) > 3 && eoBuffer[-1] == L'\\')
-	win32.Length -= sizeof (WCHAR);
-      if (eoBuffer[0] == L'\\')
-	unc_path = true;
-
-      posix_cwd = NULL;
-    }
-  else
-    {
-      if (!virtual_path) /* don't mangle virtual path. */
-	{
-	  /* Convert into Win32 path and compute length. */
-	  if (upath.Buffer[1] == L'?')
-	    {
-	      upath.Buffer += 4;
-	      upath.Length -= 4 * sizeof (WCHAR);
-	      if (upath.Buffer[1] != L':')
-		{
-		  /* UNC path */
-		  upath.Buffer += 2;
-		  upath.Length -= 2 * sizeof (WCHAR);
-		  unc_path = true;
-		}
-	    }
-	  else
-	    {
-	      /* Path via native NT namespace.  Prepend GLOBALROOT prefix
-		 to create a valid Win32 path. */
-	      PWCHAR buf = (PWCHAR) alloca (upath.Length
-					    + ro_u_globalroot.Length
-					    + sizeof (WCHAR));
-	      wcpcpy (wcpcpy (buf, ro_u_globalroot.Buffer), upath.Buffer);
-	      upath.Buffer = buf;
-	      upath.Length += ro_u_globalroot.Length;
-	    }
-	  PWSTR eoBuffer = upath.Buffer + (upath.Length / sizeof (WCHAR));
-	  /* Remove trailing slash if one exists. */
-	  if ((eoBuffer - upath.Buffer) > 3 && eoBuffer[-1] == L'\\')
-	    upath.Length -= sizeof (WCHAR);
-	}
-      RtlInitEmptyUnicodeString (&win32,
-				 (PWCHAR) crealloc_abort (win32.Buffer,
-							  upath.Length
-							  + sizeof (WCHAR)),
-				 upath.Length + sizeof (WCHAR));
-      RtlCopyUnicodeString (&win32, &upath);
-      if (unc_path)
-	win32.Buffer[0] = L'\\';
-    }
-  /* Make sure it's NUL-terminated. */
-  win32.Buffer[win32.Length / sizeof (WCHAR)] = L'\0';
-
-  /* Set drive_length, used in path conversion, and error code, used in
-     spawn_guts to decide whether a native Win32 app can be started or not. */
-  if (virtual_path)
-    {
-      drive_length = 0;
-      error = ENOTDIR;
-    }
-  else
-    {
-      if (!unc_path)
-	drive_length = 2;
-      else
-	{
-	  PWCHAR ptr = wcschr (win32.Buffer + 2, L'\\');
-	  if (ptr)
-	    ptr = wcschr (ptr + 1, L'\\');
-	  if (ptr)
-	    drive_length = ptr - win32.Buffer;
-	  else
-	    drive_length = win32.Length / sizeof (WCHAR);
-	}
-      if (inaccessible_path)
-	error = EACCES;
-      else if (win32.Length > (MAX_PATH - 2) * sizeof (WCHAR))
-	error = ENAMETOOLONG;
-      else
-	error = 0;
-    }
-  /* Keep the Win32 CWD in sync.  Don't check for error, other than for
-     strace output.  Try to keep overhead low. */
-  override_win32_cwd (!nat_cwd, old_dismount_count);
-
-  /* Eventually, create POSIX path if it's not set on entry. */
-  tmp_pathbuf tp;
-  if (!posix_cwd)
-    {
-      posix_cwd = (const char *) tp.c_get ();
-      mount_table->conv_to_posix_path (win32.Buffer, (char *) posix_cwd, 0);
-    }
-  posix = (char *) crealloc_abort (posix, strlen (posix_cwd) + 1);
-  stpcpy (posix, posix_cwd);
-
-  cwd_lock.release ();
-  return 0;
+  set (NULL);
+  return 1;	/* Leaves cwd lock unreleased */
 }
 
-const char *
-cwdstuff::get_error_desc () const
-{
-  switch (cygheap->cwd.get_error ())
-    {
-    case EACCES:
-      return "has restricted permissions which render it\n"
-	     "inaccessible as Win32 working directory";
-    case ENOTDIR:
-      return "is a virtual Cygwin directory which does\n"
-	     "not exist for a native Windows application";
-    case ENAMETOOLONG:
-      return "has a path longer than allowed for a\n"
-	     "Win32 working directory";
-    default:
-      break;
-    }
-  /* That shouldn't occur, unless we defined a new error code
-     in cwdstuff::set. */
-  return "is not accessible for some unknown reason";
-}
-
-/* Store incoming wchar_t path as current posix cwd.  This is called from
-   setlocale so that the cwd is always stored in the right charset. */
+/* Fill out the elements of a cwdstuff struct.
+   It is assumed that the lock for the cwd is acquired if
+   win32_cwd == NULL. */
 void
-cwdstuff::reset_posix (wchar_t *w_cwd)
+cwdstuff::set (const char *win32_cwd, const char *posix_cwd)
 {
-  size_t len = sys_wcstombs (NULL, (size_t) -1, w_cwd);
-  posix = (char *) crealloc_abort (posix, len + 1);
-  sys_wcstombs (posix, len + 1, w_cwd);
+  char pathbuf[MAX_PATH];
+
+  if (win32_cwd)
+    {
+      lock->acquire ();
+      win32 = (char *) crealloc (win32, strlen (win32_cwd) + 1);
+      strcpy (win32, win32_cwd);
+    }
+
+  if (!posix_cwd)
+    mount_table->conv_to_posix_path (win32, pathbuf, 0);
+  else
+    (void) normalize_posix_path (posix_cwd, pathbuf);
+
+  posix = (char *) crealloc (posix, strlen (pathbuf) + 1);
+  strcpy (posix, pathbuf);
+
+  hash = hash_path_name (0, win32);
+
+  if (win32_cwd)
+    lock->release ();
+
+  return;
 }
 
+/* Copy the value for either the posix or the win32 cwd into a buffer. */
 char *
 cwdstuff::get (char *buf, int need_posix, int with_chroot, unsigned ulen)
 {
   MALLOC_CHECK;
 
-  tmp_pathbuf tp;
   if (ulen)
     /* nothing */;
   else if (buf == NULL)
@@ -4222,19 +3481,16 @@ cwdstuff::get (char *buf, int need_posix, int with_chroot, unsigned ulen)
       goto out;
     }
 
-  cwd_lock.acquire ();
+  if (!get_initial ())	/* Get initial cwd and set cwd lock */
+    return NULL;
 
   char *tocopy;
   if (!need_posix)
-    {
-      tocopy = tp.c_get ();
-      sys_wcstombs (tocopy, NT_MAX_PATH, win32.Buffer,
-		    win32.Length / sizeof (WCHAR));
-    }
+    tocopy = win32;
   else
     tocopy = posix;
 
-  debug_printf ("posix %s", posix);
+  debug_printf("posix %s", posix);
   if (strlen (tocopy) >= ulen)
     {
       set_errno (ERANGE);
@@ -4249,237 +3505,11 @@ cwdstuff::get (char *buf, int need_posix, int with_chroot, unsigned ulen)
 	strcpy (buf, "/");
     }
 
-  cwd_lock.release ();
+  lock->release ();
 
 out:
   syscall_printf ("(%s) = cwdstuff::get (%p, %d, %d, %d), errno %d",
 		  buf, buf, ulen, need_posix, with_chroot, errno);
   MALLOC_CHECK;
   return buf;
-}
-
-int etc::curr_ix = 0;
-/* Note that the first elements of the below arrays are unused */
-bool etc::change_possible[MAX_ETC_FILES + 1];
-OBJECT_ATTRIBUTES etc::fn[MAX_ETC_FILES + 1];
-LARGE_INTEGER etc::last_modified[MAX_ETC_FILES + 1];
-
-int
-etc::init (int n, POBJECT_ATTRIBUTES attr)
-{
-  if (n > 0)
-    /* ok */;
-  else if (++curr_ix <= MAX_ETC_FILES)
-    n = curr_ix;
-  else
-    api_fatal ("internal error");
-
-  fn[n] = *attr;
-  change_possible[n] = false;
-  test_file_change (n);
-  paranoid_printf ("fn[%d] %S, curr_ix %d", n, fn[n].ObjectName, curr_ix);
-  return n;
-}
-
-bool
-etc::test_file_change (int n)
-{
-  NTSTATUS status;
-  FILE_NETWORK_OPEN_INFORMATION fnoi;
-  bool res;
-
-  status = NtQueryFullAttributesFile (&fn[n], &fnoi);
-  if (!NT_SUCCESS (status))
-    {
-      res = true;
-      memset (last_modified + n, 0, sizeof (last_modified[n]));
-      debug_printf ("NtQueryFullAttributesFile (%S) failed, %p",
-		    fn[n].ObjectName, status);
-    }
-  else
-    {
-      res = CompareFileTime ((FILETIME *) &fnoi.LastWriteTime,
-			     (FILETIME *) last_modified + n) > 0;
-      last_modified[n].QuadPart = fnoi.LastWriteTime.QuadPart;
-    }
-
-  paranoid_printf ("fn[%d] %S res %d", n, fn[n].ObjectName, res);
-  return res;
-}
-
-bool
-etc::dir_changed (int n)
-{
-  /* io MUST be static because NtNotifyChangeDirectoryFile works asynchronously.
-     It may write into io after the function has left, which may result in all
-     sorts of stack corruption. */
-  static IO_STATUS_BLOCK io NO_COPY;
-  static HANDLE changed_h NO_COPY;
-
-  if (!change_possible[n])
-    {
-      NTSTATUS status;
-
-      if (!changed_h)
-	{
-	  OBJECT_ATTRIBUTES attr;
-
-	  path_conv dir ("/etc");
-	  status = NtOpenFile (&changed_h, SYNCHRONIZE | FILE_LIST_DIRECTORY,
-			       dir.get_object_attr (attr, sec_none_nih), &io,
-			       FILE_SHARE_VALID_FLAGS, FILE_DIRECTORY_FILE);
-	  if (!NT_SUCCESS (status))
-	    {
-#ifdef DEBUGGING
-	      system_printf ("NtOpenFile (%S) failed, %p",
-			     dir.get_nt_native_path (), status);
-#endif
-	      changed_h = INVALID_HANDLE_VALUE;
-	    }
-	  else
-	    {
-	      status = NtNotifyChangeDirectoryFile (changed_h, NULL, NULL,
-						NULL, &io, NULL, 0,
-						FILE_NOTIFY_CHANGE_LAST_WRITE
-						| FILE_NOTIFY_CHANGE_FILE_NAME,
-						FALSE);
-	      if (!NT_SUCCESS (status))
-		{
-#ifdef DEBUGGING
-		  system_printf ("NtNotifyChangeDirectoryFile (1) failed, %p",
-				 status);
-#endif
-		  NtClose (changed_h);
-		  changed_h = INVALID_HANDLE_VALUE;
-		}
-	    }
-	  memset (change_possible, true, sizeof (change_possible));
-	}
-
-      if (changed_h == INVALID_HANDLE_VALUE)
-	change_possible[n] = true;
-      else if (WaitForSingleObject (changed_h, 0) == WAIT_OBJECT_0)
-	{
-	  status = NtNotifyChangeDirectoryFile (changed_h, NULL, NULL,
-						NULL, &io, NULL, 0,
-						FILE_NOTIFY_CHANGE_LAST_WRITE
-						| FILE_NOTIFY_CHANGE_FILE_NAME,
-						FALSE);
-	  if (!NT_SUCCESS (status))
-	    {
-#ifdef DEBUGGING
-	      system_printf ("NtNotifyChangeDirectoryFile (2) failed, %p",
-			     status);
-#endif
-	      NtClose (changed_h);
-	      changed_h = INVALID_HANDLE_VALUE;
-	    }
-	  memset (change_possible, true, sizeof change_possible);
-	}
-    }
-
-  paranoid_printf ("fn[%d] %S change_possible %d",
-		   n, fn[n].ObjectName, change_possible[n]);
-  return change_possible[n];
-}
-
-bool
-etc::file_changed (int n)
-{
-  bool res = false;
-  if (dir_changed (n) && test_file_change (n))
-    res = true;
-  change_possible[n] = false;	/* Change is no longer possible */
-  paranoid_printf ("fn[%d] %S res %d", n, fn[n].ObjectName, res);
-  return res;
-}
-
-/* No need to be reentrant or thread-safe according to SUSv3.
-   / and \\ are treated equally.  Leading drive specifiers are
-   kept intact as far as it makes sense.  Everything else is
-   POSIX compatible. */
-extern "C" char *
-basename (char *path)
-{
-  static char buf[4];
-  char *c, *d, *bs = path;
-
-  if (!path || !*path)
-    return strcpy (buf, ".");
-  if (isalpha (path[0]) && path[1] == ':')
-    bs += 2;
-  else if (strspn (path, "/\\") > 1)
-    ++bs;
-  c = strrchr (bs, '/');
-  if ((d = strrchr (c ?: bs, '\\')) > c)
-    c = d;
-  if (c)
-    {
-      /* Trailing (back)slashes are eliminated. */
-      while (c && c > bs && c[1] == '\0')
-	{
-	  *c = '\0';
-	  c = strrchr (bs, '/');
-	  if ((d = strrchr (c ?: bs, '\\')) > c)
-	    c = d;
-	}
-      if (c && (c > bs || c[1]))
-	return c + 1;
-    }
-  else if (!bs[0])
-    {
-      stpncpy (buf, path, bs - path);
-      stpcpy (buf + (bs - path), ".");
-      return buf;
-    }
-  return path;
-}
-
-/* No need to be reentrant or thread-safe according to SUSv3.
-   / and \\ are treated equally.  Leading drive specifiers and
-   leading double (back)slashes are kept intact as far as it
-   makes sense.  Everything else is POSIX compatible. */
-extern "C" char *
-dirname (char *path)
-{
-  static char buf[4];
-  char *c, *d, *bs = path;
-
-  if (!path || !*path)
-    return strcpy (buf, ".");
-  if (isalpha (path[0]) && path[1] == ':')
-    bs += 2;
-  else if (strspn (path, "/\\") > 1)
-    ++bs;
-  c = strrchr (bs, '/');
-  if ((d = strrchr (c ?: bs, '\\')) > c)
-    c = d;
-  if (c)
-    {
-      /* Trailing (back)slashes are eliminated. */
-      while (c && c > bs && c[1] == '\0')
-	{
-	  *c = '\0';
-	  c = strrchr (bs, '/');
-	  if ((d = strrchr (c ?: bs, '\\')) > c)
-	    c = d;
-	}
-      if (!c)
-	strcpy (bs, ".");
-      else if (c > bs)
-	{
-	  /* More trailing (back)slashes are eliminated. */
-	  while (c > bs && (*c == '/' || *c == '\\'))
-	    *c-- = '\0';
-	}
-      else
-	c[1] = '\0';
-    }
-  else
-    {
-      stpncpy (buf, path, bs - path);
-      stpcpy (buf + (bs - path), ".");
-      return buf;
-    }
-  return path;
 }
