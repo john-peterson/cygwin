@@ -2,9 +2,8 @@ cat << EOF
 OUTPUT_FORMAT("elf32-v850", "elf32-v850",
 	      "elf32-v850")
 OUTPUT_ARCH(v850)
-${RELOCATING+ENTRY(_start)}
+ENTRY(_start)
 SEARCH_DIR(.);
-EXTERN(__ctbp __ep __gp);
 SECTIONS
 {
   /* This saves a little space in the ELF file, since the zda starts
@@ -43,8 +42,6 @@ SECTIONS
   .rela.data	: { *(.rela.data) }
   .rel.rodata	: { *(.rel.rodata) }
   .rela.rodata	: { *(.rela.rodata) }
-  .rel.gcc_except_table : { *(.rel.gcc_except_table) }
-  .rela.gcc_except_table : { *(.rela.gcc_except_table) }
   .rel.got	: { *(.rel.got) }
   .rela.got	: { *(.rela.got) }
   .rel.ctors	: { *(.rel.ctors) }
@@ -118,12 +115,6 @@ SECTIONS
     KEEP (*crtend.o(.dtors))
     ${CONSTRUCTING+___dtors_end = .;}
   }
-  .jcr		:
-  {
-    KEEP (*(.jcr))
-  }
-
-  .gcc_except_table : { *(.gcc_except_table) }
 
   .got		: { *(.got.plt) *(.got) }
   .dynamic	: { *(.dynamic) }
@@ -180,7 +171,6 @@ SECTIONS
 
   ${RELOCATING+_end = . ;}
   ${RELOCATING+PROVIDE (end = .);}
-  ${RELOCATING+PROVIDE (_heap_start = .);}
 
   /* Stabs debugging sections.  */
   .stab 0		: { *(.stab) }
@@ -221,13 +211,6 @@ SECTIONS
   .debug_funcnames 0	: { *(.debug_funcnames) }
   .debug_typenames 0	: { *(.debug_typenames) }
   .debug_varnames  0	: { *(.debug_varnames) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 
   /* User stack.  */
   .stack 0x200000	:

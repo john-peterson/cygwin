@@ -1,7 +1,7 @@
 cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}")
 OUTPUT_ARCH("${OUTPUT_ARCH}")
-${RELOCATING+ENTRY (_start)}
+ENTRY(_start)
 
 SECTIONS 				
 { 					
