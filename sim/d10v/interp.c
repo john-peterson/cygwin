@@ -1,24 +1,11 @@
-#include "config.h"
 #include <signal.h>
+#include "sysdep.h"
 #include "bfd.h"
 #include "gdb/callback.h"
 #include "gdb/remote-sim.h"
 
 #include "d10v_sim.h"
 #include "gdb/sim-d10v.h"
-#include "gdb/signals.h"
-
-#ifdef HAVE_STRING_H
-#include <string.h>
-#else
-#ifdef HAVE_STRINGS_H
-#include <strings.h>
-#endif /* HAVE_STRING_H */
-#endif /* HAVE_STRINGS_H */
-
-#ifdef HAVE_STDLIB_H
-#include <stdlib.h>
-#endif
 
 enum _leftright { LEFT_FIRST, RIGHT_FIRST };
 
@@ -62,7 +49,7 @@ static INLINE uint8 *map_memory (unsigned phys_addr);
 static long ui_loop_hook_counter = UI_LOOP_POLL_INTERVAL;
 
 /* Actual hook to call to run through gdb's gui event loop */
-extern int (*deprecated_ui_loop_hook) PARAMS ((int signo));
+extern int (*ui_loop_hook) PARAMS ((int signo));
 #endif /* NEED_UI_LOOP_HOOK */
 
 #ifndef INLINE
@@ -733,39 +720,49 @@ xfer_mem (SIM_ADDR virt,
 	  int size,
 	  int write_p)
 {
-  uint8 *memory;
-  unsigned long phys;
-  int phys_size;
-  phys_size = sim_d10v_translate_addr (virt, size, &phys, NULL,
-				       dmap_register, imap_register);
-  if (phys_size == 0)
-    return 0;
+  int xfered = 0;
 
-  memory = map_memory (phys);
+  while (0 < size)
+    {
+      uint8 *memory;
+      unsigned long phys;
+      int phys_size;
+      phys_size = sim_d10v_translate_addr (virt, size, &phys, NULL,
+					   dmap_register, imap_register);
+      if (phys_size == 0)
+	return xfered;
+
+      memory = map_memory (phys);
 
 #ifdef DEBUG
-  if ((d10v_debug & DEBUG_INSTRUCTION) != 0)
-    {
-      (*d10v_callback->printf_filtered)
-	(d10v_callback,
-	 "sim_%s %d bytes: 0x%08lx (%s) -> 0x%08lx (%s) -> 0x%08lx (%s)\n",
+      if ((d10v_debug & DEBUG_INSTRUCTION) != 0)
+	{
+	  (*d10v_callback->printf_filtered)
+	    (d10v_callback,
+	     "sim_%s %d bytes: 0x%08lx (%s) -> 0x%08lx (%s) -> 0x%08lx (%s)\n",
 	     (write_p ? "write" : "read"),
-	 phys_size, virt, last_from,
-	 phys, last_to,
-	 (long) memory, last_segname);
-    }
+	     phys_size, virt, last_from,
+	     phys, last_to,
+	     (long) memory, last_segname);
+	}
 #endif
 
-  if (write_p)
-    {
-      memcpy (memory, buffer, phys_size);
+      if (write_p)
+	{
+	  memcpy (memory, buffer, phys_size);
+	}
+      else
+	{
+	  memcpy (buffer, memory, phys_size);
+	}
+
+      virt += phys_size;
+      buffer += phys_size;
+      xfered += phys_size;
+      size -= phys_size;
     }
-  else
-    {
-      memcpy (buffer, memory, phys_size);
-    }
-  
-  return phys_size;
+
+  return xfered;
 }
 
 
@@ -773,7 +770,7 @@ int
 sim_write (sd, addr, buffer, size)
      SIM_DESC sd;
      SIM_ADDR addr;
-     const unsigned char *buffer;
+     unsigned char *buffer;
      int size;
 {
   /* FIXME: this should be performing a virtual transfer */
@@ -1074,10 +1071,10 @@ sim_resume (sd, step, siggnal)
       SLOT_FLUSH ();
 
 #ifdef NEED_UI_LOOP_HOOK
-      if (deprecated_ui_loop_hook != NULL && ui_loop_hook_counter-- < 0)
+      if (ui_loop_hook != NULL && ui_loop_hook_counter-- < 0)
 	{
 	  ui_loop_hook_counter = UI_LOOP_POLL_INTERVAL;
-	  deprecated_ui_loop_hook (0);
+	  ui_loop_hook (0);
 	}
 #endif /* NEED_UI_LOOP_HOOK */
     }
@@ -1290,13 +1287,17 @@ sim_stop_reason (sd, reason, sigrc)
 
     case SIG_D10V_BUS:
       *reason = sim_stopped;
-      *sigrc = GDB_SIGNAL_BUS;
+#ifdef SIGBUS
+      *sigrc = SIGBUS;
+#else
+      *sigrc = SIGSEGV;
+#endif
       break;
 
     default:				/* some signal */
       *reason = sim_stopped;
       if (stop_simulator && !State.exception)
-	*sigrc = GDB_SIGNAL_INT;
+	*sigrc = SIGINT;
       else
 	*sigrc = State.exception;
       break;

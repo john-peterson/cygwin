@@ -1,7 +1,6 @@
 /* Native support for the SGI Iris running IRIX version 5, for GDB.
-
-   Copyright (C) 1988-2013 Free Software Foundation, Inc.
-
+   Copyright 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1998,
+   1999, 2000, 2001, 2002 Free Software Foundation, Inc.
    Contributed by Alessandro Forin(af@cs.cmu.edu) at CMU
    and by Per Bothner(bothner@cs.wisc.edu) at U.Wisconsin.
    Implemented for Irix 4.x by Garrett A. Wollman.
@@ -11,7 +10,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -20,27 +19,29 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "inferior.h"
 #include "gdbcore.h"
 #include "target.h"
 #include "regcache.h"
-#include "procfs.h"
 
 #include "gdb_string.h"
 #include <sys/time.h>
 #include <sys/procfs.h>
 #include <setjmp.h>		/* For JB_XXX.  */
 
-/* Prototypes for supply_gregset etc.  */
+/* Prototypes for supply_gregset etc. */
 #include "gregset.h"
-#include "mips-tdep.h"
 
-static void fetch_core_registers (struct regcache *, char *,
-				  unsigned int, int, CORE_ADDR);
+static void fetch_core_registers (char *, unsigned int, int, CORE_ADDR);
 
+/* Size of elements in jmpbuf */
+
+#define JB_ELEMENT_SIZE 4
 
 /*
  * See the comment in m68k-tdep.c regarding the utility of these functions.
@@ -50,39 +51,30 @@ static void fetch_core_registers (struct regcache *, char *,
  */
 
 void
-supply_gregset (struct regcache *regcache, const gregset_t *gregsetp)
+supply_gregset (gregset_t *gregsetp)
 {
-  int regi;
-  const greg_t *regp = &(*gregsetp)[0];
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  int gregoff = sizeof (greg_t) - mips_isa_regsize (gdbarch);
+  register int regi;
+  register greg_t *regp = &(*gregsetp)[0];
+  int gregoff = sizeof (greg_t) - MIPS_REGSIZE;
   static char zerobuf[32] = {0};
 
   for (regi = 0; regi <= CTX_RA; regi++)
-    regcache_raw_supply (regcache, regi,
-			 (const char *) (regp + regi) + gregoff);
+    supply_register (regi, (char *) (regp + regi) + gregoff);
 
-  regcache_raw_supply (regcache, mips_regnum (gdbarch)->pc,
-		       (const char *) (regp + CTX_EPC) + gregoff);
-  regcache_raw_supply (regcache, mips_regnum (gdbarch)->hi,
-		       (const char *) (regp + CTX_MDHI) + gregoff);
-  regcache_raw_supply (regcache, mips_regnum (gdbarch)->lo,
-		       (const char *) (regp + CTX_MDLO) + gregoff);
-  regcache_raw_supply (regcache, mips_regnum (gdbarch)->cause,
-		       (const char *) (regp + CTX_CAUSE) + gregoff);
+  supply_register (PC_REGNUM, (char *) (regp + CTX_EPC) + gregoff);
+  supply_register (HI_REGNUM, (char *) (regp + CTX_MDHI) + gregoff);
+  supply_register (LO_REGNUM, (char *) (regp + CTX_MDLO) + gregoff);
+  supply_register (CAUSE_REGNUM, (char *) (regp + CTX_CAUSE) + gregoff);
 
   /* Fill inaccessible registers with zero.  */
-  regcache_raw_supply (regcache, mips_regnum (gdbarch)->badvaddr, zerobuf);
+  supply_register (BADVADDR_REGNUM, zerobuf);
 }
 
 void
-fill_gregset (const struct regcache *regcache, gregset_t *gregsetp, int regno)
+fill_gregset (gregset_t *gregsetp, int regno)
 {
-  int regi, size;
-  greg_t *regp = &(*gregsetp)[0];
-  gdb_byte buf[MAX_REGISTER_SIZE];
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  int regi;
+  register greg_t *regp = &(*gregsetp)[0];
 
   /* Under Irix6, if GDB is built with N32 ABI and is debugging an O32
      executable, we have to sign extend the registers to 64 bits before
@@ -90,123 +82,102 @@ fill_gregset (const struct regcache *regcache, gregset_t *gregsetp, int regno)
 
   for (regi = 0; regi <= CTX_RA; regi++)
     if ((regno == -1) || (regno == regi))
-      {
-	size = register_size (gdbarch, regi);
-	regcache_raw_collect (regcache, regi, buf);
-	*(regp + regi) = extract_signed_integer (buf, size, byte_order);
-      }
+      *(regp + regi) =
+	extract_signed_integer (&deprecated_registers[REGISTER_BYTE (regi)],
+				REGISTER_RAW_SIZE (regi));
 
-  if ((regno == -1) || (regno == mips_regnum (gdbarch)->pc))
-    {
-      regi = mips_regnum (gdbarch)->pc;
-      size = register_size (gdbarch, regi);
-      regcache_raw_collect (regcache, regi, buf);
-      *(regp + CTX_EPC) = extract_signed_integer (buf, size, byte_order);
-    }
+  if ((regno == -1) || (regno == PC_REGNUM))
+    *(regp + CTX_EPC) =
+      extract_signed_integer (&deprecated_registers[REGISTER_BYTE (PC_REGNUM)],
+			      REGISTER_RAW_SIZE (PC_REGNUM));
 
-  if ((regno == -1) || (regno == mips_regnum (gdbarch)->cause))
-    {
-      regi = mips_regnum (gdbarch)->cause;
-      size = register_size (gdbarch, regi);
-      regcache_raw_collect (regcache, regi, buf);
-      *(regp + CTX_CAUSE) = extract_signed_integer (buf, size, byte_order);
-    }
+  if ((regno == -1) || (regno == CAUSE_REGNUM))
+    *(regp + CTX_CAUSE) =
+      extract_signed_integer (&deprecated_registers[REGISTER_BYTE (CAUSE_REGNUM)],
+			      REGISTER_RAW_SIZE (CAUSE_REGNUM));
 
-  if ((regno == -1) || (regno == mips_regnum (gdbarch)->hi))
-    {
-      regi = mips_regnum (gdbarch)->hi;
-      size = register_size (gdbarch, regi);
-      regcache_raw_collect (regcache, regi, buf);
-      *(regp + CTX_MDHI) = extract_signed_integer (buf, size, byte_order);
-    }
+  if ((regno == -1) || (regno == HI_REGNUM))
+    *(regp + CTX_MDHI) =
+      extract_signed_integer (&deprecated_registers[REGISTER_BYTE (HI_REGNUM)],
+			      REGISTER_RAW_SIZE (HI_REGNUM));
 
-  if ((regno == -1) || (regno == mips_regnum (gdbarch)->lo))
-    {
-      regi = mips_regnum (gdbarch)->lo;
-      size = register_size (gdbarch, regi);
-      regcache_raw_collect (regcache, regi, buf);
-      *(regp + CTX_MDLO) = extract_signed_integer (buf, size, byte_order);
-    }
+  if ((regno == -1) || (regno == LO_REGNUM))
+    *(regp + CTX_MDLO) =
+      extract_signed_integer (&deprecated_registers[REGISTER_BYTE (LO_REGNUM)],
+			      REGISTER_RAW_SIZE (LO_REGNUM));
 }
 
 /*
  * Now we do the same thing for floating-point registers.
- * We don't bother to condition on gdbarch_fp0_regnum since any
+ * We don't bother to condition on FP0_REGNUM since any
  * reasonable MIPS configuration has an R3010 in it.
  *
  * Again, see the comments in m68k-tdep.c.
  */
 
 void
-supply_fpregset (struct regcache *regcache, const fpregset_t *fpregsetp)
+supply_fpregset (fpregset_t *fpregsetp)
 {
-  int regi;
+  register int regi;
   static char zerobuf[32] = {0};
-  char fsrbuf[8];
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
 
-  /* FIXME, this is wrong for the N32 ABI which has 64 bit FP regs.  */
+  /* FIXME, this is wrong for the N32 ABI which has 64 bit FP regs. */
 
   for (regi = 0; regi < 32; regi++)
-    regcache_raw_supply (regcache, gdbarch_fp0_regnum (gdbarch) + regi,
-			 (const char *) &fpregsetp->__fp_r.__fp_regs[regi]);
+    supply_register (FP0_REGNUM + regi,
+		     (char *) &fpregsetp->fp_r.fp_regs[regi]);
 
-  /* We can't supply the FSR register directly to the regcache,
-     because there is a size issue: On one hand, fpregsetp->fp_csr
-     is 32bits long, while the regcache expects a 64bits long value.
-     So we use a buffer of the correct size and copy into it the register
-     value at the proper location.  */
-  memset (fsrbuf, 0, 4);
-  memcpy (fsrbuf + 4, &fpregsetp->__fp_csr, 4);
+  supply_register (FCRCS_REGNUM, (char *) &fpregsetp->fp_csr);
 
-  regcache_raw_supply (regcache,
-		       mips_regnum (gdbarch)->fp_control_status, fsrbuf);
-
-  /* FIXME: how can we supply FCRIR?  SGI doesn't tell us.  */
-  regcache_raw_supply (regcache,
-		       mips_regnum (gdbarch)->fp_implementation_revision,
-		       zerobuf);
+  /* FIXME: how can we supply FCRIR_REGNUM?  SGI doesn't tell us. */
+  supply_register (FCRIR_REGNUM, zerobuf);
 }
 
 void
-fill_fpregset (const struct regcache *regcache,
-	       fpregset_t *fpregsetp, int regno)
+fill_fpregset (fpregset_t *fpregsetp, int regno)
 {
   int regi;
   char *from, *to;
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
 
-  /* FIXME, this is wrong for the N32 ABI which has 64 bit FP regs.  */
+  /* FIXME, this is wrong for the N32 ABI which has 64 bit FP regs. */
 
-  for (regi = gdbarch_fp0_regnum (gdbarch);
-       regi < gdbarch_fp0_regnum (gdbarch) + 32; regi++)
+  for (regi = FP0_REGNUM; regi < FP0_REGNUM + 32; regi++)
     {
       if ((regno == -1) || (regno == regi))
 	{
-	  const int fp0_regnum = gdbarch_fp0_regnum (gdbarch);
-
-	  to = (char *) &(fpregsetp->__fp_r.__fp_regs[regi - fp0_regnum]);
-          regcache_raw_collect (regcache, regi, to);
+	  from = (char *) &deprecated_registers[REGISTER_BYTE (regi)];
+	  to = (char *) &(fpregsetp->fp_r.fp_regs[regi - FP0_REGNUM]);
+	  memcpy (to, from, REGISTER_RAW_SIZE (regi));
 	}
     }
 
-  if (regno == -1
-      || regno == mips_regnum (gdbarch)->fp_control_status)
-    {
-      char fsrbuf[8];
-
-      /* We can't fill the FSR register directly from the regcache,
-         because there is a size issue: On one hand, fpregsetp->fp_csr
-         is 32bits long, while the regcache expects a 64bits long buffer.
-         So we use a buffer of the correct size and copy the register
-         value from that buffer.  */
-      regcache_raw_collect (regcache,
-			    mips_regnum (gdbarch)->fp_control_status, fsrbuf);
-
-      memcpy (&fpregsetp->__fp_csr, fsrbuf + 4, 4);
-    }
+  if ((regno == -1) || (regno == FCRCS_REGNUM))
+    fpregsetp->fp_csr = *(unsigned *) &deprecated_registers[REGISTER_BYTE (FCRCS_REGNUM)];
 }
 
+
+/* Figure out where the longjmp will land.
+   We expect the first arg to be a pointer to the jmp_buf structure from which
+   we extract the pc (JB_PC) that we will land at.  The pc is copied into PC.
+   This routine returns true on success. */
+
+int
+get_longjmp_target (CORE_ADDR *pc)
+{
+  char *buf;
+  CORE_ADDR jb_addr;
+
+  buf = alloca (TARGET_PTR_BIT / TARGET_CHAR_BIT);
+  jb_addr = read_register (A0_REGNUM);
+
+  if (target_read_memory (jb_addr + JB_PC * JB_ELEMENT_SIZE, buf,
+			  TARGET_PTR_BIT / TARGET_CHAR_BIT))
+    return 0;
+
+  *pc = extract_address (buf, TARGET_PTR_BIT / TARGET_CHAR_BIT);
+
+  return 1;
+}
 
 /* Provide registers to GDB from a core file.
 
@@ -222,32 +193,68 @@ fill_fpregset (const struct regcache *regcache,
    REG_ADDR is also unused.  */
 
 static void
-fetch_core_registers (struct regcache *regcache,
-		      char *core_reg_sect, unsigned core_reg_size,
+fetch_core_registers (char *core_reg_sect, unsigned core_reg_size,
 		      int which, CORE_ADDR reg_addr)
 {
-  char *srcp = core_reg_sect;
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  int regsize = mips_isa_regsize (gdbarch);
-  int regno;
-
-  /* If regsize is 8, this is a N32 or N64 core file.
-     If regsize is 4, this is an O32 core file.  */
-  if (core_reg_size != regsize * gdbarch_num_regs (gdbarch))
+  if (core_reg_size == DEPRECATED_REGISTER_BYTES)
     {
-      warning (_("wrong size gregset struct in core file"));
+      memcpy ((char *) deprecated_registers, core_reg_sect, core_reg_size);
+    }
+  else if (MIPS_REGSIZE == 4 &&
+	   core_reg_size == (2 * MIPS_REGSIZE) * NUM_REGS)
+    {
+      /* This is a core file from a N32 executable, 64 bits are saved
+         for all registers.  */
+      char *srcp = core_reg_sect;
+      char *dstp = deprecated_registers;
+      int regno;
+
+      for (regno = 0; regno < NUM_REGS; regno++)
+	{
+	  if (regno >= FP0_REGNUM && regno < (FP0_REGNUM + 32))
+	    {
+	      /* FIXME, this is wrong, N32 has 64 bit FP regs, but GDB
+	         currently assumes that they are 32 bit.  */
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	      if (REGISTER_RAW_SIZE (regno) == 4)
+		{
+		  /* copying 4 bytes from eight bytes?
+		     I don't see how this can be right...  */
+		  srcp += 4;
+		}
+	      else
+		{
+		  /* copy all 8 bytes (sizeof(double)) */
+		  *dstp++ = *srcp++;
+		  *dstp++ = *srcp++;
+		  *dstp++ = *srcp++;
+		  *dstp++ = *srcp++;
+		}
+	    }
+	  else
+	    {
+	      srcp += 4;
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	      *dstp++ = *srcp++;
+	    }
+	}
+    }
+  else
+    {
+      warning ("wrong size gregset struct in core file");
       return;
     }
 
-  for (regno = 0; regno < gdbarch_num_regs (gdbarch); regno++)
-    {
-      regcache_raw_supply (regcache, regno, srcp);
-      srcp += regsize;
-    }
+  deprecated_registers_fetched ();
 }
 
 /* Register that we are able to handle irix5 core file formats.
-   This really is bfd_target_unknown_flavour.  */
+   This really is bfd_target_unknown_flavour */
 
 static struct core_fns irix5_core_fns =
 {
@@ -258,17 +265,8 @@ static struct core_fns irix5_core_fns =
   NULL					/* next */
 };
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_irix5_nat;
-
 void
-_initialize_irix5_nat (void)
+_initialize_core_irix5 (void)
 {
-  struct target_ops *t;
-
-  t = procfs_target ();
-  procfs_use_watchpoints (t);
-  add_target (t);
-
-  deprecated_add_core_fns (&irix5_core_fns);
+  add_core_fns (&irix5_core_fns);
 }

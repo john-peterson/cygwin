@@ -14,19 +14,11 @@ Library General Public License for more details.
 
 You should have received a copy of the GNU Library General Public
 License along with libiberty; see the file COPYING.LIB.  If
-not, write to the Free Software Foundation, Inc., 51 Franklin Street - Fifth Floor,
-Boston, MA 02110-1301, USA.  */
+not, write to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+Boston, MA 02111-1307, USA.  */
 
 #include <stdio.h>  /* for EOF */
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 #include "libiberty.h"
-#include "safe-ctype.h" /* for HOST_CHARSET_ASCII */
-
-#if EOF != -1
- #error "hex.c requires EOF == -1"
-#endif
 
 /*
 
@@ -47,10 +39,10 @@ or zero if it is not.  Note that the value you pass will be cast to
 
 @end deftypefn
 
-@deftypefn Extension {unsigned int} hex_value (int @var{c})
+@deftypefn Extension unsigned int hex_value (int @var{c})
 
 Returns the numeric equivalent of the given character when interpreted
-as a hexadecimal digit.  The result is undefined if you pass an
+as a hexidecimal digit.  The result is undefined if you pass an
 invalid hex digit.  Note that the value you pass will be cast to
 @code{unsigned char} within the macro.
 
@@ -70,7 +62,9 @@ systems.
 
 
 /* Are we ASCII? */
-#if HOST_CHARSET == HOST_CHARSET_ASCII
+#if '\n' == 0x0A && ' ' == 0x20 && '0' == 0x30 \
+  && 'A' == 0x41 && 'a' == 0x61 && '!' == 0x21 \
+  && EOF == -1
 
 const unsigned char _hex_value[_hex_array_size] =
 {
@@ -156,7 +150,7 @@ unsigned char _hex_value[_hex_array_size];
 #endif /* not ASCII */
 
 void
-hex_init (void)
+hex_init ()
 {
 #ifndef HEX_TABLE_INITIALIZED
   int i;

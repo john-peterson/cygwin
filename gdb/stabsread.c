@@ -1,12 +1,13 @@
 /* Support routines for decoding "stabs" debugging information format.
-
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995,
+   1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,13 +16,15 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* Support routines for reading and decoding debugging information in
    the "stabs" format.  This format is used with many systems that use
    the a.out object file format, as well as some systems that use
    COFF or ELF where the stabs data is placed in a special section.
-   Avoid placing any object file format specific code in this file.  */
+   Avoid placing any object file format specific code in this file. */
 
 #include "defs.h"
 #include "gdb_string.h"
@@ -32,19 +35,17 @@
 #include "expression.h"
 #include "symfile.h"
 #include "objfiles.h"
-#include "aout/stab_gnu.h"	/* We always use GNU stabs, not native.  */
+#include "aout/stab_gnu.h"	/* We always use GNU stabs, not native */
 #include "libaout.h"
 #include "aout/aout64.h"
 #include "gdb-stabs.h"
 #include "buildsym.h"
 #include "complaints.h"
 #include "demangle.h"
-#include "gdb-demangle.h"
 #include "language.h"
 #include "doublest.h"
 #include "cp-abi.h"
 #include "cp-support.h"
-#include "gdb_assert.h"
 
 #include <ctype.h>
 
@@ -60,7 +61,7 @@ extern void _initialize_stabsread (void);
    C++ class pass lists of data member fields and lists of member function
    fields in an instance of a field_info structure, as defined below.
    This is part of some reorganization of low level C++ support and is
-   expected to eventually go away...  (FIXME) */
+   expected to eventually go away... (FIXME) */
 
 struct field_info
   {
@@ -88,9 +89,11 @@ static void
 read_one_struct_field (struct field_info *, char **, char *,
 		       struct type *, struct objfile *);
 
+static char *get_substring (char **, int);
+
 static struct type *dbx_alloc_type (int[2], struct objfile *);
 
-static long read_huge_number (char **, int, int *, int);
+static long read_huge_number (char **, int, int *);
 
 static struct type *error_type (char **, struct objfile *);
 
@@ -98,13 +101,11 @@ static void
 patch_block_stabs (struct pending *, struct pending_stabs *,
 		   struct objfile *);
 
-static void fix_common_block (struct symbol *, CORE_ADDR);
+static void fix_common_block (struct symbol *, int);
 
 static int read_type_number (char **, int *);
 
-static struct type *read_type (char **, struct objfile *);
-
-static struct type *read_range_type (char **, int[2], int, struct objfile *);
+static struct type *read_range_type (char **, int[2], struct objfile *);
 
 static struct type *read_sun_builtin_type (char **, int[2], struct objfile *);
 
@@ -113,7 +114,7 @@ static struct type *read_sun_floating_type (char **, int[2],
 
 static struct type *read_enum_type (char **, struct type *, struct objfile *);
 
-static struct type *rs6000_builtin_type (int, struct objfile *);
+static struct type *rs6000_builtin_type (int);
 
 static int
 read_member_functions (struct field_info *, char **, struct type *,
@@ -145,37 +146,82 @@ static struct type *read_array_type (char **, struct type *,
 
 static struct field *read_args (char **, int, struct objfile *, int *, int *);
 
-static void add_undefined_type (struct type *, int[2]);
-
 static int
 read_cpp_abbrev (struct field_info *, char **, struct type *,
 		 struct objfile *);
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE  /* new functions added for cfront support */
+
+// OBSOLETE  static int
+// OBSOLETE  copy_cfront_struct_fields (struct field_info *, struct type *,
+// OBSOLETE  			   struct objfile *);
+
+// OBSOLETE  static char *get_cfront_method_physname (char *);
+
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_baseclasses (struct field_info *, char **,
+// OBSOLETE  			 struct type *, struct objfile *);
+
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_static_fields (struct field_info *, char **,
+// OBSOLETE  			   struct type *, struct objfile *);
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_member_functions (struct field_info *, char **,
+// OBSOLETE  			      struct type *, struct objfile *);
+
+// OBSOLETE  /* end new functions added for cfront support */
+#endif /* OBSOLETE CFront */
 
 static char *find_name_end (char *name);
 
+static void add_live_range (struct objfile *, struct symbol *, CORE_ADDR,
+			    CORE_ADDR);
+
+static int resolve_live_range (struct objfile *, struct symbol *, char *);
+
 static int process_reference (char **string);
+
+static CORE_ADDR ref_search_value (int refnum);
+
+static int resolve_symbol_reference (struct objfile *, struct symbol *,
+				     char *);
 
 void stabsread_clear_cache (void);
 
 static const char vptr_name[] = "_vptr$";
 static const char vb_name[] = "_vb$";
 
+/* Define this as 1 if a pcc declaration of a char or short argument
+   gives the correct address.  Otherwise assume pcc gives the
+   address of the corresponding int, which is not the same on a
+   big-endian machine.  */
+
+#if !defined (BELIEVE_PCC_PROMOTION)
+#define BELIEVE_PCC_PROMOTION 0
+#endif
+
 static void
 invalid_cpp_abbrev_complaint (const char *arg1)
 {
-  complaint (&symfile_complaints, _("invalid C++ abbreviation `%s'"), arg1);
+  complaint (&symfile_complaints, "invalid C++ abbreviation `%s'", arg1);
 }
 
 static void
-reg_value_complaint (int regnum, int num_regs, const char *sym)
+reg_value_complaint (int arg1, int arg2, const char *arg3)
 {
   complaint (&symfile_complaints,
-	     _("register number %d too large (max %d) in symbol %s"),
-             regnum, num_regs - 1, sym);
+	     "register number %d too large (max %d) in symbol %s", arg1, arg2,
+	     arg3);
 }
 
 static void
 stabs_general_complaint (const char *arg1)
+{
+  complaint (&symfile_complaints, "%s", arg1);
+}
+
+static void
+lrs_general_complaint (const char *arg1)
 {
   complaint (&symfile_complaints, "%s", arg1);
 }
@@ -186,20 +232,6 @@ static struct type **undef_types;
 static int undef_types_allocated;
 static int undef_types_length;
 static struct symbol *current_symbol = NULL;
-
-/* Make a list of nameless types that are undefined.
-   This happens when another type is referenced by its number
-   before this type is actually defined.  For instance "t(0,1)=k(0,2)"
-   and type (0,2) is defined only later.  */
-
-struct nat
-{
-  int typenums[2];
-  struct type *type;
-};
-static struct nat *noname_undefs;
-static int noname_undefs_allocated;
-static int noname_undefs_length;
 
 /* Check for and handle cretinous stabs symbol name continuation!  */
 #define STABS_CONTINUE(pp,objfile)				\
@@ -216,14 +248,14 @@ static int noname_undefs_length;
    This can be used for finding the type associated with that pair
    or for associating a new type with the pair.  */
 
-static struct type **
-dbx_lookup_type (int typenums[2], struct objfile *objfile)
+struct type **
+dbx_lookup_type (int typenums[2])
 {
-  int filenum = typenums[0];
-  int index = typenums[1];
+  register int filenum = typenums[0];
+  register int index = typenums[1];
   unsigned old_len;
-  int real_filenum;
-  struct header_file *f;
+  register int real_filenum;
+  register struct header_file *f;
   int f_orig_length;
 
   if (filenum == -1)		/* -1,-1 is for temporary types.  */
@@ -232,8 +264,7 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
   if (filenum < 0 || filenum >= n_this_object_header_files)
     {
       complaint (&symfile_complaints,
-		 _("Invalid symbol data: type number "
-		   "(%d,%d) out of range at symtab pos %d."),
+		 "Invalid symbol data: type number (%d,%d) out of range at symtab pos %d.",
 		 filenum, index, symnum);
       goto error_return;
     }
@@ -249,7 +280,7 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
 	     this will do the right thing.  */
 	  static struct type *temp_type;
 
-	  temp_type = rs6000_builtin_type (index, objfile);
+	  temp_type = rs6000_builtin_type (index);
 	  return &temp_type;
 	}
 
@@ -280,18 +311,21 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
     {
       real_filenum = this_object_header_files[filenum];
 
-      if (real_filenum >= N_HEADER_FILES (objfile))
+      if (real_filenum >= N_HEADER_FILES (current_objfile))
 	{
-	  static struct type *temp_type;
+	  struct type *temp_type;
+	  struct type **temp_type_p;
 
-	  warning (_("GDB internal error: bad real_filenum"));
+	  warning ("GDB internal error: bad real_filenum");
 
 	error_return:
-	  temp_type = objfile_type (objfile)->builtin_error;
-	  return &temp_type;
+	  temp_type = init_type (TYPE_CODE_ERROR, 0, 0, NULL, NULL);
+	  temp_type_p = (struct type **) xmalloc (sizeof (struct type *));
+	  *temp_type_p = temp_type;
+	  return temp_type_p;
 	}
 
-      f = HEADER_FILES (objfile) + real_filenum;
+      f = HEADER_FILES (current_objfile) + real_filenum;
 
       f_orig_length = f->length;
       if (index >= f_orig_length)
@@ -313,19 +347,19 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
    and return the type object.
    This can create an empty (zeroed) type object.
    TYPENUMS may be (-1, -1) to return a new type object that is not
-   put into the type vector, and so may not be referred to by number.  */
+   put into the type vector, and so may not be referred to by number. */
 
 static struct type *
 dbx_alloc_type (int typenums[2], struct objfile *objfile)
 {
-  struct type **type_addr;
+  register struct type **type_addr;
 
   if (typenums[0] == -1)
     {
       return (alloc_type (objfile));
     }
 
-  type_addr = dbx_lookup_type (typenums, objfile);
+  type_addr = dbx_lookup_type (typenums);
 
   /* If we are referring to a type not known at all yet,
      allocate an empty type for it.
@@ -339,7 +373,7 @@ dbx_alloc_type (int typenums[2], struct objfile *objfile)
 }
 
 /* for all the stabs in a given stab vector, build appropriate types 
-   and fix their symbols in given symbol vector.  */
+   and fix their symbols in given symbol vector. */
 
 static void
 patch_block_stabs (struct pending *symbols, struct pending_stabs *stabs,
@@ -352,14 +386,14 @@ patch_block_stabs (struct pending *symbols, struct pending_stabs *stabs,
 
   if (stabs)
     {
+
       /* for all the stab entries, find their corresponding symbols and 
-         patch their types!  */
+         patch their types! */
 
       for (ii = 0; ii < stabs->count; ++ii)
 	{
 	  name = stabs->stab[ii];
 	  pp = (char *) strchr (name, ':');
-	  gdb_assert (pp);	/* Must find a ':' or game's over.  */
 	  while (pp[1] == ':')
 	    {
 	      pp += 2;
@@ -380,15 +414,14 @@ patch_block_stabs (struct pending *symbols, struct pending_stabs *stabs,
 	         ld will remove it from the executable.  There is then
 	         a N_GSYM stab for it, but no regular (C_EXT) symbol.  */
 	      sym = (struct symbol *)
-		obstack_alloc (&objfile->objfile_obstack,
+		obstack_alloc (&objfile->symbol_obstack,
 			       sizeof (struct symbol));
 
 	      memset (sym, 0, sizeof (struct symbol));
 	      SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
 	      SYMBOL_CLASS (sym) = LOC_OPTIMIZED_OUT;
-	      SYMBOL_SET_LINKAGE_NAME
-		(sym, obstack_copy0 (&objfile->objfile_obstack,
-				     name, pp - name));
+	      DEPRECATED_SYMBOL_NAME (sym) =
+		obsavestring (name, pp - name, &objfile->symbol_obstack);
 	      pp += 2;
 	      if (*(pp - 1) == 'F' || *(pp - 1) == 'f')
 		{
@@ -431,24 +464,23 @@ patch_block_stabs (struct pending *symbols, struct pending_stabs *stabs,
    Returns 0 for success, -1 for error.  */
 
 static int
-read_type_number (char **pp, int *typenums)
+read_type_number (register char **pp, register int *typenums)
 {
   int nbits;
-
   if (**pp == '(')
     {
       (*pp)++;
-      typenums[0] = read_huge_number (pp, ',', &nbits, 0);
+      typenums[0] = read_huge_number (pp, ',', &nbits);
       if (nbits != 0)
 	return -1;
-      typenums[1] = read_huge_number (pp, ')', &nbits, 0);
+      typenums[1] = read_huge_number (pp, ')', &nbits);
       if (nbits != 0)
 	return -1;
     }
   else
     {
       typenums[0] = 0;
-      typenums[1] = read_huge_number (pp, 0, &nbits, 0);
+      typenums[1] = read_huge_number (pp, 0, &nbits);
       if (nbits != 0)
 	return -1;
     }
@@ -461,8 +493,594 @@ read_type_number (char **pp, int *typenums)
 #define VISIBILITY_PUBLIC	'2'	/* Stabs character for public field */
 #define VISIBILITY_IGNORE	'9'	/* Optimized out or zero length */
 
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE  #define CFRONT_VISIBILITY_PRIVATE	'2'	/* Stabs character for private field */
+// OBSOLETE  #define CFRONT_VISIBILITY_PUBLIC	'1'	/* Stabs character for public field */
+
+// OBSOLETE  /* This code added to support parsing of ARM/Cfront stabs strings */
+
+// OBSOLETE  /* Get substring from string up to char c, advance string pointer past
+// OBSOLETE     suibstring. */
+
+// OBSOLETE  static char *
+// OBSOLETE  get_substring (char **p, int c)
+// OBSOLETE  {
+// OBSOLETE    char *str;
+// OBSOLETE    str = *p;
+// OBSOLETE    *p = strchr (*p, c);
+// OBSOLETE    if (*p)
+// OBSOLETE      {
+// OBSOLETE        **p = 0;
+// OBSOLETE        (*p)++;
+// OBSOLETE      }
+// OBSOLETE    else
+// OBSOLETE      str = 0;
+// OBSOLETE    return str;
+// OBSOLETE  }
+
+// OBSOLETE  /* Physname gets strcat'd onto sname in order to recreate the mangled
+// OBSOLETE     name (see funtion gdb_mangle_name in gdbtypes.c).  For cfront, make
+// OBSOLETE     the physname look like that of g++ - take out the initial mangling
+// OBSOLETE     eg: for sname="a" and fname="foo__1aFPFs_i" return "FPFs_i" */
+
+// OBSOLETE  static char *
+// OBSOLETE  get_cfront_method_physname (char *fname)
+// OBSOLETE  {
+// OBSOLETE    int len = 0;
+// OBSOLETE    /* FIXME would like to make this generic for g++ too, but 
+// OBSOLETE       that is already handled in read_member_funcctions */
+// OBSOLETE    char *p = fname;
+
+// OBSOLETE    /* search ahead to find the start of the mangled suffix */
+// OBSOLETE    if (*p == '_' && *(p + 1) == '_')	/* compiler generated; probably a ctor/dtor */
+// OBSOLETE      p += 2;
+// OBSOLETE    while (p && (unsigned) ((p + 1) - fname) < strlen (fname) && *(p + 1) != '_')
+// OBSOLETE      p = strchr (p, '_');
+// OBSOLETE    if (!(p && *p == '_' && *(p + 1) == '_'))
+// OBSOLETE      error ("Invalid mangled function name %s", fname);
+// OBSOLETE    p += 2;			/* advance past '__' */
+
+// OBSOLETE    /* struct name length and name of type should come next; advance past it */
+// OBSOLETE    while (isdigit (*p))
+// OBSOLETE      {
+// OBSOLETE        len = len * 10 + (*p - '0');
+// OBSOLETE        p++;
+// OBSOLETE      }
+// OBSOLETE    p += len;
+
+// OBSOLETE    return p;
+// OBSOLETE  }
+
+// OBSOLETE  static void
+// OBSOLETE  msg_unknown_complaint (const char *arg1)
+// OBSOLETE  {
+// OBSOLETE    complaint (&symfile_complaints, "Unsupported token in stabs string %s", arg1);
+// OBSOLETE  }
+
+// OBSOLETE  /* Read base classes within cfront class definition.
+// OBSOLETE     eg: A:ZcA;1@Bpub v2@Bvirpri;__ct__1AFv func__1AFv *sfunc__1AFv ;as__1A ;;
+// OBSOLETE     ^^^^^^^^^^^^^^^^^^
+
+// OBSOLETE     A:ZcA;;foopri__1AFv foopro__1AFv __ct__1AFv __ct__1AFRC1A foopub__1AFv ;;;
+// OBSOLETE     ^
+// OBSOLETE   */
+
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_baseclasses (struct field_info *fip, char **pp, struct type *type,
+// OBSOLETE  			 struct objfile *objfile)
+// OBSOLETE  {
+// OBSOLETE    int bnum = 0;
+// OBSOLETE    char *p;
+// OBSOLETE    int i;
+// OBSOLETE    struct nextfield *new;
+
+// OBSOLETE    if (**pp == ';')		/* no base classes; return */
+// OBSOLETE      {
+// OBSOLETE        ++(*pp);
+// OBSOLETE        return 1;
+// OBSOLETE      }
+
+// OBSOLETE    /* first count base classes so we can allocate space before parsing */
+// OBSOLETE    for (p = *pp; p && *p && *p != ';'; p++)
+// OBSOLETE      {
+// OBSOLETE        if (*p == ' ')
+// OBSOLETE  	bnum++;
+// OBSOLETE      }
+// OBSOLETE    bnum++;			/* add one more for last one */
+
+// OBSOLETE    /* now parse the base classes until we get to the start of the methods 
+// OBSOLETE       (code extracted and munged from read_baseclasses) */
+// OBSOLETE    ALLOCATE_CPLUS_STRUCT_TYPE (type);
+// OBSOLETE    TYPE_N_BASECLASSES (type) = bnum;
+
+// OBSOLETE    /* allocate space */
+// OBSOLETE    {
+// OBSOLETE      int num_bytes = B_BYTES (TYPE_N_BASECLASSES (type));
+// OBSOLETE      char *pointer;
+
+// OBSOLETE      pointer = (char *) TYPE_ALLOC (type, num_bytes);
+// OBSOLETE      TYPE_FIELD_VIRTUAL_BITS (type) = (B_TYPE *) pointer;
+// OBSOLETE    }
+// OBSOLETE    B_CLRALL (TYPE_FIELD_VIRTUAL_BITS (type), TYPE_N_BASECLASSES (type));
+
+// OBSOLETE    for (i = 0; i < TYPE_N_BASECLASSES (type); i++)
+// OBSOLETE      {
+// OBSOLETE        new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+// OBSOLETE        make_cleanup (xfree, new);
+// OBSOLETE        memset (new, 0, sizeof (struct nextfield));
+// OBSOLETE        new->next = fip->list;
+// OBSOLETE        fip->list = new;
+// OBSOLETE        FIELD_BITSIZE (new->field) = 0;	/* this should be an unpacked field! */
+
+// OBSOLETE        STABS_CONTINUE (pp, objfile);
+
+// OBSOLETE        /* virtual?  eg: v2@Bvir */
+// OBSOLETE        if (**pp == 'v')
+// OBSOLETE  	{
+// OBSOLETE  	  SET_TYPE_FIELD_VIRTUAL (type, i);
+// OBSOLETE  	  ++(*pp);
+// OBSOLETE  	}
+
+// OBSOLETE        /* access?  eg: 2@Bvir */
+// OBSOLETE        /* Note: protected inheritance not supported in cfront */
+// OBSOLETE        switch (*(*pp)++)
+// OBSOLETE  	{
+// OBSOLETE  	case CFRONT_VISIBILITY_PRIVATE:
+// OBSOLETE  	  new->visibility = VISIBILITY_PRIVATE;
+// OBSOLETE  	  break;
+// OBSOLETE  	case CFRONT_VISIBILITY_PUBLIC:
+// OBSOLETE  	  new->visibility = VISIBILITY_PUBLIC;
+// OBSOLETE  	  break;
+// OBSOLETE  	default:
+// OBSOLETE  	  /* Bad visibility format.  Complain and treat it as
+// OBSOLETE  	     public.  */
+// OBSOLETE  	  {
+// OBSOLETE  	    complaint (&symfile_complaints,
+// OBSOLETE  		       "Unknown visibility `%c' for baseclass",
+// OBSOLETE  		       new->visibility);
+// OBSOLETE  	    new->visibility = VISIBILITY_PUBLIC;
+// OBSOLETE  	  }
+// OBSOLETE  	}
+
+// OBSOLETE        /* "@" comes next - eg: @Bvir */
+// OBSOLETE        if (**pp != '@')
+// OBSOLETE  	{
+// OBSOLETE  	  msg_unknown_complaint (*pp);
+// OBSOLETE  	  return 1;
+// OBSOLETE  	}
+// OBSOLETE        ++(*pp);
+
+
+// OBSOLETE        /* Set the bit offset of the portion of the object corresponding 
+// OBSOLETE           to this baseclass.  Always zero in the absence of
+// OBSOLETE           multiple inheritance.  */
+// OBSOLETE        /* Unable to read bit position from stabs;
+// OBSOLETE           Assuming no multiple inheritance for now FIXME! */
+// OBSOLETE        /* We may have read this in the structure definition;
+// OBSOLETE           now we should fixup the members to be the actual base classes */
+// OBSOLETE        FIELD_BITPOS (new->field) = 0;
+
+// OBSOLETE        /* Get the base class name and type */
+// OBSOLETE        {
+// OBSOLETE  	char *bname;		/* base class name */
+// OBSOLETE  	struct symbol *bsym;	/* base class */
+// OBSOLETE  	char *p1, *p2;
+// OBSOLETE  	p1 = strchr (*pp, ' ');
+// OBSOLETE  	p2 = strchr (*pp, ';');
+// OBSOLETE  	if (p1 < p2)
+// OBSOLETE  	  bname = get_substring (pp, ' ');
+// OBSOLETE  	else
+// OBSOLETE  	  bname = get_substring (pp, ';');
+// OBSOLETE  	if (!bname || !*bname)
+// OBSOLETE  	  {
+// OBSOLETE  	    msg_unknown_complaint (*pp);
+// OBSOLETE  	    return 1;
+// OBSOLETE  	  }
+// OBSOLETE  	/* FIXME! attach base info to type */
+// OBSOLETE  	bsym = lookup_symbol (bname, 0, STRUCT_DOMAIN, 0, 0);	/*demangled_name */
+// OBSOLETE  	if (bsym)
+// OBSOLETE  	  {
+// OBSOLETE  	    new->field.type = SYMBOL_TYPE (bsym);
+// OBSOLETE  	    new->field.name = type_name_no_tag (new->field.type);
+// OBSOLETE  	  }
+// OBSOLETE  	else
+// OBSOLETE  	  {
+// OBSOLETE  	    complaint (&symfile_complaints, "Unable to find base type for %s",
+// OBSOLETE  		       *pp);
+// OBSOLETE  	    return 1;
+// OBSOLETE  	  }
+// OBSOLETE        }
+
+// OBSOLETE        /* If more base classes to parse, loop again.
+// OBSOLETE           We ate the last ' ' or ';' in get_substring,
+// OBSOLETE           so on exit we will have skipped the trailing ';' */
+// OBSOLETE        /* if invalid, return 0; add code to detect  - FIXME! */
+// OBSOLETE      }
+// OBSOLETE    return 1;
+// OBSOLETE  }
+
+// OBSOLETE  /* read cfront member functions.
+// OBSOLETE     pp points to string starting with list of functions
+// OBSOLETE     eg: A:ZcA;1@Bpub v2@Bvirpri;__ct__1AFv func__1AFv *sfunc__1AFv ;as__1A ;;
+// OBSOLETE     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 
+// OBSOLETE     A:ZcA;;foopri__1AFv foopro__1AFv __ct__1AFv __ct__1AFRC1A foopub__1AFv ;;;
+// OBSOLETE     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 
+// OBSOLETE   */
+
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_member_functions (struct field_info *fip, char **pp,
+// OBSOLETE  			      struct type *type, struct objfile *objfile)
+// OBSOLETE  {
+// OBSOLETE    /* This code extracted from read_member_functions 
+// OBSOLETE       so as to do the similar thing for our funcs */
+
+// OBSOLETE    int nfn_fields = 0;
+// OBSOLETE    int length = 0;
+// OBSOLETE    /* Total number of member functions defined in this class.  If the class
+// OBSOLETE       defines two `f' functions, and one `g' function, then this will have
+// OBSOLETE       the value 3.  */
+// OBSOLETE    int total_length = 0;
+// OBSOLETE    int i;
+// OBSOLETE    struct next_fnfield
+// OBSOLETE      {
+// OBSOLETE        struct next_fnfield *next;
+// OBSOLETE        struct fn_field fn_field;
+// OBSOLETE      }
+// OBSOLETE     *sublist;
+// OBSOLETE    struct type *look_ahead_type;
+// OBSOLETE    struct next_fnfieldlist *new_fnlist;
+// OBSOLETE    struct next_fnfield *new_sublist;
+// OBSOLETE    char *main_fn_name;
+// OBSOLETE    char *fname;
+// OBSOLETE    struct symbol *ref_func = 0;
+
+// OBSOLETE    /* Process each list until we find the end of the member functions.
+// OBSOLETE       eg: p = "__ct__1AFv foo__1AFv ;;;" */
+
+// OBSOLETE    STABS_CONTINUE (pp, objfile);	/* handle \\ */
+
+// OBSOLETE    while (**pp != ';' && (fname = get_substring (pp, ' '), fname))
+// OBSOLETE      {
+// OBSOLETE        int is_static = 0;
+// OBSOLETE        int sublist_count = 0;
+// OBSOLETE        char *pname;
+// OBSOLETE        if (fname[0] == '*')	/* static member */
+// OBSOLETE  	{
+// OBSOLETE  	  is_static = 1;
+// OBSOLETE  	  sublist_count++;
+// OBSOLETE  	  fname++;
+// OBSOLETE  	}
+// OBSOLETE        ref_func = lookup_symbol (fname, 0, VAR_DOMAIN, 0, 0);		/* demangled name */
+// OBSOLETE        if (!ref_func)
+// OBSOLETE  	{
+// OBSOLETE  	  complaint (&symfile_complaints,
+// OBSOLETE  		     "Unable to find function symbol for %s", fname);
+// OBSOLETE  	  continue;
+// OBSOLETE  	}
+// OBSOLETE        sublist = NULL;
+// OBSOLETE        look_ahead_type = NULL;
+// OBSOLETE        length = 0;
+
+// OBSOLETE        new_fnlist = (struct next_fnfieldlist *)
+// OBSOLETE  	xmalloc (sizeof (struct next_fnfieldlist));
+// OBSOLETE        make_cleanup (xfree, new_fnlist);
+// OBSOLETE        memset (new_fnlist, 0, sizeof (struct next_fnfieldlist));
+
+// OBSOLETE        /* The following is code to work around cfront generated stabs.
+// OBSOLETE           The stabs contains full mangled name for each field.
+// OBSOLETE           We try to demangle the name and extract the field name out of it.  */
+// OBSOLETE        {
+// OBSOLETE  	char *dem, *dem_p, *dem_args;
+// OBSOLETE  	int dem_len;
+// OBSOLETE  	dem = cplus_demangle (fname, DMGL_ANSI | DMGL_PARAMS);
+// OBSOLETE  	if (dem != NULL)
+// OBSOLETE  	  {
+// OBSOLETE  	    dem_p = strrchr (dem, ':');
+// OBSOLETE  	    if (dem_p != 0 && *(dem_p - 1) == ':')
+// OBSOLETE  	      dem_p++;
+// OBSOLETE  	    /* get rid of args */
+// OBSOLETE  	    dem_args = strchr (dem_p, '(');
+// OBSOLETE  	    if (dem_args == NULL)
+// OBSOLETE  	      dem_len = strlen (dem_p);
+// OBSOLETE  	    else
+// OBSOLETE  	      dem_len = dem_args - dem_p;
+// OBSOLETE  	    main_fn_name =
+// OBSOLETE  	      obsavestring (dem_p, dem_len, &objfile->type_obstack);
+// OBSOLETE  	  }
+// OBSOLETE  	else
+// OBSOLETE  	  {
+// OBSOLETE  	    main_fn_name =
+// OBSOLETE  	      obsavestring (fname, strlen (fname), &objfile->type_obstack);
+// OBSOLETE  	  }
+// OBSOLETE        }				/* end of code for cfront work around */
+
+// OBSOLETE        new_fnlist->fn_fieldlist.name = main_fn_name;
+
+// OBSOLETE  /*-------------------------------------------------*/
+// OBSOLETE        /* Set up the sublists
+// OBSOLETE           Sublists are stuff like args, static, visibility, etc.
+// OBSOLETE           so in ARM, we have to set that info some other way.
+// OBSOLETE           Multiple sublists happen if overloading
+// OBSOLETE           eg: foo::26=##1;:;2A.;
+// OBSOLETE           In g++, we'd loop here thru all the sublists...  */
+
+// OBSOLETE        new_sublist =
+// OBSOLETE  	(struct next_fnfield *) xmalloc (sizeof (struct next_fnfield));
+// OBSOLETE        make_cleanup (xfree, new_sublist);
+// OBSOLETE        memset (new_sublist, 0, sizeof (struct next_fnfield));
+
+// OBSOLETE        /* eat 1; from :;2A.; */
+// OBSOLETE        new_sublist->fn_field.type = SYMBOL_TYPE (ref_func);	/* normally takes a read_type */
+// OBSOLETE        /* Make this type look like a method stub for gdb */
+// OBSOLETE        TYPE_FLAGS (new_sublist->fn_field.type) |= TYPE_FLAG_STUB;
+// OBSOLETE        TYPE_CODE (new_sublist->fn_field.type) = TYPE_CODE_METHOD;
+
+// OBSOLETE        /* If this is just a stub, then we don't have the real name here. */
+// OBSOLETE        if (TYPE_STUB (new_sublist->fn_field.type))
+// OBSOLETE  	{
+// OBSOLETE  	  if (!TYPE_DOMAIN_TYPE (new_sublist->fn_field.type))
+// OBSOLETE  	    TYPE_DOMAIN_TYPE (new_sublist->fn_field.type) = type;
+// OBSOLETE  	  new_sublist->fn_field.is_stub = 1;
+// OBSOLETE  	}
+
+// OBSOLETE        /* physname used later in mangling; eg PFs_i,5 for foo__1aFPFs_i 
+// OBSOLETE           physname gets strcat'd in order to recreate the onto mangled name */
+// OBSOLETE        pname = get_cfront_method_physname (fname);
+// OBSOLETE        new_sublist->fn_field.physname = savestring (pname, strlen (pname));
+
+
+// OBSOLETE        /* Set this member function's visibility fields. 
+// OBSOLETE           Unable to distinguish access from stabs definition!
+// OBSOLETE           Assuming public for now.  FIXME!
+// OBSOLETE           (for private, set new_sublist->fn_field.is_private = 1,
+// OBSOLETE           for public, set new_sublist->fn_field.is_protected = 1) */
+
+// OBSOLETE        /* Unable to distinguish const/volatile from stabs definition!
+// OBSOLETE           Assuming normal for now.  FIXME! */
+
+// OBSOLETE        new_sublist->fn_field.is_const = 0;
+// OBSOLETE        new_sublist->fn_field.is_volatile = 0;	/* volatile not implemented in cfront */
+
+// OBSOLETE        /* Set virtual/static function info
+// OBSOLETE           How to get vtable offsets ? 
+// OBSOLETE           Assuming normal for now FIXME!! 
+// OBSOLETE           For vtables, figure out from whence this virtual function came.
+// OBSOLETE           It may belong to virtual function table of
+// OBSOLETE           one of its baseclasses.
+// OBSOLETE           set:
+// OBSOLETE           new_sublist -> fn_field.voffset = vtable offset,
+// OBSOLETE           new_sublist -> fn_field.fcontext = look_ahead_type;
+// OBSOLETE           where look_ahead_type is type of baseclass */
+// OBSOLETE        if (is_static)
+// OBSOLETE  	new_sublist->fn_field.voffset = VOFFSET_STATIC;
+// OBSOLETE        else			/* normal member function.  */
+// OBSOLETE  	new_sublist->fn_field.voffset = 0;
+// OBSOLETE        new_sublist->fn_field.fcontext = 0;
+
+
+// OBSOLETE        /* Prepare new sublist */
+// OBSOLETE        new_sublist->next = sublist;
+// OBSOLETE        sublist = new_sublist;
+// OBSOLETE        length++;
+
+// OBSOLETE        /* In g++, we loop thu sublists - now we set from functions. */
+// OBSOLETE        new_fnlist->fn_fieldlist.fn_fields = (struct fn_field *)
+// OBSOLETE  	obstack_alloc (&objfile->type_obstack,
+// OBSOLETE  		       sizeof (struct fn_field) * length);
+// OBSOLETE        memset (new_fnlist->fn_fieldlist.fn_fields, 0,
+// OBSOLETE  	      sizeof (struct fn_field) * length);
+// OBSOLETE        for (i = length; (i--, sublist); sublist = sublist->next)
+// OBSOLETE  	{
+// OBSOLETE  	  new_fnlist->fn_fieldlist.fn_fields[i] = sublist->fn_field;
+// OBSOLETE  	}
+
+// OBSOLETE        new_fnlist->fn_fieldlist.length = length;
+// OBSOLETE        new_fnlist->next = fip->fnlist;
+// OBSOLETE        fip->fnlist = new_fnlist;
+// OBSOLETE        nfn_fields++;
+// OBSOLETE        total_length += length;
+// OBSOLETE        STABS_CONTINUE (pp, objfile);	/* handle \\ */
+// OBSOLETE      }				/* end of loop */
+
+// OBSOLETE    if (nfn_fields)
+// OBSOLETE      {
+// OBSOLETE        /* type should already have space */
+// OBSOLETE        TYPE_FN_FIELDLISTS (type) = (struct fn_fieldlist *)
+// OBSOLETE  	TYPE_ALLOC (type, sizeof (struct fn_fieldlist) * nfn_fields);
+// OBSOLETE        memset (TYPE_FN_FIELDLISTS (type), 0,
+// OBSOLETE  	      sizeof (struct fn_fieldlist) * nfn_fields);
+// OBSOLETE        TYPE_NFN_FIELDS (type) = nfn_fields;
+// OBSOLETE        TYPE_NFN_FIELDS_TOTAL (type) = total_length;
+// OBSOLETE      }
+
+// OBSOLETE    /* end of scope for reading member func */
+
+// OBSOLETE    /* eg: ";;" */
+
+// OBSOLETE    /* Skip trailing ';' and bump count of number of fields seen */
+// OBSOLETE    if (**pp == ';')
+// OBSOLETE      (*pp)++;
+// OBSOLETE    else
+// OBSOLETE      return 0;
+// OBSOLETE    return 1;
+// OBSOLETE  }
+
+// OBSOLETE  /* This routine fixes up partial cfront types that were created
+// OBSOLETE     while parsing the stabs.  The main need for this function is
+// OBSOLETE     to add information such as methods to classes.
+// OBSOLETE     Examples of "p": "sA;;__ct__1AFv foo__1AFv ;;;" */
+// OBSOLETE  int
+// OBSOLETE  resolve_cfront_continuation (struct objfile *objfile, struct symbol *sym,
+// OBSOLETE  			     char *p)
+// OBSOLETE  {
+// OBSOLETE    struct symbol *ref_sym = 0;
+// OBSOLETE    char *sname;
+// OBSOLETE    /* snarfed from read_struct_type */
+// OBSOLETE    struct field_info fi;
+// OBSOLETE    struct type *type;
+// OBSOLETE    struct cleanup *back_to;
+
+// OBSOLETE    /* Need to make sure that fi isn't gunna conflict with struct 
+// OBSOLETE       in case struct already had some fnfs */
+// OBSOLETE    fi.list = NULL;
+// OBSOLETE    fi.fnlist = NULL;
+// OBSOLETE    back_to = make_cleanup (null_cleanup, 0);
+
+// OBSOLETE    /* We only accept structs, classes and unions at the moment. 
+// OBSOLETE       Other continuation types include t (typedef), r (long dbl), ... 
+// OBSOLETE       We may want to add support for them as well; 
+// OBSOLETE       right now they are handled by duplicating the symbol information 
+// OBSOLETE       into the type information (see define_symbol) */
+// OBSOLETE    if (*p != 's'			/* structs */
+// OBSOLETE        && *p != 'c'		/* class */
+// OBSOLETE        && *p != 'u')		/* union */
+// OBSOLETE      return 0;			/* only handle C++ types */
+// OBSOLETE    p++;
+
+// OBSOLETE    /* Get symbol typs name and validate 
+// OBSOLETE       eg: p = "A;;__ct__1AFv foo__1AFv ;;;" */
+// OBSOLETE    sname = get_substring (&p, ';');
+// OBSOLETE    if (!sname || strcmp (sname, DEPRECATED_SYMBOL_NAME (sym)))
+// OBSOLETE      error ("Internal error: base symbol type name does not match\n");
+
+// OBSOLETE    /* Find symbol's internal gdb reference using demangled_name.
+// OBSOLETE       This is the real sym that we want; 
+// OBSOLETE       sym was a temp hack to make debugger happy */
+// OBSOLETE    ref_sym = lookup_symbol (DEPRECATED_SYMBOL_NAME (sym), 0, STRUCT_DOMAIN, 0, 0);
+// OBSOLETE    type = SYMBOL_TYPE (ref_sym);
+
+
+// OBSOLETE    /* Now read the baseclasses, if any, read the regular C struct or C++
+// OBSOLETE       class member fields, attach the fields to the type, read the C++
+// OBSOLETE       member functions, attach them to the type, and then read any tilde
+// OBSOLETE       field (baseclass specifier for the class holding the main vtable). */
+
+// OBSOLETE    if (!read_cfront_baseclasses (&fi, &p, type, objfile)
+// OBSOLETE    /* g++ does this next, but cfront already did this: 
+// OBSOLETE       || !read_struct_fields (&fi, &p, type, objfile) */
+// OBSOLETE        || !copy_cfront_struct_fields (&fi, type, objfile)
+// OBSOLETE        || !read_cfront_member_functions (&fi, &p, type, objfile)
+// OBSOLETE        || !read_cfront_static_fields (&fi, &p, type, objfile)
+// OBSOLETE        || !attach_fields_to_type (&fi, type, objfile)
+// OBSOLETE        || !attach_fn_fields_to_type (&fi, type)
+// OBSOLETE    /* g++ does this next, but cfront doesn't seem to have this: 
+// OBSOLETE       || !read_tilde_fields (&fi, &p, type, objfile) */
+// OBSOLETE      )
+// OBSOLETE      {
+// OBSOLETE        type = error_type (&p, objfile);
+// OBSOLETE      }
+
+// OBSOLETE    do_cleanups (back_to);
+// OBSOLETE    return 0;
+// OBSOLETE  }
+// OBSOLETE  /* End of code added to support parsing of ARM/Cfront stabs strings */
+#endif /* OBSOLETE CFront */
+
+/* This routine fixes up symbol references/aliases to point to the original
+   symbol definition.  Returns 0 on failure, non-zero on success.  */
+
+static int
+resolve_symbol_reference (struct objfile *objfile, struct symbol *sym, char *p)
+{
+  int refnum;
+  struct symbol *ref_sym = 0;
+  struct alias_list *alias;
+
+  /* If this is not a symbol reference return now.  */
+  if (*p != '#')
+    return 0;
+
+  /* Use "#<num>" as the name; we'll fix the name later.
+     We stored the original symbol name as "#<id>=<name>"
+     so we can now search for "#<id>" to resolving the reference.
+     We'll fix the names later by removing the "#<id>" or "#<id>=" */
+
+/*---------------------------------------------------------*/
+  /* Get the reference id number, and 
+     advance p past the names so we can parse the rest. 
+     eg: id=2 for p : "2=", "2=z:r(0,1)" "2:r(0,1);l(#5,#6),l(#7,#4)" */
+/*---------------------------------------------------------*/
+
+  /* This gets reference name from string.  sym may not have a name. */
+
+  /* Get the reference number associated with the reference id in the
+     gdb stab string.  From that reference number, get the main/primary
+     symbol for this alias.  */
+  refnum = process_reference (&p);
+  ref_sym = ref_search (refnum);
+  if (!ref_sym)
+    {
+      lrs_general_complaint ("symbol for reference not found");
+      return 0;
+    }
+
+  /* Parse the stab of the referencing symbol
+     now that we have the referenced symbol.
+     Add it as a new symbol and a link back to the referenced symbol.
+     eg: p : "=", "=z:r(0,1)" ":r(0,1);l(#5,#6),l(#7,#4)" */
+
+
+  /* If the stab symbol table and string contain:
+     RSYM   0      5      00000000 868    #15=z:r(0,1)
+     LBRAC  0      0      00000000 899    #5=
+     SLINE  0      16     00000003 923    #6=
+     Then the same symbols can be later referenced by:
+     RSYM   0      5      00000000 927    #15:r(0,1);l(#5,#6)
+     This is used in live range splitting to:
+     1) specify that a symbol (#15) is actually just a new storage 
+     class for a symbol (#15=z) which was previously defined.
+     2) specify that the beginning and ending ranges for a symbol 
+     (#15) are the values of the beginning (#5) and ending (#6) 
+     symbols. */
+
+  /* Read number as reference id.
+     eg: p : "=", "=z:r(0,1)" ":r(0,1);l(#5,#6),l(#7,#4)" */
+  /* FIXME! Might I want to use SYMBOL_CLASS (sym) = LOC_OPTIMIZED_OUT;
+     in case of "l(0,0)"? */
+
+/*--------------------------------------------------*/
+  /* Add this symbol to the reference list.           */
+/*--------------------------------------------------*/
+
+  alias = (struct alias_list *) obstack_alloc (&objfile->type_obstack,
+					       sizeof (struct alias_list));
+  if (!alias)
+    {
+      lrs_general_complaint ("Unable to allocate alias list memory");
+      return 0;
+    }
+
+  alias->next = 0;
+  alias->sym = sym;
+
+  if (!SYMBOL_ALIASES (ref_sym))
+    {
+      SYMBOL_ALIASES (ref_sym) = alias;
+    }
+  else
+    {
+      struct alias_list *temp;
+
+      /* Get to the end of the list.  */
+      for (temp = SYMBOL_ALIASES (ref_sym);
+	   temp->next;
+	   temp = temp->next)
+	;
+      temp->next = alias;
+    }
+
+  /* Want to fix up name so that other functions (eg. valops)
+     will correctly print the name.
+     Don't add_symbol_to_list so that lookup_symbol won't find it.
+     nope... needed for fixups. */
+  DEPRECATED_SYMBOL_NAME (sym) = DEPRECATED_SYMBOL_NAME (ref_sym);
+
+  /* Done!  */
+  return 1;
+}
+
 /* Structure for storing pointers to reference definitions for fast lookup 
-   during "process_later".  */
+   during "process_later". */
 
 struct ref_map
 {
@@ -477,15 +1095,15 @@ struct ref_map
 
 static struct ref_map *ref_map;
 
-/* Ptr to free cell in chunk's linked list.  */
+/* Ptr to free cell in chunk's linked list. */
 static int ref_count = 0;
 
-/* Number of chunks malloced.  */
+/* Number of chunks malloced. */
 static int ref_chunk = 0;
 
 /* This file maintains a cache of stabs aliases found in the symbol
-   table.  If the symbol table changes, this cache must be cleared
-   or we are left holding onto data in invalid obstacks.  */
+   table. If the symbol table changes, this cache must be cleared
+   or we are left holding onto data in invalid obstacks. */
 void
 stabsread_clear_cache (void)
 {
@@ -495,8 +1113,8 @@ stabsread_clear_cache (void)
 
 /* Create array of pointers mapping refids to symbols and stab strings.
    Add pointers to reference definition symbols and/or their values as we 
-   find them, using their reference numbers as our index.
-   These will be used later when we resolve references.  */
+   find them, using their reference numbers as our index. 
+   These will be used later when we resolve references. */
 void
 ref_add (int refnum, struct symbol *sym, char *stabs, CORE_ADDR value)
 {
@@ -508,11 +1126,9 @@ ref_add (int refnum, struct symbol *sym, char *stabs, CORE_ADDR value)
     {
       int new_slots = ref_count - ref_chunk * MAX_CHUNK_REFS;
       int new_chunks = new_slots / MAX_CHUNK_REFS + 1;
-
       ref_map = (struct ref_map *)
 	xrealloc (ref_map, REF_MAP_SIZE (ref_chunk + new_chunks));
-      memset (ref_map + ref_chunk * MAX_CHUNK_REFS, 0, 
-	      new_chunks * REF_CHUNK_SIZE);
+      memset (ref_map + ref_chunk * MAX_CHUNK_REFS, 0, new_chunks * REF_CHUNK_SIZE);
       ref_chunk += new_chunks;
     }
   ref_map[refnum].stabs = stabs;
@@ -527,6 +1143,16 @@ ref_search (int refnum)
   if (refnum < 0 || refnum > ref_count)
     return 0;
   return ref_map[refnum].sym;
+}
+
+/* Return value for the reference REFNUM.  */
+
+static CORE_ADDR
+ref_search_value (int refnum)
+{
+  if (refnum < 0 || refnum > ref_count)
+    return 0;
+  return ref_map[refnum].value;
 }
 
 /* Parse a reference id in STRING and return the resulting
@@ -544,7 +1170,7 @@ process_reference (char **string)
   /* Advance beyond the initial '#'.  */
   p = *string + 1;
 
-  /* Read number as reference id.  */
+  /* Read number as reference id. */
   while (*p && isdigit (*p))
     {
       refnum = refnum * 10 + *p - '0';
@@ -565,61 +1191,37 @@ symbol_reference_defined (char **string)
 
   refnum = process_reference (&p);
 
-  /* Defining symbols end in '='.  */
+  /* Defining symbols end in '=' */
   if (*p == '=')
     {
-      /* Symbol is being defined here.  */
+      /* Symbol is being defined here. */
       *string = p + 1;
       return refnum;
     }
   else
     {
-      /* Must be a reference.  Either the symbol has already been defined,
+      /* Must be a reference.   Either the symbol has already been defined,
          or this is a forward reference to it.  */
       *string = p;
       return -1;
     }
 }
 
-static int
-stab_reg_to_regnum (struct symbol *sym, struct gdbarch *gdbarch)
-{
-  int regno = gdbarch_stab_reg_to_regnum (gdbarch, SYMBOL_VALUE (sym));
-
-  if (regno >= gdbarch_num_regs (gdbarch)
-		+ gdbarch_num_pseudo_regs (gdbarch))
-    {
-      reg_value_complaint (regno,
-			   gdbarch_num_regs (gdbarch)
-			     + gdbarch_num_pseudo_regs (gdbarch),
-			   SYMBOL_PRINT_NAME (sym));
-
-      regno = gdbarch_sp_regnum (gdbarch); /* Known safe, though useless.  */
-    }
-
-  return regno;
-}
-
-static const struct symbol_register_ops stab_register_funcs = {
-  stab_reg_to_regnum
-};
-
+/* ARGSUSED */
 struct symbol *
 define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	       struct objfile *objfile)
 {
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
-  struct symbol *sym;
+  register struct symbol *sym;
   char *p = (char *) find_name_end (string);
   int deftype;
   int synonym = 0;
-  int i;
-  char *new_name = NULL;
+  register int i;
 
   /* We would like to eliminate nameless symbols, but keep their types.
      E.g. stab entry ":t10=*2" should produce a type 10, which is a pointer
-     to type 2, but, should not create a symbol to address that type.  Since
-     the symbol will be nameless, there is no way any user can refer to it.  */
+     to type 2, but, should not create a symbol to address that type. Since
+     the symbol will be nameless, there is no way any user can refer to it. */
 
   int nameless;
 
@@ -627,7 +1229,7 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
   if (string[0] == 0)
     return 0;
 
-  /* Ignore old-style symbols from cc -go.  */
+  /* Ignore old-style symbols from cc -go  */
   if (p == 0)
     return 0;
 
@@ -635,12 +1237,6 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
     {
       p += 2;
       p = strchr (p, ':');
-      if (p == NULL)
-	{
-	  complaint (&symfile_complaints, 
-		     _("Bad stabs string '%s'"), string);
-	  return NULL;
-	}
     }
 
   /* If a nameless stab entry, all we need is the type, not the symbol.
@@ -648,7 +1244,7 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
   nameless = (p == string || ((string[0] == ' ') && (string[1] == ':')));
 
   current_symbol = sym = (struct symbol *)
-    obstack_alloc (&objfile->objfile_obstack, sizeof (struct symbol));
+    obstack_alloc (&objfile->symbol_obstack, sizeof (struct symbol));
   memset (sym, 0, sizeof (struct symbol));
 
   switch (type & N_TYPE)
@@ -681,55 +1277,75 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       switch (string[1])
 	{
 	case 't':
-	  SYMBOL_SET_LINKAGE_NAME (sym, "this");
+	  DEPRECATED_SYMBOL_NAME (sym) = obsavestring ("this", strlen ("this"),
+					    &objfile->symbol_obstack);
 	  break;
 
 	case 'v':		/* $vtbl_ptr_type */
+	  /* Was: DEPRECATED_SYMBOL_NAME (sym) = "vptr"; */
 	  goto normal;
 
 	case 'e':
-	  SYMBOL_SET_LINKAGE_NAME (sym, "eh_throw");
+	  DEPRECATED_SYMBOL_NAME (sym) = obsavestring ("eh_throw", strlen ("eh_throw"),
+					    &objfile->symbol_obstack);
 	  break;
 
 	case '_':
 	  /* This was an anonymous type that was never fixed up.  */
 	  goto normal;
 
+#ifdef STATIC_TRANSFORM_NAME
 	case 'X':
 	  /* SunPRO (3.0 at least) static variable encoding.  */
-	  if (gdbarch_static_transform_name_p (gdbarch))
-	    goto normal;
-	  /* ... fall through ...  */
+	  goto normal;
+#endif
 
 	default:
-	  complaint (&symfile_complaints, _("Unknown C++ symbol name `%s'"),
+	  complaint (&symfile_complaints, "Unknown C++ symbol name `%s'",
 		     string);
-	  goto normal;		/* Do *something* with it.  */
+	  goto normal;		/* Do *something* with it */
 	}
+    }
+  else if (string[0] == '#')
+    {
+      /* Special GNU C extension for referencing symbols.  */
+      char *s;
+      int refnum, nlen;
+
+      /* If STRING defines a new reference id, then add it to the
+         reference map.  Else it must be referring to a previously
+         defined symbol, so add it to the alias list of the previously
+         defined symbol.  */
+      s = string;
+      refnum = symbol_reference_defined (&s);
+      if (refnum >= 0)
+	ref_add (refnum, sym, string, SYMBOL_VALUE (sym));
+      else if (!resolve_symbol_reference (objfile, sym, string))
+	return NULL;
+
+      /* S..P contains the name of the symbol.  We need to store
+         the correct name into DEPRECATED_SYMBOL_NAME.  */
+      nlen = p - s;
+      if (refnum >= 0)
+	{
+	  if (nlen > 0)
+	    SYMBOL_SET_NAMES (sym, s, nlen, objfile);
+	  else
+	    /* FIXME! Want DEPRECATED_SYMBOL_NAME (sym) = 0;
+	       Get error if leave name 0.  So give it something. */
+	    {
+	      nlen = p - string;
+	      SYMBOL_SET_NAMES (sym, string, nlen, objfile);
+	    }
+	}
+      /* Advance STRING beyond the reference id.  */
+      string = s;
     }
   else
     {
     normal:
-      SYMBOL_SET_LANGUAGE (sym, current_subfile->language);
-      if (SYMBOL_LANGUAGE (sym) == language_cplus)
-	{
-	  char *name = alloca (p - string + 1);
-
-	  memcpy (name, string, p - string);
-	  name[p - string] = '\0';
-	  new_name = cp_canonicalize_string (name);
-	}
-      if (new_name != NULL)
-	{
-	  SYMBOL_SET_NAMES (sym, new_name, strlen (new_name), 1, objfile);
-	  xfree (new_name);
-	}
-      else
-	SYMBOL_SET_NAMES (sym, string, p - string, 1, objfile);
-
-      if (SYMBOL_LANGUAGE (sym) == language_cplus)
-	cp_scan_for_anonymous_namespaces (sym, objfile);
-
+      SYMBOL_LANGUAGE (sym) = current_subfile->language;
+      SYMBOL_SET_NAMES (sym, string, p - string, objfile);
     }
   p++;
 
@@ -773,20 +1389,25 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	case 'r':
 	  {
 	    double d = atof (p);
-	    gdb_byte *dbl_valu;
-	    struct type *dbl_type;
+	    char *dbl_valu;
 
 	    /* FIXME-if-picky-about-floating-accuracy: Should be using
 	       target arithmetic to get the value.  real.c in GCC
 	       probably has the necessary code.  */
 
-	    dbl_type = objfile_type (objfile)->builtin_double;
-	    dbl_valu =
-	      obstack_alloc (&objfile->objfile_obstack,
-			     TYPE_LENGTH (dbl_type));
-	    store_typed_floating (dbl_valu, dbl_type, d);
+	    /* FIXME: lookup_fundamental_type is a hack.  We should be
+	       creating a type especially for the type of float constants.
+	       Problem is, what type should it be?
 
-	    SYMBOL_TYPE (sym) = dbl_type;
+	       Also, what should the name of this type be?  Should we
+	       be using 'S' constants (see stabs.texinfo) instead?  */
+
+	    SYMBOL_TYPE (sym) = lookup_fundamental_type (objfile,
+							 FT_DBL_PREC_FLOAT);
+	    dbl_valu = (char *)
+	      obstack_alloc (&objfile->symbol_obstack,
+			     TYPE_LENGTH (SYMBOL_TYPE (sym)));
+	    store_typed_floating (dbl_valu, SYMBOL_TYPE (sym), d);
 	    SYMBOL_VALUE_BYTES (sym) = dbl_valu;
 	    SYMBOL_CLASS (sym) = LOC_CONST_BYTES;
 	  }
@@ -800,80 +1421,26 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	       types; other languages probably should have at least
 	       unsigned as well as signed constants.  */
 
-	    SYMBOL_TYPE (sym) = objfile_type (objfile)->builtin_long;
+	    /* We just need one int constant type for all objfiles.
+	       It doesn't depend on languages or anything (arguably its
+	       name should be a language-specific name for a type of
+	       that size, but I'm inclined to say that if the compiler
+	       wants a nice name for the type, it can use 'e').  */
+	    static struct type *int_const_type;
+
+	    /* Yes, this is as long as a *host* int.  That is because we
+	       use atoi.  */
+	    if (int_const_type == NULL)
+	      int_const_type =
+		init_type (TYPE_CODE_INT,
+			   sizeof (int) * HOST_CHAR_BIT / TARGET_CHAR_BIT, 0,
+			   "integer constant",
+			     (struct objfile *) NULL);
+	    SYMBOL_TYPE (sym) = int_const_type;
 	    SYMBOL_VALUE (sym) = atoi (p);
 	    SYMBOL_CLASS (sym) = LOC_CONST;
 	  }
 	  break;
-
-	case 'c':
-	  {
-	    SYMBOL_TYPE (sym) = objfile_type (objfile)->builtin_char;
-	    SYMBOL_VALUE (sym) = atoi (p);
-	    SYMBOL_CLASS (sym) = LOC_CONST;
-	  }
-	  break;
-
-	case 's':
-	  {
-	    struct type *range_type;
-	    int ind = 0;
-	    char quote = *p++;
-	    gdb_byte *string_local = (gdb_byte *) alloca (strlen (p));
-	    gdb_byte *string_value;
-
-	    if (quote != '\'' && quote != '"')
-	      {
-		SYMBOL_CLASS (sym) = LOC_CONST;
-		SYMBOL_TYPE (sym) = error_type (&p, objfile);
-		SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
-		add_symbol_to_list (sym, &file_symbols);
-		return sym;
-	      }
-
-	    /* Find matching quote, rejecting escaped quotes.  */
-	    while (*p && *p != quote)
-	      {
-		if (*p == '\\' && p[1] == quote)
-		  {
-		    string_local[ind] = (gdb_byte) quote;
-		    ind++;
-		    p += 2;
-		  }
-		else if (*p) 
-		  {
-		    string_local[ind] = (gdb_byte) (*p);
-		    ind++;
-		    p++;
-		  }
-	      }
-	    if (*p != quote)
-	      {
-		SYMBOL_CLASS (sym) = LOC_CONST;
-		SYMBOL_TYPE (sym) = error_type (&p, objfile);
-		SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
-		add_symbol_to_list (sym, &file_symbols);
-		return sym;
-	      }
-
-	    /* NULL terminate the string.  */
-	    string_local[ind] = 0;
-	    range_type
-	      = create_range_type (NULL,
-				   objfile_type (objfile)->builtin_int,
-				   0, ind);
-	    SYMBOL_TYPE (sym) = create_array_type (NULL,
-				  objfile_type (objfile)->builtin_char,
-				  range_type);
-	    string_value = obstack_alloc (&objfile->objfile_obstack, ind + 1);
-	    memcpy (string_value, string_local, ind + 1);
-	    p++;
-
-	    SYMBOL_VALUE_BYTES (sym) = string_value;
-	    SYMBOL_CLASS (sym) = LOC_CONST_BYTES;
-	  }
-	  break;
-
 	case 'e':
 	  /* SYMBOL:c=eTYPE,INTVALUE for a constant symbol whose value
 	     can be represented as integral.
@@ -939,9 +1506,9 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
          than the "declared-as" type for unprototyped functions, so
          we treat all functions as if they were prototyped.  This is used
          primarily for promotion when calling the function from GDB.  */
-      TYPE_PROTOTYPED (SYMBOL_TYPE (sym)) = 1;
+      TYPE_FLAGS (SYMBOL_TYPE (sym)) |= TYPE_FLAG_PROTOTYPED;
 
-      /* fall into process_prototype_types.  */
+      /* fall into process_prototype_types */
 
     process_prototype_types:
       /* Sun acc puts declared types of arguments here.  */
@@ -960,7 +1527,7 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 		nsemi++;
 	    }
 
-	  /* Allocate parameter information fields and fill them in.  */
+	  /* Allocate parameter information fields and fill them in. */
 	  TYPE_FIELDS (ftype) = (struct field *)
 	    TYPE_ALLOC (ftype, nsemi * sizeof (struct field));
 	  while (*p++ == ';')
@@ -975,17 +1542,17 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 
 	      /* The Sun compilers mark integer arguments, which should
 	         be promoted to the width of the calling conventions, with
-	         a type which references itself.  This type is turned into
+	         a type which references itself. This type is turned into
 	         a TYPE_CODE_VOID type by read_type, and we have to turn
-	         it back into builtin_int here.
-	         FIXME: Do we need a new builtin_promoted_int_arg ?  */
+	         it back into builtin_type_int here.
+	         FIXME: Do we need a new builtin_type_promoted_int_arg ?  */
 	      if (TYPE_CODE (ptype) == TYPE_CODE_VOID)
-		ptype = objfile_type (objfile)->builtin_int;
+		ptype = builtin_type_int;
 	      TYPE_FIELD_TYPE (ftype, nparams) = ptype;
 	      TYPE_FIELD_ARTIFICIAL (ftype, nparams++) = 0;
 	    }
 	  TYPE_NFIELDS (ftype) = nparams;
-	  TYPE_PROTOTYPED (ftype) = 1;
+	  TYPE_FLAGS (ftype) |= TYPE_FLAG_PROTOTYPED;
 	}
       break;
 
@@ -1009,9 +1576,9 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
          Symbol references don't have valid names and wont't match up with
          minimal symbols when the global_sym_chain is relocated.
          We'll fixup symbol references when we fixup the defining symbol.  */
-      if (SYMBOL_LINKAGE_NAME (sym) && SYMBOL_LINKAGE_NAME (sym)[0] != '#')
+      if (DEPRECATED_SYMBOL_NAME (sym) && DEPRECATED_SYMBOL_NAME (sym)[0] != '#')
 	{
-	  i = hashname (SYMBOL_LINKAGE_NAME (sym));
+	  i = hashname (DEPRECATED_SYMBOL_NAME (sym));
 	  SYMBOL_VALUE_CHAIN (sym) = global_sym_chain[i];
 	  global_sym_chain[i] = sym;
 	}
@@ -1047,10 +1614,9 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       SYMBOL_CLASS (sym) = LOC_ARG;
       SYMBOL_VALUE (sym) = valu;
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
-      SYMBOL_IS_ARGUMENT (sym) = 1;
       add_symbol_to_list (sym, &local_symbols);
 
-      if (gdbarch_byte_order (gdbarch) != BFD_ENDIAN_BIG)
+      if (TARGET_BYTE_ORDER != BFD_ENDIAN_BIG)
 	{
 	  /* On little-endian machines, this crud is never necessary,
 	     and, if the extra bytes contain garbage, is harmful.  */
@@ -1058,24 +1624,82 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	}
 
       /* If it's gcc-compiled, if it says `short', believe it.  */
-      if (processing_gcc_compilation
-	  || gdbarch_believe_pcc_promotion (gdbarch))
+      if (processing_gcc_compilation || BELIEVE_PCC_PROMOTION)
 	break;
 
-      if (!gdbarch_believe_pcc_promotion (gdbarch))
+      if (!BELIEVE_PCC_PROMOTION)
 	{
-	  /* If PCC says a parameter is a short or a char, it is
-	     really an int.  */
-	  if (TYPE_LENGTH (SYMBOL_TYPE (sym))
-	      < gdbarch_int_bit (gdbarch) / TARGET_CHAR_BIT
-	      && TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_INT)
+	  /* This is the signed type which arguments get promoted to.  */
+	  static struct type *pcc_promotion_type;
+	  /* This is the unsigned type which arguments get promoted to.  */
+	  static struct type *pcc_unsigned_promotion_type;
+
+	  /* Call it "int" because this is mainly C lossage.  */
+	  if (pcc_promotion_type == NULL)
+	    pcc_promotion_type =
+	      init_type (TYPE_CODE_INT, TARGET_INT_BIT / TARGET_CHAR_BIT,
+			 0, "int", NULL);
+
+	  if (pcc_unsigned_promotion_type == NULL)
+	    pcc_unsigned_promotion_type =
+	      init_type (TYPE_CODE_INT, TARGET_INT_BIT / TARGET_CHAR_BIT,
+			 TYPE_FLAG_UNSIGNED, "unsigned int", NULL);
+
+	  if (BELIEVE_PCC_PROMOTION_TYPE)
 	    {
-	      SYMBOL_TYPE (sym) =
-		TYPE_UNSIGNED (SYMBOL_TYPE (sym))
-		? objfile_type (objfile)->builtin_unsigned_int
-		: objfile_type (objfile)->builtin_int;
+	      /* This is defined on machines (e.g. sparc) where we
+	         should believe the type of a PCC 'short' argument,
+	         but shouldn't believe the address (the address is the
+	         address of the corresponding int).
+
+	         My guess is that this correction, as opposed to
+	         changing the parameter to an 'int' (as done below,
+	         for PCC on most machines), is the right thing to do
+	         on all machines, but I don't want to risk breaking
+	         something that already works.  On most PCC machines,
+	         the sparc problem doesn't come up because the calling
+	         function has to zero the top bytes (not knowing
+	         whether the called function wants an int or a short),
+	         so there is little practical difference between an
+	         int and a short (except perhaps what happens when the
+	         GDB user types "print short_arg = 0x10000;").
+
+	         Hacked for SunOS 4.1 by gnu@cygnus.com.  In 4.1, the
+	         compiler actually produces the correct address (we
+	         don't need to fix it up).  I made this code adapt so
+	         that it will offset the symbol if it was pointing at
+	         an int-aligned location and not otherwise.  This way
+	         you can use the same gdb for 4.0.x and 4.1 systems.
+
+	         If the parameter is shorter than an int, and is
+	         integral (e.g. char, short, or unsigned equivalent),
+	         and is claimed to be passed on an integer boundary,
+	         don't believe it!  Offset the parameter's address to
+	         the tail-end of that integer.  */
+
+	      if (TYPE_LENGTH (SYMBOL_TYPE (sym)) < TYPE_LENGTH (pcc_promotion_type)
+		  && TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_INT
+	      && 0 == SYMBOL_VALUE (sym) % TYPE_LENGTH (pcc_promotion_type))
+		{
+		  SYMBOL_VALUE (sym) += TYPE_LENGTH (pcc_promotion_type)
+		    - TYPE_LENGTH (SYMBOL_TYPE (sym));
+		}
+	      break;
 	    }
-	  break;
+	  else
+	    {
+	      /* If PCC says a parameter is a short or a char,
+	         it is really an int.  */
+	      if (TYPE_LENGTH (SYMBOL_TYPE (sym)) < TYPE_LENGTH (pcc_promotion_type)
+		  && TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_INT)
+		{
+		  SYMBOL_TYPE (sym) =
+		    TYPE_UNSIGNED (SYMBOL_TYPE (sym))
+		    ? pcc_unsigned_promotion_type
+		    : pcc_promotion_type;
+		}
+	      break;
+	    }
 	}
 
     case 'P':
@@ -1092,10 +1716,15 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
     case 'R':
       /* Parameter which is in a register.  */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
-      SYMBOL_CLASS (sym) = LOC_REGISTER;
-      SYMBOL_REGISTER_OPS (sym) = &stab_register_funcs;
-      SYMBOL_IS_ARGUMENT (sym) = 1;
-      SYMBOL_VALUE (sym) = valu;
+      SYMBOL_CLASS (sym) = LOC_REGPARM;
+      SYMBOL_VALUE (sym) = STAB_REG_TO_REGNUM (valu);
+      if (SYMBOL_VALUE (sym) >= NUM_REGS + NUM_PSEUDO_REGS)
+	{
+	  reg_value_complaint (SYMBOL_VALUE (sym),
+			       NUM_REGS + NUM_PSEUDO_REGS,
+			       SYMBOL_PRINT_NAME (sym));
+	  SYMBOL_VALUE (sym) = SP_REGNUM;	/* Known safe, though useless */
+	}
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       add_symbol_to_list (sym, &local_symbols);
       break;
@@ -1104,25 +1733,28 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       /* Register variable (either global or local).  */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
       SYMBOL_CLASS (sym) = LOC_REGISTER;
-      SYMBOL_REGISTER_OPS (sym) = &stab_register_funcs;
-      SYMBOL_VALUE (sym) = valu;
+      SYMBOL_VALUE (sym) = STAB_REG_TO_REGNUM (valu);
+      if (SYMBOL_VALUE (sym) >= NUM_REGS + NUM_PSEUDO_REGS)
+	{
+	  reg_value_complaint (SYMBOL_VALUE (sym),
+			       NUM_REGS + NUM_PSEUDO_REGS,
+			       SYMBOL_PRINT_NAME (sym));
+	  SYMBOL_VALUE (sym) = SP_REGNUM;	/* Known safe, though useless */
+	}
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       if (within_function)
 	{
-	  /* Sun cc uses a pair of symbols, one 'p' and one 'r', with
-	     the same name to represent an argument passed in a
-	     register.  GCC uses 'P' for the same case.  So if we find
-	     such a symbol pair we combine it into one 'P' symbol.
-	     For Sun cc we need to do this regardless of
-	     stabs_argument_has_addr, because the compiler puts out
-	     the 'p' symbol even if it never saves the argument onto
-	     the stack.
+	  /* Sun cc uses a pair of symbols, one 'p' and one 'r' with the same
+	     name to represent an argument passed in a register.
+	     GCC uses 'P' for the same case.  So if we find such a symbol pair
+	     we combine it into one 'P' symbol.  For Sun cc we need to do this
+	     regardless of REG_STRUCT_HAS_ADDR, because the compiler puts out
+	     the 'p' symbol even if it never saves the argument onto the stack.
 
-	     On most machines, we want to preserve both symbols, so
-	     that we can still get information about what is going on
-	     with the stack (VAX for computing args_printed, using
-	     stack slots instead of saved registers in backtraces,
-	     etc.).
+	     On most machines, we want to preserve both symbols, so that
+	     we can still get information about what is going on with the
+	     stack (VAX for computing args_printed, using stack slots instead
+	     of saved registers in backtraces, etc.).
 
 	     Note that this code illegally combines
 	     main(argc) struct foo argc; { register struct foo argc; }
@@ -1131,18 +1763,24 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 
 	  if (local_symbols
 	      && local_symbols->nsyms > 0
-	      && gdbarch_stabs_argument_has_addr (gdbarch, SYMBOL_TYPE (sym)))
+#ifndef USE_REGISTER_NOT_ARG
+	      && REG_STRUCT_HAS_ADDR_P ()
+	      && REG_STRUCT_HAS_ADDR (processing_gcc_compilation,
+				      SYMBOL_TYPE (sym))
+	      && (TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_STRUCT
+		  || TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_UNION
+		  || TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_SET
+		  || TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_BITSTRING)
+#endif
+	    )
 	    {
 	      struct symbol *prev_sym;
-
 	      prev_sym = local_symbols->symbol[local_symbols->nsyms - 1];
 	      if ((SYMBOL_CLASS (prev_sym) == LOC_REF_ARG
 		   || SYMBOL_CLASS (prev_sym) == LOC_ARG)
-		  && strcmp (SYMBOL_LINKAGE_NAME (prev_sym),
-			     SYMBOL_LINKAGE_NAME (sym)) == 0)
+		  && STREQ (DEPRECATED_SYMBOL_NAME (prev_sym), DEPRECATED_SYMBOL_NAME (sym)))
 		{
-		  SYMBOL_CLASS (prev_sym) = LOC_REGISTER;
-		  SYMBOL_REGISTER_OPS (prev_sym) = &stab_register_funcs;
+		  SYMBOL_CLASS (prev_sym) = LOC_REGPARM;
 		  /* Use the type from the LOC_REGISTER; that is the type
 		     that is actually in that register.  */
 		  SYMBOL_TYPE (prev_sym) = SYMBOL_TYPE (sym);
@@ -1158,54 +1796,32 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       break;
 
     case 'S':
-      /* Static symbol at top level of file.  */
+      /* Static symbol at top level of file */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
       SYMBOL_CLASS (sym) = LOC_STATIC;
       SYMBOL_VALUE_ADDRESS (sym) = valu;
-      if (gdbarch_static_transform_name_p (gdbarch)
-	  && gdbarch_static_transform_name (gdbarch,
-					    SYMBOL_LINKAGE_NAME (sym))
-	     != SYMBOL_LINKAGE_NAME (sym))
+#ifdef STATIC_TRANSFORM_NAME
+      if (IS_STATIC_TRANSFORM_NAME (DEPRECATED_SYMBOL_NAME (sym)))
 	{
 	  struct minimal_symbol *msym;
-
-	  msym = lookup_minimal_symbol (SYMBOL_LINKAGE_NAME (sym),
-					NULL, objfile);
+	  msym = lookup_minimal_symbol (DEPRECATED_SYMBOL_NAME (sym), NULL, objfile);
 	  if (msym != NULL)
 	    {
-	      const char *new_name = gdbarch_static_transform_name
-		(gdbarch, SYMBOL_LINKAGE_NAME (sym));
-
-	      SYMBOL_SET_LINKAGE_NAME (sym, new_name);
+	      DEPRECATED_SYMBOL_NAME (sym) = STATIC_TRANSFORM_NAME (DEPRECATED_SYMBOL_NAME (sym));
 	      SYMBOL_VALUE_ADDRESS (sym) = SYMBOL_VALUE_ADDRESS (msym);
 	    }
 	}
+#endif
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       add_symbol_to_list (sym, &file_symbols);
       break;
 
     case 't':
-      /* In Ada, there is no distinction between typedef and non-typedef;
-         any type declaration implicitly has the equivalent of a typedef,
-         and thus 't' is in fact equivalent to 'Tt'.
-
-         Therefore, for Ada units, we check the character immediately
-         before the 't', and if we do not find a 'T', then make sure to
-         create the associated symbol in the STRUCT_DOMAIN ('t' definitions
-         will be stored in the VAR_DOMAIN).  If the symbol was indeed
-         defined as 'Tt' then the STRUCT_DOMAIN symbol will be created
-         elsewhere, so we don't need to take care of that.
-         
-         This is important to do, because of forward references:
-         The cleanup of undefined types stored in undef_types only uses
-         STRUCT_DOMAIN symbols to perform the replacement.  */
-      synonym = (SYMBOL_LANGUAGE (sym) == language_ada && p[-2] != 'T');
-
       /* Typedef */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
 
       /* For a nameless type, we don't want a create a symbol, thus we
-         did not use `sym'.  Return without further processing.  */
+         did not use `sym'. Return without further processing. */
       if (nameless)
 	return NULL;
 
@@ -1222,7 +1838,6 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	    && TYPE_N_BASECLASSES (SYMBOL_TYPE (sym)))
 	  {
 	    int j;
-
 	    for (j = TYPE_N_BASECLASSES (SYMBOL_TYPE (sym)) - 1; j >= 0; j--)
 	      if (TYPE_BASECLASS_NAME (SYMBOL_TYPE (sym), j) == 0)
 		TYPE_BASECLASS_NAME (SYMBOL_TYPE (sym), j) =
@@ -1233,11 +1848,11 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	{
 	  /* gcc-2.6 or later (when using -fvtable-thunks)
 	     emits a unique named type for a vtable entry.
-	     Some gdb code depends on that specific name.  */
+	     Some gdb code depends on that specific name. */
 	  extern const char vtbl_ptr_name[];
 
 	  if ((TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_PTR
-	       && strcmp (SYMBOL_LINKAGE_NAME (sym), vtbl_ptr_name))
+	       && strcmp (DEPRECATED_SYMBOL_NAME (sym), vtbl_ptr_name))
 	      || TYPE_CODE (SYMBOL_TYPE (sym)) == TYPE_CODE_FUNC)
 	    {
 	      /* If we are giving a name to a type such as "pointer to
@@ -1258,16 +1873,15 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 
 	         Fortunately, this check seems not to be necessary
 	         for anything except pointers or functions.  */
-              /* ezannoni: 2000-10-26.  This seems to apply for
-		 versions of gcc older than 2.8.  This was the original
+              /* ezannoni: 2000-10-26. This seems to apply for
+		 versions of gcc older than 2.8. This was the original
 		 problem: with the following code gdb would tell that
-		 the type for name1 is caddr_t, and func is char().
-
+		 the type for name1 is caddr_t, and func is char()
 	         typedef char *caddr_t;
 		 char *name2;
 		 struct x
 		 {
-		   char *name1;
+		 char *name1;
 		 } xx;
 		 char *func()
 		 {
@@ -1275,36 +1889,17 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 		 main () {}
 		 */
 
-	      /* Pascal accepts names for pointer types.  */
+	      /* Pascal accepts names for pointer types. */
 	      if (current_subfile->language == language_pascal)
 		{
-		  TYPE_NAME (SYMBOL_TYPE (sym)) = SYMBOL_LINKAGE_NAME (sym);
+		  TYPE_NAME (SYMBOL_TYPE (sym)) = DEPRECATED_SYMBOL_NAME (sym);
           	}
 	    }
 	  else
-	    TYPE_NAME (SYMBOL_TYPE (sym)) = SYMBOL_LINKAGE_NAME (sym);
+	    TYPE_NAME (SYMBOL_TYPE (sym)) = DEPRECATED_SYMBOL_NAME (sym);
 	}
 
       add_symbol_to_list (sym, &file_symbols);
-
-      if (synonym)
-        {
-          /* Create the STRUCT_DOMAIN clone.  */
-          struct symbol *struct_sym = (struct symbol *)
-            obstack_alloc (&objfile->objfile_obstack, sizeof (struct symbol));
-
-          *struct_sym = *sym;
-          SYMBOL_CLASS (struct_sym) = LOC_TYPEDEF;
-          SYMBOL_VALUE (struct_sym) = valu;
-          SYMBOL_DOMAIN (struct_sym) = STRUCT_DOMAIN;
-          if (TYPE_NAME (SYMBOL_TYPE (sym)) == 0)
-            TYPE_NAME (SYMBOL_TYPE (sym))
-	      = obconcat (&objfile->objfile_obstack,
-			  SYMBOL_LINKAGE_NAME (sym),
-			  (char *) NULL);
-          add_symbol_to_list (struct_sym, &file_symbols);
-        }
-      
       break;
 
     case 'T':
@@ -1314,11 +1909,20 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 
       if (synonym)
 	p++;
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE      /* The semantics of C++ state that "struct foo { ... }" also defines 
+// OBSOLETE         a typedef for "foo".  Unfortunately, cfront never makes the typedef
+// OBSOLETE         when translating C++ into C.  We make the typedef here so that
+// OBSOLETE         "ptype foo" works as expected for cfront translated code.  */
+// OBSOLETE       else if ((current_subfile->language == language_cplus)
+// OBSOLETE 	       || (current_subfile->language == language_objc))
+// OBSOLETE 	synonym = 1;
+#endif /* OBSOLETE CFront */
 
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
  
       /* For a nameless type, we don't want a create a symbol, thus we
-         did not use `sym'.  Return without further processing.  */
+         did not use `sym'. Return without further processing. */
       if (nameless)
 	return NULL;
 
@@ -1327,53 +1931,42 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       SYMBOL_DOMAIN (sym) = STRUCT_DOMAIN;
       if (TYPE_TAG_NAME (SYMBOL_TYPE (sym)) == 0)
 	TYPE_TAG_NAME (SYMBOL_TYPE (sym))
-	  = obconcat (&objfile->objfile_obstack,
-		      SYMBOL_LINKAGE_NAME (sym),
-		      (char *) NULL);
+	  = obconcat (&objfile->type_obstack, "", "", DEPRECATED_SYMBOL_NAME (sym));
       add_symbol_to_list (sym, &file_symbols);
 
       if (synonym)
 	{
-	  /* Clone the sym and then modify it.  */
-	  struct symbol *typedef_sym = (struct symbol *)
-	    obstack_alloc (&objfile->objfile_obstack, sizeof (struct symbol));
-
+	  /* Clone the sym and then modify it. */
+	  register struct symbol *typedef_sym = (struct symbol *)
+	  obstack_alloc (&objfile->symbol_obstack, sizeof (struct symbol));
 	  *typedef_sym = *sym;
 	  SYMBOL_CLASS (typedef_sym) = LOC_TYPEDEF;
 	  SYMBOL_VALUE (typedef_sym) = valu;
 	  SYMBOL_DOMAIN (typedef_sym) = VAR_DOMAIN;
 	  if (TYPE_NAME (SYMBOL_TYPE (sym)) == 0)
 	    TYPE_NAME (SYMBOL_TYPE (sym))
-	      = obconcat (&objfile->objfile_obstack,
-			  SYMBOL_LINKAGE_NAME (sym),
-			  (char *) NULL);
+	      = obconcat (&objfile->type_obstack, "", "", DEPRECATED_SYMBOL_NAME (sym));
 	  add_symbol_to_list (typedef_sym, &file_symbols);
 	}
       break;
 
     case 'V':
-      /* Static symbol of local scope.  */
+      /* Static symbol of local scope */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
       SYMBOL_CLASS (sym) = LOC_STATIC;
       SYMBOL_VALUE_ADDRESS (sym) = valu;
-      if (gdbarch_static_transform_name_p (gdbarch)
-	  && gdbarch_static_transform_name (gdbarch,
-					    SYMBOL_LINKAGE_NAME (sym))
-	     != SYMBOL_LINKAGE_NAME (sym))
+#ifdef STATIC_TRANSFORM_NAME
+      if (IS_STATIC_TRANSFORM_NAME (DEPRECATED_SYMBOL_NAME (sym)))
 	{
 	  struct minimal_symbol *msym;
-
-	  msym = lookup_minimal_symbol (SYMBOL_LINKAGE_NAME (sym), 
-					NULL, objfile);
+	  msym = lookup_minimal_symbol (DEPRECATED_SYMBOL_NAME (sym), NULL, objfile);
 	  if (msym != NULL)
 	    {
-	      const char *new_name = gdbarch_static_transform_name
-		(gdbarch, SYMBOL_LINKAGE_NAME (sym));
-
-	      SYMBOL_SET_LINKAGE_NAME (sym, new_name);
+	      DEPRECATED_SYMBOL_NAME (sym) = STATIC_TRANSFORM_NAME (DEPRECATED_SYMBOL_NAME (sym));
 	      SYMBOL_VALUE_ADDRESS (sym) = SYMBOL_VALUE_ADDRESS (msym);
 	    }
 	}
+#endif
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
 	add_symbol_to_list (sym, &local_symbols);
       break;
@@ -1382,7 +1975,6 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       /* Reference parameter */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
       SYMBOL_CLASS (sym) = LOC_REF_ARG;
-      SYMBOL_IS_ARGUMENT (sym) = 1;
       SYMBOL_VALUE (sym) = valu;
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       add_symbol_to_list (sym, &local_symbols);
@@ -1392,9 +1984,14 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       /* Reference parameter which is in a register.  */
       SYMBOL_TYPE (sym) = read_type (&p, objfile);
       SYMBOL_CLASS (sym) = LOC_REGPARM_ADDR;
-      SYMBOL_REGISTER_OPS (sym) = &stab_register_funcs;
-      SYMBOL_IS_ARGUMENT (sym) = 1;
-      SYMBOL_VALUE (sym) = valu;
+      SYMBOL_VALUE (sym) = STAB_REG_TO_REGNUM (valu);
+      if (SYMBOL_VALUE (sym) >= NUM_REGS + NUM_PSEUDO_REGS)
+	{
+	  reg_value_complaint (SYMBOL_VALUE (sym),
+			       NUM_REGS + NUM_PSEUDO_REGS,
+			       SYMBOL_PRINT_NAME (sym));
+	  SYMBOL_VALUE (sym) = SP_REGNUM;	/* Known safe, though useless */
+	}
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       add_symbol_to_list (sym, &local_symbols);
       break;
@@ -1410,6 +2007,32 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       add_symbol_to_list (sym, &local_symbols);
       break;
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE        /* New code added to support cfront stabs strings.
+// OBSOLETE           Note: case 'P' already handled above */
+// OBSOLETE      case 'Z':
+// OBSOLETE        /* Cfront type continuation coming up!
+// OBSOLETE           Find the original definition and add to it.
+// OBSOLETE           We'll have to do this for the typedef too,
+// OBSOLETE           since we cloned the symbol to define a type in read_type.
+// OBSOLETE           Stabs info examples:
+// OBSOLETE           __1C :Ztl 
+// OBSOLETE           foo__1CFv :ZtF (first def foo__1CFv:F(0,3);(0,24))
+// OBSOLETE           C:ZsC;;__ct__1CFv func1__1CFv func2__1CFv ... ;;;
+// OBSOLETE           where C is the name of the class.
+// OBSOLETE           Unfortunately, we can't lookup the original symbol yet 'cuz 
+// OBSOLETE           we haven't finished reading all the symbols.
+// OBSOLETE           Instead, we save it for processing later */
+// OBSOLETE        process_later (sym, p, resolve_cfront_continuation);
+// OBSOLETE        SYMBOL_TYPE (sym) = error_type (&p, objfile);	/* FIXME! change later */
+// OBSOLETE        SYMBOL_CLASS (sym) = LOC_CONST;
+// OBSOLETE        SYMBOL_VALUE (sym) = 0;
+// OBSOLETE        SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
+// OBSOLETE        /* Don't add to list - we'll delete it later when 
+// OBSOLETE           we add the continuation to the real sym */
+// OBSOLETE        return sym;
+// OBSOLETE        /* End of new code added to support cfront stabs strings */
+#endif /* OBSOLETE CFront */
 
     default:
       SYMBOL_TYPE (sym) = error_type (&p, objfile);
@@ -1420,25 +2043,160 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
       break;
     }
 
-  /* Some systems pass variables of certain types by reference instead
-     of by value, i.e. they will pass the address of a structure (in a
-     register or on the stack) instead of the structure itself.  */
+  /* When passing structures to a function, some systems sometimes pass
+     the address in a register, not the structure itself. */
 
-  if (gdbarch_stabs_argument_has_addr (gdbarch, SYMBOL_TYPE (sym))
-      && SYMBOL_IS_ARGUMENT (sym))
+  if (REG_STRUCT_HAS_ADDR_P ()
+      && REG_STRUCT_HAS_ADDR (processing_gcc_compilation, SYMBOL_TYPE (sym))
+      && (SYMBOL_CLASS (sym) == LOC_REGPARM || SYMBOL_CLASS (sym) == LOC_ARG))
     {
-      /* We have to convert LOC_REGISTER to LOC_REGPARM_ADDR (for
-         variables passed in a register).  */
-      if (SYMBOL_CLASS (sym) == LOC_REGISTER)
-	SYMBOL_CLASS (sym) = LOC_REGPARM_ADDR;
-      /* Likewise for converting LOC_ARG to LOC_REF_ARG (for the 7th
-	 and subsequent arguments on SPARC, for example).  */
-      else if (SYMBOL_CLASS (sym) == LOC_ARG)
-	SYMBOL_CLASS (sym) = LOC_REF_ARG;
+      struct type *symbol_type = check_typedef (SYMBOL_TYPE (sym));
+
+      if ((TYPE_CODE (symbol_type) == TYPE_CODE_STRUCT)
+	  || (TYPE_CODE (symbol_type) == TYPE_CODE_UNION)
+	  || (TYPE_CODE (symbol_type) == TYPE_CODE_BITSTRING)
+	  || (TYPE_CODE (symbol_type) == TYPE_CODE_SET))
+	{
+	  /* If REG_STRUCT_HAS_ADDR yields non-zero we have to convert
+	     LOC_REGPARM to LOC_REGPARM_ADDR for structures and unions. */
+	  if (SYMBOL_CLASS (sym) == LOC_REGPARM)
+	    SYMBOL_CLASS (sym) = LOC_REGPARM_ADDR;
+	  /* Likewise for converting LOC_ARG to LOC_REF_ARG (for the 7th
+	     and subsequent arguments on the sparc, for example).  */
+	  else if (SYMBOL_CLASS (sym) == LOC_ARG)
+	    SYMBOL_CLASS (sym) = LOC_REF_ARG;
+	}
     }
 
+  /* Is there more to parse?  For example LRS/alias information?  */
+  while (*p && *p == ';')
+    {
+      p++;
+      if (*p && p[0] == 'l' && p[1] == '(')
+	{
+	  /* GNU extensions for live range splitting may be appended to 
+	     the end of the stab string.  eg. "l(#1,#2);l(#3,#5)" */
+
+	  /* Resolve the live range and add it to SYM's live range list.  */
+	  if (!resolve_live_range (objfile, sym, p))
+	    return NULL;
+
+	  /* Find end of live range info. */
+	  p = strchr (p, ')');
+	  if (!*p || *p != ')')
+	    {
+	      lrs_general_complaint ("live range format not recognized");
+	      return NULL;
+	    }
+	  p++;
+	}
+    }
   return sym;
 }
+
+/* Add the live range found in P to the symbol SYM in objfile OBJFILE.  Returns
+   non-zero on success, zero otherwise.  */
+
+static int
+resolve_live_range (struct objfile *objfile, struct symbol *sym, char *p)
+{
+  int refnum;
+  CORE_ADDR start, end;
+
+  /* Sanity check the beginning of the stabs string.  */
+  if (!*p || *p != 'l')
+    {
+      lrs_general_complaint ("live range string 1");
+      return 0;
+    }
+  p++;
+
+  if (!*p || *p != '(')
+    {
+      lrs_general_complaint ("live range string 2");
+      return 0;
+    }
+  p++;
+
+  /* Get starting value of range and advance P past the reference id.
+
+     ?!? In theory, the process_reference should never fail, but we should
+     catch that case just in case the compiler scrogged the stabs.  */
+  refnum = process_reference (&p);
+  start = ref_search_value (refnum);
+  if (!start)
+    {
+      lrs_general_complaint ("Live range symbol not found 1");
+      return 0;
+    }
+
+  if (!*p || *p != ',')
+    {
+      lrs_general_complaint ("live range string 3");
+      return 0;
+    }
+  p++;
+
+  /* Get ending value of range and advance P past the reference id.
+
+     ?!? In theory, the process_reference should never fail, but we should
+     catch that case just in case the compiler scrogged the stabs.  */
+  refnum = process_reference (&p);
+  end = ref_search_value (refnum);
+  if (!end)
+    {
+      lrs_general_complaint ("Live range symbol not found 2");
+      return 0;
+    }
+
+  if (!*p || *p != ')')
+    {
+      lrs_general_complaint ("live range string 4");
+      return 0;
+    }
+
+  /* Now that we know the bounds of the range, add it to the
+     symbol.  */
+  add_live_range (objfile, sym, start, end);
+
+  return 1;
+}
+
+/* Add a new live range defined by START and END to the symbol SYM
+   in objfile OBJFILE.  */
+
+static void
+add_live_range (struct objfile *objfile, struct symbol *sym, CORE_ADDR start,
+		CORE_ADDR end)
+{
+  struct range_list *r, *rs;
+
+  if (start >= end)
+    {
+      lrs_general_complaint ("end of live range follows start");
+      return;
+    }
+
+  /* Alloc new live range structure. */
+  r = (struct range_list *)
+    obstack_alloc (&objfile->type_obstack,
+		   sizeof (struct range_list));
+  r->start = start;
+  r->end = end;
+  r->next = 0;
+
+  /* Append this range to the symbol's range list. */
+  if (!SYMBOL_RANGES (sym))
+    SYMBOL_RANGES (sym) = r;
+  else
+    {
+      /* Get the last range for the symbol. */
+      for (rs = SYMBOL_RANGES (sym); rs->next; rs = rs->next)
+	;
+      rs->next = r;
+    }
+}
+
 
 /* Skip rest of this symbol and return an error type.
 
@@ -1472,8 +2230,7 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 static struct type *
 error_type (char **pp, struct objfile *objfile)
 {
-  complaint (&symfile_complaints,
-	     _("couldn't parse type; debugger out of date?"));
+  complaint (&symfile_complaints, "couldn't parse type; debugger out of date?");
   while (1)
     {
       /* Skip to end of symbol.  */
@@ -1492,7 +2249,7 @@ error_type (char **pp, struct objfile *objfile)
 	  break;
 	}
     }
-  return objfile_type (objfile)->builtin_error;
+  return (builtin_type_error);
 }
 
 
@@ -1502,10 +2259,10 @@ error_type (char **pp, struct objfile *objfile)
    assume that type information starts with a digit, '-', or '(' in
    deciding whether to call read_type.  */
 
-static struct type *
-read_type (char **pp, struct objfile *objfile)
+struct type *
+read_type (register char **pp, struct objfile *objfile)
 {
-  struct type *type = 0;
+  register struct type *type = 0;
   struct type *type1;
   int typenums[2];
   char type_descriptor;
@@ -1514,10 +2271,10 @@ read_type (char **pp, struct objfile *objfile)
      there is no size attribute.  */
   int type_size = -1;
 
-  /* Used to distinguish string and bitstring from char-array and set.  */
+  /* Used to distinguish string and bitstring from char-array and set. */
   int is_string = 0;
 
-  /* Used to distinguish vector from array.  */
+  /* Used to distinguish vector from array. */
   int is_vector = 0;
 
   /* Read type number if present.  The type number may be omitted.
@@ -1530,21 +2287,11 @@ read_type (char **pp, struct objfile *objfile)
       if (read_type_number (pp, typenums) != 0)
 	return error_type (pp, objfile);
 
+      /* Type is not being defined here.  Either it already exists,
+         or this is a forward reference to it.  dbx_alloc_type handles
+         both cases.  */
       if (**pp != '=')
-        {
-          /* Type is not being defined here.  Either it already
-             exists, or this is a forward reference to it.
-             dbx_alloc_type handles both cases.  */
-          type = dbx_alloc_type (typenums, objfile);
-
-          /* If this is a forward reference, arrange to complain if it
-             doesn't get patched up by the time we're done
-             reading.  */
-          if (TYPE_CODE (type) == TYPE_CODE_UNDEF)
-            add_undefined_type (type, typenums);
-
-          return type;
-        }
+	return dbx_alloc_type (typenums, objfile);
 
       /* Type is being defined here.  */
       /* Skip the '='.
@@ -1594,8 +2341,7 @@ again:
 		/* Complain and keep going, so compilers can invent new
 		   cross-reference types.  */
 		complaint (&symfile_complaints,
-			   _("Unrecognized cross-reference type `%c'"),
-			   (*pp)[0]);
+			   "Unrecognized cross-reference type `%c'", (*pp)[0]);
 		code = TYPE_CODE_STRUCT;
 		break;
 	      }
@@ -1608,7 +2354,6 @@ again:
 	  if (q1 && p > q1 && p[1] == ':')
 	    {
 	      int nesting_level = 0;
-
 	      for (q2 = q1; *q2; q2++)
 		{
 		  if (*q2 == '<')
@@ -1622,41 +2367,25 @@ again:
 	      if (*p != ':')
 		return error_type (pp, objfile);
 	    }
-	  type_name = NULL;
-	  if (current_subfile->language == language_cplus)
-	    {
-	      char *new_name, *name = alloca (p - *pp + 1);
+	  to = type_name =
+	    (char *) obstack_alloc (&objfile->type_obstack, p - *pp + 1);
 
-	      memcpy (name, *pp, p - *pp);
-	      name[p - *pp] = '\0';
-	      new_name = cp_canonicalize_string (name);
-	      if (new_name != NULL)
-		{
-		  type_name = obstack_copy0 (&objfile->objfile_obstack,
-					     new_name, strlen (new_name));
-		  xfree (new_name);
-		}
-	    }
-	  if (type_name == NULL)
-	    {
-	      to = type_name = (char *)
-		obstack_alloc (&objfile->objfile_obstack, p - *pp + 1);
-
-	      /* Copy the name.  */
-	      from = *pp + 1;
-	      while (from < p)
-		*to++ = *from++;
-	      *to = '\0';
-	    }
+	  /* Copy the name.  */
+	  from = *pp + 1;
+	  while (from < p)
+	    *to++ = *from++;
+	  *to = '\0';
 
 	  /* Set the pointer ahead of the name which we just read, and
 	     the colon.  */
-	  *pp = p + 1;
+	  *pp = from + 1;
 	}
 
-        /* If this type has already been declared, then reuse the same
-           type, rather than allocating a new one.  This saves some
-           memory.  */
+	/* Now check to see whether the type has already been
+	   declared.  This was written for arrays of cross-referenced
+	   types before we had TYPE_CODE_TARGET_STUBBED, so I'm pretty
+	   sure it is not necessary anymore.  But it might be a good
+	   idea, to save a little memory.  */
 
 	for (ppt = file_symbols; ppt; ppt = ppt->next)
 	  for (i = 0; i < ppt->nsyms; i++)
@@ -1666,12 +2395,10 @@ again:
 	      if (SYMBOL_CLASS (sym) == LOC_TYPEDEF
 		  && SYMBOL_DOMAIN (sym) == STRUCT_DOMAIN
 		  && (TYPE_CODE (SYMBOL_TYPE (sym)) == code)
-		  && strcmp (SYMBOL_LINKAGE_NAME (sym), type_name) == 0)
+		  && STREQ (DEPRECATED_SYMBOL_NAME (sym), type_name))
 		{
-		  obstack_free (&objfile->objfile_obstack, type_name);
+		  obstack_free (&objfile->type_obstack, type_name);
 		  type = SYMBOL_TYPE (sym);
-	          if (typenums[0] != -1)
-	            *dbx_lookup_type (typenums, objfile) = type;
 		  return type;
 		}
 	    }
@@ -1685,9 +2412,9 @@ again:
 	TYPE_CODE (type) = code;
 	TYPE_TAG_NAME (type) = type_name;
 	INIT_CPLUS_SPECIFIC (type);
-	TYPE_STUB (type) = 1;
+	TYPE_FLAGS (type) |= TYPE_FLAG_STUB;
 
-	add_undefined_type (type, typenums);
+	add_undefined_type (type);
 	return type;
       }
 
@@ -1706,15 +2433,14 @@ again:
       (*pp)--;
 
       /* We deal with something like t(1,2)=(3,4)=... which
-         the Lucid compiler and recent gcc versions (post 2.7.3) use.  */
+         the Lucid compiler and recent gcc versions (post 2.7.3) use. */
 
       /* Allocate and enter the typedef type first.
-         This handles recursive types.  */
+         This handles recursive types. */
       type = dbx_alloc_type (typenums, objfile);
       TYPE_CODE (type) = TYPE_CODE_TYPEDEF;
       {
 	struct type *xtype = read_type (pp, objfile);
-
 	if (type == xtype)
 	  {
 	    /* It's being defined as itself.  That means it is "void".  */
@@ -1752,7 +2478,7 @@ again:
 	  }
 	else
 	  {
-	    TYPE_TARGET_STUB (type) = 1;
+	    TYPE_FLAGS (type) |= TYPE_FLAG_TARGET_STUB;
 	    TYPE_TARGET_TYPE (type) = xtype;
 	  }
       }
@@ -1767,17 +2493,17 @@ again:
 
     case '*':			/* Pointer to another type */
       type1 = read_type (pp, objfile);
-      type = make_pointer_type (type1, dbx_lookup_type (typenums, objfile));
+      type = make_pointer_type (type1, dbx_lookup_type (typenums));
       break;
 
     case '&':			/* Reference to another type */
       type1 = read_type (pp, objfile);
-      type = make_reference_type (type1, dbx_lookup_type (typenums, objfile));
+      type = make_reference_type (type1, dbx_lookup_type (typenums));
       break;
 
     case 'f':			/* Function returning another type */
       type1 = read_type (pp, objfile);
-      type = make_function_type (type1, dbx_lookup_type (typenums, objfile));
+      type = make_function_type (type1, dbx_lookup_type (typenums));
       break;
 
     case 'g':                   /* Prototyped function.  (Sun)  */
@@ -1800,8 +2526,7 @@ again:
         const char *type_start = (*pp) - 1;
         struct type *return_type = read_type (pp, objfile);
         struct type *func_type
-          = make_function_type (return_type,
-				dbx_lookup_type (typenums, objfile));
+          = make_function_type (return_type, dbx_lookup_type (typenums));
         struct type_list {
           struct type *type;
           struct type_list *next;
@@ -1822,8 +2547,7 @@ again:
         else
           {
 	    complaint (&symfile_complaints,
-		       _("Prototyped function type didn't "
-			 "end arguments with `#':\n%s"),
+		       "Prototyped function type didn't end arguments with `#':\n%s",
 		       type_start);
           }
 
@@ -1849,7 +2573,7 @@ again:
             TYPE_FIELD_TYPE (func_type, i) = t->type;
         }
         TYPE_NFIELDS (func_type) = num_args;
-        TYPE_PROTOTYPED (func_type) = 1;
+        TYPE_FLAGS (func_type) |= TYPE_FLAG_PROTOTYPED;
 
         type = func_type;
         break;
@@ -1858,13 +2582,13 @@ again:
     case 'k':			/* Const qualifier on some type (Sun) */
       type = read_type (pp, objfile);
       type = make_cv_type (1, TYPE_VOLATILE (type), type,
-			   dbx_lookup_type (typenums, objfile));
+			   dbx_lookup_type (typenums));
       break;
 
     case 'B':			/* Volatile qual on some type (Sun) */
       type = read_type (pp, objfile);
       type = make_cv_type (TYPE_CONST (type), 1, type,
-			   dbx_lookup_type (typenums, objfile));
+			   dbx_lookup_type (typenums));
       break;
 
     case '@':
@@ -1882,13 +2606,12 @@ again:
 
 	  memtype = read_type (pp, objfile);
 	  type = dbx_alloc_type (typenums, objfile);
-	  smash_to_memberptr_type (type, domain, memtype);
+	  smash_to_member_type (type, domain, memtype);
 	}
       else
 	/* type attribute */
 	{
 	  char *attr = *pp;
-
 	  /* Skip to the semicolon.  */
 	  while (**pp != ';' && **pp != '\0')
 	    ++(*pp);
@@ -1906,12 +2629,12 @@ again:
 	      break;
 
 	    case 'S':		/* String attribute */
-	      /* FIXME: check to see if following type is array?  */
+	      /* FIXME: check to see if following type is array? */
 	      is_string = 1;
 	      break;
 
 	    case 'V':		/* Vector attribute */
-	      /* FIXME: check to see if following type is array?  */
+	      /* FIXME: check to see if following type is array? */
 	      is_vector = 1;
 	      break;
 
@@ -1935,12 +2658,11 @@ again:
 	  return_type = read_type (pp, objfile);
 	  if (*(*pp)++ != ';')
 	    complaint (&symfile_complaints,
-		       _("invalid (minimal) member type "
-			 "data format at symtab pos %d."),
+		       "invalid (minimal) member type data format at symtab pos %d.",
 		       symnum);
 	  type = allocate_stub_method (return_type);
 	  if (typenums[0] != -1)
-	    *dbx_lookup_type (typenums, objfile) = type;
+	    *dbx_lookup_type (typenums) = type;
 	}
       else
 	{
@@ -1957,8 +2679,6 @@ again:
 
 	  return_type = read_type (pp, objfile);
 	  args = read_args (pp, ';', objfile, &nargs, &varargs);
-	  if (args == NULL)
-	    return error_type (pp, objfile);
 	  type = dbx_alloc_type (typenums, objfile);
 	  smash_to_method_type (type, domain, return_type, args,
 				nargs, varargs);
@@ -1966,9 +2686,9 @@ again:
       break;
 
     case 'r':			/* Range type */
-      type = read_range_type (pp, typenums, type_size, objfile);
+      type = read_range_type (pp, typenums, objfile);
       if (typenums[0] != -1)
-	*dbx_lookup_type (typenums, objfile) = type;
+	*dbx_lookup_type (typenums) = type;
       break;
 
     case 'b':
@@ -1976,21 +2696,21 @@ again:
 	  /* Sun ACC builtin int type */
 	  type = read_sun_builtin_type (pp, typenums, objfile);
 	  if (typenums[0] != -1)
-	    *dbx_lookup_type (typenums, objfile) = type;
+	    *dbx_lookup_type (typenums) = type;
 	}
       break;
 
     case 'R':			/* Sun ACC builtin float type */
       type = read_sun_floating_type (pp, typenums, objfile);
       if (typenums[0] != -1)
-	*dbx_lookup_type (typenums, objfile) = type;
+	*dbx_lookup_type (typenums) = type;
       break;
 
     case 'e':			/* Enumeration type */
       type = dbx_alloc_type (typenums, objfile);
       type = read_enum_type (pp, type, objfile);
       if (typenums[0] != -1)
-	*dbx_lookup_type (typenums, objfile) = type;
+	*dbx_lookup_type (typenums) = type;
       break;
 
     case 's':			/* Struct type */
@@ -2021,25 +2741,27 @@ again:
       if (is_string)
 	TYPE_CODE (type) = TYPE_CODE_STRING;
       if (is_vector)
-	make_vector_type (type);
+	TYPE_FLAGS (type) |= TYPE_FLAG_VECTOR;
       break;
 
-    case 'S':			/* Set type */
+    case 'S':			/* Set or bitstring  type */
       type1 = read_type (pp, objfile);
       type = create_set_type ((struct type *) NULL, type1);
+      if (is_string)
+	TYPE_CODE (type) = TYPE_CODE_BITSTRING;
       if (typenums[0] != -1)
-	*dbx_lookup_type (typenums, objfile) = type;
+	*dbx_lookup_type (typenums) = type;
       break;
 
     default:
-      --*pp;			/* Go back to the symbol in error.  */
-      /* Particularly important if it was \0!  */
+      --*pp;			/* Go back to the symbol in error */
+      /* Particularly important if it was \0! */
       return error_type (pp, objfile);
     }
 
   if (type == 0)
     {
-      warning (_("GDB internal error, type is NULL in stabsread.c."));
+      warning ("GDB internal error, type is NULL in stabsread.c\n");
       return error_type (pp, objfile);
     }
 
@@ -2051,34 +2773,22 @@ again:
 }
 
 /* RS/6000 xlc/dbx combination uses a set of builtin types, starting from -1.
-   Return the proper type node for a given builtin type number.  */
-
-static const struct objfile_data *rs6000_builtin_type_data;
+   Return the proper type node for a given builtin type number. */
 
 static struct type *
-rs6000_builtin_type (int typenum, struct objfile *objfile)
+rs6000_builtin_type (int typenum)
 {
-  struct type **negative_types = objfile_data (objfile,
-					       rs6000_builtin_type_data);
-
   /* We recognize types numbered from -NUMBER_RECOGNIZED to -1.  */
 #define NUMBER_RECOGNIZED 34
+  /* This includes an empty slot for type number -0.  */
+  static struct type *negative_types[NUMBER_RECOGNIZED + 1];
   struct type *rettype = NULL;
 
   if (typenum >= 0 || typenum < -NUMBER_RECOGNIZED)
     {
-      complaint (&symfile_complaints, _("Unknown builtin type %d"), typenum);
-      return objfile_type (objfile)->builtin_error;
+      complaint (&symfile_complaints, "Unknown builtin type %d", typenum);
+      return builtin_type_error;
     }
-
-  if (!negative_types)
-    {
-      /* This includes an empty slot for type number -0.  */
-      negative_types = OBSTACK_CALLOC (&objfile->objfile_obstack,
-				       NUMBER_RECOGNIZED + 1, struct type *);
-      set_objfile_data (objfile, rs6000_builtin_type_data, negative_types);
-    }
-
   if (negative_types[-typenum] != NULL)
     return negative_types[-typenum];
 
@@ -2098,130 +2808,129 @@ rs6000_builtin_type (int typenum, struct objfile *objfile)
          is other than 32 bits, then it should use a new negative type
          number (or avoid negative type numbers for that case).
          See stabs.texinfo.  */
-      rettype = init_type (TYPE_CODE_INT, 4, 0, "int", objfile);
+      rettype = init_type (TYPE_CODE_INT, 4, 0, "int", NULL);
       break;
     case 2:
-      rettype = init_type (TYPE_CODE_INT, 1, 0, "char", objfile);
+      rettype = init_type (TYPE_CODE_INT, 1, 0, "char", NULL);
       break;
     case 3:
-      rettype = init_type (TYPE_CODE_INT, 2, 0, "short", objfile);
+      rettype = init_type (TYPE_CODE_INT, 2, 0, "short", NULL);
       break;
     case 4:
-      rettype = init_type (TYPE_CODE_INT, 4, 0, "long", objfile);
+      rettype = init_type (TYPE_CODE_INT, 4, 0, "long", NULL);
       break;
     case 5:
       rettype = init_type (TYPE_CODE_INT, 1, TYPE_FLAG_UNSIGNED,
-			   "unsigned char", objfile);
+			   "unsigned char", NULL);
       break;
     case 6:
-      rettype = init_type (TYPE_CODE_INT, 1, 0, "signed char", objfile);
+      rettype = init_type (TYPE_CODE_INT, 1, 0, "signed char", NULL);
       break;
     case 7:
       rettype = init_type (TYPE_CODE_INT, 2, TYPE_FLAG_UNSIGNED,
-			   "unsigned short", objfile);
+			   "unsigned short", NULL);
       break;
     case 8:
       rettype = init_type (TYPE_CODE_INT, 4, TYPE_FLAG_UNSIGNED,
-			   "unsigned int", objfile);
+			   "unsigned int", NULL);
       break;
     case 9:
       rettype = init_type (TYPE_CODE_INT, 4, TYPE_FLAG_UNSIGNED,
-			   "unsigned", objfile);
-      break;
+			   "unsigned", NULL);
     case 10:
       rettype = init_type (TYPE_CODE_INT, 4, TYPE_FLAG_UNSIGNED,
-			   "unsigned long", objfile);
+			   "unsigned long", NULL);
       break;
     case 11:
-      rettype = init_type (TYPE_CODE_VOID, 1, 0, "void", objfile);
+      rettype = init_type (TYPE_CODE_VOID, 1, 0, "void", NULL);
       break;
     case 12:
       /* IEEE single precision (32 bit).  */
-      rettype = init_type (TYPE_CODE_FLT, 4, 0, "float", objfile);
+      rettype = init_type (TYPE_CODE_FLT, 4, 0, "float", NULL);
       break;
     case 13:
       /* IEEE double precision (64 bit).  */
-      rettype = init_type (TYPE_CODE_FLT, 8, 0, "double", objfile);
+      rettype = init_type (TYPE_CODE_FLT, 8, 0, "double", NULL);
       break;
     case 14:
       /* This is an IEEE double on the RS/6000, and different machines with
          different sizes for "long double" should use different negative
          type numbers.  See stabs.texinfo.  */
-      rettype = init_type (TYPE_CODE_FLT, 8, 0, "long double", objfile);
+      rettype = init_type (TYPE_CODE_FLT, 8, 0, "long double", NULL);
       break;
     case 15:
-      rettype = init_type (TYPE_CODE_INT, 4, 0, "integer", objfile);
+      rettype = init_type (TYPE_CODE_INT, 4, 0, "integer", NULL);
       break;
     case 16:
       rettype = init_type (TYPE_CODE_BOOL, 4, TYPE_FLAG_UNSIGNED,
-			   "boolean", objfile);
+			   "boolean", NULL);
       break;
     case 17:
-      rettype = init_type (TYPE_CODE_FLT, 4, 0, "short real", objfile);
+      rettype = init_type (TYPE_CODE_FLT, 4, 0, "short real", NULL);
       break;
     case 18:
-      rettype = init_type (TYPE_CODE_FLT, 8, 0, "real", objfile);
+      rettype = init_type (TYPE_CODE_FLT, 8, 0, "real", NULL);
       break;
     case 19:
-      rettype = init_type (TYPE_CODE_ERROR, 0, 0, "stringptr", objfile);
+      rettype = init_type (TYPE_CODE_ERROR, 0, 0, "stringptr", NULL);
       break;
     case 20:
       rettype = init_type (TYPE_CODE_CHAR, 1, TYPE_FLAG_UNSIGNED,
-			   "character", objfile);
+			   "character", NULL);
       break;
     case 21:
       rettype = init_type (TYPE_CODE_BOOL, 1, TYPE_FLAG_UNSIGNED,
-			   "logical*1", objfile);
+			   "logical*1", NULL);
       break;
     case 22:
       rettype = init_type (TYPE_CODE_BOOL, 2, TYPE_FLAG_UNSIGNED,
-			   "logical*2", objfile);
+			   "logical*2", NULL);
       break;
     case 23:
       rettype = init_type (TYPE_CODE_BOOL, 4, TYPE_FLAG_UNSIGNED,
-			   "logical*4", objfile);
+			   "logical*4", NULL);
       break;
     case 24:
       rettype = init_type (TYPE_CODE_BOOL, 4, TYPE_FLAG_UNSIGNED,
-			   "logical", objfile);
+			   "logical", NULL);
       break;
     case 25:
       /* Complex type consisting of two IEEE single precision values.  */
-      rettype = init_type (TYPE_CODE_COMPLEX, 8, 0, "complex", objfile);
+      rettype = init_type (TYPE_CODE_COMPLEX, 8, 0, "complex", NULL);
       TYPE_TARGET_TYPE (rettype) = init_type (TYPE_CODE_FLT, 4, 0, "float",
-					      objfile);
+					      NULL);
       break;
     case 26:
       /* Complex type consisting of two IEEE double precision values.  */
       rettype = init_type (TYPE_CODE_COMPLEX, 16, 0, "double complex", NULL);
       TYPE_TARGET_TYPE (rettype) = init_type (TYPE_CODE_FLT, 8, 0, "double",
-					      objfile);
+					      NULL);
       break;
     case 27:
-      rettype = init_type (TYPE_CODE_INT, 1, 0, "integer*1", objfile);
+      rettype = init_type (TYPE_CODE_INT, 1, 0, "integer*1", NULL);
       break;
     case 28:
-      rettype = init_type (TYPE_CODE_INT, 2, 0, "integer*2", objfile);
+      rettype = init_type (TYPE_CODE_INT, 2, 0, "integer*2", NULL);
       break;
     case 29:
-      rettype = init_type (TYPE_CODE_INT, 4, 0, "integer*4", objfile);
+      rettype = init_type (TYPE_CODE_INT, 4, 0, "integer*4", NULL);
       break;
     case 30:
-      rettype = init_type (TYPE_CODE_CHAR, 2, 0, "wchar", objfile);
+      rettype = init_type (TYPE_CODE_CHAR, 2, 0, "wchar", NULL);
       break;
     case 31:
-      rettype = init_type (TYPE_CODE_INT, 8, 0, "long long", objfile);
+      rettype = init_type (TYPE_CODE_INT, 8, 0, "long long", NULL);
       break;
     case 32:
       rettype = init_type (TYPE_CODE_INT, 8, TYPE_FLAG_UNSIGNED,
-			   "unsigned long long", objfile);
+			   "unsigned long long", NULL);
       break;
     case 33:
       rettype = init_type (TYPE_CODE_INT, 8, TYPE_FLAG_UNSIGNED,
-			   "logical*8", objfile);
+			   "logical*8", NULL);
       break;
     case 34:
-      rettype = init_type (TYPE_CODE_INT, 8, 0, "integer*8", objfile);
+      rettype = init_type (TYPE_CODE_INT, 8, 0, "integer*8", NULL);
       break;
     }
   negative_types[-typenum] = rettype;
@@ -2230,11 +2939,10 @@ rs6000_builtin_type (int typenum, struct objfile *objfile)
 
 /* This page contains subroutines of read_type.  */
 
-/* Wrapper around method_name_from_physname to flag a complaint
-   if there is an error.  */
+/* Replace *OLD_NAME with the method name portion of PHYSNAME.  */
 
-static char *
-stabs_method_name_from_physname (const char *physname)
+static void
+update_method_name_from_physname (char **old_name, char *physname)
 {
   char *method_name;
 
@@ -2243,11 +2951,17 @@ stabs_method_name_from_physname (const char *physname)
   if (method_name == NULL)
     {
       complaint (&symfile_complaints,
-		 _("Method has bad physname %s\n"), physname);
-      return NULL;
+		 "Method has bad physname %s\n", physname);
+      return;
     }
 
-  return method_name;
+  if (strcmp (*old_name, method_name) != 0)
+    {
+      xfree (*old_name);
+      *old_name = method_name;
+    }
+  else
+    xfree (method_name);
 }
 
 /* Read member function stabs info for C++ classes.  The form of each member
@@ -2271,6 +2985,10 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 {
   int nfn_fields = 0;
   int length = 0;
+  /* Total number of member functions defined in this class.  If the class
+     defines two `f' functions, and one `g' function, then this will have
+     the value 3.  */
+  int total_length = 0;
   int i;
   struct next_fnfield
     {
@@ -2282,16 +3000,16 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
   struct next_fnfieldlist *new_fnlist;
   struct next_fnfield *new_sublist;
   char *main_fn_name;
-  char *p;
+  register char *p;
 
   /* Process each list until we find something that is not a member function
-     or find the end of the functions.  */
+     or find the end of the functions. */
 
   while (**pp != ';')
     {
       /* We should be positioned at the start of the function name.
          Scan forward to find the first ':' and if it is not the
-         first of a "::" delimiter, then this is not a member function.  */
+         first of a "::" delimiter, then this is not a member function. */
       p = *pp;
       while (*p != ':')
 	{
@@ -2356,7 +3074,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	  /* Check for and handle cretinous dbx symbol name continuation!  */
 	  if (look_ahead_type == NULL)
 	    {
-	      /* Normal case.  */
+	      /* Normal case. */
 	      STABS_CONTINUE (pp, objfile);
 
 	      new_sublist->fn_field.type = read_type (pp, objfile);
@@ -2380,7 +3098,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	      p++;
 	    }
 
-	  /* If this is just a stub, then we don't have the real name here.  */
+	  /* If this is just a stub, then we don't have the real name here. */
 
 	  if (TYPE_STUB (new_sublist->fn_field.type))
 	    {
@@ -2405,35 +3123,33 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	  STABS_CONTINUE (pp, objfile);
 	  switch (**pp)
 	    {
-	    case 'A':		/* Normal functions.  */
+	    case 'A':		/* Normal functions. */
 	      new_sublist->fn_field.is_const = 0;
 	      new_sublist->fn_field.is_volatile = 0;
 	      (*pp)++;
 	      break;
-	    case 'B':		/* `const' member functions.  */
+	    case 'B':		/* `const' member functions. */
 	      new_sublist->fn_field.is_const = 1;
 	      new_sublist->fn_field.is_volatile = 0;
 	      (*pp)++;
 	      break;
-	    case 'C':		/* `volatile' member function.  */
+	    case 'C':		/* `volatile' member function. */
 	      new_sublist->fn_field.is_const = 0;
 	      new_sublist->fn_field.is_volatile = 1;
 	      (*pp)++;
 	      break;
-	    case 'D':		/* `const volatile' member function.  */
+	    case 'D':		/* `const volatile' member function. */
 	      new_sublist->fn_field.is_const = 1;
 	      new_sublist->fn_field.is_volatile = 1;
 	      (*pp)++;
 	      break;
-	    case '*':		/* File compiled with g++ version 1 --
-				   no info.  */
+	    case '*':		/* File compiled with g++ version 1 -- no info */
 	    case '?':
 	    case '.':
 	      break;
 	    default:
 	      complaint (&symfile_complaints,
-			 _("const/volatile indicator missing, got '%c'"),
-			 **pp);
+			 "const/volatile indicator missing, got '%c'", **pp);
 	      break;
 	    }
 
@@ -2450,7 +3166,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 		   the sign bit out, and usable as a valid index into
 		   the array.  Remove the sign bit here.  */
 		new_sublist->fn_field.voffset =
-		  (0x7fffffff & read_huge_number (pp, ';', &nbits, 0)) + 2;
+		  (0x7fffffff & read_huge_number (pp, ';', &nbits)) + 2;
 		if (nbits != 0)
 		  return 0;
 
@@ -2468,7 +3184,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 		    look_ahead_type = read_type (pp, objfile);
 		    if (**pp == ':')
 		      {
-			/* g++ version 1 overloaded methods.  */
+			/* g++ version 1 overloaded methods. */
 		      }
 		    else
 		      {
@@ -2516,8 +3232,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	    default:
 	      /* error */
 	      complaint (&symfile_complaints,
-			 _("member function type missing, got '%c'"),
-			 (*pp)[-1]);
+			 "member function type missing, got '%c'", (*pp)[-1]);
 	      /* Fall through into normal member function.  */
 
 	    case '.':
@@ -2539,8 +3254,8 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 
       /* Skip GCC 3.X member functions which are duplicates of the callable
 	 constructor/destructor.  */
-      if (strcmp_iw (main_fn_name, "__base_ctor ") == 0
-	  || strcmp_iw (main_fn_name, "__base_dtor ") == 0
+      if (strcmp (main_fn_name, "__base_ctor") == 0
+	  || strcmp (main_fn_name, "__base_dtor") == 0
 	  || strcmp (main_fn_name, "__deleting_dtor") == 0)
 	{
 	  xfree (main_fn_name);
@@ -2601,8 +3316,8 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	     method name     physname      physname   method name
 
 	     __opi            [none]     __opi__3Foo  operator int    opname
-	                                                         [now or later]
-	     Foo              _._3Foo       _._3Foo      ~Foo      separate and
+	                                                           [now or later]
+	     Foo              _._3Foo       _._3Foo      ~Foo       separate and
 	                                                               rename
 	     operator i     _ZN3FoocviEv _ZN3FoocviEv operator int    demangle
 	     __comp_ctor  _ZN3FooC1ERKS_ _ZN3FooC1ERKS_   Foo         demangle
@@ -2637,11 +3352,11 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	      make_cleanup (xfree, destr_fnlist);
 	      memset (destr_fnlist, 0, sizeof (struct next_fnfieldlist));
 	      destr_fnlist->fn_fieldlist.name
-		= obconcat (&objfile->objfile_obstack, "~",
-			    new_fnlist->fn_fieldlist.name, (char *) NULL);
+		= obconcat (&objfile->type_obstack, "", "~",
+			    new_fnlist->fn_fieldlist.name);
 
 	      destr_fnlist->fn_fieldlist.fn_fields = (struct fn_field *)
-		obstack_alloc (&objfile->objfile_obstack,
+		obstack_alloc (&objfile->type_obstack,
 			       sizeof (struct fn_field) * has_destructor);
 	      memset (destr_fnlist->fn_fieldlist.fn_fields, 0,
 		  sizeof (struct fn_field) * has_destructor);
@@ -2670,6 +3385,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	      destr_fnlist->next = fip->fnlist;
 	      fip->fnlist = destr_fnlist;
 	      nfn_fields++;
+	      total_length += has_destructor;
 	      length -= has_destructor;
 	    }
 	  else if (is_v3)
@@ -2680,31 +3396,19 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 		 - in -gstabs instead of -gstabs+
 		 - or for static methods, which are output as a function type
 		   instead of a method type.  */
-	      char *new_method_name =
-		stabs_method_name_from_physname (sublist->fn_field.physname);
 
-	      if (new_method_name != NULL
-		  && strcmp (new_method_name,
-			     new_fnlist->fn_fieldlist.name) != 0)
-		{
-		  new_fnlist->fn_fieldlist.name = new_method_name;
-		  xfree (main_fn_name);
-		}
-	      else
-		xfree (new_method_name);
+	      update_method_name_from_physname (&new_fnlist->fn_fieldlist.name,
+						sublist->fn_field.physname);
 	    }
 	  else if (has_destructor && new_fnlist->fn_fieldlist.name[0] != '~')
 	    {
-	      new_fnlist->fn_fieldlist.name =
-		obconcat (&objfile->objfile_obstack,
-			  "~", main_fn_name, (char *)NULL);
+	      new_fnlist->fn_fieldlist.name = concat ("~", main_fn_name, NULL);
 	      xfree (main_fn_name);
 	    }
 	  else if (!has_stub)
 	    {
 	      char dem_opname[256];
 	      int ret;
-
 	      ret = cplus_demangle_opname (new_fnlist->fn_fieldlist.name,
 					      dem_opname, DMGL_ANSI);
 	      if (!ret)
@@ -2712,13 +3416,12 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 					     dem_opname, 0);
 	      if (ret)
 		new_fnlist->fn_fieldlist.name
-		  = obstack_copy0 (&objfile->objfile_obstack,
-				   dem_opname, strlen (dem_opname));
-	      xfree (main_fn_name);
+		  = obsavestring (dem_opname, strlen (dem_opname),
+				  &objfile->type_obstack);
 	    }
 
 	  new_fnlist->fn_fieldlist.fn_fields = (struct fn_field *)
-	    obstack_alloc (&objfile->objfile_obstack,
+	    obstack_alloc (&objfile->type_obstack,
 			   sizeof (struct fn_field) * length);
 	  memset (new_fnlist->fn_fieldlist.fn_fields, 0,
 		  sizeof (struct fn_field) * length);
@@ -2731,6 +3434,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	  new_fnlist->next = fip->fnlist;
 	  fip->fnlist = new_fnlist;
 	  nfn_fields++;
+	  total_length += length;
 	}
     }
 
@@ -2742,6 +3446,7 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
       memset (TYPE_FN_FIELDLISTS (type), 0,
 	      sizeof (struct fn_fieldlist) * nfn_fields);
       TYPE_NFN_FIELDS (type) = nfn_fields;
+      TYPE_NFN_FIELDS_TOTAL (type) = total_length;
     }
 
   return 1;
@@ -2756,8 +3461,8 @@ static int
 read_cpp_abbrev (struct field_info *fip, char **pp, struct type *type,
 		 struct objfile *objfile)
 {
-  char *p;
-  const char *name;
+  register char *p;
+  char *name;
   char cpp_abbrev;
   struct type *context;
 
@@ -2772,7 +3477,7 @@ read_cpp_abbrev (struct field_info *fip, char **pp, struct type *type,
       /* At this point, *pp points to something like "22:23=*22...",
          where the type number before the ':' is the "context" and
          everything after is a regular type definition.  Lookup the
-         type, find it's name, and construct the field name.  */
+         type, find it's name, and construct the field name. */
 
       context = read_type (pp, objfile);
 
@@ -2781,11 +3486,11 @@ read_cpp_abbrev (struct field_info *fip, char **pp, struct type *type,
 	case 'f':		/* $vf -- a virtual function table pointer */
 	  name = type_name_no_tag (context);
 	  if (name == NULL)
-	    {
-	      name = "";
-	    }
-	  fip->list->field.name = obconcat (&objfile->objfile_obstack,
-					    vptr_name, name, (char *) NULL);
+	  {
+		  name = "";
+	  }
+	  fip->list->field.name =
+	    obconcat (&objfile->type_obstack, vptr_name, name, "");
 	  break;
 
 	case 'b':		/* $vb -- a virtual bsomethingorother */
@@ -2793,25 +3498,24 @@ read_cpp_abbrev (struct field_info *fip, char **pp, struct type *type,
 	  if (name == NULL)
 	    {
 	      complaint (&symfile_complaints,
-			 _("C++ abbreviated type name "
-			   "unknown at symtab pos %d"),
+			 "C++ abbreviated type name unknown at symtab pos %d",
 			 symnum);
 	      name = "FOO";
 	    }
-	  fip->list->field.name = obconcat (&objfile->objfile_obstack, vb_name,
-					    name, (char *) NULL);
+	  fip->list->field.name =
+	    obconcat (&objfile->type_obstack, vb_name, name, "");
 	  break;
 
 	default:
 	  invalid_cpp_abbrev_complaint (*pp);
-	  fip->list->field.name = obconcat (&objfile->objfile_obstack,
-					    "INVALID_CPLUSPLUS_ABBREV",
-					    (char *) NULL);
+	  fip->list->field.name =
+	    obconcat (&objfile->type_obstack,
+		      "INVALID_CPLUSPLUS_ABBREV", "", "");
 	  break;
 	}
 
       /* At this point, *pp points to the ':'.  Skip it and read the
-         field type.  */
+         field type. */
 
       p = ++(*pp);
       if (p[-1] != ':')
@@ -2827,9 +3531,7 @@ read_cpp_abbrev (struct field_info *fip, char **pp, struct type *type,
 
       {
 	int nbits;
-
-	SET_FIELD_BITPOS (fip->list->field,
-			  read_huge_number (pp, ';', &nbits, 0));
+	FIELD_BITPOS (fip->list->field) = read_huge_number (pp, ';', &nbits);
 	if (nbits != 0)
 	  return 0;
       }
@@ -2852,13 +3554,42 @@ static void
 read_one_struct_field (struct field_info *fip, char **pp, char *p,
 		       struct type *type, struct objfile *objfile)
 {
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE    /* The following is code to work around cfront generated stabs.
+// OBSOLETE       The stabs contains full mangled name for each field.
+// OBSOLETE       We try to demangle the name and extract the field name out of it.
+// OBSOLETE     */
+// OBSOLETE    if (ARM_DEMANGLING && current_subfile->language == language_cplus)
+// OBSOLETE      {
+// OBSOLETE        char save_p;
+// OBSOLETE        char *dem, *dem_p;
+// OBSOLETE        save_p = *p;
+// OBSOLETE        *p = '\0';
+// OBSOLETE        dem = cplus_demangle (*pp, DMGL_ANSI | DMGL_PARAMS);
+// OBSOLETE        if (dem != NULL)
+// OBSOLETE  	{
+// OBSOLETE  	  dem_p = strrchr (dem, ':');
+// OBSOLETE  	  if (dem_p != 0 && *(dem_p - 1) == ':')
+// OBSOLETE  	    dem_p++;
+// OBSOLETE  	  FIELD_NAME (fip->list->field) =
+// OBSOLETE  	    obsavestring (dem_p, strlen (dem_p), &objfile->type_obstack);
+// OBSOLETE  	}
+// OBSOLETE        else
+// OBSOLETE  	{
+// OBSOLETE  	  FIELD_NAME (fip->list->field) =
+// OBSOLETE  	    obsavestring (*pp, p - *pp, &objfile->type_obstack);
+// OBSOLETE  	}
+// OBSOLETE        *p = save_p;
+// OBSOLETE      }
+// OBSOLETE    /* end of code for cfront work around */
 
-  fip->list->field.name =
-    obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
+// OBSOLETE   else
+#endif /* OBSOLETE CFront */
+    fip->list->field.name =
+      obsavestring (*pp, p - *pp, &objfile->type_obstack);
   *pp = p + 1;
 
-  /* This means we have a visibility for a field coming.  */
+  /* This means we have a visibility for a field coming. */
   if (**pp == '/')
     {
       (*pp)++;
@@ -2875,7 +3606,7 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
     {
       p = ++(*pp);
 #if 0
-      /* Possible future hook for nested types.  */
+      /* Possible future hook for nested types. */
       if (**pp == '!')
 	{
 	  fip->list->field.bitpos = (long) -2;	/* nested type */
@@ -2904,15 +3635,13 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
 
   {
     int nbits;
-
-    SET_FIELD_BITPOS (fip->list->field,
-		      read_huge_number (pp, ',', &nbits, 0));
+    FIELD_BITPOS (fip->list->field) = read_huge_number (pp, ',', &nbits);
     if (nbits != 0)
       {
 	stabs_general_complaint ("bad structure-type format");
 	return;
       }
-    FIELD_BITSIZE (fip->list->field) = read_huge_number (pp, ';', &nbits, 0);
+    FIELD_BITSIZE (fip->list->field) = read_huge_number (pp, ';', &nbits);
     if (nbits != 0)
       {
 	stabs_general_complaint ("bad structure-type format");
@@ -2927,7 +3656,7 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
          it is a field which has been optimized out.  The correct stab for
          this case is to use VISIBILITY_IGNORE, but that is a recent
          invention.  (2) It is a 0-size array.  For example
-         union { int num; char str[0]; } foo.  Printing _("<no value>" for
+         union { int num; char str[0]; } foo.  Printing "<no value>" for
          str in "p foo" is OK, since foo.str (and thus foo.str[3])
          will continue to work, and a 0-size array as a whole doesn't
          have any contents to print.
@@ -2959,8 +3688,7 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
       if ((FIELD_BITSIZE (fip->list->field)
 	   == TARGET_CHAR_BIT * TYPE_LENGTH (field_type)
 	   || (TYPE_CODE (field_type) == TYPE_CODE_ENUM
-	       && FIELD_BITSIZE (fip->list->field)
-		  == gdbarch_int_bit (gdbarch))
+	       && FIELD_BITSIZE (fip->list->field) == TARGET_INT_BIT)
 	  )
 	  &&
 	  FIELD_BITPOS (fip->list->field) % 8 == 0)
@@ -2995,7 +3723,7 @@ static int
 read_struct_fields (struct field_info *fip, char **pp, struct type *type,
 		    struct objfile *objfile)
 {
-  char *p;
+  register char *p;
   struct nextfield *new;
 
   /* We better set p right now, in case there are no fields at all...    */
@@ -3004,9 +3732,9 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
 
   /* Read each data member type until we find the terminating ';' at the end of
      the data member list, or break for some other reason such as finding the
-     start of the member function list.  */
+     start of the member function list. */
   /* Stab string for structure/union does not end with two ';' in
-     SUN C compiler 5.3 i.e. F6U2, hence check for end of string.  */
+     SUN C compiler 5.3 i.e. F6U2, hence check for end of string. */
 
   while (**pp != ';' && **pp != '\0')
     {
@@ -3036,7 +3764,7 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
       /* Look for the ':' that separates the field name from the field
          values.  Data members are delimited by a single ':', while member
          functions are delimited by a pair of ':'s.  When we hit the member
-         functions (if any), terminate scan loop and return.  */
+         functions (if any), terminate scan loop and return. */
 
       while (*p != ':' && *p != '\0')
 	{
@@ -3056,7 +3784,7 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
     {
       /* (the deleted) chill the list of fields: the last entry (at
          the head) is a partially constructed entry which we now
-         scrub.  */
+         scrub. */
       fip->list = fip->list->next;
     }
   return 1;
@@ -3102,15 +3830,14 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
     }
   else
     {
-      /* Skip the '!' baseclass information marker.  */
+      /* Skip the '!' baseclass information marker. */
       (*pp)++;
     }
 
   ALLOCATE_CPLUS_STRUCT_TYPE (type);
   {
     int nbits;
-
-    TYPE_N_BASECLASSES (type) = read_huge_number (pp, ',', &nbits, 0);
+    TYPE_N_BASECLASSES (type) = read_huge_number (pp, ',', &nbits);
     if (nbits != 0)
       return 0;
   }
@@ -3139,14 +3866,13 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
       memset (new, 0, sizeof (struct nextfield));
       new->next = fip->list;
       fip->list = new;
-      FIELD_BITSIZE (new->field) = 0;	/* This should be an unpacked
-					   field!  */
+      FIELD_BITSIZE (new->field) = 0;	/* this should be an unpacked field! */
 
       STABS_CONTINUE (pp, objfile);
       switch (**pp)
 	{
 	case '0':
-	  /* Nothing to do.  */
+	  /* Nothing to do. */
 	  break;
 	case '1':
 	  SET_TYPE_FIELD_VIRTUAL (type, i);
@@ -3155,8 +3881,7 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	  /* Unknown character.  Complain and treat it as non-virtual.  */
 	  {
 	    complaint (&symfile_complaints,
-		       _("Unknown virtual character `%c' for baseclass"),
-		       **pp);
+		       "Unknown virtual character `%c' for baseclass", **pp);
 	  }
 	}
       ++(*pp);
@@ -3173,7 +3898,7 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	     public.  */
 	  {
 	    complaint (&symfile_complaints,
-		       _("Unknown visibility `%c' for baseclass"),
+		       "Unknown visibility `%c' for baseclass",
 		       new->visibility);
 	    new->visibility = VISIBILITY_PUBLIC;
 	  }
@@ -3186,19 +3911,19 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	   corresponding to this baseclass.  Always zero in the absence of
 	   multiple inheritance.  */
 
-	SET_FIELD_BITPOS (new->field, read_huge_number (pp, ',', &nbits, 0));
+	FIELD_BITPOS (new->field) = read_huge_number (pp, ',', &nbits);
 	if (nbits != 0)
 	  return 0;
       }
 
       /* The last piece of baseclass information is the type of the
          base class.  Read it, and remember it's type name as this
-         field's name.  */
+         field's name. */
 
       new->field.type = read_type (pp, objfile);
       new->field.name = type_name_no_tag (new->field.type);
 
-      /* Skip trailing ';' and bump count of number of fields seen.  */
+      /* skip trailing ';' and bump count of number of fields seen */
       if (**pp == ';')
 	(*pp)++;
       else
@@ -3219,11 +3944,11 @@ static int
 read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 		   struct objfile *objfile)
 {
-  char *p;
+  register char *p;
 
   STABS_CONTINUE (pp, objfile);
 
-  /* If we are positioned at a ';', then skip it.  */
+  /* If we are positioned at a ';', then skip it. */
   if (**pp == ';')
     {
       (*pp)++;
@@ -3236,7 +3961,7 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
       if (**pp == '=' || **pp == '+' || **pp == '-')
 	{
 	  /* Obsolete flags that used to indicate the presence
-	     of constructors and/or destructors.  */
+	     of constructors and/or destructors. */
 	  (*pp)++;
 	}
 
@@ -3265,14 +3990,13 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 	    }
 
 	  TYPE_VPTR_BASETYPE (type) = t;
-	  if (type == t)	/* Our own class provides vtbl ptr.  */
+	  if (type == t)	/* Our own class provides vtbl ptr */
 	    {
 	      for (i = TYPE_NFIELDS (t) - 1;
 		   i >= TYPE_N_BASECLASSES (t);
 		   --i)
 		{
-		  const char *name = TYPE_FIELD_NAME (t, i);
-
+		  char *name = TYPE_FIELD_NAME (t, i);
 		  if (!strncmp (name, vptr_name, sizeof (vptr_name) - 2)
 		      && is_cplus_marker (name[sizeof (vptr_name) - 2]))
 		    {
@@ -3282,8 +4006,7 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 		}
 	      /* Virtual function table field not found.  */
 	      complaint (&symfile_complaints,
-			 _("virtual function table pointer "
-			   "not found when defining class `%s'"),
+			 "virtual function table pointer not found when defining class `%s'",
 			 TYPE_NAME (type));
 	      return 0;
 	    }
@@ -3300,36 +4023,168 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 }
 
 static int
-attach_fn_fields_to_type (struct field_info *fip, struct type *type)
+attach_fn_fields_to_type (struct field_info *fip, register struct type *type)
 {
-  int n;
+  register int n;
 
   for (n = TYPE_NFN_FIELDS (type);
        fip->fnlist != NULL;
        fip->fnlist = fip->fnlist->next)
     {
-      --n;			/* Circumvent Sun3 compiler bug.  */
+      --n;			/* Circumvent Sun3 compiler bug */
       TYPE_FN_FIELDLISTS (type)[n] = fip->fnlist->fn_fieldlist;
     }
   return 1;
 }
+
+#if 0 /* OBSOLETE CFront */
+// OBSOLETE  /* read cfront class static data.
+// OBSOLETE     pp points to string starting with the list of static data
+// OBSOLETE     eg: A:ZcA;1@Bpub v2@Bvirpri;__ct__1AFv func__1AFv *sfunc__1AFv ;as__1A ;;
+// OBSOLETE     ^^^^^^^^
+
+// OBSOLETE     A:ZcA;;foopri__1AFv foopro__1AFv __ct__1AFv __ct__1AFRC1A foopub__1AFv ;;;
+// OBSOLETE     ^
+// OBSOLETE   */
+
+// OBSOLETE  static int
+// OBSOLETE  read_cfront_static_fields (struct field_info *fip, char **pp, struct type *type,
+// OBSOLETE  			   struct objfile *objfile)
+// OBSOLETE  {
+// OBSOLETE    struct nextfield *new;
+// OBSOLETE    struct type *stype;
+// OBSOLETE    char *sname;
+// OBSOLETE    struct symbol *ref_static = 0;
+
+// OBSOLETE    if (**pp == ';')		/* no static data; return */
+// OBSOLETE      {
+// OBSOLETE        ++(*pp);
+// OBSOLETE        return 1;
+// OBSOLETE      }
+
+// OBSOLETE    /* Process each field in the list until we find the terminating ";" */
+
+// OBSOLETE    /* eg: p = "as__1A ;;;" */
+// OBSOLETE    STABS_CONTINUE (pp, objfile);	/* handle \\ */
+// OBSOLETE    while (**pp != ';' && (sname = get_substring (pp, ' '), sname))
+// OBSOLETE      {
+// OBSOLETE        ref_static = lookup_symbol (sname, 0, VAR_DOMAIN, 0, 0);	/*demangled_name */
+// OBSOLETE        if (!ref_static)
+// OBSOLETE  	{
+// OBSOLETE  	  complaint (&symfile_complaints,
+// OBSOLETE  		     "Unable to find symbol for static data field %s", sname);
+// OBSOLETE  	  continue;
+// OBSOLETE  	}
+// OBSOLETE        stype = SYMBOL_TYPE (ref_static);
+
+// OBSOLETE        /* allocate a new fip */
+// OBSOLETE        new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+// OBSOLETE        make_cleanup (xfree, new);
+// OBSOLETE        memset (new, 0, sizeof (struct nextfield));
+// OBSOLETE        new->next = fip->list;
+// OBSOLETE        fip->list = new;
+
+// OBSOLETE        /* set visibility */
+// OBSOLETE        /* FIXME! no way to tell visibility from stabs??? */
+// OBSOLETE        new->visibility = VISIBILITY_PUBLIC;
+
+// OBSOLETE        /* set field info into fip */
+// OBSOLETE        fip->list->field.type = stype;
+
+// OBSOLETE        /* set bitpos & bitsize */
+// OBSOLETE        SET_FIELD_PHYSNAME (fip->list->field, savestring (sname, strlen (sname)));
+
+// OBSOLETE        /* set name field */
+// OBSOLETE        /* The following is code to work around cfront generated stabs.
+// OBSOLETE           The stabs contains full mangled name for each field.
+// OBSOLETE           We try to demangle the name and extract the field name out of it.
+// OBSOLETE         */
+// OBSOLETE        if (ARM_DEMANGLING)
+// OBSOLETE  	{
+// OBSOLETE  	  char *dem, *dem_p;
+// OBSOLETE  	  dem = cplus_demangle (sname, DMGL_ANSI | DMGL_PARAMS);
+// OBSOLETE  	  if (dem != NULL)
+// OBSOLETE  	    {
+// OBSOLETE  	      dem_p = strrchr (dem, ':');
+// OBSOLETE  	      if (dem_p != 0 && *(dem_p - 1) == ':')
+// OBSOLETE  		dem_p++;
+// OBSOLETE  	      fip->list->field.name =
+// OBSOLETE  		obsavestring (dem_p, strlen (dem_p), &objfile->type_obstack);
+// OBSOLETE  	    }
+// OBSOLETE  	  else
+// OBSOLETE  	    {
+// OBSOLETE  	      fip->list->field.name =
+// OBSOLETE  		obsavestring (sname, strlen (sname), &objfile->type_obstack);
+// OBSOLETE  	    }
+// OBSOLETE  	}			/* end of code for cfront work around */
+// OBSOLETE      }				/* loop again for next static field */
+// OBSOLETE    return 1;
+// OBSOLETE  }
+
+// OBSOLETE  /* Copy structure fields to fip so attach_fields_to_type will work.
+// OBSOLETE     type has already been created with the initial instance data fields.
+// OBSOLETE     Now we want to be able to add the other members to the class,
+// OBSOLETE     so we want to add them back to the fip and reattach them again
+// OBSOLETE     once we have collected all the class members. */
+
+// OBSOLETE  static int
+// OBSOLETE  copy_cfront_struct_fields (struct field_info *fip, struct type *type,
+// OBSOLETE  			   struct objfile *objfile)
+// OBSOLETE  {
+// OBSOLETE    int nfields = TYPE_NFIELDS (type);
+// OBSOLETE    int i;
+// OBSOLETE    struct nextfield *new;
+
+// OBSOLETE    /* Copy the fields into the list of fips and reset the types 
+// OBSOLETE       to remove the old fields */
+
+// OBSOLETE    for (i = 0; i < nfields; i++)
+// OBSOLETE      {
+// OBSOLETE        /* allocate a new fip */
+// OBSOLETE        new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+// OBSOLETE        make_cleanup (xfree, new);
+// OBSOLETE        memset (new, 0, sizeof (struct nextfield));
+// OBSOLETE        new->next = fip->list;
+// OBSOLETE        fip->list = new;
+
+// OBSOLETE        /* copy field info into fip */
+// OBSOLETE        new->field = TYPE_FIELD (type, i);
+// OBSOLETE        /* set visibility */
+// OBSOLETE        if (TYPE_FIELD_PROTECTED (type, i))
+// OBSOLETE  	new->visibility = VISIBILITY_PROTECTED;
+// OBSOLETE        else if (TYPE_FIELD_PRIVATE (type, i))
+// OBSOLETE  	new->visibility = VISIBILITY_PRIVATE;
+// OBSOLETE        else
+// OBSOLETE  	new->visibility = VISIBILITY_PUBLIC;
+// OBSOLETE      }
+// OBSOLETE    /* Now delete the fields from the type since we will be 
+// OBSOLETE       allocing new space once we get the rest of the fields 
+// OBSOLETE       in attach_fields_to_type.
+// OBSOLETE       The pointer TYPE_FIELDS(type) is left dangling but should 
+// OBSOLETE       be freed later by objstack_free */
+// OBSOLETE    TYPE_FIELDS (type) = 0;
+// OBSOLETE    TYPE_NFIELDS (type) = 0;
+
+// OBSOLETE    return 1;
+// OBSOLETE  }
+#endif /* OBSOLETE CFront */
 
 /* Create the vector of fields, and record how big it is.
    We need this info to record proper virtual function table information
    for this class's virtual functions.  */
 
 static int
-attach_fields_to_type (struct field_info *fip, struct type *type,
+attach_fields_to_type (struct field_info *fip, register struct type *type,
 		       struct objfile *objfile)
 {
-  int nfields = 0;
-  int non_public_fields = 0;
-  struct nextfield *scan;
+  register int nfields = 0;
+  register int non_public_fields = 0;
+  register struct nextfield *scan;
 
   /* Count up the number of fields that we have, as well as taking note of
      whether or not there are any non-public fields, which requires us to
      allocate and build the private_field_bits and protected_field_bits
-     bitfields.  */
+     bitfields. */
 
   for (scan = fip->list; scan != NULL; scan = scan->next)
     {
@@ -3342,7 +4197,7 @@ attach_fields_to_type (struct field_info *fip, struct type *type,
 
   /* Now we know how many fields there are, and whether or not there are any
      non-public fields.  Record the field count, allocate space for the
-     array of fields, and create blank visibility bitfields if necessary.  */
+     array of fields, and create blank visibility bitfields if necessary. */
 
   TYPE_NFIELDS (type) = nfields;
   TYPE_FIELDS (type) = (struct field *)
@@ -3366,10 +4221,9 @@ attach_fields_to_type (struct field_info *fip, struct type *type,
       B_CLRALL (TYPE_FIELD_IGNORE_BITS (type), nfields);
     }
 
-  /* Copy the saved-up fields into the field vector.  Start from the
-     head of the list, adding to the tail of the field array, so that
-     they end up in the same order in the array in which they were
-     added to the list.  */
+  /* Copy the saved-up fields into the field vector.  Start from the head
+     of the list, adding to the tail of the field array, so that they end
+     up in the same order in the array in which they were added to the list. */
 
   while (nfields-- > 0)
     {
@@ -3394,8 +4248,7 @@ attach_fields_to_type (struct field_info *fip, struct type *type,
 	default:
 	  /* Unknown visibility.  Complain and treat it as public.  */
 	  {
-	    complaint (&symfile_complaints,
-		       _("Unknown visibility `%c' for field"),
+	    complaint (&symfile_complaints, "Unknown visibility `%c' for field",
 		       fip->list->visibility);
 	  }
 	  break;
@@ -3411,8 +4264,8 @@ attach_fields_to_type (struct field_info *fip, struct type *type,
 static void 
 complain_about_struct_wipeout (struct type *type)
 {
-  const char *name = "";
-  const char *kind = "";
+  char *name = "";
+  char *kind = "";
 
   if (TYPE_TAG_NAME (type))
     {
@@ -3437,51 +4290,15 @@ complain_about_struct_wipeout (struct type *type)
     }
 
   complaint (&symfile_complaints,
-	     _("struct/union type gets multiply defined: %s%s"), kind, name);
+	     "struct/union type gets multiply defined: %s%s", kind, name);
 }
 
-/* Set the length for all variants of a same main_type, which are
-   connected in the closed chain.
-   
-   This is something that needs to be done when a type is defined *after*
-   some cross references to this type have already been read.  Consider
-   for instance the following scenario where we have the following two
-   stabs entries:
-
-        .stabs  "t:p(0,21)=*(0,22)=k(0,23)=xsdummy:",160,0,28,-24
-        .stabs  "dummy:T(0,23)=s16x:(0,1),0,3[...]"
-
-   A stubbed version of type dummy is created while processing the first
-   stabs entry.  The length of that type is initially set to zero, since
-   it is unknown at this point.  Also, a "constant" variation of type
-   "dummy" is created as well (this is the "(0,22)=k(0,23)" section of
-   the stabs line).
-
-   The second stabs entry allows us to replace the stubbed definition
-   with the real definition.  However, we still need to adjust the length
-   of the "constant" variation of that type, as its length was left
-   untouched during the main type replacement...  */
-
-static void
-set_length_in_type_chain (struct type *type)
-{
-  struct type *ntype = TYPE_CHAIN (type);
-
-  while (ntype != type)
-    {
-      if (TYPE_LENGTH(ntype) == 0)
-	TYPE_LENGTH (ntype) = TYPE_LENGTH (type);
-      else
-        complain_about_struct_wipeout (ntype);
-      ntype = TYPE_CHAIN (ntype);
-    }
-}
 
 /* Read the description of a structure (or union type) and return an object
    describing the type.
 
    PP points to a character pointer that points to the next unconsumed token
-   in the stabs string.  For example, given stabs "A:T4=s4a:1,0,32;;",
+   in the the stabs string.  For example, given stabs "A:T4=s4a:1,0,32;;",
    *PP will point to "4a:1,0,32;;".
 
    TYPE points to an incomplete type that needs to be filled in.
@@ -3525,23 +4342,21 @@ read_struct_type (char **pp, struct type *type, enum type_code type_code,
 
   INIT_CPLUS_SPECIFIC (type);
   TYPE_CODE (type) = type_code;
-  TYPE_STUB (type) = 0;
+  TYPE_FLAGS (type) &= ~TYPE_FLAG_STUB;
 
   /* First comes the total size in bytes.  */
 
   {
     int nbits;
-
-    TYPE_LENGTH (type) = read_huge_number (pp, 0, &nbits, 0);
+    TYPE_LENGTH (type) = read_huge_number (pp, 0, &nbits);
     if (nbits != 0)
       return error_type (pp, objfile);
-    set_length_in_type_chain (type);
   }
 
   /* Now read the baseclasses, if any, read the regular C struct or C++
      class member fields, attach the fields to the type, read the C++
      member functions, attach them to the type, and then read any tilde
-     field (baseclass specifier for the class holding the main vtable).  */
+     field (baseclass specifier for the class holding the main vtable). */
 
   if (!read_baseclasses (&fi, pp, type, objfile)
       || !read_struct_fields (&fi, pp, type, objfile)
@@ -3563,7 +4378,7 @@ read_struct_type (char **pp, struct type *type, enum type_code type_code,
    array.  */
 
 static struct type *
-read_array_type (char **pp, struct type *type,
+read_array_type (register char **pp, register struct type *type,
 		 struct objfile *objfile)
 {
   struct type *index_type, *element_type, *range_type;
@@ -3591,7 +4406,7 @@ read_array_type (char **pp, struct type *type,
       (*pp)++;
       adjustable = 1;
     }
-  lower = read_huge_number (pp, ';', &nbits, 0);
+  lower = read_huge_number (pp, ';', &nbits);
 
   if (nbits != 0)
     return error_type (pp, objfile);
@@ -3601,7 +4416,7 @@ read_array_type (char **pp, struct type *type,
       (*pp)++;
       adjustable = 1;
     }
-  upper = read_huge_number (pp, ';', &nbits, 0);
+  upper = read_huge_number (pp, ';', &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
 
@@ -3626,14 +4441,13 @@ read_array_type (char **pp, struct type *type,
    Also defines the symbols that represent the values of the type.  */
 
 static struct type *
-read_enum_type (char **pp, struct type *type,
+read_enum_type (register char **pp, register struct type *type,
 		struct objfile *objfile)
 {
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
-  char *p;
+  register char *p;
   char *name;
-  long n;
-  struct symbol *sym;
+  register long n;
+  register struct symbol *sym;
   int nsyms = 0;
   struct pending **symlist;
   struct pending *osyms, *syms;
@@ -3674,17 +4488,17 @@ read_enum_type (char **pp, struct type *type,
       p = *pp;
       while (*p != ':')
 	p++;
-      name = obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
+      name = obsavestring (*pp, p - *pp, &objfile->symbol_obstack);
       *pp = p + 1;
-      n = read_huge_number (pp, ',', &nbits, 0);
+      n = read_huge_number (pp, ',', &nbits);
       if (nbits != 0)
 	return error_type (pp, objfile);
 
       sym = (struct symbol *)
-	obstack_alloc (&objfile->objfile_obstack, sizeof (struct symbol));
+	obstack_alloc (&objfile->symbol_obstack, sizeof (struct symbol));
       memset (sym, 0, sizeof (struct symbol));
-      SYMBOL_SET_LINKAGE_NAME (sym, name);
-      SYMBOL_SET_LANGUAGE (sym, current_subfile->language);
+      DEPRECATED_SYMBOL_NAME (sym) = name;
+      SYMBOL_LANGUAGE (sym) = current_subfile->language;
       SYMBOL_CLASS (sym) = LOC_CONST;
       SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
       SYMBOL_VALUE (sym) = n;
@@ -3699,12 +4513,11 @@ read_enum_type (char **pp, struct type *type,
 
   /* Now fill in the fields of the type-structure.  */
 
-  TYPE_LENGTH (type) = gdbarch_int_bit (gdbarch) / HOST_CHAR_BIT;
-  set_length_in_type_chain (type);
+  TYPE_LENGTH (type) = TARGET_INT_BIT / HOST_CHAR_BIT;
   TYPE_CODE (type) = TYPE_CODE_ENUM;
-  TYPE_STUB (type) = 0;
+  TYPE_FLAGS (type) &= ~TYPE_FLAG_STUB;
   if (unsigned_enum)
-    TYPE_UNSIGNED (type) = 1;
+    TYPE_FLAGS (type) |= TYPE_FLAG_UNSIGNED;
   TYPE_NFIELDS (type) = nsyms;
   TYPE_FIELDS (type) = (struct field *)
     TYPE_ALLOC (type, sizeof (struct field) * nsyms);
@@ -3722,14 +4535,12 @@ read_enum_type (char **pp, struct type *type,
     {
       int last = syms == osyms ? o_nsyms : 0;
       int j = syms->nsyms;
-
       for (; --j >= last; --n)
 	{
 	  struct symbol *xsym = syms->symbol[j];
-
 	  SYMBOL_TYPE (xsym) = type;
-	  TYPE_FIELD_NAME (type, n) = SYMBOL_LINKAGE_NAME (xsym);
-	  SET_FIELD_ENUMVAL (TYPE_FIELD (type, n), SYMBOL_VALUE (xsym));
+	  TYPE_FIELD_NAME (type, n) = DEPRECATED_SYMBOL_NAME (xsym);
+	  TYPE_FIELD_BITPOS (type, n) = SYMBOL_VALUE (xsym);
 	  TYPE_FIELD_BITSIZE (type, n) = 0;
 	}
       if (syms == osyms)
@@ -3791,17 +4602,17 @@ read_sun_builtin_type (char **pp, int typenums[2], struct objfile *objfile)
      by this type, except that unsigned short is 4 instead of 2.
      Since this information is redundant with the third number,
      we will ignore it.  */
-  read_huge_number (pp, ';', &nbits, 0);
+  read_huge_number (pp, ';', &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
 
-  /* The second number is always 0, so ignore it too.  */
-  read_huge_number (pp, ';', &nbits, 0);
+  /* The second number is always 0, so ignore it too. */
+  read_huge_number (pp, ';', &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
 
-  /* The third number is the number of bits for this type.  */
-  type_bits = read_huge_number (pp, 0, &nbits, 0);
+  /* The third number is the number of bits for this type. */
+  type_bits = read_huge_number (pp, 0, &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
   /* The type *should* end with a semicolon.  If it are embedded
@@ -3834,12 +4645,12 @@ read_sun_floating_type (char **pp, int typenums[2], struct objfile *objfile)
 
   /* The first number has more details about the type, for example
      FN_COMPLEX.  */
-  details = read_huge_number (pp, ';', &nbits, 0);
+  details = read_huge_number (pp, ';', &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
 
-  /* The second number is the number of bytes occupied by this type.  */
-  nbytes = read_huge_number (pp, ';', &nbits, 0);
+  /* The second number is the number of bytes occupied by this type */
+  nbytes = read_huge_number (pp, ';', &nbits);
   if (nbits != 0)
     return error_type (pp, objfile);
 
@@ -3862,29 +4673,22 @@ read_sun_floating_type (char **pp, int typenums[2], struct objfile *objfile)
    and that character is skipped if it does match.
    If END is zero, *PP is left pointing to that character.
 
-   If TWOS_COMPLEMENT_BITS is set to a strictly positive value and if
-   the number is represented in an octal representation, assume that
-   it is represented in a 2's complement representation with a size of
-   TWOS_COMPLEMENT_BITS.
-
    If the number fits in a long, set *BITS to 0 and return the value.
    If not, set *BITS to be the number of bits in the number and return 0.
 
    If encounter garbage, set *BITS to -1 and return 0.  */
 
 static long
-read_huge_number (char **pp, int end, int *bits, int twos_complement_bits)
+read_huge_number (char **pp, int end, int *bits)
 {
   char *p = *pp;
   int sign = 1;
-  int sign_bit = 0;
   long n = 0;
   int radix = 10;
   char overflow = 0;
   int nbits = 0;
   int c;
   long upper_limit;
-  int twos_complement_representation = 0;
 
   if (*p == '-')
     {
@@ -3900,73 +4704,20 @@ read_huge_number (char **pp, int end, int *bits, int twos_complement_bits)
       p++;
     }
 
-  /* Skip extra zeros.  */
-  while (*p == '0')
-    p++;
-
-  if (sign > 0 && radix == 8 && twos_complement_bits > 0)
-    {
-      /* Octal, possibly signed.  Check if we have enough chars for a
-	 negative number.  */
-
-      size_t len;
-      char *p1 = p;
-
-      while ((c = *p1) >= '0' && c < '8')
-	p1++;
-
-      len = p1 - p;
-      if (len > twos_complement_bits / 3
-	  || (twos_complement_bits % 3 == 0
-	      && len == twos_complement_bits / 3))
-	{
-	  /* Ok, we have enough characters for a signed value, check
-	     for signness by testing if the sign bit is set.  */
-	  sign_bit = (twos_complement_bits % 3 + 2) % 3;
-	  c = *p - '0';
-	  if (c & (1 << sign_bit))
-	    {
-	      /* Definitely signed.  */
-	      twos_complement_representation = 1;
-	      sign = -1;
-	    }
-	}
-    }
-
   upper_limit = LONG_MAX / radix;
 
   while ((c = *p++) >= '0' && c < ('0' + radix))
     {
       if (n <= upper_limit)
-        {
-          if (twos_complement_representation)
-            {
-	      /* Octal, signed, twos complement representation.  In
-		 this case, n is the corresponding absolute value.  */
-	      if (n == 0)
-		{
-		  long sn = c - '0' - ((2 * (c - '0')) | (2 << sign_bit));
-
-		  n = -sn;
-		}
-              else
-                {
-                  n *= radix;
-                  n -= c - '0';
-                }
-            }
-          else
-            {
-              /* unsigned representation */
-              n *= radix;
-              n += c - '0';		/* FIXME this overflows anyway.  */
-            }
-        }
+	{
+	  n *= radix;
+	  n += c - '0';		/* FIXME this overflows anyway */
+	}
       else
-        overflow = 1;
+	overflow = 1;
 
       /* This depends on large values being output in octal, which is
-         what GCC does.  */
+         what GCC does. */
       if (radix == 8)
 	{
 	  if (nbits == 0)
@@ -3997,15 +4748,6 @@ read_huge_number (char **pp, int end, int *bits, int twos_complement_bits)
   else
     --p;
 
-  if (radix == 8 && twos_complement_bits > 0 && nbits > twos_complement_bits)
-    {
-      /* We were supposed to parse a number with maximum
-	 TWOS_COMPLEMENT_BITS bits, but something went wrong.  */
-      if (bits != NULL)
-	*bits = -1;
-      return 0;
-    }
-
   *pp = p;
   if (overflow)
     {
@@ -4019,9 +4761,8 @@ read_huge_number (char **pp, int end, int *bits, int twos_complement_bits)
 	}
 
       /* -0x7f is the same as 0x80.  So deal with it by adding one to
-         the number of bits.  Two's complement represention octals
-         can't have a '-' in front.  */
-      if (sign == -1 && !twos_complement_representation)
+         the number of bits.  */
+      if (sign == -1)
 	++nbits;
       if (bits)
 	*bits = nbits;
@@ -4037,10 +4778,8 @@ read_huge_number (char **pp, int end, int *bits, int twos_complement_bits)
 }
 
 static struct type *
-read_range_type (char **pp, int typenums[2], int type_size,
-                 struct objfile *objfile)
+read_range_type (char **pp, int typenums[2], struct objfile *objfile)
 {
-  struct gdbarch *gdbarch = get_objfile_arch (objfile);
   char *orig_pp = *pp;
   int rangenums[2];
   long n2, n3;
@@ -4068,8 +4807,8 @@ read_range_type (char **pp, int typenums[2], int type_size,
 
   /* The remaining two operands are usually lower and upper bounds
      of the range.  But in some special cases they mean something else.  */
-  n2 = read_huge_number (pp, ';', &n2bits, type_size);
-  n3 = read_huge_number (pp, ';', &n3bits, type_size);
+  n2 = read_huge_number (pp, ';', &n2bits);
+  n3 = read_huge_number (pp, ';', &n3bits);
 
   if (n2bits == -1 || n3bits == -1)
     return error_type (pp, objfile);
@@ -4085,19 +4824,8 @@ read_range_type (char **pp, int typenums[2], int type_size,
       /* Number of bits in the type.  */
       int nbits = 0;
 
-      /* If a type size attribute has been specified, the bounds of
-         the range should fit in this size.  If the lower bounds needs
-         more bits than the upper bound, then the type is signed.  */
-      if (n2bits <= type_size && n3bits <= type_size)
-        {
-          if (n2bits == type_size && n2bits > n3bits)
-            got_signed = 1;
-          else
-            got_unsigned = 1;
-          nbits = type_size;
-        }
       /* Range from 0 to <large number> is an unsigned large integral type.  */
-      else if ((n2bits == 0 && n2 == 0) && n3bits != 0)
+      if ((n2bits == 0 && n2 == 0) && n3bits != 0)
 	{
 	  got_unsigned = 1;
 	  nbits = n3bits;
@@ -4138,7 +4866,7 @@ read_range_type (char **pp, int typenums[2], int type_size,
 
      Also note that for complexes, g77 sets n2 to the size of one of
      the member floats, not the whole complex beast.  My guess is that
-     this was to work well with pre-COMPLEX versions of gdb.  */
+     this was to work well with pre-COMPLEX versions of gdb. */
 
   if (n3 == 0 && n2 > 0)
     {
@@ -4149,7 +4877,6 @@ read_range_type (char **pp, int typenums[2], int type_size,
 	{
 	  struct type *complex_type = 
 	    init_type (TYPE_CODE_COMPLEX, 2 * n2, 0, NULL, objfile);
-
 	  TYPE_TARGET_TYPE (complex_type) = float_type;
 	  return complex_type;
 	}
@@ -4157,21 +4884,14 @@ read_range_type (char **pp, int typenums[2], int type_size,
 	return float_type;
     }
 
-  /* If the upper bound is -1, it must really be an unsigned integral.  */
+  /* If the upper bound is -1, it must really be an unsigned int.  */
 
   else if (n2 == 0 && n3 == -1)
     {
-      int bits = type_size;
-
-      if (bits <= 0)
-	{
-	  /* We don't know its size.  It is unsigned int or unsigned
-	     long.  GCC 2.3.3 uses this for long long too, but that is
-	     just a GDB 3.5 compatibility hack.  */
-	  bits = gdbarch_int_bit (gdbarch);
-	}
-
-      return init_type (TYPE_CODE_INT, bits / TARGET_CHAR_BIT,
+      /* It is unsigned int or unsigned long.  */
+      /* GCC 2.3.3 uses this for long long too, but that is just a GDB 3.5
+         compatibility hack.  */
+      return init_type (TYPE_CODE_INT, TARGET_INT_BIT / TARGET_CHAR_BIT,
 			TYPE_FLAG_UNSIGNED, NULL, objfile);
     }
 
@@ -4213,8 +4933,7 @@ read_range_type (char **pp, int typenums[2], int type_size,
      of self_subrange.  */
   else if (n3 == 0 && n2 < 0
 	   && (self_subrange
-	       || n2 == -gdbarch_long_long_bit
-			  (gdbarch) / TARGET_CHAR_BIT))
+	       || n2 == -TARGET_LONG_LONG_BIT / TARGET_CHAR_BIT))
     return init_type (TYPE_CODE_INT, -n2, 0, NULL, objfile);
   else if (n2 == -n3 - 1)
     {
@@ -4231,18 +4950,23 @@ read_range_type (char **pp, int typenums[2], int type_size,
 handle_true_range:
 
   if (self_subrange)
-    index_type = objfile_type (objfile)->builtin_int;
+    index_type = builtin_type_int;
   else
-    index_type = *dbx_lookup_type (rangenums, objfile);
+    index_type = *dbx_lookup_type (rangenums);
   if (index_type == NULL)
     {
       /* Does this actually ever happen?  Is that why we are worrying
          about dealing with it rather than just calling error_type?  */
 
-      complaint (&symfile_complaints,
-		 _("base type %d of range type is not defined"), rangenums[1]);
+      static struct type *range_type_index;
 
-      index_type = objfile_type (objfile)->builtin_int;
+      complaint (&symfile_complaints,
+		 "base type %d of range type is not defined", rangenums[1]);
+      if (range_type_index == NULL)
+	range_type_index =
+	  init_type (TYPE_CODE_INT, TARGET_INT_BIT / TARGET_CHAR_BIT,
+		     0, "range type index type", NULL);
+      index_type = range_type_index;
     }
 
   result_type = create_range_type ((struct type *) NULL, index_type, n2, n3);
@@ -4250,15 +4974,15 @@ handle_true_range:
 }
 
 /* Read in an argument list.  This is a list of types, separated by commas
-   and terminated with END.  Return the list of types read in, or NULL
-   if there is an error.  */
+   and terminated with END.  Return the list of types read in, or (struct type
+   **)-1 if there is an error.  */
 
 static struct field *
 read_args (char **pp, int end, struct objfile *objfile, int *nargsp,
 	   int *varargsp)
 {
   /* FIXME!  Remove this arbitrary limit!  */
-  struct type *types[1024];	/* Allow for fns of 1023 parameters.  */
+  struct type *types[1024];	/* allow for fns of 1023 parameters */
   int n = 0, i;
   struct field *rval;
 
@@ -4266,24 +4990,14 @@ read_args (char **pp, int end, struct objfile *objfile, int *nargsp,
     {
       if (**pp != ',')
 	/* Invalid argument list: no ','.  */
-	return NULL;
+	return (struct field *) -1;
       (*pp)++;
       STABS_CONTINUE (pp, objfile);
       types[n++] = read_type (pp, objfile);
     }
-  (*pp)++;			/* get past `end' (the ':' character).  */
+  (*pp)++;			/* get past `end' (the ':' character) */
 
-  if (n == 0)
-    {
-      /* We should read at least the THIS parameter here.  Some broken stabs
-	 output contained `(0,41),(0,42)=@s8;-16;,(0,43),(0,1);' where should
-	 have been present ";-16,(0,43)" reference instead.  This way the
-	 excessive ";" marker prematurely stops the parameters parsing.  */
-
-      complaint (&symfile_complaints, _("Invalid (empty) method arguments"));
-      *varargsp = 0;
-    }
-  else if (TYPE_CODE (types[n - 1]) != TYPE_CODE_VOID)
+  if (TYPE_CODE (types[n - 1]) != TYPE_CODE_VOID)
     *varargsp = 1;
   else
     {
@@ -4324,12 +5038,12 @@ common_block_start (char *name, struct objfile *objfile)
   if (common_block_name != NULL)
     {
       complaint (&symfile_complaints,
-		 _("Invalid symbol data: common block within common block"));
+		 "Invalid symbol data: common block within common block");
     }
   common_block = local_symbols;
   common_block_i = local_symbols ? local_symbols->nsyms : 0;
-  common_block_name = obstack_copy0 (&objfile->objfile_obstack,
-				     name, strlen (name));
+  common_block_name = obsavestring (name, strlen (name),
+				    &objfile->symbol_obstack);
 }
 
 /* Process a N_ECOMM symbol.  */
@@ -4350,15 +5064,15 @@ common_block_end (struct objfile *objfile)
 
   if (common_block_name == NULL)
     {
-      complaint (&symfile_complaints, _("ECOMM symbol unmatched by BCOMM"));
+      complaint (&symfile_complaints, "ECOMM symbol unmatched by BCOMM");
       return;
     }
 
   sym = (struct symbol *)
-    obstack_alloc (&objfile->objfile_obstack, sizeof (struct symbol));
+    obstack_alloc (&objfile->symbol_obstack, sizeof (struct symbol));
   memset (sym, 0, sizeof (struct symbol));
-  /* Note: common_block_name already saved on objfile_obstack.  */
-  SYMBOL_SET_LINKAGE_NAME (sym, common_block_name);
+  /* Note: common_block_name already saved on symbol_obstack */
+  DEPRECATED_SYMBOL_NAME (sym) = common_block_name;
   SYMBOL_CLASS (sym) = LOC_BLOCK;
 
   /* Now we copy all the symbols which have been defined since the BCOMM.  */
@@ -4385,7 +5099,7 @@ common_block_end (struct objfile *objfile)
   /* Should we be putting local_symbols back to what it was?
      Does it matter?  */
 
-  i = hashname (SYMBOL_LINKAGE_NAME (sym));
+  i = hashname (DEPRECATED_SYMBOL_NAME (sym));
   SYMBOL_VALUE_CHAIN (sym) = global_sym_chain[i];
   global_sym_chain[i] = sym;
   common_block_name = NULL;
@@ -4396,14 +5110,12 @@ common_block_end (struct objfile *objfile)
    the common block name).  */
 
 static void
-fix_common_block (struct symbol *sym, CORE_ADDR valu)
+fix_common_block (struct symbol *sym, int valu)
 {
   struct pending *next = (struct pending *) SYMBOL_TYPE (sym);
-
   for (; next; next = next->next)
     {
-      int j;
-
+      register int j;
       for (j = next->nsyms - 1; j >= 0; j--)
 	SYMBOL_VALUE_ADDRESS (next->symbol[j]) += valu;
     }
@@ -4411,33 +5123,13 @@ fix_common_block (struct symbol *sym, CORE_ADDR valu)
 
 
 
-/* Add {TYPE, TYPENUMS} to the NONAME_UNDEFS vector.
-   See add_undefined_type for more details.  */
+/* What about types defined as forward references inside of a small lexical
+   scope?  */
+/* Add a type to the list of undefined types to be checked through
+   once this file has been read in.  */
 
-static void
-add_undefined_type_noname (struct type *type, int typenums[2])
-{
-  struct nat nat;
-
-  nat.typenums[0] = typenums [0];
-  nat.typenums[1] = typenums [1];
-  nat.type = type;
-
-  if (noname_undefs_length == noname_undefs_allocated)
-    {
-      noname_undefs_allocated *= 2;
-      noname_undefs = (struct nat *)
-	xrealloc ((char *) noname_undefs,
-		  noname_undefs_allocated * sizeof (struct nat));
-    }
-  noname_undefs[noname_undefs_length++] = nat;
-}
-
-/* Add TYPE to the UNDEF_TYPES vector.
-   See add_undefined_type for more details.  */
-
-static void
-add_undefined_type_1 (struct type *type)
+void
+add_undefined_type (struct type *type)
 {
   if (undef_types_length == undef_types_allocated)
     {
@@ -4449,55 +5141,6 @@ add_undefined_type_1 (struct type *type)
   undef_types[undef_types_length++] = type;
 }
 
-/* What about types defined as forward references inside of a small lexical
-   scope?  */
-/* Add a type to the list of undefined types to be checked through
-   once this file has been read in.
-   
-   In practice, we actually maintain two such lists: The first list
-   (UNDEF_TYPES) is used for types whose name has been provided, and
-   concerns forward references (eg 'xs' or 'xu' forward references);
-   the second list (NONAME_UNDEFS) is used for types whose name is
-   unknown at creation time, because they were referenced through
-   their type number before the actual type was declared.
-   This function actually adds the given type to the proper list.  */
-
-static void
-add_undefined_type (struct type *type, int typenums[2])
-{
-  if (TYPE_TAG_NAME (type) == NULL)
-    add_undefined_type_noname (type, typenums);
-  else
-    add_undefined_type_1 (type);
-}
-
-/* Try to fix all undefined types pushed on the UNDEF_TYPES vector.  */
-
-static void
-cleanup_undefined_types_noname (struct objfile *objfile)
-{
-  int i;
-
-  for (i = 0; i < noname_undefs_length; i++)
-    {
-      struct nat nat = noname_undefs[i];
-      struct type **type;
-
-      type = dbx_lookup_type (nat.typenums, objfile);
-      if (nat.type != *type && TYPE_CODE (*type) != TYPE_CODE_UNDEF)
-        {
-          /* The instance flags of the undefined type are still unset,
-             and needs to be copied over from the reference type.
-             Since replace_type expects them to be identical, we need
-             to set these flags manually before hand.  */
-          TYPE_INSTANCE_FLAGS (nat.type) = TYPE_INSTANCE_FLAGS (*type);
-          replace_type (nat.type, *type);
-        }
-    }
-
-  noname_undefs_length = 0;
-}
-
 /* Go through each undefined type, see if it's still undefined, and fix it
    up if possible.  We have two kinds of undefined types:
 
@@ -4507,30 +5150,10 @@ cleanup_undefined_types_noname (struct objfile *objfile)
    TYPE_CODE_STRUCT, TYPE_CODE_UNION:  Structure whose fields were not
    yet defined at the time a pointer to it was made.
    Fix:  Do a full lookup on the struct/union tag.  */
-
-static void
-cleanup_undefined_types_1 (void)
+void
+cleanup_undefined_types (void)
 {
   struct type **type;
-
-  /* Iterate over every undefined type, and look for a symbol whose type
-     matches our undefined type.  The symbol matches if:
-       1. It is a typedef in the STRUCT domain;
-       2. It has the same name, and same type code;
-       3. The instance flags are identical.
-     
-     It is important to check the instance flags, because we have seen
-     examples where the debug info contained definitions such as:
-
-         "foo_t:t30=B31=xefoo_t:"
-
-     In this case, we have created an undefined type named "foo_t" whose
-     instance flags is null (when processing "xefoo_t"), and then created
-     another type with the same name, but with different instance flags
-     ('B' means volatile).  I think that the definition above is wrong,
-     since the same type cannot be volatile and non-volatile at the same
-     time, but we need to be able to cope with it when it happens.  The
-     approach taken here is to treat these two types as different.  */
 
   for (type = undef_types; type < undef_types + undef_types_length; type++)
     {
@@ -4549,12 +5172,12 @@ cleanup_undefined_types_1 (void)
 	      {
 		struct pending *ppt;
 		int i;
-		/* Name of the type, without "struct" or "union".  */
-		const char *typename = TYPE_TAG_NAME (*type);
+		/* Name of the type, without "struct" or "union" */
+		char *typename = TYPE_TAG_NAME (*type);
 
 		if (typename == NULL)
 		  {
-		    complaint (&symfile_complaints, _("need a type name"));
+		    complaint (&symfile_complaints, "need a type name");
 		    break;
 		  }
 		for (ppt = file_symbols; ppt; ppt = ppt->next)
@@ -4567,10 +5190,7 @@ cleanup_undefined_types_1 (void)
 			    && SYMBOL_DOMAIN (sym) == STRUCT_DOMAIN
 			    && (TYPE_CODE (SYMBOL_TYPE (sym)) ==
 				TYPE_CODE (*type))
-			    && (TYPE_INSTANCE_FLAGS (*type) ==
-				TYPE_INSTANCE_FLAGS (SYMBOL_TYPE (sym)))
-			    && strcmp (SYMBOL_LINKAGE_NAME (sym),
-				       typename) == 0)
+			    && STREQ (DEPRECATED_SYMBOL_NAME (sym), typename))
                           replace_type (*type, SYMBOL_TYPE (sym));
 		      }
 		  }
@@ -4581,8 +5201,7 @@ cleanup_undefined_types_1 (void)
 	default:
 	  {
 	    complaint (&symfile_complaints,
-		       _("forward-referenced types left unresolved, "
-                       "type code %d."),
+		       "GDB internal error.  cleanup_undefined_types with bad type %d.",
 		       TYPE_CODE (*type));
 	  }
 	  break;
@@ -4590,16 +5209,6 @@ cleanup_undefined_types_1 (void)
     }
 
   undef_types_length = 0;
-}
-
-/* Try to fix all the undefined types we ecountered while processing
-   this unit.  */
-
-void
-cleanup_undefined_stabs_types (struct objfile *objfile)
-{
-  cleanup_undefined_types_1 ();
-  cleanup_undefined_types_noname (objfile);
 }
 
 /* Scan through all of the global symbols defined in the object file,
@@ -4611,7 +5220,7 @@ scan_file_globals (struct objfile *objfile)
 {
   int hash;
   struct minimal_symbol *msymbol;
-  struct symbol *sym, *prev;
+  struct symbol *sym, *prev, *rsym;
   struct objfile *resolve_objfile;
 
   /* SVR4 based linkers copy referenced global symbols from shared
@@ -4636,7 +5245,9 @@ scan_file_globals (struct objfile *objfile)
       if (hash >= HASHSIZE)
 	return;
 
-      ALL_OBJFILE_MSYMBOLS (resolve_objfile, msymbol)
+      for (msymbol = resolve_objfile->msymbols;
+	   msymbol && DEPRECATED_SYMBOL_NAME (msymbol) != NULL;
+	   msymbol++)
 	{
 	  QUIT;
 
@@ -4654,17 +5265,20 @@ scan_file_globals (struct objfile *objfile)
 	  prev = NULL;
 
 	  /* Get the hash index and check all the symbols
-	     under that hash index.  */
+	     under that hash index. */
 
-	  hash = hashname (SYMBOL_LINKAGE_NAME (msymbol));
+	  hash = hashname (DEPRECATED_SYMBOL_NAME (msymbol));
 
 	  for (sym = global_sym_chain[hash]; sym;)
 	    {
-	      if (strcmp (SYMBOL_LINKAGE_NAME (msymbol),
-			  SYMBOL_LINKAGE_NAME (sym)) == 0)
+	      if (DEPRECATED_SYMBOL_NAME (msymbol)[0] == DEPRECATED_SYMBOL_NAME (sym)[0] &&
+		  STREQ (DEPRECATED_SYMBOL_NAME (msymbol) + 1, DEPRECATED_SYMBOL_NAME (sym) + 1))
 		{
+
+		  struct alias_list *aliases;
+
 		  /* Splice this symbol out of the hash chain and
-		     assign the value we have to it.  */
+		     assign the value we have to it. */
 		  if (prev)
 		    {
 		      SYMBOL_VALUE_CHAIN (prev) = SYMBOL_VALUE_CHAIN (sym);
@@ -4677,20 +5291,37 @@ scan_file_globals (struct objfile *objfile)
 		  /* Check to see whether we need to fix up a common block.  */
 		  /* Note: this code might be executed several times for
 		     the same symbol if there are multiple references.  */
-		  if (sym)
+
+		  /* If symbol has aliases, do minimal symbol fixups for each.
+		     These live aliases/references weren't added to 
+		     global_sym_chain hash but may also need to be fixed up. */
+		  /* FIXME: Maybe should have added aliases to the global chain,                     resolved symbol name, then treated aliases as normal 
+		     symbols?  Still, we wouldn't want to add_to_list. */
+		  /* Now do the same for each alias of this symbol */
+		  rsym = sym;
+		  aliases = SYMBOL_ALIASES (sym);
+		  while (rsym)
 		    {
-		      if (SYMBOL_CLASS (sym) == LOC_BLOCK)
+		      if (SYMBOL_CLASS (rsym) == LOC_BLOCK)
 			{
-			  fix_common_block (sym,
+			  fix_common_block (rsym,
 					    SYMBOL_VALUE_ADDRESS (msymbol));
 			}
 		      else
 			{
-			  SYMBOL_VALUE_ADDRESS (sym)
+			  SYMBOL_VALUE_ADDRESS (rsym)
 			    = SYMBOL_VALUE_ADDRESS (msymbol);
 			}
-		      SYMBOL_SECTION (sym) = SYMBOL_SECTION (msymbol);
+		      SYMBOL_SECTION (rsym) = SYMBOL_SECTION (msymbol);
+		      if (aliases)
+			{
+			  rsym = aliases->sym;
+			  aliases = aliases->next;
+			}
+		      else
+			rsym = NULL;
 		    }
+
 
 		  if (prev)
 		    {
@@ -4732,9 +5363,8 @@ scan_file_globals (struct objfile *objfile)
 	    SYMBOL_CLASS (prev) = LOC_UNRESOLVED;
 	  else
 	    complaint (&symfile_complaints,
-		       _("%s: common block `%s' from "
-			 "global_sym_chain unresolved"),
-		       objfile->name, SYMBOL_PRINT_NAME (prev));
+		       "%s: common block `%s' from global_sym_chain unresolved",
+		       objfile->name, DEPRECATED_SYMBOL_NAME (prev));
 	}
     }
   memset (global_sym_chain, 0, sizeof (global_sym_chain));
@@ -4761,7 +5391,7 @@ stabsread_new_init (void)
 }
 
 /* Initialize anything that needs initializing at the same time as
-   start_symtab() is called.  */
+   start_symtab() is called. */
 
 void
 start_stabs (void)
@@ -4776,7 +5406,7 @@ start_stabs (void)
   common_block_name = NULL;
 }
 
-/* Call after end_symtab().  */
+/* Call after end_symtab() */
 
 void
 end_stabs (void)
@@ -4807,18 +5437,17 @@ static char *
 find_name_end (char *name)
 {
   char *s = name;
-
   if (s[0] == '-' || *s == '+')
     {
       /* Must be an ObjC method symbol.  */
       if (s[1] != '[')
 	{
-	  error (_("invalid symbol name \"%s\""), name);
+	  error ("invalid symbol name \"%s\"", name);
 	}
       s = strchr (s, ']');
       if (s == NULL)
 	{
-	  error (_("invalid symbol name \"%s\""), name);
+	  error ("invalid symbol name \"%s\"", name);
 	}
       return strchr (s, ':');
     }
@@ -4828,20 +5457,13 @@ find_name_end (char *name)
     }
 }
 
-/* Initializer for this module.  */
+/* Initializer for this module */
 
 void
 _initialize_stabsread (void)
 {
-  rs6000_builtin_type_data = register_objfile_data ();
-
   undef_types_allocated = 20;
   undef_types_length = 0;
   undef_types = (struct type **)
     xmalloc (undef_types_allocated * sizeof (struct type *));
-
-  noname_undefs_allocated = 20;
-  noname_undefs_length = 0;
-  noname_undefs = (struct nat *)
-    xmalloc (noname_undefs_allocated * sizeof (struct nat));
 }

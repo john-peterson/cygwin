@@ -6,11 +6,12 @@
    fnasser@redhat.com    */
 
 /* Header file for GDB-specific command-line stuff.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1989, 1990, 1991, 1992, 1993, 1994, 1998, 1999,
+   2000, 2002 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -19,7 +20,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (GDBCMD_H)
 #define GDBCMD_H 1
@@ -35,39 +38,35 @@ extern struct cmd_list_element *cmdlist;
 
 extern struct cmd_list_element *infolist;
 
-/* Chain containing all defined enable subcommands.  */
+/* Chain containing all defined enable subcommands. */
 
 extern struct cmd_list_element *enablelist;
 
-/* Chain containing all defined disable subcommands.  */
+/* Chain containing all defined disable subcommands. */
 
 extern struct cmd_list_element *disablelist;
 
-/* Chain containing all defined delete subcommands.  */
+/* Chain containing all defined delete subcommands. */
 
 extern struct cmd_list_element *deletelist;
 
-/* Chain containing all defined detach subcommands.  */
-
-extern struct cmd_list_element *detachlist;
-
-/* Chain containing all defined kill subcommands.  */
-
-extern struct cmd_list_element *killlist;
-
-/* Chain containing all defined toggle subcommands.  */
+/* Chain containing all defined toggle subcommands. */
 
 extern struct cmd_list_element *togglelist;
 
-/* Chain containing all defined stop subcommands.  */
+/* Chain containing all defined stop subcommands. */
 
 extern struct cmd_list_element *stoplist;
 
-/* Chain containing all defined set subcommands.  */
+/* Chain containing all defined "enable breakpoint" subcommands. */
+
+extern struct cmd_list_element *enablebreaklist;
+
+/* Chain containing all defined set subcommands */
 
 extern struct cmd_list_element *setlist;
 
-/* Chain containing all defined unset subcommands.  */
+/* Chain containing all defined unset subcommands */
 
 extern struct cmd_list_element *unsetlist;
 
@@ -87,33 +86,21 @@ extern struct cmd_list_element *showhistlist;
 
 extern struct cmd_list_element *unsethistlist;
 
-/* Chain containing all defined maintenance subcommands.  */
+/* Chain containing all defined maintenance subcommands. */
 
 extern struct cmd_list_element *maintenancelist;
 
-/* Chain containing all defined "maintenance info" subcommands.  */
+/* Chain containing all defined "maintenance info" subcommands. */
 
 extern struct cmd_list_element *maintenanceinfolist;
 
-/* Chain containing all defined "maintenance print" subcommands.  */
+/* Chain containing all defined "maintenance print" subcommands. */
 
 extern struct cmd_list_element *maintenanceprintlist;
-
-/* Chain containing all defined "maintenance set" subcommands.  */
-
-extern struct cmd_list_element *maintenance_set_cmdlist;
-
-/* Chain containing all defined "maintenance show" subcommands.  */
-
-extern struct cmd_list_element *maintenance_show_cmdlist;
 
 extern struct cmd_list_element *setprintlist;
 
 extern struct cmd_list_element *showprintlist;
-
-extern struct cmd_list_element *setprinttypelist;
-
-extern struct cmd_list_element *showprinttypelist;
 
 extern struct cmd_list_element *setdebuglist;
 
@@ -123,12 +110,7 @@ extern struct cmd_list_element *setchecklist;
 
 extern struct cmd_list_element *showchecklist;
 
-/* Chain containing all defined "save" subcommands.  */
-
-extern struct cmd_list_element *save_cmdlist;
-
 extern void execute_command (char *, int);
-extern char *execute_command_to_string (char *p, int from_tty);
 
 enum command_control_type execute_control_command (struct command_line *);
 
