@@ -1,7 +1,6 @@
 /* sec_acl.cc: Sun compatible ACL functions.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003 Red Hat, Inc.
 
    Written by Corinna Vinschen <corinna@vinschen.de>
 
@@ -12,18 +11,28 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <grp.h>
+#include <pwd.h>
+#include <unistd.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/acl.h>
 #include <ctype.h>
+#include <wingdi.h>
+#include <winuser.h>
 #include "cygerrno.h"
 #include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
+#include "pinfo.h"
 #include "cygheap.h"
-#include "ntdll.h"
 #include "pwdgrp.h"
-#include "tls_pbuf.h"
+
+extern "C" int aclsort32 (int nentries, int, __aclent32_t *aclbufp);
+extern "C" int acl32 (const char *path, int cmd, int nentries, __aclent32_t *aclbufp);
 
 static int
 searchace (__aclent32_t *aclp, int nentries, int type, __uid32_t id = ILLEGAL_UID)
@@ -37,57 +46,58 @@ searchace (__aclent32_t *aclp, int nentries, int type, __uid32_t id = ILLEGAL_UI
   return -1;
 }
 
-int
-setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
-	bool &writable)
+static int
+setacl (const char *file, int nentries, __aclent32_t *aclbufp)
 {
   security_descriptor sd_ret;
-  tmp_pathbuf tp;
 
-  if (get_file_sd (handle, pc, sd_ret, false))
-    return -1;
+  if (read_sd (file, sd_ret) <= 0)
+    {
+      debug_printf ("read_sd %E");
+      return -1;
+    }
 
-  NTSTATUS status;
-  BOOLEAN dummy;
+  BOOL dummy;
 
   /* Get owner SID. */
   PSID owner_sid;
-  status = RtlGetOwnerSecurityDescriptor (sd_ret, &owner_sid, &dummy);
-  if (!NT_SUCCESS (status))
+  if (!GetSecurityDescriptorOwner (sd_ret, &owner_sid, &dummy))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       return -1;
     }
   cygsid owner (owner_sid);
 
   /* Get group SID. */
   PSID group_sid;
-  status = RtlGetGroupSecurityDescriptor (sd_ret, &group_sid, &dummy);
-  if (!NT_SUCCESS (status))
+  if (!GetSecurityDescriptorGroup (sd_ret, &group_sid, &dummy))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       return -1;
     }
   cygsid group (group_sid);
 
   /* Initialize local security descriptor. */
   SECURITY_DESCRIPTOR sd;
-  RtlCreateSecurityDescriptor (&sd, SECURITY_DESCRIPTOR_REVISION);
-  status = RtlSetOwnerSecurityDescriptor (&sd, owner, FALSE);
-  if (!NT_SUCCESS (status))
+  if (!InitializeSecurityDescriptor (&sd, SECURITY_DESCRIPTOR_REVISION))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       return -1;
     }
-  status = RtlSetGroupSecurityDescriptor (&sd, group, FALSE);
-  if (!NT_SUCCESS (status))
+  if (!SetSecurityDescriptorOwner (&sd, owner, FALSE))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
+      return -1;
+    }
+  if (!SetSecurityDescriptorGroup (&sd, group, FALSE))
+    {
+      __seterrno ();
       return -1;
     }
 
   /* Fill access control list. */
-  PACL acl = (PACL) tp.w_get ();
+  char acl_buf[3072];
+  PACL acl = (PACL) acl_buf;
   size_t acl_len = sizeof (ACL);
   int ace_off = 0;
 
@@ -96,36 +106,30 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
   struct __group32 *gr;
   int pos;
 
-  RtlCreateAcl (acl, ACL_MAXIMUM_SIZE, ACL_REVISION);
-
-  writable = false;
-
+  if (!InitializeAcl (acl, 3072, ACL_REVISION))
+    {
+      __seterrno ();
+      return -1;
+    }
   for (int i = 0; i < nentries; ++i)
     {
       DWORD allow;
       /* Owner has more standard rights set. */
       if ((aclbufp[i].a_type & ~ACL_DEFAULT) == USER_OBJ)
-	allow = STANDARD_RIGHTS_ALL
-		| (pc.fs_is_samba ()
-		   ? 0 : (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES));
+	allow = STANDARD_RIGHTS_ALL | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA;
       else
-	allow = STANDARD_RIGHTS_READ
-		| (pc.fs_is_samba () ? 0 : FILE_READ_ATTRIBUTES);
+	allow = STANDARD_RIGHTS_READ | FILE_READ_ATTRIBUTES | FILE_READ_EA;
       if (aclbufp[i].a_perm & S_IROTH)
 	allow |= FILE_GENERIC_READ;
       if (aclbufp[i].a_perm & S_IWOTH)
-	{
-	  allow |= FILE_GENERIC_WRITE;
-	  writable = true;
-	}
+	allow |= STANDARD_RIGHTS_WRITE | FILE_GENERIC_WRITE;
       if (aclbufp[i].a_perm & S_IXOTH)
-	allow |= FILE_GENERIC_EXECUTE & ~FILE_READ_ATTRIBUTES;
+	allow |= FILE_GENERIC_EXECUTE;
       if ((aclbufp[i].a_perm & (S_IWOTH | S_IXOTH)) == (S_IWOTH | S_IXOTH))
 	allow |= FILE_DELETE_CHILD;
       /* Set inherit property. */
       DWORD inheritance = (aclbufp[i].a_type & ACL_DEFAULT)
-			  ? (CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE
-			     | INHERIT_ONLY_ACE)
+			  ? (SUB_CONTAINERS_AND_OBJECTS_INHERIT | INHERIT_ONLY)
 			  : NO_INHERITANCE;
       /*
        * If a specific acl contains a corresponding default entry with
@@ -138,11 +142,11 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
 			       aclbufp[i].a_type | ACL_DEFAULT,
 			       (aclbufp[i].a_type & (USER|GROUP))
 			       ? aclbufp[i].a_id : ILLEGAL_UID)) >= 0
-	  && aclbufp[i].a_perm == aclbufp[i + 1 + pos].a_perm)
+	  && aclbufp[i].a_perm == aclbufp[pos].a_perm)
 	{
-	  inheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+	  inheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
 	  /* This invalidates the corresponding default entry. */
-	  aclbufp[i + 1 + pos].a_type = USER|GROUP|ACL_DEFAULT;
+	  aclbufp[pos].a_type = USER|GROUP|ACL_DEFAULT;
 	}
       switch (aclbufp[i].a_type)
 	{
@@ -159,13 +163,9 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
 	case USER:
 	case DEF_USER:
 	  if (!(pw = internal_getpwuid (aclbufp[i].a_id))
-	      || !sid.getfrompw (pw))
-	    {
-	      set_errno (EINVAL);
-	      return -1;
-	    }
-	  if (!add_access_allowed_ace (acl, ace_off++, allow,
-				       sid, acl_len, inheritance))
+	      || !sid.getfrompw (pw)
+	      || !add_access_allowed_ace (acl, ace_off++, allow,
+					  sid, acl_len, inheritance))
 	    return -1;
 	  break;
 	case GROUP_OBJ:
@@ -181,13 +181,9 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
 	case GROUP:
 	case DEF_GROUP:
 	  if (!(gr = internal_getgrgid (aclbufp[i].a_id))
-	      || !sid.getfromgr (gr))
-	    {
-	      set_errno (EINVAL);
-	      return -1;
-	    }
-	  if (!add_access_allowed_ace (acl, ace_off++, allow,
-				       sid, acl_len, inheritance))
+	      || !sid.getfromgr (gr)
+	      || !add_access_allowed_ace (acl, ace_off++, allow,
+					  sid, acl_len, inheritance))
 	    return -1;
 	  break;
 	case OTHER_OBJ:
@@ -203,15 +199,14 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
   acl->AclSize = acl_len;
   debug_printf ("ACL-Size: %d", acl_len);
   /* Create DACL for local security descriptor. */
-  status = RtlSetDaclSecurityDescriptor (&sd, TRUE, acl, FALSE);
-  if (!NT_SUCCESS (status))
+  if (!SetSecurityDescriptorDacl (&sd, TRUE, acl, FALSE))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       return -1;
     }
   /* Make self relative security descriptor in sd_ret. */
   DWORD sd_size = 0;
-  RtlAbsoluteToSelfRelativeSD (&sd, sd_ret, &sd_size);
+  MakeSelfRelativeSD (&sd, sd_ret, &sd_size);
   if (sd_size <= 0)
     {
       __seterrno ();
@@ -222,14 +217,13 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
       set_errno (ENOMEM);
       return -1;
     }
-  status = RtlAbsoluteToSelfRelativeSD (&sd, sd_ret, &sd_size);
-  if (!NT_SUCCESS (status))
+  if (!MakeSelfRelativeSD (&sd, sd_ret, &sd_size))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       return -1;
     }
   debug_printf ("Created SD-Size: %d", sd_ret.size ());
-  return set_file_sd (handle, pc, sd_ret, false);
+  return write_sd (file, sd_ret);
 }
 
 /* Temporary access denied bits */
@@ -245,57 +239,54 @@ getace (__aclent32_t &acl, int type, int id, DWORD win_ace_mask,
   acl.a_id = id;
 
   if ((win_ace_mask & FILE_READ_BITS) && !(acl.a_perm & (S_IROTH | DENY_R)))
-    {
-      if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
-	acl.a_perm |= S_IROTH;
-      else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
-	acl.a_perm |= DENY_R;
-    }
+    if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
+      acl.a_perm |= S_IROTH;
+    else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
+      acl.a_perm |= DENY_R;
 
   if ((win_ace_mask & FILE_WRITE_BITS) && !(acl.a_perm & (S_IWOTH | DENY_W)))
-    {
-      if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
-	acl.a_perm |= S_IWOTH;
-      else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
-	acl.a_perm |= DENY_W;
-    }
+    if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
+      acl.a_perm |= S_IWOTH;
+    else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
+      acl.a_perm |= DENY_W;
 
   if ((win_ace_mask & FILE_EXEC_BITS) && !(acl.a_perm & (S_IXOTH | DENY_X)))
-    {
-      if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
-	acl.a_perm |= S_IXOTH;
-      else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
-	acl.a_perm |= DENY_X;
-    }
+    if (win_ace_type == ACCESS_ALLOWED_ACE_TYPE)
+      acl.a_perm |= S_IXOTH;
+    else if (win_ace_type == ACCESS_DENIED_ACE_TYPE)
+      acl.a_perm |= DENY_X;
 }
 
-int
-getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
+static int
+getacl (const char *file, DWORD attr, int nentries, __aclent32_t *aclbufp)
 {
   security_descriptor sd;
 
-  if (get_file_sd (handle, pc, sd, false))
-    return -1;
+  int ret;
+  if ((ret = read_sd (file, sd)) <= 0)
+    {
+      debug_printf ("read_sd %E");
+      return ret;
+    }
 
   cygpsid owner_sid;
   cygpsid group_sid;
-  NTSTATUS status;
-  BOOLEAN dummy;
+  BOOL dummy;
   __uid32_t uid;
   __gid32_t gid;
 
-  status = RtlGetOwnerSecurityDescriptor (sd, (PSID *) &owner_sid, &dummy);
-  if (!NT_SUCCESS (status))
+  if (!GetSecurityDescriptorOwner (sd, (PSID *) &owner_sid, &dummy))
     {
-      __seterrno_from_nt_status (status);
+      debug_printf ("GetSecurityDescriptorOwner %E");
+      __seterrno ();
       return -1;
     }
   uid = owner_sid.get_uid ();
 
-  status = RtlGetGroupSecurityDescriptor (sd, (PSID *) &group_sid, &dummy);
-  if (!NT_SUCCESS (status))
+  if (!GetSecurityDescriptorGroup (sd, (PSID *) &group_sid, &dummy))
     {
-      __seterrno_from_nt_status (status);
+      debug_printf ("GetSecurityDescriptorGroup %E");
+      __seterrno ();
       return -1;
     }
   gid = group_sid.get_gid ();
@@ -313,12 +304,12 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
   lacl[3].a_perm = S_IROTH | S_IWOTH | S_IXOTH;
 
   PACL acl;
-  BOOLEAN acl_exists;
+  BOOL acl_exists;
 
-  status = RtlGetDaclSecurityDescriptor (sd, &acl_exists, &acl, &dummy);
-  if (!NT_SUCCESS (status))
+  if (!GetSecurityDescriptorDacl (sd, &acl_exists, &acl, &dummy))
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
+      debug_printf ("GetSecurityDescriptorDacl %E");
       return -1;
     }
 
@@ -333,7 +324,7 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
 	{
 	  ACCESS_ALLOWED_ACE *ace;
 
-	  if (!NT_SUCCESS (RtlGetAce (acl, i, (PVOID *) &ace)))
+	  if (!GetAce (acl, i, (PVOID *) &ace))
 	    continue;
 
 	  cygpsid ace_sid ((PSID) &ace->SidStart);
@@ -358,13 +349,11 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
 	  else if (ace_sid == well_known_creator_group_sid)
 	    {
 	      type = GROUP_OBJ | ACL_DEFAULT;
-	      types_def |= type;
 	      id = ILLEGAL_GID;
 	    }
 	  else if (ace_sid == well_known_creator_owner_sid)
 	    {
 	      type = USER_OBJ | ACL_DEFAULT;
-	      types_def |= type;
 	      id = ILLEGAL_GID;
 	    }
 	  else
@@ -372,14 +361,13 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
 
 	  if (!type)
 	    continue;
-	  if (!(ace->Header.AceFlags & INHERIT_ONLY_ACE || type & ACL_DEFAULT))
+	  if (!(ace->Header.AceFlags & INHERIT_ONLY || type & ACL_DEFAULT))
 	    {
 	      if ((pos = searchace (lacl, MAX_ACL_ENTRIES, type, id)) >= 0)
 		getace (lacl[pos], type, id, ace->Mask, ace->Header.AceType);
 	    }
-	  if ((ace->Header.AceFlags
-	      & (CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE))
-	      && pc.isdir ())
+	  if ((ace->Header.AceFlags & SUB_CONTAINERS_AND_OBJECTS_INHERIT)
+	      && (attr & FILE_ATTRIBUTE_DIRECTORY))
 	    {
 	      if (type == USER_OBJ)
 		type = USER;
@@ -391,38 +379,13 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
 		getace (lacl[pos], type, id, ace->Mask, ace->Header.AceType);
 	    }
 	}
-      if (types_def && (pos = searchace (lacl, MAX_ACL_ENTRIES, 0)) >= 0)
+      /* Include DEF_CLASS_OBJ if any default ace exists */
+      if ((types_def & (USER|GROUP))
+	  && ((pos = searchace (lacl, MAX_ACL_ENTRIES, DEF_CLASS_OBJ)) >= 0))
 	{
-	  /* Ensure that the default acl contains at
-	     least DEF_(USER|GROUP|OTHER)_OBJ entries.  */
-	  if (!(types_def & USER_OBJ))
-	    {
-	      lacl[pos].a_type = DEF_USER_OBJ;
-	      lacl[pos].a_id = uid;
-	      lacl[pos].a_perm = lacl[0].a_perm;
-	      pos++;
-	    }
-	  if (!(types_def & GROUP_OBJ) && pos < MAX_ACL_ENTRIES)
-	    {
-	      lacl[pos].a_type = DEF_GROUP_OBJ;
-	      lacl[pos].a_id = gid;
-	      lacl[pos].a_perm = lacl[1].a_perm;
-	      pos++;
-	    }
-	  if (!(types_def & OTHER_OBJ) && pos < MAX_ACL_ENTRIES)
-	    {
-	      lacl[pos].a_type = DEF_OTHER_OBJ;
-	      lacl[pos].a_id = ILLEGAL_GID;
-	      lacl[pos].a_perm = lacl[2].a_perm;
-	      pos++;
-	    }
-	  /* Include DEF_CLASS_OBJ if any named default ace exists.  */
-	  if ((types_def & (USER|GROUP)) && pos < MAX_ACL_ENTRIES)
-	    {
-	      lacl[pos].a_type = DEF_CLASS_OBJ;
-	      lacl[pos].a_id = ILLEGAL_GID;
-	      lacl[pos].a_perm = S_IROTH | S_IWOTH | S_IXOTH;
-	    }
+	  lacl[pos].a_type = DEF_CLASS_OBJ;
+	  lacl[pos].a_id = ILLEGAL_GID;
+	  lacl[pos].a_perm = S_IRWXU | S_IRWXG | S_IRWXO;
 	}
     }
   if ((pos = searchace (lacl, MAX_ACL_ENTRIES, 0)) < 0)
@@ -440,38 +403,99 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
       aclbufp[i].a_perm &= ~(DENY_R | DENY_W | DENY_X);
     aclsort32 (pos, 0, aclbufp);
   }
-  syscall_printf ("%R = getacl(%S)", pos, pc.get_nt_native_path ());
+  syscall_printf ("%d = getacl (%s)", pos, file);
   return pos;
+}
+
+static int
+acl_worker (const char *path, int cmd, int nentries, __aclent32_t *aclbufp,
+	    int nofollow)
+{
+  extern suffix_info stat_suffixes[];
+  path_conv real_path (path, (nofollow ? PC_SYM_NOFOLLOW : PC_SYM_FOLLOW) | PC_FULL, stat_suffixes);
+  if (real_path.error)
+    {
+      set_errno (real_path.error);
+      syscall_printf ("-1 = acl (%s)", path);
+      return -1;
+    }
+  if (!real_path.has_acls () || !allow_ntsec)
+    {
+      struct __stat64 st;
+      int ret = -1;
+
+      switch (cmd)
+	{
+	case SETACL:
+	  set_errno (ENOSYS);
+	  break;
+	case GETACL:
+	  if (!aclbufp)
+	    set_errno(EFAULT);
+	  else if (nentries < MIN_ACL_ENTRIES)
+	    set_errno (ENOSPC);
+	  else if ((nofollow && !lstat64 (path, &st))
+		   || (!nofollow && !stat64 (path, &st)))
+	    {
+	      aclbufp[0].a_type = USER_OBJ;
+	      aclbufp[0].a_id = st.st_uid;
+	      aclbufp[0].a_perm = (st.st_mode & S_IRWXU) >> 6;
+	      aclbufp[1].a_type = GROUP_OBJ;
+	      aclbufp[1].a_id = st.st_gid;
+	      aclbufp[1].a_perm = (st.st_mode & S_IRWXG) >> 3;
+	      aclbufp[2].a_type = OTHER_OBJ;
+	      aclbufp[2].a_id = ILLEGAL_GID;
+	      aclbufp[2].a_perm = st.st_mode & S_IRWXO;
+	      aclbufp[3].a_type = CLASS_OBJ;
+	      aclbufp[3].a_id = ILLEGAL_GID;
+	      aclbufp[3].a_perm = S_IRWXU | S_IRWXG | S_IRWXO;
+	      ret = MIN_ACL_ENTRIES;
+	    }
+	  break;
+	case GETACLCNT:
+	  ret = MIN_ACL_ENTRIES;
+	  break;
+	}
+      syscall_printf ("%d = acl (%s)", ret, path);
+      return ret;
+    }
+  switch (cmd)
+    {
+      case SETACL:
+	if (!aclsort32 (nentries, 0, aclbufp))
+	  return setacl (real_path.get_win32 (),
+			 nentries, aclbufp);
+	break;
+      case GETACL:
+	if (!aclbufp)
+	  set_errno(EFAULT);
+	else
+	  return getacl (real_path.get_win32 (),
+			 real_path.file_attributes (),
+			 nentries, aclbufp);
+	break;
+      case GETACLCNT:
+	return getacl (real_path.get_win32 (),
+		       real_path.file_attributes (),
+		       0, NULL);
+      default:
+	set_errno (EINVAL);
+	break;
+    }
+  syscall_printf ("-1 = acl (%s)", path);
+  return -1;
 }
 
 extern "C" int
 acl32 (const char *path, int cmd, int nentries, __aclent32_t *aclbufp)
 {
-  int res = -1;
-
-  fhandler_base *fh = build_fh_name (path, PC_SYM_FOLLOW | PC_KEEP_HANDLE,
-				     stat_suffixes);
-  if (!fh || !fh->exists ())
-    set_errno (ENOENT);
-  else if (fh->error ())
-    {
-      debug_printf ("got %d error from build_fh_name", fh->error ());
-      set_errno (fh->error ());
-    }
-  else
-    res = fh->facl (cmd, nentries, aclbufp);
-
-  delete fh;
-  syscall_printf ("%R = acl(%s)", res, path);
-  return res;
+  return acl_worker (path, cmd, nentries, aclbufp, 0);
 }
 
 extern "C" int
 lacl32 (const char *path, int cmd, int nentries, __aclent32_t *aclbufp)
 {
-  /* This call was an accident.  Make it absolutely clear. */
-  set_errno (ENOSYS);
-  return -1;
+  return acl_worker (path, cmd, nentries, aclbufp, 1);
 }
 
 extern "C" int
@@ -483,9 +507,15 @@ facl32 (int fd, int cmd, int nentries, __aclent32_t *aclbufp)
       syscall_printf ("-1 = facl (%d)", fd);
       return -1;
     }
-  int res = cfd->facl (cmd, nentries, aclbufp);
-  syscall_printf ("%R = facl(%s) )", res, cfd->get_name ());
-  return res;
+  const char *path = cfd->get_name ();
+  if (path == NULL)
+    {
+      syscall_printf ("-1 = facl (%d) (no name)", fd);
+      set_errno (ENOSYS);
+      return -1;
+    }
+  syscall_printf ("facl (%d): calling acl (%s)", fd, path);
+  return acl_worker (path, cmd, nentries, aclbufp, 0);
 }
 
 extern "C" int
@@ -765,7 +795,7 @@ acltotext32 (__aclent32_t *aclbufp, int aclcnt)
       first = false;
       if (aclbufp[pos].a_type & ACL_DEFAULT)
 	strcat (buf, "default");
-      switch (aclbufp[pos].a_type & ~ACL_DEFAULT)
+      switch (aclbufp[pos].a_type)
 	{
 	case USER_OBJ:
 	  __small_sprintf (buf + strlen (buf), "user::%s",
@@ -861,7 +891,7 @@ aclfromtext32 (char *acltextp, int *)
 		      return NULL;
 		    }
 		  lacl[pos].a_id = pw->pw_uid;
-		  c = strchrnul (c, ':');
+		  c = strechr (c, ':');
 		}
 	      else if (isdigit (*c))
 		lacl[pos].a_id = strtol (c, &c, 10);
@@ -889,7 +919,7 @@ aclfromtext32 (char *acltextp, int *)
 		      return NULL;
 		    }
 		  lacl[pos].a_id = gr->gr_gid;
-		  c = strchrnul (c, ':');
+		  c = strechr (c, ':');
 		}
 	      else if (isdigit (*c))
 		lacl[pos].a_id = strtol (c, &c, 10);
@@ -959,9 +989,7 @@ facl (int fd, int cmd, int nentries, __aclent16_t *aclbufp)
 extern "C" int
 lacl (const char *path, int cmd, int nentries, __aclent16_t *aclbufp)
 {
-  /* This call was an accident.  Make it absolutely clear. */
-  set_errno (ENOSYS);
-  return -1;
+  return lacl32 (path, cmd, nentries, acl16to32 (aclbufp, nentries));
 }
 
 extern "C" int
