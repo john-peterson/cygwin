@@ -755,7 +755,7 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
 	    # results, and the version is kept in special file).
 	
 	    if test -r /etc/.relid -a "X`uname -n`" = "X`uname -s`" ; then
-		system=MP-RAS-`awk '{print $3}' /etc/.relid`
+		system=MP-RAS-`awk '{print $3}' /etc/.relid'`
 	    fi
 	    if test "`uname -s`" = "AIX" ; then
 		system=AIX-`uname -v`.`uname -r`
@@ -783,7 +783,7 @@ AC_DEFUN(SC_CONFIG_CFLAGS, [
     ECHO_VERSION='`echo ${VERSION}`'
     TCL_LIB_VERSIONS_OK=ok
     CFLAGS_DEBUG=-g
-    CFLAGS_OPTIMIZE=
+    CFLAGS_OPTIMIZE=-O
     if test "$GCC" = "yes" ; then
 	CFLAGS_WARNING="-Wall -Wconversion -Wno-implicit-int"
     else
@@ -878,8 +878,7 @@ dnl AC_CHECK_TOOL(AR, ar, :)
 
 	    # AIX v<=4.1 has some different flags than 4.2+
 	    if test "$system" = "AIX-4.1" -o "`uname -v`" -lt "4" ; then
-		AC_LIBOBJ(tclLoadAix)
-		USE_COMPAT=1
+		LIBOBJS="$LIBOBJS tclLoadAix.o"
 		DL_LIBS="-lld"
 	    fi
 
@@ -1119,7 +1118,7 @@ dnl AC_CHECK_TOOL(AR, ar, :)
 	    # is kind of overkill but it works.
 	    # Disable inlining only when one of the
 	    # files in compat/*.c is being linked in.
-	    if test x"${USE_COMPAT}" != x ; then
+	    if test x"${LIBOBJS}" != x ; then
 	        EXTRA_CFLAGS="${EXTRA_CFLAGS} -fno-inline"
 	    fi
 
@@ -2075,7 +2074,7 @@ AC_DEFUN(SC_BLOCKING_STYLE, [
 	    # results, and the version is kept in special file).
 	
 	    if test -r /etc/.relid -a "X`uname -n`" = "X`uname -s`" ; then
-		system=MP-RAS-`awk '{print $3}' /etc/.relid`
+		system=MP-RAS-`awk '{print $3}' /etc/.relid'`
 	    fi
 	    if test "`uname -s`" = "AIX" ; then
 		system=AIX-`uname -v`.`uname -r`
@@ -2231,8 +2230,7 @@ AC_DEFUN(SC_BUGGY_STRTOD, [
 	    AC_MSG_RESULT(ok)
 	else
 	    AC_MSG_RESULT(buggy)
-            AC_LIBOBJ(fixstrtod)
-	    USE_COMPAT=1
+	    LIBOBJS="$LIBOBJS fixstrtod.o"
 	    AC_DEFINE(strtod, fixstrtod)
 	fi
     fi

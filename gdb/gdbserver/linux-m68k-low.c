@@ -1,11 +1,12 @@
 /* GNU/Linux/m68k specific low level interface, for the remote server for GDB.
-   Copyright (C) 1995-2013 Free Software Foundation, Inc.
+   Copyright 1995, 1996, 1998, 1999, 2000, 2001, 2002, 2003
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,20 +15,18 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "server.h"
 #include "linux-low.h"
-
-/* Defined in auto-generated file reg-m68k.c.  */
-void init_registers_m68k (void);
 
 #ifdef HAVE_SYS_REG_H
 #include <sys/reg.h>
 #endif
 
 #define m68k_num_regs 29
-#define m68k_num_gregs 18
 
 /* This table must line up with REGISTER_NAMES in tm-m68k.h */
 static int m68k_regmap[] =
@@ -65,128 +64,9 @@ m68k_cannot_fetch_register (int regno)
   return (regno >= m68k_num_regs);
 }
 
-#ifdef HAVE_PTRACE_GETREGS
-#include <sys/procfs.h>
-#include <sys/ptrace.h>
-
-static void
-m68k_fill_gregset (struct regcache *regcache, void *buf)
-{
-  int i;
-
-  for (i = 0; i < m68k_num_gregs; i++)
-    collect_register (regcache, i, (char *) buf + m68k_regmap[i]);
-}
-
-static void
-m68k_store_gregset (struct regcache *regcache, const void *buf)
-{
-  int i;
-
-  for (i = 0; i < m68k_num_gregs; i++)
-    supply_register (regcache, i, (const char *) buf + m68k_regmap[i]);
-}
-
-static void
-m68k_fill_fpregset (struct regcache *regcache, void *buf)
-{
-  int i;
-
-  for (i = m68k_num_gregs; i < m68k_num_regs; i++)
-    collect_register (regcache, i, ((char *) buf
-			 + (m68k_regmap[i] - m68k_regmap[m68k_num_gregs])));
-}
-
-static void
-m68k_store_fpregset (struct regcache *regcache, const void *buf)
-{
-  int i;
-
-  for (i = m68k_num_gregs; i < m68k_num_regs; i++)
-    supply_register (regcache, i, ((const char *) buf
-			 + (m68k_regmap[i] - m68k_regmap[m68k_num_gregs])));
-}
-
-#endif /* HAVE_PTRACE_GETREGS */
-
-struct regset_info target_regsets[] = {
-#ifdef HAVE_PTRACE_GETREGS
-  { PTRACE_GETREGS, PTRACE_SETREGS, 0, sizeof (elf_gregset_t),
-    GENERAL_REGS,
-    m68k_fill_gregset, m68k_store_gregset },
-  { PTRACE_GETFPREGS, PTRACE_SETFPREGS, 0, sizeof (elf_fpregset_t),
-    FP_REGS,
-    m68k_fill_fpregset, m68k_store_fpregset },
-#endif /* HAVE_PTRACE_GETREGS */
-  { 0, 0, 0, -1, -1, NULL, NULL }
-};
-
-static const unsigned char m68k_breakpoint[] = { 0x4E, 0x4F };
-#define m68k_breakpoint_len 2
-
-static CORE_ADDR
-m68k_get_pc (struct regcache *regcache)
-{
-  unsigned long pc;
-
-  collect_register_by_name (regcache, "pc", &pc);
-  return pc;
-}
-
-static void
-m68k_set_pc (struct regcache *regcache, CORE_ADDR value)
-{
-  unsigned long newpc = value;
-
-  supply_register_by_name (regcache, "pc", &newpc);
-}
-
-static int
-m68k_breakpoint_at (CORE_ADDR pc)
-{
-  unsigned char c[2];
-
-  read_inferior_memory (pc, c, 2);
-  if (c[0] == 0x4E && c[1] == 0x4F)
-    return 1;
-
-  return 0;
-}
-
-#include <asm/ptrace.h>
-
-#ifdef PTRACE_GET_THREAD_AREA
-/* Fetch the thread-local storage pointer for libthread_db.  */
-
-ps_err_e
-ps_get_thread_area (const struct ps_prochandle *ph,
-		    lwpid_t lwpid, int idx, void **base)
-{
-  if (ptrace (PTRACE_GET_THREAD_AREA, lwpid, NULL, base) != 0)
-    return PS_ERR;
-
-  /* IDX is the bias from the thread pointer to the beginning of the
-     thread descriptor.  It has to be subtracted due to implementation
-     quirks in libthread_db.  */
-  *base = (void *) ((char *)*base - idx);
-
-  return PS_OK;
-}
-#endif /* PTRACE_GET_THREAD_AREA */
-
 struct linux_target_ops the_low_target = {
-  init_registers_m68k,
   m68k_num_regs,
   m68k_regmap,
-  NULL,
   m68k_cannot_fetch_register,
   m68k_cannot_store_register,
-  NULL, /* fetch_register */
-  m68k_get_pc,
-  m68k_set_pc,
-  m68k_breakpoint,
-  m68k_breakpoint_len,
-  NULL,
-  2,
-  m68k_breakpoint_at,
 };

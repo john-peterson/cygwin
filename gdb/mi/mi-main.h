@@ -1,12 +1,12 @@
 /* MI Internal Functions for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,36 +15,19 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef MI_MAIN_H
 #define MI_MAIN_H
+
+extern void mi_setup_architecture_data (void);
 
 extern void mi_load_progress (const char *section_name,
 			      unsigned long sent_so_far,
 			      unsigned long total_section,
 			      unsigned long total_sent,
 			      unsigned long grand_total);
-
-extern void mi_print_timing_maybe (void);
-
-extern char *current_token;
-
-extern int running_result_record_printed;
-extern int mi_proceeded;
-
-struct mi_suppress_notification
-{
-  /* Breakpoint notification suppressed?  */
-  int breakpoint;
-  /* Command param changed notification suppressed?  */
-  int cmd_param_changed;
-  /* Traceframe changed notification suppressed?  */
-  int traceframe;
-  /* Memory changed notification suppressed?  */
-  int memory;
-};
-extern struct mi_suppress_notification mi_suppress_notification;
-
 #endif
 
