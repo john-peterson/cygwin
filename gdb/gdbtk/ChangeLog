@@ -1,201 +1,193 @@
-2012-11-21  Pierre Muller  <muller@sourceware.org>
+2002-03-25  Alexandre Oliva  <aoliva@redhat.com>
 
-	* generic/gdbtk-register.c (register_changed_p): Adapt to
-	function name change from frame_register_read to
-	deprecated_frame_register_read.
+	* generic/gdbtk.c (HAS_STDARG): Define.
+	* generic/gdbtk-cmds.c (HAS_STDARG): Likewise.
+	* generic/gdbtk-hooks.c (HAS_STDARG): Likewise.
 
-2012-11-16  Keith Seitz  <keiths@redhat.com>
+2002-03-01  Keith Seitz  <keiths@redhat.com>
 
-	From Pierre Muller  <muller@sourceware.org>
-	Adapt to change in gdb/configure.ac
-	Don't check for ctype.h, time.h.
-	* generic/gdbtk-cmds.c: Don't use HAVE_CTYPE_H.
+	* generic/gdbtk-register.c (register_changed_p): Don't use REGISTER_BYTES.
+	There is no guarantee anymore that REGISTER_BYTES contains
+	NUM_REGS+NUM_PSEUDO_REGS registers.
+	(setup_architecture_data): Likewise.
 
-2012-11-10  Keith Seitz  <keiths@redhat.com>
+2002-02-25  Ian Roxborough  <irox@redhat.com>
 
-	* generic/gdbtk-bp.c (breakpoint_notify): Fix logic error
-	when detecting breakpoint types to be handled.
+	* library/srcbar.itcl (SrcBar::create_buttons): Added
+	"Search in source file" entry box and label to the top
+	row toolbar.
+	* library/srcwin.itb (SrcWin::_build_win): Removed
+	"Search in source file" entry box.
+	(SrcWin::_search): Renamed to "search", add string
+	parameter and cleaned up.
+	* library/srcwin.ith (SrcWin): Removed private
+	method "_search" and added public method "search".
 
-2012-11-10  Keith Seitz  <keiths@redhat.com>
+2002-02-17  Tom Tromey  <tromey@redhat.com>
 
-	* generic/gdbtk-bp.c (breakpoint_notify): Handle tracepoints, too.
-	(tracepoint_notify): Remove.
-	(gdbtk_create_tracepoint): Remove.
-	(gdbtk_delete_tracepoint): Remove.
-	(gdbtk_modify_tracepoint): Remove.
-	* generic/gdbtk-hooks.c: Remove deleted function extern declarations.
-	(gdbtk_add_hooks): Remove tracepoint observers.
+	* library/tclIndex: Updated.
+	* library/srcbar.itcl (SrcBar): Use new Session namespace.
+	* library/main.tcl: Use new Session namespace.
+	* library/interface.tcl (gdbtk_tcl_preloop): Use new Session
+	namespace.
+	(gdbtk_cleanup): Likewise.
+	(_close_file): Likewise.
+	* library/session.tcl: Use a namespace.  Renamed all functions.
 
-2012-10-24  Keith Seitz  <keiths@redhat.com>
+2002-02-13  Martin M. Hunt  <hunt@redhat.com>
 
-	* generic/gdbtk-hooks.c (gdbtk_memory_changed): Update for
-	API changes.
+	* generic/gdbtk-hooks.c (gdbtk_print_frame_info): Don't 
+	set GDB globals current_source_symtab and current_source_line.
+	Let GDB do it. 
 
-2012-10-10  Keith Seitz  <keiths@redhat.com>
+2002-02-13  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-hooks.c (gdbtk_memory_changed): Change LEN
-	from int to ssize_t to match changes in the API.
-	(x_event): Use set_quit_flag to set the quit_flag.
-	* generic/gdbtk-cmds.c (gdb_stop): Likewise.
+	* library/managedwin.itb (_create): If given a transient window,
+	make sure that the SrcWin that is to become its master exists;
+	otherwise, use ".".
 
-2012-08-08  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-02-12  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-cmds.c (gdb_load_info): Replace call to
-	make_cleanup_bfd_close with make_cleanup_bfd_unref due
-	to changes in gdb.
-	(gdb_loc): Replace call to decode_line_spec with call to
-	decode_line_with_current_source due to changes in gdb.
-	* generic/gdbtk-wrapper.c: Comment unused functions
-	GDB_parse_exp_1 and wrap_parse_exp_1 as parse_exp_1 has
-	changed its interface and the code appears to be unused
-	anyway.
-	* generic/gdbtk-wrapper.h: ditto
+	From Don Bowman <don@sandvine.com>:
+	* library/targetselection.itb (init_target_db): Add target
+	vxWorks.
+        Update copyright.
 
-2012-06-25  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-02-10  Daniel Jacobowitz  <drow@mvista.com>
 
-	* generic/gdbtk-cmds.c: On windows include
-	windows.h/tlhelp32.h. Declare new
-	function gdb_list_processes().
-	(Gdbtk_Init): Register new tcl function
-	"gdb_list_processes".
-	(gdb_list_processes): New function.
-	* library/attachdlg.itb: Updated copyright.
-	(list_pids): Use gdb_list_processes for
-	getting the process list. Fallback to
-	ps if empty list is returned. Adapt method comment.
-	* library/srcbar.itcl: Updated copyright.
-	(create_run_menu): Allow "Attach to process" on
-	windows, too.
+	* generic/gdbtk-cmds.c (gdb_listfuncs): Don't call
+	BLOCK_SHOULD_SORT.
+	* library/browserwin.itb (BrowserWin::_fill_funcs_combo): Sort
+	the output of gdb_listfuncs.
 
-2012-05-25  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-02-07  Martin M. Hunt  <hunt@redhat.com>
 
-	* generic/gdbtk-bp.c (gdb_set_bp): Add new NULL param
-	to call to create_breakpoint() due to changes in gdb.
-	* generic/gdbtk-cmds.c (gdb_listfuncs): Iterator param
-	in call to ALL_BLOCK_SYMBOLS() now is a pointer to
-	struct block_iterator instead of struct dict_iterator.
-	* generic/gdbtk-stack.c (gdb_block_vars,gdb_get_blocks)
-	(gdb_get_vars_command): Likewise.
-	* generic/gdbtk-hooks.c (gdbtk_annotate_signal): Change
-	function calls: target_signal_to_name -> gdb_signal_to_name
-	target_signal_to_string -> gdb_signal_to_string due to
-	recent changes in gdb.
+	* generic/gdbtk.c, generic/gdbtk-bp.c, generic/gdbtk-cmds.c,
+	generic/gdbtk-hooks.c, generic/gdbtk-stack.c: Cleanup includes.
 
-2012-05-25  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-02-06  Martin M. Hunt  <hunt@redhat.com>
 
-	* library/locals.tcl: Updated copyright.
-	(reconfig): New method for getting prefs updates.
-	* library/prefs.tcl: Updated copyright.
-	(pref_read): Moved comment. Take color for changed
-	fields from gdb/src/PC_TAG prefs value.
-	(pref_set_defaults): Change default of
-	PC_TAG color to a somewhat darker green.
-	(pref_set_colors): Call pref_load_default in central place.
-	(pref_set_option_db): Remove hard wired old color for
-	changed values.
-	* library/regwin.itb: Update copyright.
-	(reconfig): Update highlight color of register table.
-	* library/srcpref.itb: Update copyright.
-	(_build_win): Change text of PC color chooser.
-	(_apply): Update global changed fields color from PC_TAG color.
-	* library/vartree.itb (update_var): use changed field color from
-	global colors list.
-	(_init_data): Remove local copy of changed vars color.
+	* generic/gdbtk.c, generic/gdbtk-bp.c, generic/gdbtk-cmds.c,
+	generic/gdbtk-hooks.c, generic/gdbtk-register.c,
+	generic/gdbtk-stack.c, generic/gdbtk-varobj.c,
+	generic/gdbtk-wrapper.c: Cleanup. Fix indentation. Fix
+	function declarations. Remove unused variables. Add 2002
+	copyrights.
 
-2012-05-25  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-02-06  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-stack.c: Updated copyright informations.
-	include "stack.h" and "solib.h" (when needed).
-	(gdb_stack): Some reformatting.
-	(get_frame_name): Updated usage of gdb api for
-	backtrace generation. Some reformatting. Removed
-	dead code. Also handle frame type ARCH_FRAME now.
-	* library/stackwin.it[bh]: Remove dead instance
-	variable maxwidth. Updated copyright informations.
+	* library/images/cygnus.gif: Remove.
+	* library/images2/cygnus.gif: Remove.
 
-2012-04-19  Keith Seitz  <keiths@redhat.com>
+2002-02-05  Elena Zannoni  <ezannoni@redhat.com>
 
-	From Patrick Monnerat  <pm@datasphere.ch>:
-	* generic/gdbtk-hooks.c (gdbtk_annotate_signal): Avoid
-	dereferencing a null (i.e.: dead) process/thread.
+        * generic/gdbtk-cmds.c (gdbtk_load_asm, gdbtk_print_asm): Use
+        TARGET_PRINT_INSN instead of tm_print_insn.
 
-2012-04-19  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-18  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-bp.c: Updated copyright.
-	(gdb_find_bp_at_line): Don't access location struct
-	of breakpoint if it is NULL. 
+	* library/console.ith (get_text): Delete.
+	(test): New public method.
+	* library/console.itb (get_text): Delete.
+	(test): New public method.
 
-2012-04-13  Pierre Muller  <muller@ics.u-strasbg.fr>
+2002-01-15  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-register.c (get_register_types): Use
-	host_address_to_string function to avoid use of "%lx" and
-	typecasts.
+	* generic/gdbtk-varobj.c (variable_value): When varobj_get_value
+	fails, use error_last_message to return the error to tcl land.
+	This allows us to display nice messages about why "0xdeadbeef" is
+	not accessible!
 
-2012-03-30  Pierre Muller  <muller@ics.u-strasbg.fr>
+2002-01-11  Martin M. Hunt  <hunt@redhat.com>
 
-	* generic/gdbtk.h (close_bfds): Fix prototype.
+	* library/memwin.itb (idle): Check for existence of window.
+	Prevents race-condition error.
 
-2012-03-30  Roland Schwingel  <roland.schwingel@onevision.com>
+	* library/srctextwin.itb (enable): Check for existence of $twin.
 
-	* library/globalpref.itb: Updated Copyright to 1997-2012 Red Hat, Inc.
-	(_build_win): Remove unneeded debug call. Fix packing of 
-	OK/Apply/Cancel buttons for newer tk versions. Small reformatting.
+	* library/interface.tcl (gdbtk_tcl_exec_file_display): 
+	Set pathname in host-independent manner using "file" and
+	gdb_current_directory.
 
-2012-03-30  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-10  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-register.c: Updated Copyright year to 2001-2012.
-	(get_register_types): Cast result of TYPE_FIELD_TYPE to size_t 
-	instead of long.
-	(gdb_regformat): on windows 64bit use strtoll instead of strtol.
-	* generic/gdbtk-stack.c: Updated Copyright year to 2001-2012.
-	(gdb_get_vars_command): Don't cast clientData to long. Here 
-	checking of non NULL clientData is enough.
+	* library/Makefile (ITCL_SH): Renamed to "ITCLSH".
+	(tclIndex): We no longer have an Itcl shell, so we must use
+	"package require Itcl".
 
-2012-03-30  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-08  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk-cmds.c: Updated Copyright year to 1994-2012.
-	Remove unneeded include.
+	* generic/gdbtk-cmds.c (gdb_find_file_command): If the symtab
+	doesn't have the filename's fullname, look it up with
+	symtab_to_filename.
 
-2012-03-30  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-08  Keith Seitz  <keiths@redhat.com>
 
-	* generic/gdbtk.c: Updated Copyright year to 1994-2012.
-	(gdbtk_init): Move call to ide_create_shell_execute_command
-	to generic windows section.
+	* library/srcwin.itb (location): Fix typo. It's "addr" not
+	"address".
 
-2012-03-28  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-08  Tom Tromey  <tromey@redhat.com>
 
-	* generic/gdbtk.c (gdbtk_init,tk_command): Replace deprecated access
-	to tcl interpreter result string with Tcl_GetStringResult().
-	* generic/gdbtk-hooks.c (gdbtk_read,gdbtk_readline,gdbtk_load_hash)
-	(gdbtk_query): Likewise. 
-	(gdbtk_read): Simplified error handling in case "gdbtk_console_read"
-	fails. Some reformatting.
+	* library/interface.tcl (gdbtk_tcl_preloop): Use current directory
+	when `--args' given.
 
-2012-03-14  Roland Schwingel  <roland.schwingel@onevision.com>
+2002-01-07  Ian Roxborough  <irox@redhat.com>
 
-	* generic/gdbtk-bp.c (gdb_set_bp): Adjust parameters
-	of create_breakpoint() to match recent change.
+	* library/srcbar.itcl (SrcBar::create_buttons): Line number
+	and address fields have been removed and added to the
+	status bar.
+	* library/srcwin.itb (SrcWin::_build_win): Add address and
+	line number fields to status bar.  Moved download progress
+	bar to status bar.
+	(SrcWin::download_progress):  Use canvas on status bar.
+	Remember to adjust width of 64-bit address.
+	(SrcWin::location): Set line number and address on status bar.
+	* library/srcwin.ith (SrcWin): Added new private variable.
 
-2012-03-10  Keith Seitz  <keiths@redhat.com>
+2002-01-04  Andrew Cagney  <ac131313@redhat.com>
 
-	* generic/gdbtk-interp.c (_initialize_gdbtk_interp): Add
-	missing prototype to appease -Wmissing-prototypes.
+	* generic/gdbtk-cmds.c (gdb_disassemble_driver): Replace
+	LITTLE_ENDIAN with BFD_ENDIAN_LITTLE.
+	* generic/gdbtk-register.c (get_register): Ditto.
 
-2012-02-28  Kevin Buettner  <kevinb@redhat.com>
+2002-01-04  Andrew Cagney  <ac131313@redhat.com>
 
-	* generic/gdbtk-cmds.h (pc_function_name): Make return type
-	const.
-	* generic/gdbtk-bp.c (gdb_get_breakpoint_info)
-	(gdb_get_tracepoint_info): Make char * variables const to match
-	recent GDB API changes.
-	* generic/gdbtk-stack.c (get_frame_name): Likewise.
-	* generic/gdbtk-cmds.c (gdb_get_function_command, gdb_listfuncs)
-	(gdb_loc, perror_with_name_wrapper): Likewise.
-	(pc_function_name): Likewise, plus change return type to be const.
+	* generic/gdbtk-wrapper.h: Add typedef value_ptr.
 
-2012-02-28  Keith Seitz  <keiths@redhat.com>
+2002-01-03  Martin M. Hunt  <hunt@redhat.com>
 
-	From Jeffrey Armstrong  <jeffrey.armstrong@approximatrix.com>:
-	* library/srctextwin.itb (lookup_line): Quote the filename
-	to gdb_set_bp.
+	* library/session.tcl (SESSION_serialize_bps): Ignore
+	breakpoints set on internal_error and info_command because
+	these are set by .gdbinit and will be recreated by it.
+	This is a bit of a hack and should be fixed properly
+	someday.
+	
+	* library/debugwin.itb: Fix incorrect button names
+	so they will be enabled/disabled properly.
+
+	* library/srctextwin.itb: Set focus on srcwin only
+	if another window doesn't have the focus.
+
+2002-01-02  Keith Seitz  <keiths@redhat.com>
+
+	* library/interface.tcl (set_exe): Allow users to debug
+	executables with no debug information.
+
+2002-01-02  Keith Seitz  <keiths@redhat.com>
+
+	* library/console.ith (insert): Add tag parameter.
+	(einsert): Delete.
+	* library/console.itb: (insert): Add tag parameter.
+	(einsert): Delete.
+	* library/interface.tcl (gdbtk_tcl_fputs): Use Console::insert.
+	(gdbtk_tcl_fputs_error): Likewise.
+	(gdbtk_tcl_fputs_log): Likewise.
+	(gdbtk_tcl_fputs_target): Likewise.
+	(set_target): Likewise.
+
+2002-01-02  Ian Roxborough  <irox@redhat.com>
+
+	* library/managedwin.itb (ManagedWin::_create):  When
+	making a modal window transient, use the source window
+	as the master and not ".".
 
