@@ -26,11 +26,9 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
 
 #include "gdbserv.h"
 #include "gdbserv-target.h"
-#include "gdbserv-utils.h"
 #include "server.h"
 #include "stock-breakpoints.h"
 
@@ -85,8 +83,6 @@ stock_bp_make_table (struct gdbserv *serv,
   t->serv = serv;
   t->target = target;
   t->bp_insn_len = 0;
-
-  return t;
 }
 
 

@@ -27,9 +27,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #if !defined(_MIPSEL) && !defined(_MIPSEB)
 #include <stdint.h>
 #else
@@ -48,7 +45,6 @@
 #include "server.h"
 #include "arch.h"
 #include "ptrace-target.h"
-#include "diagnostics.h"
 
 #ifdef STOCK_BREAKPOINTS
 #include "stock-breakpoints.h"
@@ -468,7 +464,7 @@ x86_bp_hit_p (struct gdbserv_thread *thread,
 static struct arch *
 x86_make_arch (void)
 {
-  struct arch *a = allocate_empty_arch ();
+  struct arch *a = malloc (sizeof (*a));
 
   a->closure = 0;		/* No closure needed at the moment.  */
   a->make_bp_table = x86_make_bp_table;
@@ -482,243 +478,6 @@ x86_make_arch (void)
 #define MAKE_ARCH() (x86_make_arch ())
 
 /* End of X86_LINUX_TARGET */
-
-#elif defined (AM33_2_0_LINUX_TARGET) || defined (AM33_LINUX_TARGET)
-
-/* AM33 needs to use PTRACE_GETREGS / PTRACE_SETREGS, PTRACE_GETFPREGS /
-   PTRACE_SETFPREGS in order to access all of the registers.   */
-#define GETREGS_SETREGS_REGINFO 1
-#define SOFTWARE_SINGLESTEP 1
-
-enum
-{
-  PC_REGNUM = 9,
-  A0_REGNUM = 4,
-  A1_REGNUM = 5,
-  A2_REGNUM = 6,
-  A3_REGNUM = 7,
-  LIR_REGNUM = 12,
-  LAR_REGNUM = 13,
-  MDR_REGNUM = 10,
-  SP_REGNUM = 8,
-  NUM_REGS = 64,
-  sign_extend=0
-};
-
-/* These should match the constants defined in <asm/ptrace.h>  */
-#define PT_A3		0
-#define PT_A2		1
-#define PT_D3		2
-#define	PT_D2		3
-#define PT_MCVF		4
-#define	PT_MCRL		5
-#define PT_MCRH		6
-#define	PT_MDRQ		7
-#define	PT_E1		8
-#define	PT_E0		9
-#define	PT_E7		10
-#define	PT_E6		11
-#define	PT_E5		12
-#define	PT_E4		13
-#define	PT_E3		14
-#define	PT_E2		15
-#define	PT_SP		16
-#define	PT_LAR		17
-#define	PT_LIR		18
-#define	PT_MDR		19
-#define	PT_A1		20
-#define	PT_A0		21
-#define	PT_D1		22
-#define	PT_D0		23
-#define PT_ORIG_D0	24
-#define	PT_EPSW		25
-#define	PT_PC		26
-
-static struct getregs_setregs_reginfo reginfo[] =
-{
-  { GREGS,  PT_D0 * 4,   4,   4 },
-  { GREGS,  PT_D1 * 4,   4,   4 },
-  { GREGS,  PT_D2 * 4,   4,   4 },
-  { GREGS,  PT_D3 * 4,   4,   4 },
-  { GREGS,  PT_A0 * 4,   4,   4 },
-  { GREGS,  PT_A1 * 4,   4,   4 },
-  { GREGS,  PT_A2 * 4,   4,   4 },
-  { GREGS,  PT_A3 * 4,   4,   4 },
-  { GREGS,  PT_SP * 4,   4,   4 },
-  { GREGS,  PT_PC * 4,   4,   4 },
-  { GREGS,  PT_MDR * 4,  4,   4 },
-  { GREGS,  PT_EPSW * 4, 4,   4 }, /* psw */
-  { GREGS,  PT_LIR * 4,  4,   4 },
-  { GREGS,  PT_LAR * 4,  4,   4 },
-  { GREGS,  PT_MDRQ * 4, 4,   4 },
-  { GREGS,  PT_E0 * 4,   4,   4 }, /* r0 */
-  { GREGS,  PT_E1 * 4,   4,   4 }, /* r1 */
-  { GREGS,  PT_E2 * 4,   4,   4 }, /* r2 */
-  { GREGS,  PT_E3 * 4,   4,   4 }, /* r3 */
-  { GREGS,  PT_E4 * 4,   4,   4 }, /* r4 */
-  { GREGS,  PT_E5 * 4,   4,   4 }, /* r5 */
-  { GREGS,  PT_E6 * 4,   4,   4 }, /* r6 */
-  { GREGS,  PT_E7 * 4,   4,   4 }, /* r7 */
-  { GREGS,  PT_SP * 4,   4,   4 }, /* ssp */
-  { GREGS,  PT_SP * 4,   4,   4 }, /* msp */
-  { GREGS,  PT_SP * 4,   4,   4 }, /* usp */
-  { GREGS,  PT_MCRH * 4, 4,   4 },
-  { GREGS,  PT_MCRL * 4, 4,   4 },
-  { GREGS,  PT_MCVF * 4, 4,   4 },
-
-  /* AM33 uses single precision floating point registers where two
-     consecutive registers are combined to form a double.  The
-     register layout is defined (in the kernel sources) in
-     include/asm-mn10300/processor.h.  Unfortunately, this file is not
-     easily included, so we'll use hard coded constants for the
-     offsets and sizes...  */
-
-  { FPREGS, 32 * 4, 4, 4 }, /* fpcr */
-
-  /* The "g" packet has a gap between fpcr and fs0.  */
-  { NOREGS,  0,     0, 4 },
-  { NOREGS,  0,     0, 4 },
-
-  { FPREGS,  0 * 4, 4, 4 }, /* fs0 */
-  { FPREGS,  1 * 4, 4, 4 }, /* fs1 ... */
-  { FPREGS,  2 * 4, 4, 4 },
-  { FPREGS,  3 * 4, 4, 4 },
-  { FPREGS,  4 * 4, 4, 4 },
-  { FPREGS,  5 * 4, 4, 4 },
-  { FPREGS,  6 * 4, 4, 4 },
-  { FPREGS,  7 * 4, 4, 4 },
-  { FPREGS,  8 * 4, 4, 4 },
-  { FPREGS,  9 * 4, 4, 4 },
-  { FPREGS, 10 * 4, 4, 4 },
-  { FPREGS, 11 * 4, 4, 4 },
-  { FPREGS, 12 * 4, 4, 4 },
-  { FPREGS, 13 * 4, 4, 4 },
-  { FPREGS, 14 * 4, 4, 4 },
-  { FPREGS, 15 * 4, 4, 4 },
-  { FPREGS, 16 * 4, 4, 4 },
-  { FPREGS, 17 * 4, 4, 4 },
-  { FPREGS, 18 * 4, 4, 4 },
-  { FPREGS, 19 * 4, 4, 4 },
-  { FPREGS, 20 * 4, 4, 4 },
-  { FPREGS, 21 * 4, 4, 4 },
-  { FPREGS, 22 * 4, 4, 4 },
-  { FPREGS, 23 * 4, 4, 4 },
-  { FPREGS, 24 * 4, 4, 4 },
-  { FPREGS, 25 * 4, 4, 4 },
-  { FPREGS, 26 * 4, 4, 4 },
-  { FPREGS, 27 * 4, 4, 4 },
-  { FPREGS, 28 * 4, 4, 4 },
-  { FPREGS, 29 * 4, 4, 4 },
-  { FPREGS, 30 * 4, 4, 4 },
-  { FPREGS, 31 * 4, 4, 4 }  /* fs31 */
-};
-
-static void am33_singlestep_program (struct gdbserv *serv);
-
-/* Breakpoint methods for the am33.  Except for bp_hit_p, these
-   are just wrappers for the stock breakpoint methods.  In C++, we
-   could use multiple inheritance for this, and it would all just
-   work...  */
-
-/* am33 breakpoints tables are just stock breakpoint tables.  But we
-   like static typechecking; casts swallow error messages.  */
-static struct arch_bp_table *
-stock_table_to_am33 (struct stock_bp_table *table)
-{
-  return (struct arch_bp_table *) table;
-}
-
-static struct stock_bp_table *
-am33_table_to_stock (struct arch_bp_table *table)
-{
-  return (struct stock_bp_table *) table;
-}
-
-/* am33 breakpoints are just stock breakpoints.  But we like static
-   typechecking; casts swallow error messages.  */
-static struct arch_bp *
-stock_bp_to_am33 (struct stock_bp *bp)
-{
-  return (struct arch_bp *) bp;
-}
-
-static struct stock_bp *
-am33_bp_to_stock (struct arch_bp *bp)
-{
-  return (struct stock_bp *) bp;
-}
-
-struct arch_bp_table *
-am33_make_bp_table (struct arch *arch,
-		   struct gdbserv *serv,
-		   struct gdbserv_target *target)
-{
-  struct stock_bp_table *table = stock_bp_make_table (serv, target);
-
-  /* Use 0xff as the breakpoint instruction.  */
-  stock_bp_set_bp_insn (table, 1, "\xff");
-
-  return stock_table_to_am33 (table);
-}
-
-
-static struct arch_bp *
-am33_set_bp (struct arch_bp_table *table,
-	    struct gdbserv_reg *addr)
-{
-  /* am33 arch breakpoints are just stock breakpoints.  */
-  return stock_bp_to_am33 (stock_bp_set_bp (am33_table_to_stock (table),
-					   addr));
-}
-
-
-static int
-am33_delete_bp (struct arch_bp *bp)
-{
-  return stock_bp_delete_bp (am33_bp_to_stock (bp));
-}
-
-
-static int
-am33_bp_hit_p (struct gdbserv_thread *thread,
-	      struct arch_bp *arch_bp)
-{
-  struct stock_bp *bp = am33_bp_to_stock (arch_bp);
-  struct stock_bp_table *table = stock_bp_table (bp);
-  struct gdbserv *serv = stock_bp_table_serv (table);
-  struct gdbserv_target *target = stock_bp_table_target (table);
-  struct gdbserv_reg bp_addr, pc;
-  unsigned long bp_addr_int, pc_int;
-
-  stock_bp_addr (&bp_addr, bp);
-  gdbserv_reg_to_ulong (serv, &bp_addr, &bp_addr_int);
-  target->get_thread_reg (serv, thread, PC_REGNUM, &pc);
-  gdbserv_reg_to_ulong (serv, &pc, &pc_int);
-
-  /* When the am33 hits a breakpoint, the reported PC value is equal to
-     address of the breakpoint.  */
-  return bp_addr_int == pc_int;
-}
-
-
-/* Construct an architecture object for the am33.  */
-static struct arch *
-am33_make_arch (void)
-{
-  struct arch *a = allocate_empty_arch ();
-
-  a->closure = 0;		/* No closure needed at the moment.  */
-  a->make_bp_table = am33_make_bp_table;
-  a->set_bp = am33_set_bp;
-  a->delete_bp = am33_delete_bp;
-  a->bp_hit_p = am33_bp_hit_p;
-
-  return a;
-}
-
-#define MAKE_ARCH() (am33_make_arch ())
-
-/* End of AM33_LINUX_TARGET */
 
 #elif defined (SH_LINUX_TARGET)
 
@@ -767,7 +526,6 @@ is_extended_reg (int regnum)
 #elif defined MIPS_LINUX_TARGET || (defined MIPS64_LINUX_TARGET && defined MIPS_ABI_O32)
 
 #define PEEKUSER_POKEUSER_REGINFO 1
-#define SOFTWARE_SINGLESTEP 1
 
 enum
 {
@@ -921,7 +679,6 @@ static void mips_singlestep_program (struct gdbserv *serv);
 #elif defined(MIPS64_LINUX_TARGET)
 
 #define PEEKUSER_POKEUSER_REGINFO 1
-#define SOFTWARE_SINGLESTEP 1
 
 enum
 {
@@ -1252,7 +1009,7 @@ is_extended_reg (int regnum)
 
 enum
 {
-  NUM_REGS = 166,
+  NUM_REGS = 149,
   PC_REGNUM = 128,
   sign_extend = 0
 };
@@ -1263,8 +1020,6 @@ enum
 
 static int frv_fdpic_loadmap_addresses (struct gdbserv *, int, int, void *,
                                         const void *);
-static int frv_read_only_register (struct gdbserv *, int, int, void *,
-                                   const void *);
 
 static struct peekuser_pokeuser_reginfo reginfo[] =
 {
@@ -1400,8 +1155,7 @@ static struct peekuser_pokeuser_reginfo reginfo[] =
   { PT_FR(63) * 4,  4, fpreg_offset_and_size (fr[63]), 4, 0 },
 
   { PT_PC * 4,      4, greg_offset_and_size (pc),      4, 0 },
-  /* The PSR is read-only.  */
-  { PT_PSR * 4,     4, greg_offset_and_size (psr),     4, frv_read_only_register },
+  { PT_PSR * 4,     4, greg_offset_and_size (psr),     4, 0 },
   { PT_CCR * 4,     4, greg_offset_and_size (ccr),     4, 0 },
   { PT_CCCR * 4,    4, greg_offset_and_size (cccr),    4, 0 },
 
@@ -1483,8 +1237,8 @@ frv_fdpic_loadmap_addresses (struct gdbserv *serv, int pid, int regno,
                       (void *)reginfo[regno].ptrace_offset,
 		      &val);
       if (process->debug_backend)
-	fprintf (stderr, "PTRACE_GETFDPIC pid=%d offset=%d val=%lx\n",
-	         pid, reginfo[regno].ptrace_offset, val);
+	fprintf (stderr, "PTRACE_GETFDPIC pid=%d offset=%d val=%x\n",
+	         pid,reginfo[regno].ptrace_offset,val);
       if (status < 0)
 	return errno;
       else
@@ -1495,125 +1249,6 @@ frv_fdpic_loadmap_addresses (struct gdbserv *serv, int pid, int regno,
     }
   return 0;
 }
-
-int
-frv_read_only_register (struct gdbserv *serv, int pid, int regno,
-                        void *read_buf, const void *write_buf)
-{
-  if (read_buf != NULL)
-    {
-      return ptrace_read_user (serv, pid, reginfo[regno].ptrace_offset,
-                               reginfo[regno].ptrace_size, read_buf);
-    }
-  return 0;
-}
-
-
-/* Breakpoint methods for the frv.  These use the stock breakpoint
-   code.
-
-   Although the FRV actually does require a custom breakpoint
-   implementation (you can only set breakpoints on the first
-   instruction in a VLIW bundle), we punt that for now: the only
-   client of this breakpoint code at the moment is thread-db.c, which
-   always sets breakpoints at function entry points, which are
-   guaranteed to be the start of a bundle.  */
-
-/* frv breakpoints tables are just stock breakpoint tables.  But we
-   like static typechecking; casts swallow error messages.  */
-static struct arch_bp_table *
-stock_table_to_frv (struct stock_bp_table *table)
-{
-  return (struct arch_bp_table *) table;
-}
-
-static struct stock_bp_table *
-frv_table_to_stock (struct arch_bp_table *table)
-{
-  return (struct stock_bp_table *) table;
-}
-
-/* frv breakpoints are just stock breakpoints.  But we like static
-   typechecking; casts swallow error messages.  */
-static struct arch_bp *
-stock_bp_to_frv (struct stock_bp *bp)
-{
-  return (struct arch_bp *) bp;
-}
-
-static struct stock_bp *
-frv_bp_to_stock (struct arch_bp *bp)
-{
-  return (struct stock_bp *) bp;
-}
-
-struct arch_bp_table *
-frv_make_bp_table (struct arch *arch,
-		   struct gdbserv *serv,
-		   struct gdbserv_target *target)
-{
-  static unsigned char breakpoint[] = {0xc0, 0x70, 0x00, 0x01};
-  struct stock_bp_table *table = stock_bp_make_table (serv, target);
-
-  stock_bp_set_bp_insn (table, sizeof (breakpoint), breakpoint);
-
-  return stock_table_to_frv (table);
-}
-
-
-static struct arch_bp *
-frv_set_bp (struct arch_bp_table *table,
-	    struct gdbserv_reg *addr)
-{
-  /* frv arch breakpoints are just stock breakpoints.  */
-  return stock_bp_to_frv (stock_bp_set_bp (frv_table_to_stock (table),
-					   addr));
-}
-
-
-static int
-frv_delete_bp (struct arch_bp *bp)
-{
-  return stock_bp_delete_bp (frv_bp_to_stock (bp));
-}
-
-
-static int
-frv_bp_hit_p (struct gdbserv_thread *thread,
-	      struct arch_bp *arch_bp)
-{
-  struct stock_bp *bp = frv_bp_to_stock (arch_bp);
-  struct stock_bp_table *table = stock_bp_table (bp);
-  struct gdbserv *serv = stock_bp_table_serv (table);
-  struct gdbserv_target *target = stock_bp_table_target (table);
-  struct gdbserv_reg bp_addr, pc;
-  unsigned long bp_addr_int, pc_int;
-
-  stock_bp_addr (&bp_addr, bp);
-  gdbserv_reg_to_ulong (serv, &bp_addr, &bp_addr_int);
-  target->get_thread_reg (serv, thread, PC_REGNUM, &pc);
-  gdbserv_reg_to_ulong (serv, &pc, &pc_int);
-
-  return bp_addr_int == pc_int;
-}
-
-
-/* Construct an architecture object for the frv.  */
-static struct arch *
-frv_make_arch (void)
-{
-  struct arch *a = allocate_empty_arch ();
-
-  a->closure = 0;		/* No closure needed at the moment.  */
-  a->make_bp_table = frv_make_bp_table;
-  a->set_bp = frv_set_bp;
-  a->delete_bp = frv_delete_bp;
-  a->bp_hit_p = frv_bp_hit_p;
-
-  return a;
-}
-
-#define MAKE_ARCH() (frv_make_arch ())
 
 /* End of FRV_LINUX_TARGET */
 #else
@@ -2320,19 +1955,7 @@ linux_get_reg (struct gdbserv *serv, int regno, struct gdbserv_reg *reg)
     }
   else if (reginfo[regno].whichregs == NOREGS)
     {
-      /* A buffer initialized to zeros we can refer to.  */
-      static struct gdbserv_reg zeros;
-
-      /* Make sure we're not going to try to copy out more bytes than
-	 we have.  */
-      assert (reginfo[regno].ptrace_size <= sizeof (zeros.buf));
-
-      /* Make sure we don't have some random offset that will take us
-	 beyond the end of the buffer.  Offsets for NOREGS entries
-	 should be zero.  */
-      assert (reginfo[regno].offset == 0);
-
-      buf = (char *) zeros.buf;
+      /* Do nothing.  */
     }
   else
     {
@@ -2361,6 +1984,7 @@ linux_set_reg (struct gdbserv *serv, int regno, struct gdbserv_reg *reg)
   elf_fpregset_t fpregs;
   void *fpxregs = NULL;
   char *buf;
+  char tmp_buf[MAX_REG_SIZE];
 
   if (regno < 0 || regno >= NUM_REGS)
     {
@@ -3107,76 +2731,14 @@ linux_process_rcmd (struct gdbserv *serv, const char *cmd, int cmdsize)
 {
   struct child_process *process = gdbserv_target_data (serv);
 
-  if (strcmp (cmd, "rda-backend-noisy") == 0)
+  if (!strcmp (cmd, "1"))
     {
       process->debug_backend = 1;
-      gdbserv_output_string_as_bytes (serv, "RDA backend diagnostics enabled.\n");
     }
-  else if (strcmp (cmd, "rda-backend-quiet") == 0)
+  else if (!strcmp (cmd, "0"))
     {
       process->debug_backend = 0;
-      gdbserv_output_string_as_bytes (serv, "RDA backend diagnostics disabled.\n");
     }
-  else if (strcmp (cmd, "thread-db-noisy") == 0)
-    {
-      thread_db_noisy = 1;
-      gdbserv_output_string_as_bytes (serv, "RDA thread-db diagnostics enabled.\n");
-    }
-  else if (strcmp (cmd, "thread-db-quiet") == 0)
-    {
-      thread_db_noisy = 0;
-      gdbserv_output_string_as_bytes (serv, "RDA thread-db diagnostics disabled.\n");
-    }
-  else if (strcmp (cmd, "lwp-pool-noisy") == 0)
-    {
-      debug_lwp_pool = 1;
-      gdbserv_output_string_as_bytes (serv, "RDA lwp-pool diagnostics enabled.\n");
-    }
-  else if (strcmp (cmd, "lwp-pool-quiet") == 0)
-    {
-      debug_lwp_pool = 0;
-      gdbserv_output_string_as_bytes (serv, "RDA lwp-pool diagnostics disabled.\n");
-    }
-  else if (strcmp (cmd, "all-noisy") == 0)
-    {
-      process->debug_backend = 1;
-      thread_db_noisy = 1;
-      debug_lwp_pool = 1;
-      gdbserv_output_string_as_bytes (serv, "All RDA diagnostics enabled.\n");
-    }
-  else if (strcmp (cmd, "all-quiet") == 0)
-    {
-      process->debug_backend = 0;
-      thread_db_noisy = 0;
-      debug_lwp_pool = 0;
-      gdbserv_output_string_as_bytes (serv, "All RDA diagnostics disabled.\n");
-    }
-  else if (strcmp (cmd, "interrupt-with-SIGSTOP") == 0)
-    {
-      process->interrupt_with_SIGSTOP = 1;
-      gdbserv_output_string_as_bytes (serv,
-        "RDA will use SIGSTOP to perform user requested interrupts.\n");
-    }
-  else if (strcmp (cmd, "interrupt-with-SIGINT") == 0)
-    {
-      process->interrupt_with_SIGSTOP = 0;
-      gdbserv_output_string_as_bytes (serv,
-        "RDA will use SIGINT to perform user requested interrupts.\n");
-    }
-  else
-    gdbserv_output_string_as_bytes (serv,
-      "Unrecognized monitor command.\n"
-      "Available commands are:\n"
-      "  monitor all-noisy\n"
-      "  monitor all-quiet\n"
-      "  monitor rda-backend-noisy\n"
-      "  monitor rda-backend-quiet\n"
-      "  monitor thread-db-noisy\n"
-      "  monitor thread-db-quiet\n"
-      "  monitor lwp-pool-noisy\n"
-      "  monitor lwp-pool-quiet\n"
-      "  monitor interrupt-with-SIGSTOP\n"
-      "  monitor interrupt-with-SIGINT\n");
 }
 
 /* This function is called from gdbloop_poll when a new incoming
@@ -3255,8 +2817,6 @@ linux_attach (struct gdbserv *serv, void *data)
   linux_target->restart_program       = NULL;
 #if defined(_MIPSEL) || defined(_MIPSEB)
   linux_target->singlestep_program    = mips_singlestep_program;
-#elif defined(AM33_2_0_LINUX_TARGET)
-  linux_target->singlestep_program    = am33_singlestep_program;
 #else
   linux_target->singlestep_program    = ptrace_target->singlestep_program;
 #endif
@@ -3284,7 +2844,7 @@ linux_attach (struct gdbserv *serv, void *data)
   else
     process->breakpoint_table = 0;
 
-#if defined(SOFTWARE_SINGLESTEP)
+#if defined(_MIPSEL) || defined(_MIPSEB)
   process->is_ss = 0;
 #endif
 
@@ -3357,6 +2917,7 @@ struct server_vector gdbserver =
 int
 decr_pc_after_break (struct gdbserv *serv, pid_t pid)
 {
+  extern int thread_db_noisy;
   unsigned long pc;
   int status;
 
@@ -3366,7 +2927,7 @@ decr_pc_after_break (struct gdbserv *serv, pid_t pid)
 
   pc -= 1;
   if (thread_db_noisy)
-    fprintf (stderr, "<decr_pc_after_break: pid %d, addr 0x%08lx>\n", pid, pc);
+    fprintf (stderr, "<decr_pc_after_break: pid %d, addr 0x%08x>\n", pid, pc);
   status = write_reg_as_ulong (serv, pid, PC_REGNUM, pc);
   return status;
 }
@@ -3379,61 +2940,23 @@ decr_pc_after_break (struct gdbserv *serv, pid_t pid)
 }
 #endif
 
-#ifdef SOFTWARE_SINGLESTEP
-
-/* Set a software-singlestep breakpoint.  */
-
-static void
-set_singlestep_breakpoint (struct gdbserv *serv, ptrace_arg3_type addr,
-			   char *breakpoint_bytes, int breakpoint_length,
-			   void (*restore_action) (struct gdbserv *serv,
-			                           struct ss_save *save))
-{
-  int i = 0;
-  struct child_process *process = gdbserv_target_data (serv);
-
-  if (process->ss_info[i].in_use)
-    i++;
-
-  assert (!process->ss_info[i].in_use);
-
-  /* set flag so handle_waitstatus can restore breakpoint stuff */
-  process->is_ss = 1;					
-
-  /* Mark the breakpoint used.  */
-  process->ss_info[i].in_use = 1;
-
-  /* Convert ``addr'' to a struct gdbserv_reg.  */
-  gdbserv_host_bytes_to_reg (serv,
-                             &addr,
-			     sizeof (addr),
-			     &process->ss_info[i].ss_addr,
-			     sizeof (ptrace_arg3_type),
-			     sign_extend);
-
-  /* Set the breakpoint size.  */
-  process->ss_info[i].ss_size = breakpoint_length;
-
-  /* Fetch the contents of the memory at which the breakpoint will be
-    placed.  */
-  ptrace_get_mem (serv,
-                  &process->ss_info[i].ss_addr,
-		  process->ss_info[i].ss_val,
-		  process->ss_info[i].ss_size);
-
-  /* Finally, set the breakpoint!  */
-  ptrace_set_mem (serv,
-                  &process->ss_info[i].ss_addr,
-		  breakpoint_bytes,
-		  process->ss_info[i].ss_size);
-
-  process->ss_info[i].restore_action = restore_action;
-  if (process->debug_backend)
-    fprintf (stderr, "Singlestep breakpoint %d set at location %lx\n", i, addr);
-}
-#endif /* SOFTWARE_SINGLESTEP */
 
 #if defined(_MIPSEL) || defined(_MIPSEB)
+
+/* 
+ * Worker function to get and return a register
+ */
+
+static ptrace_xfer_type
+mips_get_reg(struct gdbserv *serv, int pid, int regno)
+{
+  ptrace_xfer_type value;
+
+  if (read_reg_bytes (serv, pid, regno, &value) < 0)
+    return 0;
+  else
+    return value;
+}
 
 static struct gdbserv_reg
 mips_addr_as_reg (struct gdbserv *serv, ptrace_arg3_type addr)
@@ -3460,13 +2983,21 @@ mips_peek_instruction (struct gdbserv *serv, ptrace_arg3_type addr)
   return insn;
 }
 
+static void
+mips_poke_instruction (struct gdbserv *serv, ptrace_arg3_type addr,
+                       unsigned int insn)
+{
+  struct gdbserv_reg addr_as_reg;
+
+  addr_as_reg = mips_addr_as_reg (serv, addr);
+  ptrace_set_mem (serv, &addr_as_reg, &insn, sizeof (insn));
+}
+
 /*
  * mips singlestep
  *
  * necessary since no support in ptrace.
  */
-void mips_singlestep (struct gdbserv *serv, pid_t pid, int sig);
-
 static void
 mips_singlestep_program (struct gdbserv *serv)
 {
@@ -3478,11 +3009,12 @@ mips_singlestep_program (struct gdbserv *serv)
   process->signal_to_send = 0;
 }
 
-void
+int
 mips_singlestep (struct gdbserv *serv, pid_t pid, int sig)
 {
   struct child_process *process = gdbserv_target_data (serv);
-  ptrace_xfer_type targ, mips_pc;
+  ptrace_arg3_type targ;
+  ptrace_xfer_type mips_pc;
 
   union mips_instruction insn;
   int is_branch, is_cond, i;
@@ -3498,7 +3030,7 @@ mips_singlestep (struct gdbserv *serv, pid_t pid, int sig)
   /* Following is equiv to  ptrace (PTRACE_SINGLESTEP, pid, 1L, sig); */
 
   /* get the current PC */
-  mips_pc = debug_get_reg(serv, pid, PC_REGNUM);
+  mips_pc = mips_get_reg(serv, pid, PC_REGNUM);
   targ = mips_pc;
 
   /* get the word there (opcode) */
@@ -3506,6 +3038,9 @@ mips_singlestep (struct gdbserv *serv, pid_t pid, int sig)
   insn.word = mips_peek_instruction (serv, mips_pc);
 
   is_branch = is_cond = 0;
+
+  /* set flag so handle_waitstatus can restore breakpoint stuff */
+  process->is_ss = 1;					
 
   switch (insn.i_format.opcode) {
   /*
@@ -3515,7 +3050,7 @@ mips_singlestep (struct gdbserv *serv, pid_t pid, int sig)
     switch (insn.r_format.func) {
     case jalr_op:
     case jr_op:
-    	targ = debug_get_reg(serv, pid, insn.r_format.rs);
+    	targ = mips_get_reg(serv, pid, insn.r_format.rs);
     	is_branch = 1;
     	break;
     }
@@ -3585,477 +3120,30 @@ mips_singlestep (struct gdbserv *serv, pid_t pid, int sig)
       i = 0;
       if (is_cond && targ != (mips_pc + 8))
 	{
-	  set_singlestep_breakpoint (serv, mips_pc + 8, &bp_inst,
-	                              sizeof (bp_inst), NULL);
+	  process->ss_info[i].in_use = 1;
+	  process->ss_info[i].ss_addr = mips_addr_as_reg (serv, mips_pc + 8);
+	  process->ss_info[i++].ss_val 
+	    = mips_peek_instruction (serv, mips_pc + 8);
+	  mips_poke_instruction (serv, mips_pc + 8, bp_inst);
 	}
-      set_singlestep_breakpoint (serv, targ, &bp_inst,
-				  sizeof (bp_inst), NULL);
+      process->ss_info[i].in_use = 1;
+      process->ss_info[i].ss_addr = mips_addr_as_reg (serv, targ);
+      process->ss_info[i].ss_val = mips_peek_instruction (serv, targ);
+      mips_poke_instruction (serv, targ, bp_inst);
     }
   else
     {
-      set_singlestep_breakpoint (serv, mips_pc + 4, &bp_inst,
-				  sizeof (bp_inst), NULL);
+      process->ss_info[0].in_use = 1;
+      process->ss_info[0].ss_addr = mips_addr_as_reg (serv, mips_pc + 4);
+      process->ss_info[0].ss_val = mips_peek_instruction (serv, mips_pc + 4);
+      mips_poke_instruction (serv, mips_pc + 4, bp_inst);
     }
 
   ptrace (PTRACE_CONT, pid, 1L, sig); 
+  return 0;
 }
 #endif /* _MIPSEL */
 
-#if defined (AM33_2_0_LINUX_TARGET)
-/* AM33 single-step support. Lifted from Redboot which was in turn
-   lifted from Cygmon.  */
-
-void am33_singlestep (struct gdbserv *serv, pid_t pid, int sig);
-
-static void
-am33_singlestep_program (struct gdbserv *serv)
-{
-  struct child_process *process = gdbserv_target_data (serv);
-
-  am33_singlestep (serv, process->pid, process->signal_to_send);
-  process->stop_signal = 0;
-  process->stop_status = 0;
-  process->signal_to_send = 0;
-}
-
-/* Read a 16-bit displacement from address 'addr'.  */
-static unsigned char
-am33_read_byte(struct gdbserv *serv, ptrace_arg3_type addr)
-{
-  unsigned char val;
-  struct gdbserv_reg addr_as_reg;
-
-  gdbserv_host_bytes_to_reg (serv, &addr, sizeof (addr),
-                             &addr_as_reg, sizeof (ptrace_arg3_type),
-			     sign_extend);
-  ptrace_get_mem (serv, &addr_as_reg, &val, sizeof (val));
-
-  return val;
-}
-
-static short
-am33_read_disp16(struct gdbserv *serv, ptrace_arg3_type addr)
-{
-  short val;
-  struct gdbserv_reg addr_as_reg;
-
-  gdbserv_host_bytes_to_reg (serv, &addr, sizeof (addr),
-                             &addr_as_reg, sizeof (ptrace_arg3_type),
-			     sign_extend);
-  ptrace_get_mem (serv, &addr_as_reg, &val, sizeof (val));
-  
-  return val;
-}
-
-/* Read a 32-bit displacement from address 'p'. The
-   value is stored little-endian.  */
-
-static long
-am33_read_disp32(struct gdbserv *serv, ptrace_arg3_type addr)
-{
-  long val;
-  struct gdbserv_reg addr_as_reg;
-
-  gdbserv_host_bytes_to_reg (serv, &addr, sizeof (addr),
-                             &addr_as_reg, sizeof (ptrace_arg3_type),
-			     sign_extend);
-  ptrace_get_mem (serv, &addr_as_reg, &val, sizeof (val));
-  
-  return val;
-}
-
-static ptrace_arg3_type
-am33_get_register (struct gdbserv *serv, pid_t pid, int regno)
-{
-  return debug_get_reg (serv, pid, regno);
-}
-
-static int
-am33_set_register (struct gdbserv *serv, pid_t pid, int regno, unsigned long regval)
-{
-  return write_reg_as_ulong (serv, pid, regno, regval);
-}
-
-
-/* Get the contents of An register.  */
-
-static unsigned int
-am33_get_areg (struct gdbserv *serv, pid_t pid, int n)
-{
-  switch (n)
-    {
-    case 0:
-      return am33_get_register (serv, pid, A0_REGNUM);
-    case 1:
-      return am33_get_register (serv, pid, A1_REGNUM);
-    case 2:
-      return am33_get_register (serv, pid, A2_REGNUM);
-    case 3:
-      return am33_get_register (serv, pid, A3_REGNUM);
-    }
-  return 0;
-}
-
-/* Restore LIR after singlestepping an Lcc instruction.  */
-static void
-am33_restore_lir (struct gdbserv *serv, struct ss_save *save)
-{
-  struct child_process *process = gdbserv_target_data (serv);
-  int pid = process->pid;
-  unsigned long lir = am33_get_register (serv, pid, LIR_REGNUM);
-  unsigned long addr;
-  int rot;
-
-  gdbserv_host_bytes_from_reg (serv, &addr, sizeof (addr), &save->ss_addr,
-                               sign_extend);
-  rot = addr & 0x3;
-  lir = (lir & ~(0xff << (rot * 8))) 
-        | (am33_read_byte (serv, addr) << (rot * 8));
-  am33_set_register (serv, pid, LIR_REGNUM, lir);
-}
-
-/* Table of instruction sizes, indexed by first byte of instruction,
-   used to determine the address of the next instruction for single stepping.
-   If an entry is zero, special code must handle the case (for example,
-   branches or multi-byte opcodes).  */
-
-static char am33_opcode_size[256] =
-{
-     /* 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f */
-     /*------------------------------------------------*/
-/* 0 */ 1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3,
-/* 1 */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-/* 2 */ 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2, 3, 3, 3, 3,
-/* 3 */ 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1,
-/* 4 */ 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2,
-/* 5 */ 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2,
-/* 6 */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-/* 7 */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-/* 8 */ 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2,
-/* 9 */ 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2,
-/* a */ 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2,
-/* b */ 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2,
-/* c */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2, 2,
-/* d */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-/* e */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-/* f */ 0, 2, 2, 2, 2, 2, 2, 0, 0, 3, 0, 4, 0, 6, 7, 1
-};
-
-/* Set breakpoint(s) to simulate a single step from the current PC.  */
-
-void
-am33_singlestep (struct gdbserv *serv, pid_t pid, int sig)
-{
-  struct child_process *process = gdbserv_target_data (serv);
-  ptrace_arg3_type pc;
-  unsigned int opcode;
-  int displ;
-  static char bp_inst = 0xff;
-  static int hw_singlestep_okay = 1;
-  pid_t save_pid;
-
-  if (hw_singlestep_okay)
-    {
-      if (process->debug_backend)
-	fprintf (stderr, "PTRACE_SINGLESTEP (am33): pid=%d signal=%d\n",
-	         pid, sig);
-      errno = 0;
-      ptrace (PTRACE_SINGLESTEP, pid, 1L, sig);
-      if (errno == 0)
-	return;
-      /* EINVAL is the expected error when the kernel doesn't support
-         PTRACE_SINGLESTEP.  Report all other errors.  */
-      if (errno != EINVAL)
-	fprintf (stderr, "PTRACE_SINGLESTEP (am33) error: %s in %d\n",
-	         strerror (errno), pid);
-      else
-	{
-	  if (process->debug_backend)
-	    fprintf (stderr,
-	             "Disabling use of PTRACE_SINGLESTEP: It's not supported by this kernel.\n");
-	  hw_singlestep_okay = 0;
-	}
-      /* Fall through into software singlestep code.  */
-    }
-
-  /* In a multi-threaded program, process->pid might be a running thread
-     and we can't read / write into running threads.  So set process->pid
-     to the lwp.  */
-  save_pid = process->pid;
-  process->pid = pid;
-
-  pc = am33_get_register (serv, pid, PC_REGNUM);
-  opcode = am33_read_byte (serv, pc);
-
-  /* Check the table for the simple cases.  */
-  displ = am33_opcode_size[opcode];
-  if (displ != 0)
-    {
-      set_singlestep_breakpoint (serv, pc + displ, &bp_inst, sizeof (bp_inst),
-                                 NULL);
-    }
-  else
-
-    /* Handle the more complicated cases.  */
-    switch (opcode)
-      {
-      case 0xc0:
-      case 0xc1:
-      case 0xc2:
-      case 0xc3:
-      case 0xc4:
-      case 0xc5:
-      case 0xc6:
-      case 0xc7:
-      case 0xc8:
-      case 0xc9:
-      case 0xca:
-	/*
-	 *  bxx (d8,PC)
-	 */
-	displ = (signed char) am33_read_byte (serv, pc + 1);
-	set_singlestep_breakpoint (serv, pc + 2, &bp_inst, sizeof (bp_inst), NULL);
-	if (displ < 0 || displ > 2)
-	  set_singlestep_breakpoint (serv, pc + displ, &bp_inst,
-	                             sizeof (bp_inst), NULL);
-	break;
-
-      case 0xf7:
-	/* Various LIW instructions.  */
-	opcode = am33_read_byte (serv, pc + 1);
-	if (opcode != 0xe0)
-	  {
-	    /* Not a MOV_Lcc.  Set breakpoint four bytes after current
-	       instruction.  */
-	    set_singlestep_breakpoint (serv, pc + 4, &bp_inst,
-	                               sizeof (bp_inst), NULL);
-	    break;
-	  }
-	/* If it is a MOV_Lcc, we'll fall through to the Lcc case below.
-	   Advance PC so that the code below will work for this instruction
-	   too.  */
-	pc += 3;
-	
-	/* Fall through...  */
-
-      case 0xd0:
-      case 0xd1:
-      case 0xd2:
-      case 0xd3:
-      case 0xd4:
-      case 0xd5:
-      case 0xd6:
-      case 0xd7:
-      case 0xd8:
-      case 0xd9:
-      case 0xda:
-	/* Lcc: This is (conceptually) a conditional branch to the address
-	   contained in LAR - 4.  A SETLB instruction should have been
-	   executed to set up LAR and LIR.  LIR contains four bytes of
-	   prefetched instructions beginning at LAR - 4.  (These will
-	   be rotated depending on the low two bits of the address.)
-	   In order to singlestep this instruction, we place
-	   breakpoints at the instruction following Lcc in addition to
-	   the branch target specified by LAR - 4.  However, we can't
-	   expect that this latter breakpoint will actually do
-	   anything useful since the processor uses the prefetched
-	   instruction data contained in LIR.  Therefore, we also
-	   place a breakpoint at correct byte of LIR.  The function
-	   am33_restore_lir() will restore the correct LIR contents
-	   after stopping at the breakpoint.
-	   
-	   Once the processor has stopped at the first instruction in
-	   the prefetched data, the subsequent instructions are executed
-	   from memory.  Thus, the effect of these instructions should be
-	   identical to that of executing out of the LIR with the proviso
-	   that the program doesn't change the LIR after executing the
-	   SETLB instruction.  (I guess this would be an interesting way
-	   to implement self modifying code...)  */
-
-
-	{
-	  unsigned long lar = am33_get_register (serv, pid, LAR_REGNUM);
-	  int rot = lar & 0x3; 
-	  if (pc != lar - 4)
-	    {
-	      unsigned long lir = am33_get_register (serv, pid, LIR_REGNUM);
-	      lir = (lir & ~(0xff << (rot * 8))) | (bp_inst << (rot * 8));
-	      am33_set_register (serv, pid, LIR_REGNUM, lir);
-	      set_singlestep_breakpoint (serv, lar - 4, &bp_inst,
-	                               sizeof (bp_inst), am33_restore_lir);
-	    }
-	  set_singlestep_breakpoint (serv, pc + 1, &bp_inst, sizeof (bp_inst),
-	                             NULL);
-	}
-	break;
-
-      case 0xdb:
-	/* setlb:  Simulate execution of setlb instruction.  Advance
-	   pc to next instruction and set a breakpoint there too to
-	   make it appear that we executed this instruction.
-	   
-	   If we set a breakpoint on the following instruction and then
-	   allow SETLB to execute, we'll end up with a breakpoint in the
-	   LIR register.
-	   
-	   An earlier version of this code attempted to set the
-	   breakpoint after the four bytes which are loaded into LIR. 
-	   This is incorrect because that location might not be the
-	   start of a new instruction.  */
-
-	am33_set_register (serv, pid, PC_REGNUM, pc + 1);
-	am33_set_register (serv, pid, LAR_REGNUM, pc + 5);
-	{
-	  unsigned long lir = (unsigned long) am33_read_disp32 (serv, pc + 1);
-	  int rot = (pc + 1) & 0x3; 
-	  if (rot != 0)
-	    lir = (lir << (rot * 8)) | (lir >> ((4 - rot) * 8));
-	  am33_set_register (serv, pid, LIR_REGNUM, lir);
-	}
-	set_singlestep_breakpoint (serv, pc + 1, &bp_inst, sizeof (bp_inst),
-	                           NULL);
-	break;
-
-      case 0xcc:
-      case 0xcd:
-	/*
-	 * jmp (d16,PC) or call (d16,PC)
-	 */
-	displ = am33_read_disp16(serv, pc + 1);
-	set_singlestep_breakpoint (serv, pc + displ, &bp_inst,
-	                           sizeof (bp_inst), NULL);
-	break;
-
-      case 0xdc:
-      case 0xdd:
-	/*
-	 * jmp (d32,PC) or call (d32,PC)
-	 */
-	displ = am33_read_disp32(serv, pc + 1);
-	set_singlestep_breakpoint (serv, pc + displ, &bp_inst,
-	                           sizeof (bp_inst), NULL);
-	break;
-
-      case 0xde:
-	/*
-	 *  retf
-	 */
-	set_singlestep_breakpoint (serv, am33_get_register (serv, pid, MDR_REGNUM),
-				   &bp_inst, sizeof (bp_inst), NULL);
-	break;
-
-      case 0xdf:
-	/*
-	 *  ret
-	 */
-	displ = (signed char) am33_read_byte (serv, pc + 2);
-	set_singlestep_breakpoint (
-	  serv,
-	  am33_read_disp32 (serv,
-			    am33_get_register (serv, pid, SP_REGNUM) + displ),
-	  &bp_inst, sizeof (bp_inst), NULL);
-	break;
-
-      case 0xf0:
-	/*
-	 *  Some branching 2-byte instructions.
-	 */
-	opcode = am33_read_byte (serv, pc + 1);
-	if (opcode >= 0xf0 && opcode <= 0xf7)
-	  {
-	    /* jmp (An) / calls (An) */
-	    set_singlestep_breakpoint (serv,
-				       am33_get_areg (serv, pid, opcode & 3),
-				       &bp_inst, sizeof (bp_inst), NULL);
-
-	  }
-	else if (opcode == 0xfc)
-	  {
-	    /* rets */
-	    set_singlestep_breakpoint (
-	      serv,
-	      am33_read_disp32 (serv, am33_get_register (serv, pid, SP_REGNUM)),
-				&bp_inst, sizeof (bp_inst), NULL);
-      
-	  }
-	else if (opcode == 0xfd)
-	  {
-	    /* rti */
-	    set_singlestep_breakpoint (
-	      serv,
-	      am33_read_disp32 (serv,
-				am33_get_register (serv, pid, SP_REGNUM) + 4),
-	      &bp_inst, sizeof (bp_inst), NULL);
-
-	  }
-	else 
-	  set_singlestep_breakpoint (serv, pc + 2, &bp_inst, sizeof (bp_inst),
-	                             NULL);
-
-	break;
-
-      case 0xf8:
-	/*
-	 *  Some branching 3-byte instructions.
-	 */
-	opcode = am33_read_byte (serv, pc + 1);
-	if (opcode >= 0xe8 && opcode <= 0xeb)
-	  {
-	    displ = (signed char) am33_read_byte (serv, pc + 2);
-	    set_singlestep_breakpoint (serv, pc + 3, &bp_inst, sizeof (bp_inst),
-	                               NULL);
-	    if (displ < 0 || displ > 3)
-	      set_singlestep_breakpoint (serv, pc + displ,
-					 &bp_inst, sizeof (bp_inst), NULL);
-      
-	  }
-	else
-	  set_singlestep_breakpoint (serv, pc + 3, &bp_inst, sizeof (bp_inst),
-	                             NULL);
-	break;
-
-      case 0xfa:
-	opcode = am33_read_byte (serv, pc + 1);
-	if (opcode == 0xff)
-	  {
-	    /* calls (d16,PC) */
-	    displ = am33_read_disp16 (serv, pc + 2);
-	    set_singlestep_breakpoint (serv, pc + displ,
-				       &bp_inst, sizeof (bp_inst), NULL);
-	  }
-	else
-	  set_singlestep_breakpoint (serv, pc + 4, &bp_inst, sizeof (bp_inst),
-	                             NULL);
-	break;
-
-      case 0xfc:
-	opcode = am33_read_byte (serv, pc + 1);
-	if (opcode == 0xff)
-	  {
-	    /* calls (d32,PC) */
-	    displ = am33_read_disp32 (serv, pc + 2);
-	    set_singlestep_breakpoint (serv, pc + displ,
-	                               &bp_inst, sizeof (bp_inst), NULL);
-	  }
-	else
-	  set_singlestep_breakpoint (serv, pc + 6,
-	                             &bp_inst, sizeof (bp_inst), NULL);
-	break;
-
-    }
-
-  if (process->debug_backend)
-    fprintf (stderr, "PTRACE_CONT (am33): pid=%d signal=%d\n", pid, sig);
-  errno = 0;
-  ptrace (PTRACE_CONT, pid, 0, sig); 
-  if (errno)
-    fprintf (stderr, "PTRACE_CONT (am33) error: %s in %d\n",
-	     strerror (errno), pid);
-
-  /* Restore the saved pid.  */
-  process->pid = save_pid;
-}
-#endif
 
 /* proc_service callback functions */
 

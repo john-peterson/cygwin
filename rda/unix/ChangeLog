@@ -1,413 +1,110 @@
-2012-06-14  Kevin Buettner  <kevinb@redhat.com>
+2004-10-26  Jim Blandy  <jimb@redhat.com>
 
-	* lwp-pool.c (struct lwp): Add new field `disabled'.
-	(empty_lwp_slot): New static global.
-	(hash_empty_slot, resize_hash, lwp_pool_stop_all)
-	(lwp_pool_continue_all, clear_all_do_step_flags)
-	(hash_find): Rename to hash_find_1.  Add parameter `create_p'.
-	Initialize `disabled' field.
-	(hash_find, hash_find_no_create, lwp_pool_disable_lwp)
-	(lwp_pool_enable_lwp): New functions.
-	(hash_delete): Revise method used for deleting a slot from
-	the hash table.
-	(lwp_pool_continue_all): Don't continue disabled LWPs.
-	(lwp_pool_continue_lwp): Print a warning instead of an error, and
-	then only when LWP Pool diagnostics are enabled when attempting
-	to continue a LWP with the state of
-	lwp_state_stopped_stop_pending_interesting.
-	* lwp-pool.h (lwp_pool_disable_lwp, lwp_pool_enable_lwp): Declare.
-	* thread-db.c (find_new_threads_callback): Adjust thread
-	deletion / reuse message.
-	(update_thread_list): Disable continuation of zombie threads.
-	(thread_db_break_program): Enable diagnostic message for "monitor
-	thread-db-noisy".  Use kill_lwp() instead of kill().
-	(thread_db_check_child_state): Don't stop on signals from zombie
-	threads.
-
-2011-11-30  Kevin Buettner  <kevinb@redhat.com>
-
-	* thread-db.c (TID_MAY_BE_REUSED): Define.
-	(find_new_threads_callback): Detect thread id reuse.
-
-2010-10-14  Kevin Buettner  <kevinb@redhat.com>
-
-	* lwp-pool.c (hash_find): Initialize `do_step' in the newly allocated
-	lwp struct.
-
-2009-11-30  Kevin Buettner  <kevinb@redhat.com>
-
-	* diagnostics.h, diagnostics.c (print_sigint_message): New function.
-	* linux-target.c (linux_process_rcmd): Add monitor commands
-	"interrupt-with-SIGSTOP and interrupt-with-SIGINT".
-	* server.h (struct child_process): Add new field
-	interrupt_with_SIGSTOP.
-	* thread-db.c (thread_db_break_program): Interrupt using either
-	SIGSTOP or SIGINT depending upon user's preference.
-
-2009-11-23  Kevin Buettner  <kevinb@redhat.com>
-
-	* ptrace-target.c (syscall.h): Include.
-
-2007-04-09  Kevin Buettner  <kevinb@redhat.com>
-
-	* linux-target.c (NUM_REGS)[FRV_LINUX_TARGET]: Update.
-	(frv_read_only_register): New function.
-	(reginfo)[FRV_LINUX_TARGET]: Mark as read-only.
-
-2006-10-03  Kevin Buettner  <kevinb@redhat.com>
-
-	* server.h (struct ss_save): Add new field ``restore_action''.
-	* ptrace-target.c (handle_waitstatus): Invoke ``restore_action''.
-	* linux-target.c (LIR_REGNUM) [AM33_2_0_LINUX_TARGET]: Define.
-	(set_singlestep_breakpoint): Add ``restore_action'' parameter.
-	Fix all callers.
-	(am33_set_register, am33_restore_lir): New functions.
-	(am33_opcode_size): Change size of LIW instruction(s) to 0 so
-	that these will be handled explicitly in am33_singlestep.
-	(am33_singlestep): Handle LIW instructions.  Revise manner in
-	which Lcc and SETLB instructions are handled.
-
-2006-03-16  Kevin Buettner  <kevinb@redhat.com>
-
-	* server.c (main): Change polling interval for gdbloop_poll()
-	from one second to ten milliseconds.
-
-2005-12-07  Kevin Buettner  <kevinb@redhat.com>
-
-	* ptrace-target.c (ptrace_compute_signal, ptrace_process_signal):
-	Use __SIGRTMIN in place of SIGRTMIN.  Use __SIGRTMAX in place of
-	SIGRTMAX.
-	(ptrace_compute_signal): Consolidate logic which computes return
-	value.
-
-2005-12-07  Kevin Buettner  <kevinb@redhat.com>
-
-	* Makefile.am (EXTRA_rda_SOURCES): Add diagnostics.c.
-	* configure.in (TARGET_MODULES): Add diagnostics.o.
-	* Makefile.in, configure: Regenerate.
-	* diagnostics.c: New file.
-	* diagnostics.h (output_O_packet, print_sigstop_message): New
-	functions.
-	* ptrace-target.c (diagnostics.h): Include.
-	(ptrace_break_program): Call print_sigstop_message().
-	* thread_db.c (thread_db_break_program): Likewise.
-
-2005-12-02  Kevin Buettner  <kevinb@redhat.com>
-
-	* ptrace-target.c (ptrace_break_program): Use SIGSTOP instead of
-	SIGINT to interrupt inferior process.
-	* thread-db.c (thread_db_break_program): Likewise.
-
-2005-12-01  Kevin Buettner  <kevinb@redhat.com>
-
-	* thread-db.c (handle_thread_db_event): Allow underlying target a
-	chance to look at the wait status too.
-	(thread_db_check_child_state): Ensure that there's a thread list
-	to work with when using the thread_db event model.
-
-2005-12-01  Kevin Buettner  <kevinb@redhat.com>
-
-	* linux-target.c (reginfo) [AM33_2_0_LINUX_TARGET]: Don't use
-	``sizeof (greg_t)'' due to this type not being defined any longer
-	in the headers that linux-target includes.
-
-2005-11-11  Kevin Buettner  <kevinb@redhat.com>
-
-	* lwp-pool.c (clear_all_do_step_flags): New function.
-	(lwp_pool_singlestep_lwp): Use it.
-
-2005-11-10  Kevin Buettner  <kevinb@redhat.com>
-
-	* lwp-pool.c (mark_lwp_as_dead_but_interesting): New function.
-	(wait_and_handle): Replace lines of code implementing guts of
-	new function mark_lwp_as_dead_but_interesting() with call to
-	that function.  Make a new call to this function after it
-	has been determined that an lwp has exited without leaving a
-	status.
-
-2005-11-08  Kevin Buettner  <kevinb@redhat.com>
-
-	* lwp-pool.c (struct lwp): Add new member `do_step'.
-	(wait_and_handle): Clear `do_step' when a SIGTRAP is received.
-	(continue_or_step_lwp): New function.
-	(lwp_pool_continue_all, lwp_pool_continue_lwp): Call
-	continue_or_step_lwp() instead of continue_lwp().
-	(lwp_singlestep_lwp): Set `do_step' after a successful call to
-	singlestep_lwp().
-
-2005-11-08  Kevin Buettner  <kevinb@redhat.com>
-
-	* linux-target.c (am33_singlestep_okay): Use `pid', not
-	`process->pid' when reading and writing memory since the
-	latter may refer to an already running thread.
-
-2005-11-08  Kevin Buettner  <kevinb@redhat.com>
-
-	* diagnostics.h: New file.
-	* gdbserv-thread-db.h (debug_get_pc): Move declaration to new
-	file diagnostics.h.
-	* linux-target.c (diagnostics.h): Include.
-	(linux_process_rcmd): Add new monitor commands "lwp-pool-noisy",
-	"lwp-pool-quiet", "all-noisy", and "all-quiet".  Delete monitor
-	commands "proc-service-noisy" and "proc-service-quiet".
-	* lwp-pool.c (diagnostics.h): Include.
-	(debug_lwp_pool): Remove `static' qualifier.
-	(debug_report_state_change):  Add code for printing out the PC value
-	at which program stopped.
-	(debug_report_state_change, wait_and_handle, check_stop_pending)
-	(lwp_pool_waitpid, lwp_pool_stop_all, lwp_pool_continue_all)
-	(lwp_pool_continue_lwp, lwp_pool_attach): Add `serv' argument.  Fix
-	all callers.
-	* lwp-pool.h (lwp_pool_attach, lwp_pool_waitpid, lwp_pool_stop_all)
-	(lwp_pool_continue_all, lwp_pool_continue_lwp): Add `serv' argument.
-	(lwp_pool_singlestep_lwp): Revise comment regarding consistency of
-	not passing `serv' parameter.
-	* thread-db.c (diagnostics.h): Include.
-	(proc_service_noisy): Delete this unused global.
-	(attach_thread, continue_thread): Add `serv' parameter.  Fix all
-	callers.
-	(update_thread_list, thread_db_singlestep_program): Add diagnostic
-	messages.
-
-2005-11-04  Kevin Buettner  <kevinb@redhat.com>
-
-	* thread-db.c (ALWAYS_UPDATE_THREAD_LIST): Define to be 0.
-	(handle_thread_db_event): Update thread list upon receipt of
-	TD_CREATE or TD_DEATH events.
-	(thread_db_check_child_state): Potentially disable, depending upon
-	value of ALWAYS_UPDATE_THREAD_LIST, the thread list update.
-	(thread_db_check_child_state): Update thread list for signal based
-	event model too.
-
-2005-08-23  Kevin Buettner  <kevinb@redhat.com>
-
-	* configure.in (am33_2.0*linux*): New target.
-	* Makefile.in: Regenerate.
-	* aclocal.m4: Regenerate.
-	* config.in: Regenerate.
-	* configure: Regenerate.
-	* gdbserv-thread-db.h (mips_singlestep): Change return type to
-	``void''.
-	(am33_singlestep): New declaration.
-	* linux-target.c [AM33_2_0_LINUX_TARGET]
-	(GETREGS_SETREGS_REGINFO, SOFTWARE_SINGLESTEP, PC_REGNUM, A0_REGNUM)
-	(A1_REGNUM, A2_REGNUM, A3_REGNUM, LAR_REGNUM, MDR_REGNUM, SP_REGNUM)
-	(NUM_REGS, sign_extend): Define.
-	(PT_A3, PT_A2, PT_D3, PT_D2, PT_MCVF, PT_MCRL, PT_MCRH, PT_MDRQ)
-	(PT_E1, PT_E0, PT_E7, PT_E6, PT_E5, PT_E4, PT_E3, PT_E2, PT_SP)
-	(PT_LAR, PT_LIR, PT_MDR, PT_A1, PT_A0, PT_D1, PT_D0, PT_ORIG_D0)
-	(PT_EPSW, PT_PC): Define.
-	(reginfo): New table.
-	(stock_table_to_am33, am33_table_to_stock, stock_bp_to_am33)
-	(am33_bp_to_stock, am33_make_bp_table, am33_set_bp, am33_delete_bp)
-	(am33_bp_hit_p, am33_make_arch): New functions.
-	(MAKE_ARCH): Define.
-	(am33_singlestep_program, am33_read_byte, am33_read_disp16)
-	(am33_read_disp32, am33_get_register, am33_get_areg, am33_singlestep):
-	New functions.
-	(am33_opcode_size): New table.
-	[MIPS_LINUX_TARGET | MIPS64_LINUX_TARGET] (SOFTWARE_SINGLESTEP):
-	Define.
-	(linux_attach): Set am33 specific ``singlestep_program''.  Revise
-	proprocessor condition upon which ``is_ss'' is set.
-	[SOFTWARE_SINGLESTEP] (set_singlestep_breakpoint): New function.
-	(mips_get_reg, mips_poke_instruction): Delete.
-	(mips_singlestep): Adjust return type.  Use set_singlestep_breakpoint()
-	where appropriate.
-	* ptrace-target.c (handle_waitstatus): Adjust call to ptrace_set_mem()
-	to account for different type of singlestep breakpoint shadow value.
-	Also, pass the stored breakpoint size.  Add diagnostics.
-	(ptrace_attach): Add AM33_2_0_LINUX_TARGET to list of targets needing
-	to clear ``is_ss''.
-	(singlestep_lwp): Add code to call am33 specific singlestep code.
-	* server.h (struct ss_save): Add AM33_2_0_LINUX_TARGET to the list
-	of preprocessor conditions which declare this struct.  Revise type
-	of ``ss_val'' from ``int'' to a ``char'' array.  Add new field
-	``ss_size''.
-	(struct child_process): Define fields ``is_ss'' and ``ss_info'' for
-	AM33_2_0_LINUX_TARGET.
-
-2005-08-23  Kevin Buettner  <kevinb@redhat.com>
-
-	* gdbserv-thread-db.h (proc_service_noisy): Declare.
-	* linux-target.c (linux_process_rcmd): Add "monitor" commands
-	for enabling and disabling various types of diagnostic messages.
-	Delete old "monitor 1" and "monitor 0" commands for enabling /
-	disabling just the back-end diagnostics.
-	(decr_pc_after_break): Delete extern declaration for
-	``thread_db_noisy''.
-
-2005-06-27  Jim Blandy  <jimb@redhat.com>
-
-	Add support for the Linux NPTL (New POSIX Thread Library) thread
-	implementation.
-	* arch.h, lwp-pool.c, lwp-pool.h, stock-breakpoints.c:
-	* stock-breakpoints.h: New files.
-	* gdbserv-thread-db.h (continue_lwp, singlestep_lwp, attach_lwp)
-	(stop_lwp): Move these ...
-	* lwp-ctrl.h: ... to here (new file).
-	* server.h (struct child_process): Include a pointer to the
-	architecture object, a breakpoint table, and a pointer to the
-	"focus thread".
-	* linux-target.c: Create architecture objects for the i386 and
-	FRV, and describe breakpoints for those architectures.
-	#include "arch.h".
-	[STOCK_BREAKPOINTS]: #include "stock-breakpoints.h".
+	Add an architecture object to the Unix server.
+	* arch.h: New header file.
+	* server.h (struct arch): New forward struct declaration.
+	(struct child_process): Add an 'arch' member to the process.
+	* thread-db.c: #include arch.h.
+	* linux-target.c: #include arch.h.
 	(allocate_empty_arch): New function.
-	[X86_LINUX_TARGET] (stock_table_to_x86, x86_table_to_stock)
-	(stock_bp_to_x86, x86_bp_to_stock, x86_make_bp_table, x86_set_bp)
-	(x86_delete_bp, x86_bp_hit_p, x86_make_arch): New functions.
-	(MAKE_ARCH): #define to call x86_make_arch.
-	[X86_LINUX_TARGET] (stock_table_to_frv, frv_table_to_stock)
-	(stock_bp_to_frv, frv_bp_to_stock, frv_make_bp_table, frv_set_bp)
-	(frv_delete_bp, frv_bp_hit_p, frv_make_arch): New functions.
-	(MAKE_ARCH): #define to call frv_make_arch.
-	(linux_attach): If MAKE_ARCH is #defined, create an architecture
-	object for this process.  And if we have an architecture object,
-	make a breakpoint table.
-	* thread-db.c: #include <assert.h>, "arch.h", "lwp-ctrl.h", and
-	"lwp-pool.h".
-	(struct gdbserv_thread): Remove state-tracking flags 'attached',
-	'stopped', 'waited', and 'stepping'; all that state is handled
-	inside lwp-pool.c now.
-	(add_thread_to_list): Zero the entire newly allocated thread
-	structure.
-	(thread_list_lookup_by_lid): Prefer threads whose ti_lid values 
-	are different from that of the main process.
-	(thread_db_state_str, thread_db_type_str): Don't include
-	formatting spaces here.
+	(x86_make_arch): New function.
+	(MAKE_ARCH): New #definition.
+	(linux_attach): Initialize process's architecture.
+
+	Provide arch-independent framework for breakpoints.
+	* server.h (struct arch_bp_table): New forward struct declaration.
+	(struct child_process): New member: 'breakpoint_table'.
+	* linux-target.c (linux_attach): Initialize process's breakpoint
+	table, if the architecture defines a breakpoint table constructor.
+	* arch.h (struct arch): Add fields pointing to breakpoint functions.
+
+	Provide a module implementing breakpoints for architectures that
+	support a simple software breakpoint model ("patch these bytes
+	into the instruction stream").
+	* stock-breakpoints.h, stock-breakpoints.c: New files.
+	* linux-target.c: If STOCK_BREAKPOINTS is #defined, then #include
+	"stock-breakpoints.h".
+	* Makefile.am (EXTRA_rda_SOURCES): Add stock-breakpoints.c.
+	* Makefile.in: Updated.
+
+	Define x86 breakpoint functions using the stock-breakpoints.c
+	model.
+	* configure.in: When configuring for an x86 target, include
+	stock-breakpoints.o in the mix, and #define STOCK_BREAKPOINTS.
+	* configure: Regenerated.
+	* config.in (STOCK_BREAKPOINTS): Provide #definition template.
+	* linux-target.c (stock_table_to_x86, x86_table_to_stock,
+	stock_bp_to_x86, x86_bp_to_stock, x86_make_bp_table, x86_set_bp,
+	x86_delete_bp, x86_bp_hit_p): New functions.
+	(x86_make_arch): Register the latter four as our breakpoint
+	methods.
+
+	Use the libthread_db event interface to communicate with the
+	thread library, if the old signal-based interface is not
+	supported.
+	* thread-db.c: #include <assert.h>.
 	(thread_db_event_str): New function.
-	(thread_debug_name): New function.
-	(get_thread_signals): Return a value indicating success or failure.
-	(ignore_thread_signal): New function.
-	(using_thread_db_events, create_notification, death_notification)
+	(get_target_int_by_name, set_target_int_by_name, get_thread_signals)
+	(cancel_signal, restart_signal, debug_signal): Move these to just
+	before thread_db_dlopen; get_thread_signals is a subroutine of that.
+	(using_thread_db_events, create_notification, death_notification,
+	create_event_breakpoint, death_event_breakpoint): New global vars.
 	(get_event_notification, set_event_breakpoint)
 	(insert_thread_db_event_breakpoints)
 	(delete_thread_db_event_breakpoints, request_thread_db_events)
-	(hit_thread_db_event_breakpoint, handle_thread_db_event): New
-	variables and functions, for using libthread_db's event interface.
-	(thread_db_open): Gather error-handling code next to the operation
-	that might fail.  Decide here whether to use the signal-based
-	debugging interface, or the event-based debugging interface.
-	(stop_thread, stop_all_threads, struct event_list, pending_events)
-	(pending_events_listsize, pending_events_top, add_pending_event)
-	(select_pending_event, send_pending_signals, wait_all_threads):
-	Deleted; we now use lwp-pool.c for all this.
-	(attach_thread, continue_thread, continue_all_threads)
-	(singlestep_thread, thread_db_singlestep_program)
-	(thread_db_continue_thread, thread_db_singlestep_thread): Use the
-	lwp-pool.c functions, instead of calling the lwp manipulation
-	functions directly and managing state here.  Keep track of the
-	focus thread.
-	(find_new_threads_callback): Always call attach_thread.  If we're
-	using libthread_db events, enable event reporting for the new
-	thread.
-	(update_thread_list): Take the current child process as an
-	argument; if the current focus thread disappears, clear the
-	process's focus_thread pointer.
-	(thread_db_thread_next): Pass the current child process to
-	update_thread_list.
-	(thread_db_thread_info): Reformat thread descriptions.  Mark
-	threads whose pid is equal to the process ID.
-	(thread_db_check_child_state): Use the lwp-pool functions, instead
-	of calling waitpid and the old stop-all-threads functions.  If we
-	have a focus thread, only check for a status on that thread.
-	Check for libthread_db events.  Use ignore_thread_signal, instead
-	of writing it out.
-	(thread_db_break_program): New function.
-	(thread_db_attach): Register it as the target's 'break_program'
-	method.  Always preload the symbol list with the names we'll need
-	for the signal-based interface, even if we have td_symbol_list.
-	Use lwp_pool_new_stopped to register the initial thread.  Clear
-	the focus thread.
-	* ptrace-target.c: #define _GNU_SOURCE and #include <sys/types.h>
-	and <linux/unistd.h>, to get declarations for the functions we
-	need.
-	#include "lwp-ctrl.h".
-	(continue_lwp, singlestep_lwp, attach_lwp): Remove
-	unnecessary 'extern' keywords.  Move pre-function comments to
-	lwp-ctrl.h.  Take an ordinary 'pid_t', not an 'lwpid_t', since
-	we're calling ptrace / tkill, and that's what they expect; rename
-	arguments accordingly.  Preserve value of errno across calls to
-	fprintf when reporting errors.
-	(kill_lwp): All the above, and use tkill system call if available.
-	* configure.in: Whenever we include thread-db.o in TARGET_MODULES,
-	also include lwp-pool.o.
-	On i386 and FRV Linux, use the stock-breakpoints module.
-	* config.in: Add template for STOCK_BREAKPOINTS.
-	* Makefile.am (EXTRA_rda_SOURCES): Include stock-breakpoints.c.
-	* Makefile.in, aclocal.m4, configure: Regenerated.
+	(hit_thread_db_event_breakpoint): New functions.
+	(thread_db_open): Call get_thread_signals, and if that fails, call
+	request_thread_db_events.
+	(struct event_list): Add 'thread_db_event' member.
+	(add_pending_event): Initialize it.
+	(delete_pending_event, handle_thread_db_events): New functions.
+	(find_new_threads_callback): If we're using the event interface,
+	enable event reporting on each new thread we find.
+	(select_pending_event): Return a value to indicate whether we
+	selected any event at all.
+	(continue_all_threads): Send a restart signal only if we're using
+	the signal-based interface.
+	(thread_db_check_child_state): If we're using the libthread_db
+	event interface to communicate with the inferior thread library,
+	check for those events here.  If select_pending_event says it
+	didn't find anything interesting, that means we consumed all the
+	reportable events; continue the program silently.
+	* ptrace-target.c: #include <sys/types.h> and <linux/unistd.h>.
+	(tkill): Generate code for this syscall.
+	(stop_lwp): Use tkill instead of kill.
 
-2005-03-11  Jim Blandy  <jimb@redhat.com>
+	* thread-db.c (thread_db_check_child_state): Call stop_all_threads
+	before calling update_thread_list, so RDA will have to compete for
+	CPU with fewer running threads.
+	
+	* thread-db.c (wait_all_threads): Move calls to
+	select_pending_event and send_pending_signals from here...
+	(thread_db_check_child_state): To here.
 
-	* linux-target.c (linux_get_reg) [GETREGS_SETREGS_REGINFO]: In the
-	NOREGS case, check that reginfo doesn't specify an offset outside
-	our zeroed buffer.
+	* thread-db.c (ignore_thread_signal): New function.
+	(thread_db_check_child_state): Call it, instead of writing it out.
 
-2005-03-10  Jim Blandy  <jimb@redhat.com>
+	* thread-db.c (thread_db_open): Return 0 on success, -1 on
+	failure, like most of the other int-valued functions in this file,
+	and like most system calls.
 
-	Compile with no warnings.
-	* Makefile.am (AM_CFLAGS): Compile with -Wall.
-	* Makefile.in: Regenerated.
-	* gdbserv-thread-db.h (stop_lwp, handle_waitstatus, ps_pdread,
-	ps_pdwrite): Add declarations for these functions to
-	gdbserv-thread-db.h.
-	* linux-target.c: #include <string.h>, <sys/types.h>, and
-	<sys/wait.h> to get declarations for system functions used in this
-	file.
-	(linux_get_reg): When register REGNO doesn't exist, provide zeros
-	for its value; don't use an uninitialized pointer.
-	(linux_set_reg): Delete unused variables.
-	(decr_pc_after_break): Fix printf format directive to match
-	arguments.
-	* ptrace-target.c (ptrace_read_user, ptrace_check_child_state,
-	ptrace_attach): Delete unused variables.
-	(ptrace_singlestep_program, ptrace_continue_program): Fix printf
-	format directive to match arguments.
-	* server.c (invalid_speed): Same.
-	(main): Initialize infd, outfd, and speed.
-	(tty_raw): Use proper name for speed_t "zero baud" value.
-	* thread-db.c: #include <string.h> and "gdbserv-utils.h", to get
-	declarations for functions used in this file.
-	(thread_db_open, wait_all_threads) 
-	(thread_db_check_child_state, thread_db_get_thread_reg) 
-	(thread_db_set_thread_reg): Fix printf format directive to match
-	arguments.
-	(continue_thread, thread_db_get_thread_reg, continue_all_threads,
-	thread_db_attach): Delete unused variables.
+	* thread-db.c (struct gdbserv_thread): Doc fixes.
 
-	* Makefile.in, aclocal.m4: Regenerated with automake 1.9.4.
+	* thread-db.c: #include "gdbserv-utils.h", to get prototypes for
+	the 'struct gdbserv_reg' manipulation functions.
+	
+	* thread-db.c (thread_db_noisy): Initialize to 1.
 
-	Make config.in generated automatically again.
-	* configure.in: Provide descriptions for all the preprocessor
-	symbols we define.
-	* configure: Regenerated.
-	* config.in: Regenerated using autoheader.
+	* thread-db.c (thread_debug_name): New function.
+	(find_new_threads_callback): If noisy, report new threads.
+	(stop_thread): If noisy, report stopping threads.
+	(select_pending_event): If noisy, report what we selected.
+	(wait_all_threads): If noisy, report before each thread we wait
+	for.
 
-	* linux-target.c (frv_fdpic_loadmap_addresses): Use '%lx' for
-	unsigned long argument.
-
-2005-02-08  Kevin Buettner  <kevinb@redhat.com
-
-	* thread-db.c (td_thr_tls_get_addr_p): New static global.
-	(thread_db_dlopen): Initialize ``td_thr_tls_get_addr_p''.
-	(thread_db_get_gen): Add support for qGetTLSAddr packet.
-
-2004-12-13  Kevin Buettner  <kevinb@redhat.com>
-
-	* thread-db.c (thread_db_get_thread_reg): Don't allow a successful
-	return without first initializing ``reg''.
-	(thread_db_set_thread_reg): Remove code intended to for
-	thread_db_get_thread_reg().
-
-2004-12-09  Jim Blandy  <jimb@redhat.com>
-
-	* aclocal.m4, configure: Regenerated.
-
-2004-11-18  Kevin Buettner  <kevinb@redhat.com>
-
-	* thread-db.c (thread_db_set_thread_reg): Don't allow a successful
-	return without first initializing ``reg''.
+	* thread-db.c (stop_all_threads): Doc fixes.
+	
+	* aclocal.m4: Regenerated.
 
 2004-10-20  Jim Blandy  <jimb@redhat.com>
 

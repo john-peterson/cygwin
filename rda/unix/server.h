@@ -24,7 +24,7 @@
 
 /* Shared definitions for an RDA based native gdb server.  */
 
-#if defined(_MIPSEL) || defined(_MIPSEB) || defined(AM33_2_0_LINUX_TARGET)
+#if defined(_MIPSEL) || defined(_MIPSEB)
 /*
  * We single-step by setting breakpoints. When an exception
  * is handled, we need to restore the previous instructions
@@ -35,12 +35,7 @@
 struct ss_save {
 	int in_use;
 	struct gdbserv_reg ss_addr;
-	char ss_val[8];
-	int ss_size;
-	/* Additional actions that need to be taken after restoring certain
-	   singlestep breakpoints.  This will be NULL if no action other
-	   than the default is required.  */
-	void (*restore_action) (struct gdbserv *serv, struct ss_save *save);
+        unsigned int ss_val;
 };
 #endif
 
@@ -56,23 +51,15 @@ struct child_process {
   char *executable;
   char **argv;
   int  pid;
-
-  /* The last thread we reported an event for.  */
   struct gdbserv_thread *event_thread;
-
-  /* If the client continues or single-steps a single thread, leaving
-     the rest of the program stopped, this is that thread.  */
-  struct gdbserv_thread *focus_thread;
-
   int  stop_status;
   int  stop_signal;
   long signal_to_send;
   int  debug_backend;
   int  debug_informational;
-  int  interrupt_with_SIGSTOP;
   int  running;
   
-#if defined(_MIPSEL) || defined(_MIPSEB) || defined(AM33_2_0_LINUX_TARGET)
+#if defined(_MIPSEL) || defined(_MIPSEB)
    int  is_ss;                 /* we are single stepping */
    struct ss_save ss_info[2];  /* single stepping saved information */
 #endif
