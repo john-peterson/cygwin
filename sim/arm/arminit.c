@@ -3,7 +3,7 @@
  
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
  
     This program is distributed in the hope that it will be useful,
@@ -12,9 +12,8 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>. */
-
-#include <string.h>
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
 #include "armdefs.h"
 #include "armemu.h"
@@ -130,7 +129,6 @@ ARMul_NewState (void)
   state->is_v5e = LOW;
   state->is_XScale = LOW;
   state->is_iWMMXt = LOW;
-  state->is_v6 = LOW;
 
   ARMul_Reset (state);
 
@@ -163,7 +161,6 @@ ARMul_SelectProcessor (ARMul_State * state, unsigned properties)
   state->is_XScale = (properties & ARM_XScale_Prop) ? HIGH : LOW;
   state->is_iWMMXt = (properties & ARM_iWMMXt_Prop) ? HIGH : LOW;
   state->is_ep9312 = (properties & ARM_ep9312_Prop) ? HIGH : LOW;
-  state->is_v6 = (properties & ARM_v6_Prop) ? HIGH : LOW;
 
   /* Only initialse the coprocessor support once we
      know what kind of chip we are dealing with.  */

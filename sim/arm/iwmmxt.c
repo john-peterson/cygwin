@@ -1,21 +1,20 @@
 /*  iwmmxt.c -- Intel(r) Wireless MMX(tm) technology co-processor interface.
-    Copyright (C) 2002-2013 Free Software Foundation, Inc.
+    Copyright (C) 2002 Free Software Foundation, Inc.
     Contributed by matthew green (mrg@redhat.com).
  
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
-
+ 
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
-
+ 
     You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>. */
-
-#include <string.h>
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
 #include "armdefs.h"
 #include "armos.h"
@@ -1743,12 +1742,11 @@ WCMPGT (ARMul_State * state, ARMword instr)
 	    {
 	      signed long a, b;
 
-	      a = EXTEND32 (wRWORD (BITS (16, 19), i));
-	      b = EXTEND32 (wRWORD (BITS (0, 3), i));
+	      a = wRWORD (BITS (16, 19), i);
+	      b = wRWORD (BITS (0, 3), i);
 
 	      s = (a > b) ? 0xffffffff : 0;
 	      r |= s << (i * 32);
-
 	      SIMD32_SET (psr, NBIT32 (s), SIMD_NBIT, i);
 	      SIMD32_SET (psr, ZBIT32 (s), SIMD_ZBIT, i);
 	    }
@@ -2116,7 +2114,7 @@ WMAC (ARMword instr)
 
 	  s = (signed long) a * (signed long) b;
 
-	  t = t + (ARMdword) s;
+	  (signed long long) t += s;
         }
       else
         {
@@ -2128,15 +2126,13 @@ WMAC (ARMword instr)
         }
     }
 
-  if (BIT (21))
-    t = EXTEND32 (t);
-  else
-    t &= 0xffffffff;
-
   if (BIT (20))
-    wR [BITS (12, 15)] = t;
+    wR [BITS (12, 15)] = 0;
+
+  if (BIT (21))	/* Signed.  */
+    (signed long long) wR[BITS (12, 15)] += (signed long long) t;
   else
-    wR[BITS (12, 15)] += t;
+    wR [BITS (12, 15)] += t;
 
   wC [wCon] |= WCON_MUP;
 
@@ -2170,7 +2166,7 @@ WMADD (ARMword instr)
 	  b = wRHALF (BITS (0, 3), i * 2);
 	  b = EXTEND16 (b);
 
-	  s1 = (ARMdword) (a * b);
+	  (signed long) s1 = a * b;
 
 	  a = wRHALF (BITS (16, 19), i * 2 + 1);
 	  a = EXTEND16 (a);
@@ -2178,7 +2174,7 @@ WMADD (ARMword instr)
 	  b = wRHALF (BITS (0, 3), i * 2 + 1);
 	  b = EXTEND16 (b);
 
-	  s2 = (ARMdword) (a * b);
+	  (signed long) s2 = a * b;
         }
       else			/* Unsigned.  */
         {
@@ -2187,12 +2183,12 @@ WMADD (ARMword instr)
 	  a = wRHALF (BITS (16, 19), i * 2);
 	  b = wRHALF (BITS ( 0,  3), i * 2);
 
-	  s1 = (ARMdword) (a * b);
+	  (unsigned long) s1 = a * b;
 
 	  a = wRHALF (BITS (16, 19), i * 2 + 1);
 	  b = wRHALF (BITS ( 0,  3), i * 2 + 1);
 
-	  s2 = (ARMdword) a * b;
+	  (signed long) s2 = a * b;
         }
 
       r |= (ARMdword) ((s1 + s2) & 0xffffffff) << (i ? 32 : 0);
@@ -2841,7 +2837,7 @@ WSLL (ARMul_State * state, ARMword instr)
       if (shift > 63)
 	r = 0;
       else
-	r = ((wR[BITS (16, 19)] & 0xffffffffffffffffULL) << shift);
+	r = ((wR[BITS (16, 19)] & 0xffffffffffffffff) << shift);
 
       SIMD64_SET (psr, NBIT64 (r), SIMD_NBIT);
       SIMD64_SET (psr, ZBIT64 (r), SIMD_ZBIT);
@@ -2906,7 +2902,7 @@ WSRA (ARMul_State * state, ARMword instr)
 	    t = (wRWORD (BITS (16, 19), i) & 0x80000000) ? 0xffffffff : 0;
 	  else
 	    {
-	      t = EXTEND32 (wRWORD (BITS (16, 19), i));
+	      t = wRWORD (BITS (16, 19), i);
 	      t >>= shift;
 	    }
 	  s = t;
@@ -2918,9 +2914,9 @@ WSRA (ARMul_State * state, ARMword instr)
       
     case Dqual:
       if (shift > 63)
-	r = (wR [BITS (16, 19)] & 0x8000000000000000ULL) ? 0xffffffffffffffffULL : 0;
+	r = (wR [BITS (16, 19)] & 0x8000000000000000) ? 0xffffffffffffffff : 0;
       else
-	r = ((signed long long) (wR[BITS (16, 19)] & 0xffffffffffffffffULL) >> shift);
+	r = ((signed long long) (wR[BITS (16, 19)] & 0xffffffffffffffff) >> shift);
       SIMD64_SET (psr, NBIT64 (r), SIMD_NBIT);
       SIMD64_SET (psr, ZBIT64 (r), SIMD_ZBIT);
       break;
@@ -2989,7 +2985,7 @@ WSRL (ARMul_State * state, ARMword instr)
       if (shift > 63)
 	r = 0;
       else
-	r = (wR [BITS (16, 19)] & 0xffffffffffffffffULL) >> shift;
+	r = (wR [BITS (16, 19)] & 0xffffffffffffffff) >> shift;
 
       SIMD64_SET (psr, NBIT64 (r), SIMD_NBIT);
       SIMD64_SET (psr, ZBIT64 (r), SIMD_ZBIT);
@@ -3291,7 +3287,7 @@ WUNPCKEH (ARMul_State * state, ARMword instr)
       r = wRWORD (BITS (16, 19), 1);
 
       if (BIT (21) && NBIT32 (r))
-	r |= 0xffffffff00000000ULL;
+	r |= 0xffffffff00000000;
 
       SIMD64_SET (psr, NBIT64 (r), SIMD_NBIT);
       SIMD64_SET (psr, ZBIT64 (r), SIMD_ZBIT);
@@ -3358,7 +3354,7 @@ WUNPCKEL (ARMul_State * state, ARMword instr)
       r = wRWORD (BITS (16, 19), 0);
 
       if (BIT (21) && NBIT32 (r))
-	r |= 0xffffffff00000000ULL;
+	r |= 0xffffffff00000000;
 
       SIMD64_SET (psr, NBIT64 (r), SIMD_NBIT);
       SIMD64_SET (psr, ZBIT64 (r), SIMD_ZBIT);

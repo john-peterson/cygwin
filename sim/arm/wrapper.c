@@ -1,26 +1,28 @@
 /* run front end support for arm
-   Copyright (C) 1995-2013 Free Software Foundation, Inc.
+   Copyright (C) 1995, 1996, 1997, 2000, 2001, 2002
+   Free Software Foundation, Inc.
 
    This file is part of ARM SIM.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   GCC is free software; you can redistribute it and/or modify it
+   under the terms of the GNU General Public License as published
+   by the Free Software Foundation; either version 2, or (at your
+   option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   GCC is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.   See
+   the GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   You should have received a copy of the GNU General Public
+   License along with this program; if not, write to the Free
+   Software Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 /* This file provides the interface between the simulator and
    run.c and gdb (when the simulator is linked with gdb).
    All simulator interaction should go through this file.  */
 
-#include "config.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -35,8 +37,6 @@
 #include "sim-utils.h"
 #include "run-sim.h"
 #include "gdb/sim-arm.h"
-#include "gdb/signals.h"
-#include "libiberty.h"
 
 host_callback *sim_callback;
 
@@ -159,7 +159,7 @@ int
 sim_write (sd, addr, buffer, size)
      SIM_DESC sd ATTRIBUTE_UNUSED;
      SIM_ADDR addr;
-     const unsigned char * buffer;
+     unsigned char * buffer;
      int size;
 {
   int i;
@@ -267,10 +267,9 @@ sim_create_inferior (sd, abfd, argv, env)
 	 removes the FPE emulator, since it conflicts with its coprocessors.
 	 For the most generic ARM support, we want the FPE emulator in place.  */
     case bfd_mach_arm_XScale:
-      ARMul_SelectProcessor (state, ARM_v5_Prop | ARM_v5e_Prop | ARM_XScale_Prop | ARM_v6_Prop);
+      ARMul_SelectProcessor (state, ARM_v5_Prop | ARM_v5e_Prop | ARM_XScale_Prop);
       break;
 
-    case bfd_mach_arm_iWMMXt2:
     case bfd_mach_arm_iWMMXt:
       {
 	extern int SWI_vector_installed;
@@ -443,7 +442,7 @@ sim_store_register (sd, rn, memory, length)
      SIM_DESC sd ATTRIBUTE_UNUSED;
      int rn;
      unsigned char *memory;
-     int length;
+     int length ATTRIBUTE_UNUSED;
 {
   init ();
 
@@ -544,7 +543,7 @@ sim_store_register (sd, rn, memory, length)
       return 0;
     }
 
-  return length;
+  return -1;
 }
 
 int
@@ -552,10 +551,9 @@ sim_fetch_register (sd, rn, memory, length)
      SIM_DESC sd ATTRIBUTE_UNUSED;
      int rn;
      unsigned char *memory;
-     int length;
+     int length ATTRIBUTE_UNUSED;
 {
   ARMword regval;
-  int len = length;
 
   init ();
 
@@ -658,16 +656,16 @@ sim_fetch_register (sd, rn, memory, length)
       return 0;
     }
 
-  while (len)
+  while (length)
     {
       tomem (state, memory, regval);
 
-      len -= 4;
+      length -= 4;
       memory += 4;
       regval = 0;
     }  
 
-  return length;
+  return -1;
 }
 
 #ifdef SIM_TARGET_SWITCHES
@@ -771,16 +769,13 @@ sim_target_parse_arg_array (argv)
   for (i = 0; argv[i]; i++)
     ;
 
-  sim_target_parse_command_line (i, argv);
+  return (void) sim_target_parse_command_line (i, argv);
 }
 
 void
-sim_target_display_usage (help)
-     int help;
+sim_target_display_usage ()
 {
-  FILE *stream = help ? stdout : stderr;
-
-  fprintf (stream, "%s=<list>  Comma seperated list of SWI protocols to supoport.\n\
+  fprintf (stderr, "%s=<list>  Comma seperated list of SWI protocols to supoport.\n\
                 This list can contain: NONE, DEMON, ANGEL, REDBOOT and/or ALL.\n",
 	   SWI_SWITCH);
 }
@@ -907,7 +902,7 @@ sim_stop_reason (sd, reason, sigrc)
   if (stop_simulator)
     {
       *reason = sim_stopped;
-      *sigrc = GDB_SIGNAL_INT;
+      *sigrc = SIGINT;
     }
   else if (state->EndCondition == 0)
     {
@@ -918,10 +913,10 @@ sim_stop_reason (sd, reason, sigrc)
     {
       *reason = sim_stopped;
       if (state->EndCondition == RDIError_BreakpointReached)
-	*sigrc = GDB_SIGNAL_TRAP;
+	*sigrc = SIGTRAP;
       else if (   state->EndCondition == RDIError_DataAbort
 	       || state->EndCondition == RDIError_AddressException)
-	*sigrc = GDB_SIGNAL_BUS;
+	*sigrc = SIGBUS;
       else
 	*sigrc = 0;
     }
@@ -942,10 +937,4 @@ sim_set_callbacks (ptr)
      host_callback *ptr;
 {
   sim_callback = ptr;
-}
-
-char **
-sim_complete_command (SIM_DESC sd, char *text, char *word)
-{
-  return NULL;
 }

@@ -3,7 +3,7 @@
  
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
  
     This program is distributed in the hope that it will be useful,
@@ -12,9 +12,9 @@
     GNU General Public License for more details.
  
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>. */
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 
-#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -29,18 +29,8 @@
 typedef char *VoidStar;
 #endif
 
-#ifdef HAVE_STDINT_H
-#include <stdint.h>
-typedef uint32_t ARMword;
-typedef int32_t ARMsword;
-typedef uint64_t ARMdword;
-typedef int64_t ARMsdword;
-#else
-typedef unsigned int ARMword;	/* must be 32 bits wide */
-typedef signed int ARMsword;
+typedef unsigned long ARMword;	/* must be 32 bits wide */
 typedef unsigned long long ARMdword;	/* Must be at least 64 bits wide.  */
-typedef signed long long ARMsdword;
-#endif
 typedef struct ARMul_State ARMul_State;
 
 typedef unsigned ARMul_CPInits (ARMul_State * state);
@@ -144,7 +134,6 @@ struct ARMul_State
   unsigned is_v4;		/* Are we emulating a v4 architecture (or higher) ?  */
   unsigned is_v5;		/* Are we emulating a v5 architecture ?  */
   unsigned is_v5e;		/* Are we emulating a v5e architecture ?  */
-  unsigned is_v6;		/* Are we emulating a v6 architecture ?  */
   unsigned is_XScale;		/* Are we emulating an XScale architecture ?  */
   unsigned is_iWMMXt;		/* Are we emulating an iWMMXt co-processor ?  */
   unsigned is_ep9312;		/* Are we emulating a Cirrus Maverick co-processor ?  */
@@ -177,7 +166,6 @@ struct ARMul_State
 #define ARM_XScale_Prop  0x200
 #define ARM_ep9312_Prop  0x400
 #define ARM_iWMMXt_Prop  0x800
-#define ARM_v6_Prop      0x1000
 
 /***************************************************************************\
 *                   Macros to extract instruction fields                    *
