@@ -49,8 +49,7 @@ o	Copyright Assignment
 	taking care of your contributions) to obtain the relevant
 	forms.
 
-        Small changes can be accepted without a copyright assignment form
-        on file.
+	Small changes can be accepted without a copyright assignment form on file.
 
 	Ref: http://www.gnu.org/prep/maintain.html#SEC6
 
@@ -71,16 +70,16 @@ o	Submitting Patches
 	documentation (i.e., .texi files).
 
 	The patch itself. If you are accessing the CVS repository use
-	"cvs update; cvs diff -up"; else, use "diff -up OLD NEW". If
-	your version of diff does not support these options, then get
-	the latest version of GNU diff.
+	"cvs update; cvs diff -c3p"; else, use "diff -c3p OLD NEW" or
+	"diff -up OLD NEW". If your version of diff does not support
+	these options, then get the latest version of GNU diff.
 
 	We accept patches as plain text (preferred for the compilers
 	themselves), MIME attachments (preferred for the web pages),
 	or as uuencoded gzipped text.
 
 	When you have all these pieces, bundle them up in a mail
-	message and send it to gdb-patches@sourceware.org. All
+	message and send it to gdb-patches@sourceware.cygnus.com. All
 	patches and related discussion should be sent to the
 	gdb-patches mailinglist. For further information on the GDB
 	CVS repository, see the Anonymous read-only CVS access and
@@ -116,19 +115,19 @@ o	Please read your patch before submitting it.
 	to re-formatting / split it.
 
 
-o	If ``gdb/configure.ac'' is modified then you don't
+o	If ``gdb/configure.in'' is modified then you don't
 	need to include patches to the regenerated file
 	``configure''.
 
 	The maintainer will re-generate those files
-	using autoconf (2.64 as of 2009-08-22).
+	using autoconf (2.13 as of 2000-02-29).
 
 
 o	If ``gdb/gdbarch.sh'' is modified, you don't
 	need to include patches to the generated files
 	``gdbarch.h'' and ``gdbarch.c''.
 
-	See ``gdb/configure.ac'' above.
+	See ``gdb/configure.in'' above.
 
 
 o	When submitting a patch that fixes a bug
