@@ -1,6 +1,6 @@
 /* sys/utime.h
 
-   Copyright 2001, 2003, 2005 Red Hat, Inc.
+   Copyright 2001 Red Hat, Inc.
 
    This software is a copyrighted work licensed under the terms of the
    Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -15,13 +15,13 @@ extern "C" {
 #include <_ansi.h>
 #include <sys/types.h>
 
-struct utimbuf
+struct utimbuf 
 {
   time_t actime;
-  time_t modtime;
+  time_t modtime; 
 };
 
-int _EXFUN(utime, (const char *__path, const struct utimbuf *__buf));
+int _EXFUN(utime, (const char *__path, struct utimbuf *__buf));
 
 #ifdef __cplusplus
 };
