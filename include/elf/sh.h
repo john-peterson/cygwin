@@ -1,12 +1,11 @@
 /* SH ELF support for BFD.
-   Copyright 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2010
-   Free Software Foundation, Inc.
+   Copyright 1998, 2000, 2001, 2002, 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,7 +15,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software Foundation,
-   Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
+   Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #ifndef _ELF_SH_H
 #define _ELF_SH_H
@@ -28,69 +27,57 @@
 #define EF_SH1		   1
 #define EF_SH2		   2
 #define EF_SH3		   3
+#define EF_SH_HAS_DSP(flags) (((flags) & EF_SH_MACH_MASK & ~3) == 4)
 #define EF_SH_DSP	   4
 #define EF_SH3_DSP	   5
 #define EF_SH4AL_DSP	   6
+#define EF_SH_HAS_FP(flags) ((flags) & 8)
 #define EF_SH3E		   8
 #define EF_SH4		   9
 #define EF_SH2E            11
 #define EF_SH4A		   12
-#define EF_SH2A            13
 
-#define EF_SH4_NOFPU	   16
-#define EF_SH4A_NOFPU	   17
-#define EF_SH4_NOMMU_NOFPU 18
-#define EF_SH2A_NOFPU      19
-#define EF_SH3_NOMMU       20
-
-#define EF_SH2A_SH4_NOFPU  21
-#define EF_SH2A_SH3_NOFPU  22
-#define EF_SH2A_SH4        23
-#define EF_SH2A_SH3E       24
+#define EF_SH4_NOFPU	   0x10
+#define EF_SH4A_NOFPU	   0x11
+#define EF_SH4_NOMMU_NOFPU 0x12
 
 /* This one can only mix in objects from other EF_SH5 objects.  */
 #define EF_SH5		  10
 
-/* Define the mapping from ELF to bfd mach numbers.
-   bfd_mach_* are defined in bfd_in2.h (generated from
-   archures.c).  */
-#define EF_SH_BFD_TABLE \
-/* EF_SH_UNKNOWN	*/ bfd_mach_sh		, \
-/* EF_SH1		*/ bfd_mach_sh		, \
-/* EF_SH2		*/ bfd_mach_sh2		, \
-/* EF_SH3		*/ bfd_mach_sh3		, \
-/* EF_SH_DSP		*/ bfd_mach_sh_dsp	, \
-/* EF_SH3_DSP		*/ bfd_mach_sh3_dsp	, \
-/* EF_SHAL_DSP		*/ bfd_mach_sh4al_dsp	, \
-/* 7			*/ 0, \
-/* EF_SH3E		*/ bfd_mach_sh3e	, \
-/* EF_SH4		*/ bfd_mach_sh4		, \
-/* EF_SH5		*/ 0, \
-/* EF_SH2E		*/ bfd_mach_sh2e	, \
-/* EF_SH4A		*/ bfd_mach_sh4a	, \
-/* EF_SH2A		*/ bfd_mach_sh2a        , \
-/* 14, 15		*/ 0, 0, \
-/* EF_SH4_NOFPU		*/ bfd_mach_sh4_nofpu	, \
-/* EF_SH4A_NOFPU	*/ bfd_mach_sh4a_nofpu	, \
-/* EF_SH4_NOMMU_NOFPU	*/ bfd_mach_sh4_nommu_nofpu, \
-/* EF_SH2A_NOFPU	*/ bfd_mach_sh2a_nofpu  , \
-/* EF_SH3_NOMMU		*/ bfd_mach_sh3_nommu   , \
-/* EF_SH2A_SH4_NOFPU    */ bfd_mach_sh2a_nofpu_or_sh4_nommu_nofpu, \
-/* EF_SH2A_SH3_NOFPU    */ bfd_mach_sh2a_nofpu_or_sh3_nommu, \
-/* EF_SH2A_SH4          */ bfd_mach_sh2a_or_sh4 , \
-/* EF_SH2A_SH3E         */ bfd_mach_sh2a_or_sh3e
-
-/* Convert arch_sh* into EF_SH*.  */
-int sh_find_elf_flags (unsigned int arch_set);
-
-/* Convert bfd_mach_* into EF_SH*.  */
-int sh_elf_get_flags_from_mach (unsigned long mach);
-
-/* Other e_flags bits.  */
-
-#define EF_SH_PIC		0x100	/* Segments of an FDPIC binary may
-					   be relocated independently.  */
-#define EF_SH_FDPIC		0x8000	/* Uses the FDPIC ABI.  */
+#define EF_SH_MERGE_MACH(mach1, mach2) \
+  (((((mach1) == EF_SH3 || (mach1) == EF_SH_UNKNOWN) && (mach2) == EF_SH_DSP) \
+    || ((mach1) == EF_SH_DSP \
+	&& ((mach2) == EF_SH3 || (mach2) == EF_SH_UNKNOWN))) \
+   ? EF_SH3_DSP \
+   : (((mach1) < EF_SH3 && (mach2) == EF_SH_UNKNOWN) \
+      || ((mach2) < EF_SH3 && (mach1) == EF_SH_UNKNOWN)) \
+   ? EF_SH3 \
+   : ((mach1) == EF_SH2E && EF_SH_HAS_FP (mach2)) \
+   ? (mach2) \
+   : ((mach2) == EF_SH2E && EF_SH_HAS_FP (mach1)) \
+   ? (mach1) \
+   : (((mach1) == EF_SH2E && (mach2) == EF_SH_UNKNOWN) \
+      || ((mach2) == EF_SH2E && (mach1) == EF_SH_UNKNOWN)) \
+   ? EF_SH2E \
+   : (((mach1) == EF_SH3E && (mach2) == EF_SH_UNKNOWN) \
+      || ((mach2) == EF_SH3E && (mach1) == EF_SH_UNKNOWN)) \
+   ? EF_SH4 \
+   /* ??? SH4?  Why not SH3E?  */ \
+   : ((((mach1) == EF_SH4_NOFPU || (mach1) == EF_SH4A_NOFPU) \
+       && EF_SH_HAS_DSP (mach2)) \
+      || (((mach2) == EF_SH4_NOFPU || (mach2) == EF_SH4A_NOFPU) \
+	  && EF_SH_HAS_DSP (mach1))) \
+   ? EF_SH4AL_DSP \
+   : ((mach1) == EF_SH4_NOFPU && EF_SH_HAS_FP (mach2)) \
+   ? ((mach2) < EF_SH4A) ? EF_SH4 : (mach2) \
+   : ((mach2) == EF_SH4_NOFPU && EF_SH_HAS_FP (mach1)) \
+   ? ((mach1) < EF_SH4A) ? EF_SH4 : (mach1) \
+   : ((mach1) == EF_SH4A_NOFPU && EF_SH_HAS_FP (mach2)) \
+   ? ((mach2) <= EF_SH4A) ? EF_SH4A : (mach2) \
+   : ((mach2) == EF_SH4A_NOFPU && EF_SH_HAS_FP (mach1)) \
+   ? ((mach1) <= EF_SH4A) ? EF_SH4A : (mach1) \
+   : (((mach1) == EF_SH2E ? 7 : (mach1)) > ((mach2) == EF_SH2E ? 7 : (mach2)) \
+      ? (mach1) : (mach2)))
 
 /* Flags for the st_other symbol field.
    Keep away from the STV_ visibility flags (bit 0..1).  */
@@ -220,17 +207,7 @@ START_RELOC_NUMBERS (elf_sh_reloc_type)
   RELOC_NUMBER (R_SH_JMP_SLOT64, 195)
   RELOC_NUMBER (R_SH_RELATIVE64, 196)
   FAKE_RELOC (R_SH_FIRST_INVALID_RELOC_5, 197)
-  FAKE_RELOC (R_SH_LAST_INVALID_RELOC_5, 200)
-  RELOC_NUMBER (R_SH_GOT20, 201)
-  RELOC_NUMBER (R_SH_GOTOFF20, 202)
-  RELOC_NUMBER (R_SH_GOTFUNCDESC, 203)
-  RELOC_NUMBER (R_SH_GOTFUNCDESC20, 204)
-  RELOC_NUMBER (R_SH_GOTOFFFUNCDESC, 205)
-  RELOC_NUMBER (R_SH_GOTOFFFUNCDESC20, 206)
-  RELOC_NUMBER (R_SH_FUNCDESC, 207)
-  RELOC_NUMBER (R_SH_FUNCDESC_VALUE, 208)
-  FAKE_RELOC (R_SH_FIRST_INVALID_RELOC_6, 209)
-  FAKE_RELOC (R_SH_LAST_INVALID_RELOC_6, 241)
+  FAKE_RELOC (R_SH_LAST_INVALID_RELOC_5, 241)
   RELOC_NUMBER (R_SH_SHMEDIA_CODE, 242)
   RELOC_NUMBER (R_SH_PT_16, 243)
   RELOC_NUMBER (R_SH_IMMS16, 244)

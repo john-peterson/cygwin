@@ -1,12 +1,12 @@
 /* Definitions for frame address handler, for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "frame-base.h"
@@ -28,21 +30,34 @@
    really need to override this.  */
 
 static CORE_ADDR
-default_frame_base_address (struct frame_info *this_frame, void **this_cache)
+default_frame_base_address (struct frame_info *next_frame, void **this_cache)
 {
+  struct frame_info *this_frame = get_prev_frame (next_frame);
   return get_frame_base (this_frame); /* sigh! */
 }
 
 static CORE_ADDR
-default_frame_locals_address (struct frame_info *this_frame, void **this_cache)
+default_frame_locals_address (struct frame_info *next_frame, void **this_cache)
 {
-  return default_frame_base_address (this_frame, this_cache);
+  if (DEPRECATED_FRAME_LOCALS_ADDRESS_P ())
+    {
+      /* This is bad.  The computation of per-frame locals address
+	 should use a per-frame frame-base.  */
+      struct frame_info *this_frame = get_prev_frame (next_frame);
+      return DEPRECATED_FRAME_LOCALS_ADDRESS (this_frame);
+    }
+  return default_frame_base_address (next_frame, this_cache);
 }
 
 static CORE_ADDR
-default_frame_args_address (struct frame_info *this_frame, void **this_cache)
+default_frame_args_address (struct frame_info *next_frame, void **this_cache)
 {
-  return default_frame_base_address (this_frame, this_cache);
+  if (DEPRECATED_FRAME_ARGS_ADDRESS_P ())
+    {
+      struct frame_info *this_frame = get_prev_frame (next_frame);
+      return DEPRECATED_FRAME_ARGS_ADDRESS (this_frame);
+    }
+  return default_frame_base_address (next_frame, this_cache);
 }
 
 const struct frame_base default_frame_base = {
@@ -72,7 +87,6 @@ frame_base_init (struct obstack *obstack)
 {
   struct frame_base_table *table
     = OBSTACK_ZALLOC (obstack, struct frame_base_table);
-
   table->tail = &table->head;
   table->default_base = &default_frame_base;
   return table;
@@ -83,9 +97,7 @@ frame_base_append_sniffer (struct gdbarch *gdbarch,
 			   frame_base_sniffer_ftype *sniffer)
 {
   struct frame_base_table *table = gdbarch_data (gdbarch, frame_base_data);
-
-  (*table->tail)
-    = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct frame_base_table_entry);
+  (*table->tail) = GDBARCH_OBSTACK_ZALLOC (gdbarch, struct frame_base_table_entry);
   (*table->tail)->sniffer = sniffer;
   table->tail = &(*table->tail)->next;
 }
@@ -95,22 +107,20 @@ frame_base_set_default (struct gdbarch *gdbarch,
 			const struct frame_base *default_base)
 {
   struct frame_base_table *table = gdbarch_data (gdbarch, frame_base_data);
-
   table->default_base = default_base;
 }
 
 const struct frame_base *
-frame_base_find_by_frame (struct frame_info *this_frame)
+frame_base_find_by_frame (struct frame_info *next_frame)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
+  struct gdbarch *gdbarch = get_frame_arch (next_frame);
   struct frame_base_table *table = gdbarch_data (gdbarch, frame_base_data);
   struct frame_base_table_entry *entry;
 
   for (entry = table->head; entry != NULL; entry = entry->next)
     {
       const struct frame_base *desc = NULL;
-
-      desc = entry->sniffer (this_frame);
+      desc = entry->sniffer (next_frame);
       if (desc != NULL)
 	return desc;
     }

@@ -1,12 +1,12 @@
 /* Target-dependent code for i386 BSD's.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright 2001, 2002, 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "arch-utils.h"
@@ -30,25 +32,57 @@
 
 /* Support for signal handlers.  */
 
-/* Assuming THIS_FRAME is for a BSD sigtramp routine, return the
-   address of the associated sigcontext structure.  */
+/* Return whether PC is in a BSD sigtramp routine.  */
+
+int
+i386bsd_pc_in_sigtramp (CORE_ADDR pc, char *name)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (current_gdbarch);
+
+  return (pc >= tdep->sigtramp_start && pc < tdep->sigtramp_end);
+}
+
+/* Assuming NEXT_FRAME is for a frame following a BSD sigtramp
+   routine, return the address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-i386bsd_sigcontext_addr (struct frame_info *this_frame)
+i386bsd_sigcontext_addr (struct frame_info *next_frame)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  gdb_byte buf[4];
+  char buf[4];
   CORE_ADDR sp;
 
-  get_frame_register (this_frame, I386_ESP_REGNUM, buf);
-  sp = extract_unsigned_integer (buf, 4, byte_order);
+  frame_unwind_register (next_frame, I386_ESP_REGNUM, buf);
+  sp = extract_unsigned_integer (buf, 4);
 
-  return read_memory_unsigned_integer (sp + 8, 4, byte_order);
+  return read_memory_unsigned_integer (sp + 8, 4);
+}
+
+/* Return the start address of the sigtramp routine.  */
+
+CORE_ADDR
+i386bsd_sigtramp_start (CORE_ADDR pc)
+{
+  return gdbarch_tdep (current_gdbarch)->sigtramp_start;
+}
+
+/* Return the end address of the sigtramp routine.  */
+
+CORE_ADDR
+i386bsd_sigtramp_end (CORE_ADDR pc)
+{
+  return gdbarch_tdep (current_gdbarch)->sigtramp_end;
 }
 
 
 /* Support for shared libraries.  */
+
+/* Return non-zero if we are in a shared library trampoline code stub.  */
+
+int
+i386bsd_aout_in_solib_call_trampoline (CORE_ADDR pc, char *name)
+{
+  return (name && !strcmp (name, "_DYNAMIC"));
+}
 
 /* Traditional BSD (4.3 BSD, still used for BSDI and 386BSD).  */
 
@@ -77,6 +111,16 @@ void
 i386bsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+
+  set_gdbarch_deprecated_pc_in_sigtramp (gdbarch, i386bsd_pc_in_sigtramp);
+
+  /* Allow the recognition of sigtramps as a function named <sigtramp>.  */
+  set_gdbarch_deprecated_sigtramp_start (gdbarch, i386bsd_sigtramp_start);
+  set_gdbarch_deprecated_sigtramp_end (gdbarch, i386bsd_sigtramp_end);
+
+  /* Assume SunOS-style shared libraries.  */
+  set_gdbarch_in_solib_call_trampoline (gdbarch,
+					i386bsd_aout_in_solib_call_trampoline);
 
   tdep->jb_pc_offset = 0;
 

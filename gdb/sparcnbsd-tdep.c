@@ -1,13 +1,13 @@
 /* Target-dependent code for NetBSD/sparc.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002, 2003, 2004 Free Software Foundation, Inc.
    Contributed by Wasabi Systems, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,13 +16,15 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
+#include "floatformat.h"
 #include "frame.h"
 #include "frame-unwind.h"
 #include "gdbcore.h"
-#include "gdbtypes.h"
 #include "osabi.h"
 #include "regcache.h"
 #include "regset.h"
@@ -35,11 +37,6 @@
 
 #include "sparc-tdep.h"
 #include "nbsd-tdep.h"
-
-/* Macros to extract fields from SPARC instructions.  */
-#define X_RS1(i) (((i) >> 14) & 0x1f)
-#define X_RS2(i) ((i) & 0x1f)
-#define X_I(i) (((i) >> 13) & 1)
 
 const struct sparc_gregset sparc32nbsd_gregset =
 {
@@ -58,14 +55,13 @@ sparc32nbsd_supply_gregset (const struct regset *regset,
 			    struct regcache *regcache,
 			    int regnum, const void *gregs, size_t len)
 {
-  sparc32_supply_gregset (&sparc32nbsd_gregset, regcache, regnum, gregs);
+  sparc32_supply_gregset (regset->descr, regcache, regnum, gregs);
 
   /* Traditional NetBSD core files don't use multiple register sets.
      Instead, the general-purpose and floating-point registers are
      lumped together in a single section.  */
   if (len >= 212)
-    sparc32_supply_fpregset (&sparc32_bsd_fpregset, regcache, regnum,
-			     (const char *) gregs + 80);
+    sparc32_supply_fpregset (regcache, regnum, (const char *) gregs + 80);
 }
 
 static void
@@ -73,7 +69,7 @@ sparc32nbsd_supply_fpregset (const struct regset *regset,
 			     struct regcache *regcache,
 			     int regnum, const void *fpregs, size_t len)
 {
-  sparc32_supply_fpregset (&sparc32_bsd_fpregset, regcache, regnum, fpregs);
+  sparc32_supply_fpregset (regcache, regnum, fpregs);
 }
 
 
@@ -88,7 +84,7 @@ static const CORE_ADDR sparc32nbsd_sigtramp_start = 0xeffffef0;
 static const CORE_ADDR sparc32nbsd_sigtramp_end = 0xeffffff0;
 
 static int
-sparc32nbsd_pc_in_sigtramp (CORE_ADDR pc, const char *name)
+sparc32nbsd_pc_in_sigtramp (CORE_ADDR pc, char *name)
 {
   if (pc >= sparc32nbsd_sigtramp_start && pc < sparc32nbsd_sigtramp_end)
     return 1;
@@ -97,19 +93,18 @@ sparc32nbsd_pc_in_sigtramp (CORE_ADDR pc, const char *name)
 }
 
 struct trad_frame_saved_reg *
-sparc32nbsd_sigcontext_saved_regs (struct frame_info *this_frame)
+sparc32nbsd_sigcontext_saved_regs (struct frame_info *next_frame)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
   struct trad_frame_saved_reg *saved_regs;
   CORE_ADDR addr, sigcontext_addr;
   int regnum, delta;
   ULONGEST psr;
 
-  saved_regs = trad_frame_alloc_saved_regs (this_frame);
+  saved_regs = trad_frame_alloc_saved_regs (next_frame);
 
   /* We find the appropriate instance of `struct sigcontext' at a
      fixed offset in the signal frame.  */
-  addr = get_frame_register_unsigned (this_frame, SPARC_FP_REGNUM);
+  addr = frame_unwind_register_unsigned (next_frame, SPARC_FP_REGNUM);
   sigcontext_addr = addr + 64 + 16;
 
   /* The registers are saved in bits and pieces scattered all over the
@@ -141,21 +136,21 @@ sparc32nbsd_sigcontext_saved_regs (struct frame_info *this_frame)
   /* The `local' and `in' registers have been saved in the register
      save area.  */
   addr = saved_regs[SPARC_SP_REGNUM].addr;
-  addr = get_frame_memory_unsigned (this_frame, addr, 4);
+  addr = get_frame_memory_unsigned (next_frame, addr, 4);
   for (regnum = SPARC_L0_REGNUM;
        regnum <= SPARC_I7_REGNUM; regnum++, addr += 4)
     saved_regs[regnum].addr = addr;
 
   /* Handle StackGhost.  */
   {
-    ULONGEST wcookie = sparc_fetch_wcookie (gdbarch);
+    ULONGEST wcookie = sparc_fetch_wcookie ();
 
     if (wcookie != 0)
       {
 	ULONGEST i7;
 
 	addr = saved_regs[SPARC_I7_REGNUM].addr;
-	i7 = get_frame_memory_unsigned (this_frame, addr, 4);
+	i7 = get_frame_memory_unsigned (next_frame, addr, 4);
 	trad_frame_set_value (saved_regs, SPARC_I7_REGNUM, i7 ^ wcookie);
       }
   }
@@ -166,12 +161,12 @@ sparc32nbsd_sigcontext_saved_regs (struct frame_info *this_frame)
 #define PSR_EF	0x00001000
 
   addr = saved_regs[SPARC32_PSR_REGNUM].addr;
-  psr = get_frame_memory_unsigned (this_frame, addr, 4);
+  psr = get_frame_memory_unsigned (next_frame, addr, 4);
   if (psr & PSR_EF)
     {
       CORE_ADDR sp;
 
-      sp = get_frame_register_unsigned (this_frame, SPARC_SP_REGNUM);
+      sp = frame_unwind_register_unsigned (next_frame, SPARC_SP_REGNUM);
       saved_regs[SPARC32_FSR_REGNUM].addr = sp + 96;
       for (regnum = SPARC_F0_REGNUM, addr = sp + 96 + 8;
 	   regnum <= SPARC_F31_REGNUM; regnum++, addr += 4)
@@ -182,7 +177,7 @@ sparc32nbsd_sigcontext_saved_regs (struct frame_info *this_frame)
 }
 
 static struct sparc_frame_cache *
-sparc32nbsd_sigcontext_frame_cache (struct frame_info *this_frame,
+sparc32nbsd_sigcontext_frame_cache (struct frame_info *next_frame,
 				    void **this_cache)
 {
   struct sparc_frame_cache *cache;
@@ -191,7 +186,7 @@ sparc32nbsd_sigcontext_frame_cache (struct frame_info *this_frame,
   if (*this_cache)
     return *this_cache;
 
-  cache = sparc_frame_cache (this_frame, this_cache);
+  cache = sparc_frame_cache (next_frame, this_cache);
   gdb_assert (cache == *this_cache);
 
   /* If we couldn't find the frame's function, we're probably dealing
@@ -202,86 +197,73 @@ sparc32nbsd_sigcontext_frame_cache (struct frame_info *this_frame,
 
       /* Since we couldn't find the frame's function, the cache was
          initialized under the assumption that we're frameless.  */
-      sparc_record_save_insn (cache);
-      addr = get_frame_register_unsigned (this_frame, SPARC_FP_REGNUM);
+      cache->frameless_p = 0;
+      addr = frame_unwind_register_unsigned (next_frame, SPARC_FP_REGNUM);
       cache->base = addr;
     }
 
-  cache->saved_regs = sparc32nbsd_sigcontext_saved_regs (this_frame);
+  cache->saved_regs = sparc32nbsd_sigcontext_saved_regs (next_frame);
 
   return cache;
 }
 
 static void
-sparc32nbsd_sigcontext_frame_this_id (struct frame_info *this_frame,
+sparc32nbsd_sigcontext_frame_this_id (struct frame_info *next_frame,
 				      void **this_cache,
 				      struct frame_id *this_id)
 {
   struct sparc_frame_cache *cache =
-    sparc32nbsd_sigcontext_frame_cache (this_frame, this_cache);
+    sparc32nbsd_sigcontext_frame_cache (next_frame, this_cache);
 
   (*this_id) = frame_id_build (cache->base, cache->pc);
 }
 
-static struct value *
-sparc32nbsd_sigcontext_frame_prev_register (struct frame_info *this_frame,
-					    void **this_cache, int regnum)
+static void
+sparc32nbsd_sigcontext_frame_prev_register (struct frame_info *next_frame,
+					    void **this_cache,
+					    int regnum, int *optimizedp,
+					    enum lval_type *lvalp,
+					    CORE_ADDR *addrp,
+					    int *realnump, void *valuep)
 {
   struct sparc_frame_cache *cache =
-    sparc32nbsd_sigcontext_frame_cache (this_frame, this_cache);
+    sparc32nbsd_sigcontext_frame_cache (next_frame, this_cache);
 
-  return trad_frame_get_prev_register (this_frame, cache->saved_regs, regnum);
-}
-
-static int
-sparc32nbsd_sigcontext_frame_sniffer (const struct frame_unwind *self,
-				      struct frame_info *this_frame,
-				      void **this_cache)
-{
-  CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
-
-  find_pc_partial_function (pc, &name, NULL, NULL);
-  if (sparc32nbsd_pc_in_sigtramp (pc, name))
-    {
-      if (name == NULL || strncmp (name, "__sigtramp_sigcontext", 21))
-	return 1;
-    }
-
-  return 0;
+  trad_frame_prev_register (next_frame, cache->saved_regs, regnum,
+			    optimizedp, lvalp, addrp, realnump, valuep);
 }
 
 static const struct frame_unwind sparc32nbsd_sigcontext_frame_unwind =
 {
   SIGTRAMP_FRAME,
-  default_frame_unwind_stop_reason,
   sparc32nbsd_sigcontext_frame_this_id,
-  sparc32nbsd_sigcontext_frame_prev_register,
-  NULL,
-  sparc32nbsd_sigcontext_frame_sniffer
+  sparc32nbsd_sigcontext_frame_prev_register
 };
-
-/* Return the address of a system call's alternative return
-   address.  */
 
-CORE_ADDR
-sparcnbsd_step_trap (struct frame_info *frame, unsigned long insn)
+static const struct frame_unwind *
+sparc32nbsd_sigtramp_frame_sniffer (struct frame_info *next_frame)
 {
-  if ((X_I (insn) == 0 && X_RS1 (insn) == 0 && X_RS2 (insn) == 0)
-      || (X_I (insn) == 1 && X_RS1 (insn) == 0 && (insn & 0x7f) == 0))
-    {
-      /* "New" system call.  */
-      ULONGEST number = get_frame_register_unsigned (frame, SPARC_G1_REGNUM);
+  CORE_ADDR pc = frame_pc_unwind (next_frame);
+  char *name;
 
-      if (number & 0x400)
-	return get_frame_register_unsigned (frame, SPARC_G2_REGNUM);
-      if (number & 0x800)
-	return get_frame_register_unsigned (frame, SPARC_G7_REGNUM);
+  find_pc_partial_function (pc, &name, NULL, NULL);
+  if (sparc32nbsd_pc_in_sigtramp (pc, name))
+    {
+      if (name == NULL || strncmp (name, "__sigtramp_sigcontext", 21))
+	return &sparc32nbsd_sigcontext_frame_unwind;
     }
 
-  return 0;
+  return NULL;
 }
 
+
+/* Return non-zero if we are in a shared library trampoline code stub.  */
+
+static int
+sparcnbsd_aout_in_solib_call_trampoline (CORE_ADDR pc, char *name)
+{
+  return (name && !strcmp (name, "_DYNAMIC"));
+}
 
 static void
 sparc32nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
@@ -290,33 +272,37 @@ sparc32nbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* NetBSD doesn't support the 128-bit `long double' from the psABI.  */
   set_gdbarch_long_double_bit (gdbarch, 64);
-  set_gdbarch_long_double_format (gdbarch, floatformats_ieee_double);
+  set_gdbarch_long_double_format (gdbarch, &floatformat_ieee_double_big);
 
-  tdep->gregset = regset_alloc (gdbarch, sparc32nbsd_supply_gregset, NULL);
+  tdep->gregset = XMALLOC (struct regset);
+  tdep->gregset->descr = &sparc32nbsd_gregset;
+  tdep->gregset->supply_regset = sparc32nbsd_supply_gregset;
   tdep->sizeof_gregset = 20 * 4;
 
-  tdep->fpregset = regset_alloc (gdbarch, sparc32nbsd_supply_fpregset, NULL);
+  tdep->fpregset = XMALLOC (struct regset);
+  tdep->fpregset->supply_regset = sparc32nbsd_supply_fpregset;
   tdep->sizeof_fpregset = 33 * 4;
 
-  /* Make sure we can single-step "new" syscalls.  */
-  tdep->step_trap = sparcnbsd_step_trap;
-
-  frame_unwind_append_unwinder (gdbarch, &sparc32nbsd_sigcontext_frame_unwind);
+  set_gdbarch_deprecated_pc_in_sigtramp (gdbarch, sparc32nbsd_pc_in_sigtramp);
+  frame_unwind_append_sniffer (gdbarch, sparc32nbsd_sigtramp_frame_sniffer);
 }
 
 static void
 sparc32nbsd_aout_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   sparc32nbsd_init_abi (info, gdbarch);
+
+  set_gdbarch_in_solib_call_trampoline
+    (gdbarch, sparcnbsd_aout_in_solib_call_trampoline);
 }
 
-void
+static void
 sparc32nbsd_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   sparc32nbsd_init_abi (info, gdbarch);
 
   set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
+    (gdbarch, nbsd_ilp32_solib_svr4_fetch_link_map_offsets);
 }
 
 static enum gdb_osabi
@@ -355,13 +341,14 @@ sparcnbsd_core_osabi_sniffer (bfd *abfd)
 void _initialize_sparcnbsd_tdep (void);
 
 void
-_initialize_sparcnbsd_tdep (void)
+_initialize_sparnbsd_tdep (void)
 {
   gdbarch_register_osabi_sniffer (bfd_arch_sparc, bfd_target_aout_flavour,
 				  sparcnbsd_aout_osabi_sniffer);
 
-  /* BFD doesn't set a flavour for NetBSD style a.out core files.  */
-  gdbarch_register_osabi_sniffer (bfd_arch_sparc, bfd_target_unknown_flavour,
+  /* BFD doesn't set the architecture for NetBSD style a.out core
+     files.  */
+  gdbarch_register_osabi_sniffer (bfd_arch_unknown, bfd_target_unknown_flavour,
                                   sparcnbsd_core_osabi_sniffer);
 
   gdbarch_register_osabi (bfd_arch_sparc, 0, GDB_OSABI_NETBSD_AOUT,

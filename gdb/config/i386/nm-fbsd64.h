@@ -1,5 +1,6 @@
-/* Native-dependent definitions for Intel 386 running BSD Unix, for GDB.
-   Copyright 1986, 1987, 1989, 1992 Free Software Foundation, Inc.
+/* Native-dependent definitions for FreeBSD/amd64.
+
+   Copyright 2003, 2004 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,23 +19,13 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#ifndef NM_I386BSD_H
-#define NM_I386BSD_H
+#ifndef NM_FBSD64_H
+#define NM_FBSD64_H
 
-/* This is the amount to subtract from u.u_ar0
-   to get the offset in the core file of the register values.  */
+/* Get generic BSD native definitions.  */
+#include "config/nm-bsd.h"
 
-#include <machine/vmparam.h>
-#define KERNEL_U_ADDR USRSTACK
+/* Override child_pid_to_exec_file in 'inftarg.c'.  */
+#define CHILD_PID_TO_EXEC_FILE
 
-#undef FLOAT_INFO		/* No float info yet */
-
-#define REGISTER_U_ADDR(addr, blockend, regno) \
-	(addr) = i386_register_u_addr ((blockend),(regno));
-
-extern int
-i386_register_u_addr PARAMS ((int, int));
-
-#define PTRACE_ARG3_TYPE char*
-
-#endif /* NM_I386BSD_H */
+#endif /* nm-fbsd64.h */

@@ -1,6 +1,6 @@
 ; Fujitsu FRV opcode support, for GNU Binutils.  -*- Scheme -*-
 ;
-; Copyright 2000, 2001, 2003, 2004, 2007, 2009 Free Software Foundation, Inc.
+; Copyright 2000, 2001, 2003, 2004 Free Software Foundation, Inc.
 ;
 ; Contributed by Red Hat Inc; developed under contract from Fujitsu.
 ;
@@ -8,7 +8,7 @@
 ;
 ; This program is free software; you can redistribute it and/or modify
 ; it under the terms of the GNU General Public License as published by
-; the Free Software Foundation; either version 3 of the License, or
+; the Free Software Foundation; either version 2 of the License, or
 ; (at your option) any later version.
 ;
 ; This program is distributed in the hope that it will be useful,
@@ -18,8 +18,7 @@
 ;
 ; You should have received a copy of the GNU General Public License
 ; along with this program; if not, write to the Free Software
-; Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-; MA 02110-1301, USA.
+; Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 (include "simplify.inc")
 
@@ -2082,22 +2081,6 @@
 
 (dnf f-LI-off      "null field" (RESERVED) 25  1)
 (dnf f-LI-on       "null field" (RESERVED) 25  1)
-
-; Relocation annotations.
-(dsh h-reloc-ann   "relocation annotation" () (register BI))
-(dnf f-reloc-ann   "relocation annotation" () 0 0)
-
-(define-pmacro (dann xname xcomment xmode xparse xprint)
-  (define-operand
-    (name xname)
-    (comment xcomment)
-    (type h-reloc-ann)
-    (index f-reloc-ann)
-    (mode xmode)
-    (handlers (parse xparse) (print xprint))
-    )
-  )
-
 
 ; Enums.
 
@@ -2809,21 +2792,12 @@
    (dbmr20  2084) (dbmr21  2085) (dbmr22  2086) (dbmr23  2087)
    (dbmr30  2088) (dbmr31  2089) (dbmr32  2090) (dbmr33  2091)
 
-   (cpcfr   2304) (cpcr    2305) (cpsr    2306) (cptr    2307)
-   (cphsr0  2308) (cphsr1  2309) (cpesr0  2320) (cpesr1  2321)
-   (cpemr0  2322) (cpemr1  2323) 
+   (cpcfr   2092) (cpcr    2093) (cpsr    2094)
 
-   (iperr0  2324) (iperr1  2325) (ipjsr   2326) (ipjrr   2327)
-   (ipcsr0  2336) (ipcsr1  2337) (ipcwer0 2338) (ipcwer1 2339)
-   (ipcwr   2340)
+   (cpesr0  2096) (cpesr1  2097)
+   (cpemr0  2098) (cpemr1  2099)
 
-   (mbhsr   2352) (mbssr   2353) (mbrsr   2354) (mbsdr   2355)
-   (mbrdr   2356) (mbsmr   2357) (mbstr0  2359) (mbstr1  2360)
-
-   (slpr    2368) (sldr    2369) (slhsr   2370) (sltr    2371)
-   (slwr    2372)
-
-   (ihsr8   3848) (ihsr9   3849) (ihsr10  3850)
+   (ihsr8   3848)
   )
 )
 
@@ -3182,6 +3156,7 @@
 (dnop ae      "all entries indicator"     (HASH-PREFIX) h-uint f-ae)
 
 (dnop label16  "18 bit pc relative address" () h-iaddr f-label16)
+(dnop label24  "26 bit pc relative address" () h-iaddr f-label24)
 
 (dnop LRAE "Load Real Address E flag" () h-uint f-LRAE)
 (dnop LRAD "Load Real Address D flag" () h-uint f-LRAD)
@@ -3301,16 +3276,6 @@
   (type h-uint)
   (index f-u16)
   (handlers (parse "uhi16") (print "hi"))
-)
-
-(define-operand
-  (name label24)
-  (comment "26 bit pc relative address")
-  (attrs)
-  (type h-iaddr)
-  (index f-label24)
-  (mode SI)
-  (handlers (parse "call_label"))
 )
 
 ; operands representing hardware
@@ -4330,12 +4295,12 @@
       (fr500 (unit u-integer)) (fr550 (unit u-integer)))
 )
 
-(define-pmacro (load-gr-r name mode op ope comment ann)
+(define-pmacro (load-gr-r name mode op ope comment)
   (dni name
        (comment)
        ((UNIT LOAD) (FR550-MAJOR I-3) (FR500-MAJOR I-2)
 	(FR400-MAJOR I-2) (FR450-MAJOR I-2))
-       (.str name "$pack " ann "($GRi,$GRj),$GRk")
+       (.str name "$pack @($GRi,$GRj),$GRk")
        (+ pack GRk op GRi ope GRj)
        (set GRk (c-call mode (.str "@cpu@_read_mem_" mode) pc (add GRi GRj)))
        ((fr400 (unit u-gr-load)) (fr450 (unit u-gr-load))
@@ -4343,13 +4308,11 @@
   )
 )
 
-(dann ldann "ld annotation" SI "ld_annotation" "at")
-
-(load-gr-r ldsb   QI OP_02 OPE1_00 "Load   signed byte" "@")
-(load-gr-r ldub  UQI OP_02 OPE1_01 "Load unsigned byte" "@")
-(load-gr-r ldsh   HI OP_02 OPE1_02 "Load   signed half" "@")
-(load-gr-r lduh  UHI OP_02 OPE1_03 "Load unsigned half" "@")
-(load-gr-r ld     SI OP_02 OPE1_04 "Load          word" "$ldann")
+(load-gr-r ldsb   QI OP_02 OPE1_00 "Load   signed byte")
+(load-gr-r ldub  UQI OP_02 OPE1_01 "Load unsigned byte")
+(load-gr-r ldsh   HI OP_02 OPE1_02 "Load   signed half")
+(load-gr-r lduh  UHI OP_02 OPE1_03 "Load unsigned half")
+(load-gr-r ld     SI OP_02 OPE1_04 "Load          word")
 
 (define-pmacro (load-fr-r name mode op ope comment)
   (dni name
@@ -4451,12 +4414,12 @@
 )
 
 (define-pmacro (load-double-r-r
-		name not_gr mode op ope regtype attr profile comment ann)
+		name not_gr mode op ope regtype attr profile comment)
   (dni name
        (comment)
        ((UNIT LOAD) (FR550-MAJOR I-3) (FR500-MAJOR I-2)
 	(FR400-MAJOR I-2) (FR450-MAJOR I-2) attr)
-       (.str name "$pack " ann "($GRi,$GRj),$" regtype "doublek")
+       (.str name "$pack @($GRi,$GRj),$" regtype "doublek")
        (+ pack (.sym regtype doublek) op GRi ope GRj)
        (sequence ((WI address))
 		 (load-double-semantics not_gr mode regtype address GRj))
@@ -4464,18 +4427,16 @@
   )
 )
 
-(dann lddann "ldd annotation" SI "ldd_annotation" "at")
-
 (load-double-r-r ldd  0 DI OP_02 OPE1_05 GR  NA
 		 ((fr400 (unit u-gr-load)) (fr450 (unit u-gr-load)) 
 		  (fr500 (unit u-gr-load)) (fr550 (unit u-gr-load)))
-		 "Load double word" "$lddann")
+		 "Load double word")
 (load-double-r-r lddf 1 DF OP_02 OPE1_0B FR  FR-ACCESS
 		 ((fr400 (unit u-fr-load)) (fr450 (unit u-fr-load))
 		  (fr500 (unit u-fr-load)) (fr550 (unit u-fr-load)))
-		 "Load double float" "@")
+		 "Load double float")
 (load-double-r-r lddc 1 DI OP_02 OPE1_0E CPR (MACH frv) ()
-		 "Load coprocessor double" "@")
+		 "Load coprocessor double")
 
 (define-pmacro (ne-load-double-r-r
 		name not_gr mode op ope regtype size is_float attr profile
@@ -6167,13 +6128,11 @@
       (fr500 (unit u-branch)) (fr550 (unit u-branch)))
 )
 
-(dann callann "call annotation" SI "call_annotation" "at")
-
 (dni calll
      "call and link"
      ((UNIT I0) (FR500-MAJOR I-5) (FR550-MAJOR I-6)
       (FR400-MAJOR I-5) (FR450-MAJOR I-5))
-     "calll$pack $callann($GRi,$GRj)"
+     "calll$pack @($GRi,$GRj)"
      (+ pack (misc-null-1) (LI-on) OP_0C GRi (misc-null-2) GRj)
      (jump-and-link-semantics GRi GRj LI)
      ((fr400 (unit u-branch)) (fr450 (unit u-branch))
@@ -7050,7 +7009,7 @@
        (.splice (UNIT FMALL) (FR500-MAJOR F-1) (.unsplice attr))
        (.str name "$pack $" src ",$" targ)
        (+ pack targ op (rs-null) ope src)
-       (set targ (conv mode FPCONV-DEFAULT src))
+       (set targ (conv mode src))
        ((fr500 (unit u-float-convert)) (fr550 (unit u-float-convert)))
   )
 )
@@ -7076,9 +7035,9 @@
        (.str name "$pack $" src ",$" targ)
        (+ pack targ op (rs-null) ope src)
        (sequence ()
-		 (set targ (conv mode FPCONV-DEFAULT src))
+		 (set targ (conv mode src))
 		 (set (nextreg targ_hw targ 1)
-		      (conv mode FPCONV-DEFAULT (nextreg src_hw src 1))))
+		      (conv mode (nextreg src_hw src 1))))
        ((fr500 (unit u-float-dual-convert)))
   )
 )
@@ -7095,10 +7054,10 @@
        (+ pack targ op (rs-null) ope src)
        (sequence ()
 		 (c-call VOID "@cpu@_set_ne_index" (index-of targ))
-		 (set targ (conv mode FPCONV-DEFAULT src))
+		 (set targ (conv mode src))
 		 (c-call VOID "@cpu@_set_ne_index" (add (index-of targ) 1))
 		 (set (nextreg targ_hw targ 1)
-		      (conv mode FPCONV-DEFAULT (nextreg src_hw src 1))))
+		      (conv mode (nextreg src_hw src 1))))
        ((fr500 (unit u-float-dual-convert)))
   )
 )
@@ -7114,7 +7073,7 @@
        (.str name "$pack $" src ",$" targ ",$CCi,$cond")
        (+ pack targ op (rs-null) CCi cond ope src)
        (if (eq CCi (or cond 2))
-	   (set targ (conv mode FPCONV-DEFAULT src)))
+	   (set targ (conv mode src)))
        ((fr500 (unit u-float-convert)) (fr550 (unit u-float-convert)))
   )
 )
@@ -7131,7 +7090,7 @@
        (+ pack targ op (rs-null) ope src)
        (sequence ()
 		 (c-call VOID "@cpu@_set_ne_index" (index-of targ))
-		 (set targ (conv mode FPCONV-DEFAULT src)))
+		 (set targ (conv mode src)))
        ((fr500 (unit u-float-convert)) (fr550 (unit u-float-convert)))
   )
 )
@@ -7163,7 +7122,7 @@
      ((fr500 (unit u-fr2fr)))
 )
 
-(conditional-register-transfer cfmovs OP_6C OPE4_0 FRj FRk FMALL
+(conditional-register-transfer cfmovs OP_6C OPE4_0 FRj FRk FM01
 			       ((FR500-MAJOR F-1) (FR550-MAJOR F-2)
 				(MACH simple,tomcat,fr500,fr550,frv))
 			       ((fr500 (unit u-fr2fr)) (fr550 (unit u-fr2fr)))
@@ -7626,15 +7585,11 @@
 
 (define-pmacro (float-parallel-mul-add-double-semantics add_sub arg1 arg2 targ)
   (sequence ()
-	    (set targ (ftrunc SF FPCONV-DEFAULT
-			      (mul DF
-				   (fext DF FPCONV-DEFAULT arg1)
-				   (fext DF FPCONV-DEFAULT arg2))))
+	    (set targ (ftrunc SF (mul DF (fext DF arg1) (fext DF arg2))))
 	    (set (nextreg h-fr targ 1)
-		 (ftrunc SF FPCONV-DEFAULT
-			 (add_sub DF
-				  (fext DF FPCONV-DEFAULT (nextreg h-fr arg1 1))
-				  (fext DF FPCONV-DEFAULT (nextreg h-fr arg2 1))))))
+		 (ftrunc SF (add_sub DF
+				     (fext DF (nextreg h-fr arg1 1))
+				     (fext DF (nextreg h-fr arg2 1))))))
 )
 
 (define-pmacro (float-parallel-mul-add-double
@@ -8233,28 +8188,18 @@
 	       (set FRintk (c-raw-call SI "frv_ref_SI" FRintk))
 	       (set arghi (halfword hi FRintj 0))
 	       (set arglo (halfword lo FRintj 0))
-	       ; We extend the argument before the abs operation so we can
-	       ; notice -32768 overflowing as 32768.
-	       (saturate-v (abs (ext DI arghi)) 32767 -32768 (msr-sie-fri-hi)
+	       (saturate-v (abs arghi) 32767 -32768 (msr-sie-fri-hi)
 			   (halfword hi FRintk 0))
-	       (saturate-v (abs (ext DI arglo)) 32767 -32768 (msr-sie-fri-lo)
+	       (saturate-v (abs arglo) 32767 -32768 (msr-sie-fri-lo)
 			   (halfword lo FRintk 0)))
      ((fr400 (unit u-media-1)) (fr450 (unit u-media-1))
       (fr550 (unit u-media)))
 )
 
-; How to extend from a mode to get the intended signedness.
-(define-pmacro (DI-ext-HI x) (ext DI x))
-(define-pmacro (DI-ext-UHI x) (zext DI x))
-(define-pmacro (DI-ext-DI x) x)
-
 (define-pmacro (media-arith-sat-semantics
 		operation arg1 arg2 res mode max min sie)
   (sequence ((DI tmp))
-	    ; Make sure we saturate at max/min against a value that is
-	    ; sign- or zero-extended appropriately from "mode".
-	    (set tmp (operation DI
-		      ((.sym DI-ext- mode) arg1) ((.sym DI-ext- mode) arg2)))
+	    (set tmp (operation arg1 arg2))
 	    (saturate-v tmp max min sie res))
 )
 

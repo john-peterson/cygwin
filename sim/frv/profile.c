@@ -1,22 +1,23 @@
 /* frv simulator machine independent profiling code.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998, 1999, 2000, 2001, 2003 Free Software Foundation, Inc.
    Contributed by Red Hat
 
 This file is part of the GNU simulators.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3 of the License, or
-(at your option) any later version.
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 */
 #define WANT_CPU
@@ -2041,7 +2042,7 @@ print_parallel (SIM_CPU *cpu, int verbose)
 				 max_name_len, slot_names[i],
 				 max_val < 10000 ? 5 : 10,
 				 COMMAS (INSNS_IN_SLOT (i)));
-		  sim_profile_print_bar (sd, cpu, PROFILE_HISTOGRAM_WIDTH,
+		  sim_profile_print_bar (sd, PROFILE_HISTOGRAM_WIDTH,
 					 INSNS_IN_SLOT (i),
 					 max_val);
 		  sim_io_printf (sd, "\n");

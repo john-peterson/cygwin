@@ -1,16 +1,19 @@
 /* M32R opcode support.  -*- C -*-
 
-   Copyright 1998, 1999, 2000, 2001, 2004, 2005, 2007, 2009
-   Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
 
    Contributed by Red Hat Inc; developed under contract from
    Mitsubishi Electric Corporation.
 
    This file is part of the GNU Binutils.
 
+   Contributed by Red Hat Inc; developed under contract from Fujitsu.
+
+   This file is part of the GNU Binutils.
+
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -20,9 +23,9 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+*/
 
 /* This file is an addendum to m32r.cpu.  Heavy use of C code isn't
    appropriate in .cpu files, so it resides here.  This especially applies
@@ -37,7 +40,8 @@
    <arch>-opc.c additions use: "-- opc.c"
    <arch>-asm.c additions use: "-- asm.c"
    <arch>-dis.c additions use: "-- dis.c"
-   <arch>-ibd.h additions use: "-- ibd.h"  */
+   <arch>-ibd.h additions use: "-- ibd.h"
+*/
 
 /* -- opc.h */
 
@@ -53,46 +57,56 @@
   : X (buffer) == 0x30 ? ((((unsigned char *) (buffer))[1] & 0x70) >> 4) \
   : ((((unsigned char *) (buffer))[1] & 0xf0) >> 4)))
 #else
-#define CGEN_DIS_HASH(buffer, value) m32r_cgen_dis_hash (buffer, value)
-extern unsigned int m32r_cgen_dis_hash (const char *, CGEN_INSN_INT);
+#define CGEN_DIS_HASH(buffer, value) m32r_cgen_dis_hash(buffer, value)
+extern unsigned int m32r_cgen_dis_hash(const char *, CGEN_INSN_INT);
 #endif
 
 /* -- */
 
 /* -- opc.c */
 unsigned int
-m32r_cgen_dis_hash (const char * buf ATTRIBUTE_UNUSED, CGEN_INSN_INT value)
+m32r_cgen_dis_hash (buf, value)
+     const char * buf ATTRIBUTE_UNUSED;
+     CGEN_INSN_INT value;
 {
   unsigned int x;
-
-  if (value & 0xffff0000) /* 32bit instructions.  */
+                                                                                
+  if (value & 0xffff0000) /* 32bit instructions */
     value = (value >> 16) & 0xffff;
-
-  x = (value >> 8) & 0xf0;
+                                                                                
+  x = (value>>8) & 0xf0;
   if (x == 0x40 || x == 0xe0 || x == 0x60 || x == 0x50)
     return x;
-
+                                                                                
   if (x == 0x70 || x == 0xf0)
-    return x | ((value >> 8) & 0x0f);
-
+    return x | ((value>>8) & 0x0f);
+                                                                                
   if (x == 0x30)
     return x | ((value & 0x70) >> 4);
   else
     return x | ((value & 0xf0) >> 4);
 }
-
+                                                                                
 /* -- */
 
 /* -- asm.c */
-static const char * MISSING_CLOSING_PARENTHESIS = N_("missing `)'");
+static const char * parse_hash
+  PARAMS ((CGEN_CPU_DESC, const char **, int, unsigned long *));
+static const char * parse_hi16
+  PARAMS ((CGEN_CPU_DESC, const char **, int, unsigned long *));
+static const char * parse_slo16
+  PARAMS ((CGEN_CPU_DESC, const char **, int, long *));
+static const char * parse_ulo16
+  PARAMS ((CGEN_CPU_DESC, const char **, int, unsigned long *));
 
 /* Handle '#' prefixes (i.e. skip over them).  */
 
 static const char *
-parse_hash (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-	    const char **strp,
-	    int opindex ATTRIBUTE_UNUSED,
-	    long *valuep ATTRIBUTE_UNUSED)
+parse_hash (cd, strp, opindex, valuep)
+     CGEN_CPU_DESC cd ATTRIBUTE_UNUSED;
+     const char **strp;
+     int opindex ATTRIBUTE_UNUSED;
+     unsigned long *valuep ATTRIBUTE_UNUSED;
 {
   if (**strp == '#')
     ++*strp;
@@ -102,10 +116,11 @@ parse_hash (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 /* Handle shigh(), high().  */
 
 static const char *
-parse_hi16 (CGEN_CPU_DESC cd,
-	    const char **strp,
-	    int opindex,
-	    unsigned long *valuep)
+parse_hi16 (cd, strp, opindex, valuep)
+     CGEN_CPU_DESC cd;
+     const char **strp;
+     int opindex;
+     unsigned long *valuep;
 {
   const char *errmsg;
   enum cgen_parse_operand_result result_type;
@@ -118,16 +133,13 @@ parse_hi16 (CGEN_CPU_DESC cd,
     {
       *strp += 5;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_HI16_ULO,
-				   & result_type, & value);
+				   &result_type, &value);
       if (**strp != ')')
-	return MISSING_CLOSING_PARENTHESIS;
+	return "missing `)'";
       ++*strp;
       if (errmsg == NULL
-	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
-	{
-	  value >>= 16;
-	  value &= 0xffff;
-	}
+  	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
+	value >>= 16;
       *valuep = value;
       return errmsg;
     }
@@ -135,17 +147,13 @@ parse_hi16 (CGEN_CPU_DESC cd,
     {
       *strp += 6;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_HI16_SLO,
-				   & result_type, & value);
+ 				   &result_type, &value);
       if (**strp != ')')
-	return MISSING_CLOSING_PARENTHESIS;
+	return "missing `)'";
       ++*strp;
       if (errmsg == NULL
 	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
-	{
-	  value += 0x8000;
-	  value >>= 16;
-	  value &= 0xffff;
-	}
+	value = (value >> 16) + (value & 0x8000 ? 1 : 0);
       *valuep = value;
       return errmsg;
     }
@@ -158,10 +166,11 @@ parse_hi16 (CGEN_CPU_DESC cd,
    handles the case where low() isn't present.  */
 
 static const char *
-parse_slo16 (CGEN_CPU_DESC cd,
-	     const char ** strp,
-	     int opindex,
-	     long * valuep)
+parse_slo16 (cd, strp, opindex, valuep)
+     CGEN_CPU_DESC cd;
+     const char **strp;
+     int opindex;
+     long *valuep;
 {
   const char *errmsg;
   enum cgen_parse_operand_result result_type;
@@ -174,13 +183,17 @@ parse_slo16 (CGEN_CPU_DESC cd,
     {
       *strp += 4;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_LO16,
-				   & result_type, & value);
+				   &result_type, &value);
       if (**strp != ')')
-	return MISSING_CLOSING_PARENTHESIS;
+	return "missing `)'";
       ++*strp;
       if (errmsg == NULL
 	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
-	value = ((value & 0xffff) ^ 0x8000) - 0x8000;
+        {
+	  value &= 0xffff;
+          if (value & 0x8000)
+             value |= 0xffff0000;
+        }
       *valuep = value;
       return errmsg;
     }
@@ -189,9 +202,9 @@ parse_slo16 (CGEN_CPU_DESC cd,
     {
       *strp += 4;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_SDA16,
-				   NULL, & value);
+				   NULL, &value);
       if (**strp != ')')
-	return MISSING_CLOSING_PARENTHESIS;
+	return "missing `)'";
       ++*strp;
       *valuep = value;
       return errmsg;
@@ -205,10 +218,11 @@ parse_slo16 (CGEN_CPU_DESC cd,
    handles the case where low() isn't present.  */
 
 static const char *
-parse_ulo16 (CGEN_CPU_DESC cd,
-	     const char **strp,
-	     int opindex,
-	     unsigned long *valuep)
+parse_ulo16 (cd, strp, opindex, valuep)
+     CGEN_CPU_DESC cd;
+     const char **strp;
+     int opindex;
+     unsigned long *valuep;
 {
   const char *errmsg;
   enum cgen_parse_operand_result result_type;
@@ -221,9 +235,9 @@ parse_ulo16 (CGEN_CPU_DESC cd,
     {
       *strp += 4;
       errmsg = cgen_parse_address (cd, strp, opindex, BFD_RELOC_M32R_LO16,
-				   & result_type, & value);
+				   &result_type, &value);
       if (**strp != ')')
-	return MISSING_CLOSING_PARENTHESIS;
+	return "missing `)'";
       ++*strp;
       if (errmsg == NULL
 	  && result_type == CGEN_PARSE_OPERAND_RESULT_NUMBER)
@@ -238,51 +252,31 @@ parse_ulo16 (CGEN_CPU_DESC cd,
 /* -- */
 
 /* -- dis.c */
+static void print_hash PARAMS ((CGEN_CPU_DESC, PTR, long, unsigned, bfd_vma, int));
+static int my_print_insn PARAMS ((CGEN_CPU_DESC, bfd_vma, disassemble_info *));
 
-/* Print signed operands with '#' prefixes.  */
+/* Immediate values are prefixed with '#'.  */
 
-static void
-print_signed_with_hash_prefix (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-			       void * dis_info,
-			       long value,
-			       unsigned int attrs ATTRIBUTE_UNUSED,
-			       bfd_vma pc ATTRIBUTE_UNUSED,
-			       int length ATTRIBUTE_UNUSED)
-{
-  disassemble_info *info = (disassemble_info *) dis_info;
-
-  (*info->fprintf_func) (info->stream, "#");
-  (*info->fprintf_func) (info->stream, "%ld", value);
-}
-
-/* Print unsigned operands with '#' prefixes.  */
-
-static void
-print_unsigned_with_hash_prefix (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-				 void * dis_info,
-				 long value,
-				 unsigned int attrs ATTRIBUTE_UNUSED,
-				 bfd_vma pc ATTRIBUTE_UNUSED,
-				 int length ATTRIBUTE_UNUSED)
-{
-  disassemble_info *info = (disassemble_info *) dis_info;
-
-  (*info->fprintf_func) (info->stream, "#");
-  (*info->fprintf_func) (info->stream, "0x%lx", value);
-}
+#define CGEN_PRINT_NORMAL(cd, info, value, attrs, pc, length)	\
+  do								\
+    {								\
+      if (CGEN_BOOL_ATTR ((attrs), CGEN_OPERAND_HASH_PREFIX))	\
+        (*info->fprintf_func) (info->stream, "#");		\
+    }								\
+  while (0)
 
 /* Handle '#' prefixes as operands.  */
 
 static void
-print_hash (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
-	    void * dis_info,
-	    long value ATTRIBUTE_UNUSED,
-	    unsigned int attrs ATTRIBUTE_UNUSED,
-	    bfd_vma pc ATTRIBUTE_UNUSED,
-	    int length ATTRIBUTE_UNUSED)
+print_hash (cd, dis_info, value, attrs, pc, length)
+     CGEN_CPU_DESC cd ATTRIBUTE_UNUSED;
+     PTR dis_info;
+     long value ATTRIBUTE_UNUSED;
+     unsigned int attrs ATTRIBUTE_UNUSED;
+     bfd_vma pc ATTRIBUTE_UNUSED;
+     int length ATTRIBUTE_UNUSED;
 {
   disassemble_info *info = (disassemble_info *) dis_info;
-
   (*info->fprintf_func) (info->stream, "#");
 }
 
@@ -290,21 +284,22 @@ print_hash (CGEN_CPU_DESC cd ATTRIBUTE_UNUSED,
 #define CGEN_PRINT_INSN my_print_insn
 
 static int
-my_print_insn (CGEN_CPU_DESC cd,
-	       bfd_vma pc,
-	       disassemble_info *info)
+my_print_insn (cd, pc, info)
+     CGEN_CPU_DESC cd;
+     bfd_vma pc;
+     disassemble_info *info;
 {
-  bfd_byte buffer[CGEN_MAX_INSN_SIZE];
-  bfd_byte *buf = buffer;
+  char buffer[CGEN_MAX_INSN_SIZE];
+  char *buf = buffer;
   int status;
   int buflen = (pc & 3) == 0 ? 4 : 2;
   int big_p = CGEN_CPU_INSN_ENDIAN (cd) == CGEN_ENDIAN_BIG;
-  bfd_byte *x;
+  char *x;
 
   /* Read the base part of the insn.  */
 
   status = (*info->read_memory_func) (pc - ((!big_p && (pc & 3) != 0) ? 2 : 0),
-				      buf, buflen, info);
+                                      buf, buflen, info);
   if (status != 0)
     {
       (*info->memory_error_func) (status, pc, info);

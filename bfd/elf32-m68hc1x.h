@@ -1,24 +1,22 @@
 /* Motorola 68HC11/68HC12-specific support for 32-bit ELF
-   Copyright 2003, 2004, 2005, 2006, 2007, 2009, 2010, 2012
-   Free Software Foundation, Inc.
+   Copyright 2003, 2004 Free Software Foundation, Inc.
    Contributed by Stephane Carrez (stcarrez@nerim.fr)
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 #ifndef _ELF32_M68HC1X_H
 #define _ELF32_M68HC1X_H
@@ -43,8 +41,8 @@ extern bfd_boolean _bfd_m68hc11_elf_print_private_bfd_data (bfd*, void*);
    The trampoline is used when a pointer to a far function is used.
    It takes care of installing the proper memory bank as well as creating
    the 'call/rtc' calling convention.  */
-struct elf32_m68hc11_stub_hash_entry
-{
+struct elf32_m68hc11_stub_hash_entry {
+
   /* Base hash table entry structure.  */
   struct bfd_hash_entry root;
 
@@ -84,8 +82,9 @@ struct elf32_m68hc11_stub_hash_entry
                         less or equal to the page size)
 
    For 68HC12, the window is at 0x8000 and the page size is 16K (full window).
-   For 68HC11 this is board specific (implemented by external hardware).  */
+   For 68HC11 this is board specific (implemented by external hardware).
 
+*/
 struct m68hc11_page_info
 {
   bfd_vma bank_virtual;
@@ -113,25 +112,24 @@ struct m68hc11_elf_link_hash_table
   asection* tramp_section;
 
   /* Linker call-backs.  */
-  asection * (*add_stub_section) (const char *, asection *);
+  asection * (*add_stub_section) PARAMS ((const char *, asection *));
 
   /* Assorted information used by elf32_hppa_size_stubs.  */
   unsigned int bfd_count;
   int top_index;
   asection **input_list;
 
-  /* Small local sym cache.  */
-  struct sym_cache sym_cache;
+  /* Small local sym to section mapping cache.  */
+  struct sym_sec_cache sym_sec;
 
-  bfd_boolean (* size_one_stub)  (struct bfd_hash_entry*, void*);
-  bfd_boolean (* build_one_stub) (struct bfd_hash_entry*, void*);
+  bfd_boolean (* size_one_stub) PARAMS((struct bfd_hash_entry*, void*));
+  bfd_boolean (* build_one_stub) PARAMS((struct bfd_hash_entry*, void*));
 };
 
 /* Get the Sparc64 ELF linker hash table from a link_info structure.  */
 
 #define m68hc11_elf_hash_table(p) \
-  (elf_hash_table_id ((struct elf_link_hash_table *) ((p)->hash)) \
-  == M68HC11_ELF_DATA ? ((struct m68hc11_elf_link_hash_table *) ((p)->hash)) : NULL)
+  ((struct m68hc11_elf_link_hash_table *) ((p)->hash))
 
 /* Create a 68HC11/68HC12 ELF linker hash table.  */
 
@@ -161,6 +159,14 @@ bfd_reloc_status_type m68hc11_elf_special_reloc
     asymbol *symbol, void *data, asection *input_section,
     bfd *output_bfd, char **error_message);
 
+/* GC mark and sweep.  */
+asection *elf32_m68hc11_gc_mark_hook
+  (asection *sec, struct bfd_link_info *info,
+   Elf_Internal_Rela *rel, struct elf_link_hash_entry *h,
+   Elf_Internal_Sym *sym);
+bfd_boolean elf32_m68hc11_gc_sweep_hook
+  (bfd *abfd, struct bfd_link_info *info,
+   asection *sec, const Elf_Internal_Rela *relocs);
 bfd_boolean elf32_m68hc11_check_relocs
   (bfd * abfd, struct bfd_link_info * info,
    asection * sec, const Elf_Internal_Rela * relocs);
@@ -175,10 +181,6 @@ bfd_boolean elf32_m68hc11_add_symbol_hook
    Elf_Internal_Sym *sym, const char **namep,
    flagword *flagsp, asection **secp,
    bfd_vma *valp);
-
-void elf32_m68hc11_merge_symbol_attribute
-  (struct elf_link_hash_entry *, const Elf_Internal_Sym *,
-   bfd_boolean, bfd_boolean);
 
 /* Tweak the OSABI field of the elf header.  */
 

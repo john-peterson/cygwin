@@ -1,24 +1,29 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 2001-2013 Free Software Foundation, Inc.
+   Copyright 2001, 2004 Free Software Foundation, Inc.
 
    Contributed by Red Hat, originally written by Jim Blandy.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+ 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
    Please email any bugs, comments, and/or additions to this file to:
    bug-gdb@gnu.org  */
+
+#include <stdio.h>
+#include <string.h>
+
 
 /* X_string is a null-terminated string in the X charset whose
    elements are as follows.  X should be the name the `set charset'
@@ -49,33 +54,6 @@ char iso_8859_1_string[NUM_CHARS];
 char ebcdic_us_string[NUM_CHARS];
 char ibm1047_string[NUM_CHARS];
 
-/* We make a phony wchar_t and then pretend that this platform uses
-   UTF-32 (or UTF-16, depending on the size -- same difference for the
-   purposes of this test).  */
-typedef unsigned int wchar_t;
-wchar_t utf_32_string[NUM_CHARS];
-
-/* We also define a couple phony types for testing the u'' and U''
-   support.  It is ok if these have the wrong size on some platforms
-   -- the test case will skip the tests in that case.  */
-typedef unsigned short char16_t;
-typedef unsigned int char32_t;
-
-/* Make sure to use the typedefs.  */
-char16_t uvar;
-char32_t Uvar;
-
-char16_t *String16;
-char32_t *String32;
-
-/* A typedef to a typedef should also work.  */
-typedef wchar_t my_wchar_t;
-my_wchar_t myvar;
-
-/* Some arrays for simple assignment tests.  */
-short short_array[3];
-int int_array[3];
-long long_array[3];
 
 void
 init_string (char string[],
@@ -84,10 +62,7 @@ init_string (char string[],
              char line_feed, char carriage_return, char horizontal_tab,
              char vertical_tab, char cent, char misc_ctrl)
 {
-  int i;
-
-  for (i = 0; i < NUM_CHARS; ++i)
-    string[i] = x;
+  memset (string, x, NUM_CHARS);
   string[0] = alert;
   string[1] = backspace;
   string[2] = form_feed;
@@ -110,22 +85,13 @@ fill_run (char string[], int start, int len, int first)
 }
 
 
-void
-init_utf32 ()
-{
-  int i;
-
-  for (i = 0; i < NUM_CHARS; ++i)
-    utf_32_string[i] = iso_8859_1_string[i] & 0xff;
-}
-
-extern void malloc_stub (void);
-
 int main ()
 {
-
-  malloc_stub ();
-
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
+  (void) malloc (1);
   /* Initialize ascii_string.  */
   init_string (ascii_string,
                120,
@@ -180,9 +146,5 @@ int main ()
   /* The digits, at least, are contiguous.  */
   fill_run (ibm1047_string, 59, 10, 240);
 
-  init_utf32 ();
-
-  myvar = utf_32_string[7];
-
-  return 0;            /* all strings initialized */
+  puts ("All set!");            /* all strings initialized */
 }

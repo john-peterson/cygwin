@@ -1,5 +1,6 @@
-/* Host-dependent definitions for Intel 386 running BSD Unix, for GDB.
-   Copyright 1986, 1987, 1989, 1992 Free Software Foundation, Inc.
+/* Definitions to make GDB run on a vax under 4.2bsd.
+   Copyright 1986, 1987, 1989, 1991, 1993, 1994, 1996, 1998, 1999, 2000, 2002
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -18,6 +19,17 @@
    Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.  */
 
-#define HOST_BYTE_ORDER LITTLE_ENDIAN
+#ifndef TM_VAXBSD_H
+#define TM_VAXBSD_H
 
-#include <machine/limits.h>	/* for INT_MIN */
+#define TARGET_UPAGES 14
+#define TARGET_NBPG 512
+#define STACK_END_ADDR (0x80000000 - (TARGET_UPAGES * TARGET_NBPG))
+
+/* On the VAX, sigtramp is in the u area.  Can't check the exact
+   addresses because for cross-debugging we don't have VAX include
+   files around.  This should be close enough.  */
+#define DEPRECATED_SIGTRAMP_START(pc)	STACK_END_ADDR
+#define DEPRECATED_SIGTRAMP_END(pc)	0x80000000
+
+#endif /* TM_VAXBSD_H */
