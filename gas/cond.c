@@ -1,12 +1,12 @@
 /* cond.c - conditional assembly pseudo-ops, and .include
-   Copyright 1990, 1991, 1992, 1993, 1995, 1997, 1998, 2000, 2001, 2002,
-   2003, 2005, 2006, 2007 Free Software Foundation, Inc.
+   Copyright 1990, 1991, 1992, 1993, 1995, 1997, 1998, 2000, 2001
+   Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -16,11 +16,10 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 #include "as.h"
-#include "sb.h"
 #include "macro.h"
 
 #include "obstack.h"
@@ -56,23 +55,20 @@ struct conditional_frame {
   int macro_nest;
 };
 
-static void initialize_cframe (struct conditional_frame *cframe);
-static char *get_mri_string (int, int *);
+static void initialize_cframe PARAMS ((struct conditional_frame *cframe));
+static char *get_mri_string PARAMS ((int, int *));
 
 static struct conditional_frame *current_cframe = NULL;
 
-/* Performs the .ifdef (test_defined == 1) and
-   the .ifndef (test_defined == 0) pseudo op.  */
-
 void
-s_ifdef (int test_defined)
+s_ifdef (arg)
+     int arg;
 {
   /* Points to name of symbol.  */
-  char *name;
+  register char *name;
   /* Points to symbol.  */
-  symbolS *symbolP;
+  register symbolS *symbolP;
   struct conditional_frame cframe;
-  char c;
 
   /* Leading whitespace is part of operand.  */
   SKIP_WHITESPACE ();
@@ -83,47 +79,34 @@ s_ifdef (int test_defined)
       as_bad (_("invalid identifier for \".ifdef\""));
       obstack_1grow (&cond_obstack, 0);
       ignore_rest_of_line ();
-      return;
     }
-
-  c = get_symbol_end ();
-  symbolP = symbol_find (name);
-  *input_line_pointer = c;
-
-  initialize_cframe (&cframe);
-
-  if (cframe.dead_tree)
-    cframe.ignoring = 1;
   else
     {
-      int is_defined;
+      char c;
 
-      /* Use the same definition of 'defined' as .equiv so that a symbol
-	 which has been referenced but not yet given a value/address is
-	 considered to be undefined.  */
-      is_defined =
-	symbolP != NULL
-	&& (S_IS_DEFINED (symbolP) || symbol_equated_p (symbolP))
-	&& S_GET_SEGMENT (symbolP) != reg_section;
+      c = get_symbol_end ();
+      symbolP = symbol_find (name);
+      *input_line_pointer = c;
 
-      cframe.ignoring = ! (test_defined ^ is_defined);
-    }
+      initialize_cframe (&cframe);
+      cframe.ignoring = cframe.dead_tree || !((symbolP != 0) ^ arg);
+      current_cframe = ((struct conditional_frame *)
+			obstack_copy (&cond_obstack, &cframe,
+				      sizeof (cframe)));
 
-  current_cframe = ((struct conditional_frame *)
-		    obstack_copy (&cond_obstack, &cframe,
-				  sizeof (cframe)));
+      if (LISTING_SKIP_COND ()
+	  && cframe.ignoring
+	  && (cframe.previous_cframe == NULL
+	      || ! cframe.previous_cframe->ignoring))
+	listing_list (2);
 
-  if (LISTING_SKIP_COND ()
-      && cframe.ignoring
-      && (cframe.previous_cframe == NULL
-	  || ! cframe.previous_cframe->ignoring))
-    listing_list (2);
-
-  demand_empty_rest_of_line ();
+      demand_empty_rest_of_line ();
+    }				/* if a valid identifyer name */
 }
 
 void
-s_if (int arg)
+s_if (arg)
+     int arg;
 {
   expressionS operand;
   struct conditional_frame cframe;
@@ -145,7 +128,7 @@ s_if (int arg)
     }
   else
     {
-      expression_and_evaluate (&operand);
+      expression (&operand);
       if (operand.X_op != O_constant)
 	as_bad (_("non-constant expression in \".if\" statement"));
     }
@@ -182,44 +165,12 @@ s_if (int arg)
   demand_empty_rest_of_line ();
 }
 
-/* Performs the .ifb (test_blank == 1) and
-   the .ifnb (test_blank == 0) pseudo op.  */
-
-void
-s_ifb (int test_blank)
-{
-  struct conditional_frame cframe;
-
-  initialize_cframe (&cframe);
-
-  if (cframe.dead_tree)
-    cframe.ignoring = 1;
-  else
-    {
-      int is_eol;
-
-      SKIP_WHITESPACE ();
-      is_eol = is_end_of_line[(unsigned char) *input_line_pointer];
-      cframe.ignoring = (test_blank == !is_eol);
-    }
-
-  current_cframe = ((struct conditional_frame *)
-		    obstack_copy (&cond_obstack, &cframe,
-				  sizeof (cframe)));
-
-  if (LISTING_SKIP_COND ()
-      && cframe.ignoring
-      && (cframe.previous_cframe == NULL
-	  || ! cframe.previous_cframe->ignoring))
-    listing_list (2);
-
-  ignore_rest_of_line ();
-}
-
 /* Get a string for the MRI IFC or IFNC pseudo-ops.  */
 
 static char *
-get_mri_string (int terminator, int *len)
+get_mri_string (terminator, len)
+     int terminator;
+     int *len;
 {
   char *ret;
   char *s;
@@ -259,7 +210,8 @@ get_mri_string (int terminator, int *len)
 /* The MRI IFC and IFNC pseudo-ops.  */
 
 void
-s_ifc (int arg)
+s_ifc (arg)
+     int arg;
 {
   char *stop = NULL;
   char stopc;
@@ -300,82 +252,86 @@ s_ifc (int arg)
 }
 
 void
-s_elseif (int arg)
+s_elseif (arg)
+     int arg;
 {
+  expressionS operand;
+  int t;
+
   if (current_cframe == NULL)
     {
-      as_bad (_("\".elseif\" without matching \".if\""));
+      as_bad (_("\".elseif\" without matching \".if\" - ignored"));
     }
   else if (current_cframe->else_seen)
     {
-      as_bad (_("\".elseif\" after \".else\""));
+      as_bad (_("\".elseif\" after \".else\" - ignored"));
       as_bad_where (current_cframe->else_file_line.file,
 		    current_cframe->else_file_line.line,
-		    _("here is the previous \".else\""));
+		    _("here is the previous \"else\""));
       as_bad_where (current_cframe->if_file_line.file,
 		    current_cframe->if_file_line.line,
-		    _("here is the previous \".if\""));
+		    _("here is the previous \"if\""));
     }
   else
     {
       as_where (&current_cframe->else_file_line.file,
 		&current_cframe->else_file_line.line);
 
-      current_cframe->dead_tree |= !current_cframe->ignoring;
-      current_cframe->ignoring = current_cframe->dead_tree;
-    }
+      if (!current_cframe->dead_tree)
+	{
+	  current_cframe->dead_tree = !current_cframe->ignoring;
+	  current_cframe->ignoring = !current_cframe->ignoring;
+	  if (LISTING_SKIP_COND ())
+	    {
+	      if (! current_cframe->ignoring)
+		listing_list (1);
+	      else
+		listing_list (2);
+	    }
+	}			/* if not a dead tree */
+    }				/* if error else do it */
 
   if (current_cframe == NULL || current_cframe->ignoring)
     {
       while (! is_end_of_line[(unsigned char) *input_line_pointer])
 	++input_line_pointer;
-
-      if (current_cframe == NULL)
-	return;
+      return;
     }
-  else
+
+  /* Leading whitespace is part of operand.  */
+  SKIP_WHITESPACE ();
+
+  expression (&operand);
+  if (operand.X_op != O_constant)
+    as_bad (_("non-constant expression in \".elseif\" statement"));
+
+  switch ((operatorT) arg)
     {
-      expressionS operand;
-      int t;
-
-      /* Leading whitespace is part of operand.  */
-      SKIP_WHITESPACE ();
-
-      expression_and_evaluate (&operand);
-      if (operand.X_op != O_constant)
-	as_bad (_("non-constant expression in \".elseif\" statement"));
-
-      switch ((operatorT) arg)
-	{
-	case O_eq: t = operand.X_add_number == 0; break;
-	case O_ne: t = operand.X_add_number != 0; break;
-	case O_lt: t = operand.X_add_number < 0; break;
-	case O_le: t = operand.X_add_number <= 0; break;
-	case O_ge: t = operand.X_add_number >= 0; break;
-	case O_gt: t = operand.X_add_number > 0; break;
-	default:
-	  abort ();
-	  return;
-	}
-
-      current_cframe->ignoring = current_cframe->dead_tree || ! t;
+    case O_eq: t = operand.X_add_number == 0; break;
+    case O_ne: t = operand.X_add_number != 0; break;
+    case O_lt: t = operand.X_add_number < 0; break;
+    case O_le: t = operand.X_add_number <= 0; break;
+    case O_ge: t = operand.X_add_number >= 0; break;
+    case O_gt: t = operand.X_add_number > 0; break;
+    default:
+      abort ();
+      return;
     }
+
+  current_cframe->ignoring = current_cframe->dead_tree || ! t;
 
   if (LISTING_SKIP_COND ()
+      && current_cframe->ignoring
       && (current_cframe->previous_cframe == NULL
 	  || ! current_cframe->previous_cframe->ignoring))
-    {
-      if (! current_cframe->ignoring)
-	listing_list (1);
-      else
-	listing_list (2);
-    }
+    listing_list (2);
 
   demand_empty_rest_of_line ();
 }
 
 void
-s_endif (int arg ATTRIBUTE_UNUSED)
+s_endif (arg)
+     int arg ATTRIBUTE_UNUSED;
 {
   struct conditional_frame *hold;
 
@@ -406,42 +362,43 @@ s_endif (int arg ATTRIBUTE_UNUSED)
 }
 
 void
-s_else (int arg ATTRIBUTE_UNUSED)
+s_else (arg)
+     int arg ATTRIBUTE_UNUSED;
 {
   if (current_cframe == NULL)
     {
-      as_bad (_("\".else\" without matching \".if\""));
+      as_bad (_(".else without matching .if - ignored"));
+
     }
   else if (current_cframe->else_seen)
     {
-      as_bad (_("duplicate \".else\""));
+      as_bad (_("duplicate \"else\" - ignored"));
       as_bad_where (current_cframe->else_file_line.file,
 		    current_cframe->else_file_line.line,
-		    _("here is the previous \".else\""));
+		    _("here is the previous \"else\""));
       as_bad_where (current_cframe->if_file_line.file,
 		    current_cframe->if_file_line.line,
-		    _("here is the previous \".if\""));
+		    _("here is the previous \"if\""));
     }
   else
     {
       as_where (&current_cframe->else_file_line.file,
 		&current_cframe->else_file_line.line);
 
-      current_cframe->ignoring =
-	current_cframe->dead_tree | !current_cframe->ignoring;
-
-      if (LISTING_SKIP_COND ()
-	  && (current_cframe->previous_cframe == NULL
-	      || ! current_cframe->previous_cframe->ignoring))
+      if (!current_cframe->dead_tree)
 	{
-	  if (! current_cframe->ignoring)
-	    listing_list (1);
-	  else
-	    listing_list (2);
-	}
+	  current_cframe->ignoring = !current_cframe->ignoring;
+	  if (LISTING_SKIP_COND ())
+	    {
+	      if (! current_cframe->ignoring)
+		listing_list (1);
+	      else
+		listing_list (2);
+	    }
+	}			/* if not a dead tree */
 
       current_cframe->else_seen = 1;
-    }
+    }				/* if error else do it */
 
   if (flag_mri)
     {
@@ -453,7 +410,8 @@ s_else (int arg ATTRIBUTE_UNUSED)
 }
 
 void
-s_ifeqs (int arg)
+s_ifeqs (arg)
+     int arg;
 {
   char *s1, *s2;
   int len1, len2;
@@ -491,7 +449,7 @@ s_ifeqs (int arg)
 }
 
 int
-ignore_input (void)
+ignore_input ()
 {
   char *s;
 
@@ -525,7 +483,8 @@ ignore_input (void)
 }
 
 static void
-initialize_cframe (struct conditional_frame *cframe)
+initialize_cframe (cframe)
+     struct conditional_frame *cframe;
 {
   memset (cframe, 0, sizeof (*cframe));
   as_where (&cframe->if_file_line.file,
@@ -541,7 +500,8 @@ initialize_cframe (struct conditional_frame *cframe)
    negative, we are being called at the of the input files.  */
 
 void
-cond_finish_check (int nest)
+cond_finish_check (nest)
+     int nest;
 {
   if (current_cframe != NULL && current_cframe->macro_nest >= nest)
     {
@@ -564,7 +524,8 @@ cond_finish_check (int nest)
    nested, and just pop them off the stack.  */
 
 void
-cond_exit_macro (int nest)
+cond_exit_macro (nest)
+     int nest;
 {
   while (current_cframe != NULL && current_cframe->macro_nest >= nest)
     {
