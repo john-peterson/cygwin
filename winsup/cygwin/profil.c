@@ -1,6 +1,6 @@
 /* profil.c -- win32 profil.c equivalent
 
-   Copyright 1998, 1999, 2000, 2001, 2003, 2009, 2010 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -8,9 +8,11 @@
    Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
    details. */
 
-#include "winlean.h"
+#include <windows.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <math.h>
 
 #include <profil.h>
 
