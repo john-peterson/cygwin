@@ -1,24 +1,23 @@
 /* ia64-opc-f.c -- IA-64 `F' opcode table.
-   Copyright 1998, 1999, 2000, 2002, 2005, 2007, 2009
-   Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2002 Free Software Foundation, Inc.
    Contributed by David Mosberger-Tang <davidm@hpl.hp.com>
 
-   This file is part of the GNU opcodes library.
+   This file is part of GDB, GAS, and the GNU binutils.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   GDB, GAS, and the GNU binutils are free software; you can redistribute
+   them and/or modify them under the terms of the GNU General Public
+   License as published by the Free Software Foundation; either version
+   2, or (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   GDB, GAS, and the GNU binutils are distributed in the hope that they
+   will be useful, but WITHOUT ANY WARRANTY; without even the implied
+   warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+   the GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Free Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 #include "ia64-opc.h"
 
@@ -37,7 +36,6 @@
 #define bXb(x)	(((ia64_insn) ((x) & 0x1)) << 33)
 #define bX2(x)	(((ia64_insn) ((x) & 0x3)) << 34)
 #define bX6(x)	(((ia64_insn) ((x) & 0x3f)) << 27)
-#define bY(x)	(((ia64_insn) ((x) & 0x1)) << 26)
 
 #define mF2	bF2 (-1)
 #define mF4	bF4 (-1)
@@ -50,7 +48,6 @@
 #define mXb	bXb (-1)
 #define mX2	bX2 (-1)
 #define mX6	bX6 (-1)
-#define mY	bY (-1)
 
 #define OpXa(a,b)	(bOp (a) | bXa (b)), (mOp | mXa)
 #define OpXaSf(a,b,c)	(bOp (a) | bXa (b) | bSf (c)), (mOp | mXa | mSf)
@@ -72,8 +69,6 @@
 	(bOp (a) | bXb (b) | bQ (c) | bSf (d)), (mOp | mXb | mQ | mSf)
 #define OpXbX6(a,b,c) \
 	(bOp (a) | bXb (b) | bX6 (c)), (mOp | mXb | mX6)
-#define OpXbX6Y(a,b,c,d) \
-	(bOp (a) | bXb (b) | bX6 (c) | bY (d)), (mOp | mXb | mX6 | mY)
 #define OpXbX6F2(a,b,c,d) \
 	(bOp (a) | bXb (b) | bX6 (c) | bF2 (d)), (mOp | mXb | mX6 | mF2)
 #define OpXbX6Sf(a,b,c,d) \
@@ -182,8 +177,7 @@ struct ia64_opcode ia64_opcodes_f[] =
     {"fchkf.s3",	f0, OpXbX6Sf (0, 0, 0x08, 3), {TGT25}, EMPTY},
 
     {"break.f",		f0, OpXbX6 (0, 0, 0x00), {IMMU21}, EMPTY},
-    {"nop.f",		f0, OpXbX6Y (0, 0, 0x01, 0), {IMMU21}, EMPTY},
-    {"hint.f",		f0, OpXbX6Y (0, 0, 0x01, 1), {IMMU21}, EMPTY},
+    {"nop.f",		f0, OpXbX6 (0, 0, 0x01), {IMMU21}, EMPTY},
 
     {"fprcpa.s0",	f2, OpXbQSf (1, 1, 0, 0), {F1, P2, F2, F3}, EMPTY},
     {"fprcpa",		f2, OpXbQSf (1, 1, 0, 0), {F1, P2, F2, F3}, PSEUDO, 0, NULL},

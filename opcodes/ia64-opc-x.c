@@ -1,23 +1,23 @@
 /* ia64-opc-x.c -- IA-64 `X' opcode table.
-   Copyright 1998, 1999, 2000, 2002, 2005, 2007 Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2002 Free Software Foundation, Inc.
    Contributed by Timothy Wall <twall@cygnus.com>
 
-   This file is part of the GNU opcodes library.
+   This file is part of GDB, GAS, and the GNU binutils.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   GDB, GAS, and the GNU binutils are free software; you can redistribute
+   them and/or modify them under the terms of the GNU General Public
+   License as published by the Free Software Foundation; either version
+   2, or (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   GDB, GAS, and the GNU binutils are distributed in the hope that they
+   will be useful, but WITHOUT ANY WARRANTY; without even the implied
+   warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+   the GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Free Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 #include "ia64-opc.h"
 
@@ -34,7 +34,6 @@
 #define bWha(x)		(((ia64_insn) ((x) & 0x3)) << 33)
 #define bX3(x)		(((ia64_insn) ((x) & 0x7)) << 33)
 #define bX6(x)		(((ia64_insn) ((x) & 0x3f)) << 27)
-#define bY(x)		(((ia64_insn) ((x) & 0x1)) << 26)
 
 #define mBtype		bBtype (-1)
 #define mD		bD (-1)
@@ -44,12 +43,9 @@
 #define mWha		bWha (-1)
 #define mX3             bX3 (-1)
 #define mX6		bX6 (-1)
-#define mY		bY (-1)
 
 #define OpX3X6(a,b,c)		(bOp (a) | bX3 (b) | bX6(c)), \
 				(mOp | mX3 | mX6)
-#define OpX3X6Y(a,b,c,d)	(bOp (a) | bX3 (b) | bX6(c) | bY(d)), \
-				(mOp | mX3 | mX6 | mY)
 #define OpVc(a,b)		(bOp (a) | bVc (b)), (mOp | mVc)
 #define OpPaWhaD(a,b,c,d) \
 	(bOp (a) | bPa (b) | bWha (c) | bD (d)), (mOp | mPa | mWha | mD)
@@ -62,9 +58,8 @@
 
 struct ia64_opcode ia64_opcodes_x[] =
   {
-    {"break.x",	X0, OpX3X6 (0, 0, 0x00), {IMMU62}, 0, 0, NULL},
-    {"nop.x",	X0, OpX3X6Y (0, 0, 0x01, 0), {IMMU62}, 0, 0, NULL},
-    {"hint.x",	X0, OpX3X6Y (0, 0, 0x01, 1), {IMMU62}, 0, 0, NULL},
+    {"break.x", X0, OpX3X6 (0, 0, 0x00), {IMMU62}, 0, 0, NULL},
+    {"nop.x",   X0, OpX3X6 (0, 0, 0x01), {IMMU62}, 0, 0, NULL},
     {"movl",	X,  OpVc (6, 0), {R1, IMMU64}, 0, 0, NULL},
 #define BRL(a,b) \
       X0, OpBtypePaWhaDPr (0xC, 0, a, 0, b, 0), {TGT64}, PSEUDO, 0, NULL

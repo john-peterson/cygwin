@@ -1,6 +1,6 @@
 /* Register groupings for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    Contributed by Red Hat.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef REGGROUPS_H
 #define REGGROUPS_H
@@ -49,11 +51,8 @@ extern void reggroup_add (struct gdbarch *gdbarch, struct reggroup *group);
 extern const char *reggroup_name (struct reggroup *reggroup);
 extern enum reggroup_type reggroup_type (struct reggroup *reggroup);
 
-/* Interator for the architecture's register groups.  Pass in NULL,
-   returns the first group.  Pass in a group, returns the next group,
-   or NULL when the last group is reached.  */
-extern struct reggroup *reggroup_next (struct gdbarch *gdbarch,
-				       struct reggroup *last);
+/* The register groups for the current architecture.  */
+extern struct reggroup *const *reggroups (struct gdbarch *gdbarch);
 
 /* Is REGNUM a member of REGGROUP?  */
 extern int default_register_reggroup_p (struct gdbarch *gdbarch, int regnum,

@@ -1,12 +1,14 @@
 /* Code dealing with dummy stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994,
+   1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002 Free Software
+   Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 
 #include "defs.h"
@@ -24,12 +28,6 @@
 #include "frame.h"
 #include "inferior.h"
 #include "gdb_assert.h"
-#include "frame-unwind.h"
-#include "command.h"
-#include "gdbcmd.h"
-#include "gdb_string.h"
-#include "observer.h"
-#include "gdbthread.h"
 
 /* Dummy frame.  This saves the processor state just prior to setting
    up the inferior function call.  Older targets save the registers
@@ -38,297 +36,275 @@
 struct dummy_frame
 {
   struct dummy_frame *next;
-  /* This frame's ID.  Must match the value returned by
-     gdbarch_dummy_id.  */
-  struct frame_id id;
-  /* The caller's state prior to the call.  */
-  struct infcall_suspend_state *caller_state;
+
+  CORE_ADDR pc;
+  CORE_ADDR fp;
+  CORE_ADDR sp;
+  CORE_ADDR top;
+  struct regcache *regcache;
+
+  /* Address range of the call dummy code.  Look for PC in the range
+     [LO..HI) (after allowing for DECR_PC_AFTER_BREAK).  */
+  CORE_ADDR call_lo;
+  CORE_ADDR call_hi;
 };
 
 static struct dummy_frame *dummy_frame_stack = NULL;
 
-/* Push the caller's state, along with the dummy frame info, onto the
-   dummy-frame stack.  */
+/* Function: find_dummy_frame(pc, fp, sp)
 
-void
-dummy_frame_push (struct infcall_suspend_state *caller_state,
-		  const struct frame_id *dummy_id)
+   Search the stack of dummy frames for one matching the given PC and
+   FP/SP.  Unlike PC_IN_CALL_DUMMY, this function doesn't need to
+   adjust for DECR_PC_AFTER_BREAK.  This is because it is only legal
+   to call this function after the PC has been adjusted.  */
+
+static struct dummy_frame *
+find_dummy_frame (CORE_ADDR pc, CORE_ADDR fp)
 {
-  struct dummy_frame *dummy_frame;
+  struct dummy_frame *dummyframe;
 
-  dummy_frame = XZALLOC (struct dummy_frame);
-  dummy_frame->caller_state = caller_state;
-  dummy_frame->id = (*dummy_id);
-  dummy_frame->next = dummy_frame_stack;
-  dummy_frame_stack = dummy_frame;
-}
-
-/* Remove *DUMMY_PTR from the dummy frame stack.  */
-
-static void
-remove_dummy_frame (struct dummy_frame **dummy_ptr)
-{
-  struct dummy_frame *dummy = *dummy_ptr;
-
-  *dummy_ptr = dummy->next;
-  discard_infcall_suspend_state (dummy->caller_state);
-  xfree (dummy);
-}
-
-/* Delete any breakpoint B which is a momentary breakpoint for return from
-   inferior call matching DUMMY_VOIDP.  */
-
-static int
-pop_dummy_frame_bpt (struct breakpoint *b, void *dummy_voidp)
-{
-  struct dummy_frame *dummy = dummy_voidp;
-
-  if (b->thread == pid_to_thread_id (inferior_ptid)
-      && b->disposition == disp_del && frame_id_eq (b->frame_id, dummy->id))
+  for (dummyframe = dummy_frame_stack; dummyframe != NULL;
+       dummyframe = dummyframe->next)
     {
-      while (b->related_breakpoint != b)
-	delete_breakpoint (b->related_breakpoint);
-
-      delete_breakpoint (b);
-
-      /* Stop the traversal.  */
-      return 1;
-    }
-
-  /* Continue the traversal.  */
-  return 0;
-}
-
-/* Pop *DUMMY_PTR, restoring program state to that before the
-   frame was created.  */
-
-static void
-pop_dummy_frame (struct dummy_frame **dummy_ptr)
-{
-  struct dummy_frame *dummy = *dummy_ptr;
-
-  restore_infcall_suspend_state (dummy->caller_state);
-
-  iterate_over_breakpoints (pop_dummy_frame_bpt, dummy);
-
-  /* restore_infcall_control_state frees inf_state,
-     all that remains is to pop *dummy_ptr.  */
-  *dummy_ptr = dummy->next;
-  xfree (dummy);
-
-  /* We've made right mess of GDB's local state, just discard
-     everything.  */
-  reinit_frame_cache ();
-}
-
-/* Look up DUMMY_ID.
-   Return NULL if not found.  */
-
-static struct dummy_frame **
-lookup_dummy_frame (struct frame_id dummy_id)
-{
-  struct dummy_frame **dp;
-
-  for (dp = &dummy_frame_stack; *dp != NULL; dp = &(*dp)->next)
-    {
-      if (frame_id_eq ((*dp)->id, dummy_id))
-	return dp;
+      /* Does the PC fall within the dummy frame's breakpoint
+         instruction.  If not, discard this one.  */
+      if (!(pc >= dummyframe->call_lo && pc < dummyframe->call_hi))
+	continue;
+      /* Does the FP match?  */
+      if (dummyframe->top != 0)
+	{
+	  /* If the target architecture explicitly saved the
+	     top-of-stack before the inferior function call, assume
+	     that that same architecture will always pass in an FP
+	     (frame base) value that eactly matches that saved TOS.
+	     Don't check the saved SP and SP as they can lead to false
+	     hits.  */
+	  if (fp != dummyframe->top)
+	    continue;
+	}
+      else
+	{
+	  /* An older target that hasn't explicitly or implicitly
+             saved the dummy frame's top-of-stack.  Try matching the
+             FP against the saved SP and FP.  NOTE: If you're trying
+             to fix a problem with GDB not correctly finding a dummy
+             frame, check the comments that go with FRAME_ALIGN() and
+             SAVE_DUMMY_FRAME_TOS().  */
+	  if (fp != dummyframe->fp && fp != dummyframe->sp)
+	    continue;
+	}
+      /* The FP matches this dummy frame.  */
+      return dummyframe;
     }
 
   return NULL;
 }
 
-/* Pop the dummy frame DUMMY_ID, restoring program state to that before the
-   frame was created.
-   On return reinit_frame_cache has been called.
-   If the frame isn't found, flag an internal error.
-
-   NOTE: This can only pop the one frame, even if it is in the middle of the
-   stack, because the other frames may be for different threads, and there's
-   currently no way to tell which stack frame is for which thread.  */
-
-void
-dummy_frame_pop (struct frame_id dummy_id)
+struct dummy_frame *
+cached_find_dummy_frame (struct frame_info *frame, void **cache)
 {
-  struct dummy_frame **dp;
-
-  dp = lookup_dummy_frame (dummy_id);
-  gdb_assert (dp != NULL);
-
-  pop_dummy_frame (dp);
+  if ((*cache) == NULL)
+    (*cache) = find_dummy_frame (frame->pc, frame->frame);
+  return (*cache);
 }
 
-/* Drop dummy frame DUMMY_ID.  Do nothing if it is not found.  Do not restore
-   its state into inferior, just free its memory.  */
-
-void
-dummy_frame_discard (struct frame_id dummy_id)
+struct regcache *
+generic_find_dummy_frame (CORE_ADDR pc, CORE_ADDR fp)
 {
-  struct dummy_frame **dp;
-
-  dp = lookup_dummy_frame (dummy_id);
-  if (dp)
-    remove_dummy_frame (dp);
+  struct dummy_frame *dummy = find_dummy_frame (pc, fp);
+  if (dummy != NULL)
+    return dummy->regcache;
+  else
+    return NULL;
 }
 
-/* There may be stale dummy frames, perhaps left over from when an uncaught
-   longjmp took us out of a function that was called by the debugger.  Clean
-   them up at least once whenever we start a new inferior.  */
-
-static void
-cleanup_dummy_frames (struct target_ops *target, int from_tty)
+char *
+deprecated_generic_find_dummy_frame (CORE_ADDR pc, CORE_ADDR fp)
 {
-  while (dummy_frame_stack != NULL)
-    remove_dummy_frame (&dummy_frame_stack);
+  struct regcache *regcache = generic_find_dummy_frame (pc, fp);
+  if (regcache == NULL)
+    return NULL;
+  return deprecated_grub_regcache_for_registers (regcache);
 }
 
-/* Return the dummy frame cache, it contains both the ID, and a
-   pointer to the regcache.  */
-struct dummy_frame_cache
-{
-  struct frame_id this_id;
-  struct regcache *prev_regcache;
-};
+/* Function: pc_in_call_dummy (pc, sp, fp)
 
-static int
-dummy_frame_sniffer (const struct frame_unwind *self,
-		     struct frame_info *this_frame,
-		     void **this_prologue_cache)
+   Return true if the PC falls in a dummy frame created by gdb for an
+   inferior call.  The code below which allows DECR_PC_AFTER_BREAK is
+   for infrun.c, which may give the function a PC without that
+   subtracted out.  */
+
+int
+generic_pc_in_call_dummy (CORE_ADDR pc, CORE_ADDR sp, CORE_ADDR fp)
 {
   struct dummy_frame *dummyframe;
-  struct frame_id this_id;
-
-  /* When unwinding a normal frame, the stack structure is determined
-     by analyzing the frame's function's code (be it using brute force
-     prologue analysis, or the dwarf2 CFI).  In the case of a dummy
-     frame, that simply isn't possible.  The PC is either the program
-     entry point, or some random address on the stack.  Trying to use
-     that PC to apply standard frame ID unwind techniques is just
-     asking for trouble.  */
-  
-  /* Don't bother unless there is at least one dummy frame.  */
-  if (dummy_frame_stack != NULL)
+  for (dummyframe = dummy_frame_stack;
+       dummyframe != NULL;
+       dummyframe = dummyframe->next)
     {
-      /* Use an architecture specific method to extract this frame's
-	 dummy ID, assuming it is a dummy frame.  */
-      this_id = gdbarch_dummy_id (get_frame_arch (this_frame), this_frame);
-
-      /* Use that ID to find the corresponding cache entry.  */
-      for (dummyframe = dummy_frame_stack;
-	   dummyframe != NULL;
-	   dummyframe = dummyframe->next)
-	{
-	  if (frame_id_eq (dummyframe->id, this_id))
-	    {
-	      struct dummy_frame_cache *cache;
-
-	      cache = FRAME_OBSTACK_ZALLOC (struct dummy_frame_cache);
-	      cache->prev_regcache = get_infcall_suspend_state_regcache
-						   (dummyframe->caller_state);
-	      cache->this_id = this_id;
-	      (*this_prologue_cache) = cache;
-	      return 1;
-	    }
-	}
+      if ((pc >= dummyframe->call_lo)
+	  && (pc < dummyframe->call_hi + DECR_PC_AFTER_BREAK))
+	return 1;
     }
   return 0;
+}
+
+/* Function: read_register_dummy 
+   Find a saved register from before GDB calls a function in the inferior */
+
+CORE_ADDR
+deprecated_read_register_dummy (CORE_ADDR pc, CORE_ADDR fp, int regno)
+{
+  struct regcache *dummy_regs = generic_find_dummy_frame (pc, fp);
+
+  if (dummy_regs)
+    {
+      /* NOTE: cagney/2002-08-12: Replaced a call to
+	 regcache_raw_read_as_address() with a call to
+	 regcache_cooked_read_unsigned().  The old, ...as_address
+	 function was eventually calling extract_unsigned_integer (via
+	 extract_address) to unpack the registers value.  The below is
+	 doing an unsigned extract so that it is functionally
+	 equivalent.  The read needs to be cooked as, otherwise, it
+	 will never correctly return the value of a register in the
+	 [NUM_REGS .. NUM_REGS+NUM_PSEUDO_REGS) range.  */
+      ULONGEST val;
+      regcache_cooked_read_unsigned (dummy_regs, regno, &val);
+      return val;
+    }
+  else
+    return 0;
+}
+
+/* Save all the registers on the dummy frame stack.  Most ports save the
+   registers on the target stack.  This results in lots of unnecessary memory
+   references, which are slow when debugging via a serial line.  Instead, we
+   save all the registers internally, and never write them to the stack.  The
+   registers get restored when the called function returns to the entry point,
+   where a breakpoint is laying in wait.  */
+
+void
+generic_push_dummy_frame (void)
+{
+  struct dummy_frame *dummy_frame;
+  CORE_ADDR fp = (get_current_frame ())->frame;
+
+  /* check to see if there are stale dummy frames, 
+     perhaps left over from when a longjump took us out of a 
+     function that was called by the debugger */
+
+  dummy_frame = dummy_frame_stack;
+  while (dummy_frame)
+    if (INNER_THAN (dummy_frame->fp, fp))	/* stale -- destroy! */
+      {
+	dummy_frame_stack = dummy_frame->next;
+	regcache_xfree (dummy_frame->regcache);
+	xfree (dummy_frame);
+	dummy_frame = dummy_frame_stack;
+      }
+    else
+      dummy_frame = dummy_frame->next;
+
+  dummy_frame = xmalloc (sizeof (struct dummy_frame));
+  dummy_frame->regcache = regcache_xmalloc (current_gdbarch);
+
+  dummy_frame->pc = read_pc ();
+  dummy_frame->sp = read_sp ();
+  dummy_frame->top = 0;
+  dummy_frame->fp = fp;
+  regcache_cpy (dummy_frame->regcache, current_regcache);
+  dummy_frame->next = dummy_frame_stack;
+  dummy_frame_stack = dummy_frame;
+}
+
+void
+generic_save_dummy_frame_tos (CORE_ADDR sp)
+{
+  dummy_frame_stack->top = sp;
+}
+
+/* Record the upper/lower bounds on the address of the call dummy.  */
+
+void
+generic_save_call_dummy_addr (CORE_ADDR lo, CORE_ADDR hi)
+{
+  dummy_frame_stack->call_lo = lo;
+  dummy_frame_stack->call_hi = hi;
+}
+
+/* Restore the machine state from either the saved dummy stack or a
+   real stack frame. */
+
+void
+generic_pop_current_frame (void (*popper) (struct frame_info * frame))
+{
+  struct frame_info *frame = get_current_frame ();
+
+  if (PC_IN_CALL_DUMMY (frame->pc, frame->frame, frame->frame))
+    generic_pop_dummy_frame ();
+  else
+    (*popper) (frame);
+}
+
+/* Function: pop_dummy_frame
+   Restore the machine state from a saved dummy stack frame. */
+
+void
+generic_pop_dummy_frame (void)
+{
+  struct dummy_frame *dummy_frame = dummy_frame_stack;
+
+  /* FIXME: what if the first frame isn't the right one, eg..
+     because one call-by-hand function has done a longjmp into another one? */
+
+  if (!dummy_frame)
+    error ("Can't pop dummy frame!");
+  dummy_frame_stack = dummy_frame->next;
+  regcache_cpy (current_regcache, dummy_frame->regcache);
+  flush_cached_frames ();
+
+  regcache_xfree (dummy_frame->regcache);
+  xfree (dummy_frame);
+}
+
+/* Function: fix_call_dummy
+   Stub function.  Generic dummy frames typically do not need to fix
+   the frame being created */
+
+void
+generic_fix_call_dummy (char *dummy, CORE_ADDR pc, CORE_ADDR fun, int nargs,
+			struct value **args, struct type *type, int gcc_p)
+{
+  return;
 }
 
 /* Given a call-dummy dummy-frame, return the registers.  Here the
    register value is taken from the local copy of the register buffer.  */
 
-static struct value *
-dummy_frame_prev_register (struct frame_info *this_frame,
-			   void **this_prologue_cache,
-			   int regnum)
+void
+dummy_frame_register_unwind (struct frame_info *frame, void **cache,
+			     int regnum, int *optimized,
+			     enum lval_type *lvalp, CORE_ADDR *addrp,
+			     int *realnum, void *bufferp)
 {
-  struct dummy_frame_cache *cache = (*this_prologue_cache);
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
-  struct value *reg_val;
-
-  /* The dummy-frame sniffer always fills in the cache.  */
-  gdb_assert (cache != NULL);
+  struct dummy_frame *dummy = cached_find_dummy_frame (frame, cache);
+  gdb_assert (dummy != NULL);
 
   /* Describe the register's location.  Generic dummy frames always
      have the register value in an ``expression''.  */
-  reg_val = value_zero (register_type (gdbarch, regnum), not_lval);
+  *optimized = 0;
+  *lvalp = not_lval;
+  *addrp = 0;
+  *realnum = -1;
 
-  /* Use the regcache_cooked_read() method so that it, on the fly,
-     constructs either a raw or pseudo register from the raw
-     register cache.  */
-  regcache_cooked_read (cache->prev_regcache, regnum,
-			value_contents_writeable (reg_val));
-  return reg_val;
-}
-
-/* Assuming that THIS_FRAME is a dummy, return its ID.  That ID is
-   determined by examining the NEXT frame's unwound registers using
-   the method dummy_id().  As a side effect, THIS dummy frame's
-   dummy cache is located and saved in THIS_PROLOGUE_CACHE.  */
-
-static void
-dummy_frame_this_id (struct frame_info *this_frame,
-		     void **this_prologue_cache,
-		     struct frame_id *this_id)
-{
-  /* The dummy-frame sniffer always fills in the cache.  */
-  struct dummy_frame_cache *cache = (*this_prologue_cache);
-
-  gdb_assert (cache != NULL);
-  (*this_id) = cache->this_id;
-}
-
-const struct frame_unwind dummy_frame_unwind =
-{
-  DUMMY_FRAME,
-  default_frame_unwind_stop_reason,
-  dummy_frame_this_id,
-  dummy_frame_prev_register,
-  NULL,
-  dummy_frame_sniffer,
-};
-
-static void
-fprint_dummy_frames (struct ui_file *file)
-{
-  struct dummy_frame *s;
-
-  for (s = dummy_frame_stack; s != NULL; s = s->next)
+  /* If needed, find and return the value of the register.  */
+  if (bufferp != NULL)
     {
-      gdb_print_host_address (s, file);
-      fprintf_unfiltered (file, ":");
-      fprintf_unfiltered (file, " id=");
-      fprint_frame_id (file, s->id);
-      fprintf_unfiltered (file, "\n");
+      /* Return the actual value.  */
+      /* Use the regcache_cooked_read() method so that it, on the fly,
+         constructs either a raw or pseudo register from the raw
+         register cache.  */
+      regcache_cooked_read (dummy->regcache, regnum, bufferp);
     }
 }
 
-static void
-maintenance_print_dummy_frames (char *args, int from_tty)
-{
-  if (args == NULL)
-    fprint_dummy_frames (gdb_stdout);
-  else
-    {
-      struct cleanup *cleanups;
-      struct ui_file *file = gdb_fopen (args, "w");
-
-      if (file == NULL)
-	perror_with_name (_("maintenance print dummy-frames"));
-      cleanups = make_cleanup_ui_file_delete (file);
-      fprint_dummy_frames (file);    
-      do_cleanups (cleanups);
-    }
-}
-
-extern void _initialize_dummy_frame (void);
-
-void
-_initialize_dummy_frame (void)
-{
-  add_cmd ("dummy-frames", class_maintenance, maintenance_print_dummy_frames,
-	   _("Print the contents of the internal dummy-frame stack."),
-	   &maintenanceprintlist);
-
-  observer_attach_inferior_created (cleanup_dummy_frames);
-}
