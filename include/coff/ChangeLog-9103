@@ -1,20 +1,3 @@
-2005-04-13  H.J. Lu  <hongjiu.lu@intel.com>
-
-	Moved from ../ChangeLog
-
-	2003-04-04  Svein E. Seldal  <Svein.Seldal@solidas.com>
-	* tic4x.h: Namespace cleanup. Replace s/c4x/tic4x
-	and s/c3x/tic3x/
-
-	2003-01-20  Svein E. Seldal  <Svein.Seldal@solidas.com>
-	* tic4x.h (TICOFF_TARGET_MACHINE_GET): Fixed define bug
-	* ti.h (TICOFF_TARGET_MACHINE_GET): Added macros
-
-	2002-08-28  Michael Hayes <m.hayes@elec.canterbury.ac.nz>
-	* internal.h: Add new relocation types.
-	* ti.h: Add file-header flags for tic4x code.
-	* tic4x.h: New file
-
 2003-12-02  Graham Reed <grahamr@algorithmics.com>
 
 	* internal.h (C_WEAKEXT): Add alternative value for AIX 5.2
@@ -1172,15 +1155,6 @@ Sat Nov 30 20:38:35 1991  Steve Chamberlain  (sac at rtl.cygnus.com)
 	mips.h, rs6000.h: Move from above coff-<foo>.h.
 
 
-Copyright (C) 1991-2003 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
-mode: change-log
-left-margin: 8
-fill-column: 74
 version-control: never
 End:

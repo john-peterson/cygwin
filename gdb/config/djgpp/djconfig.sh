@@ -5,14 +5,14 @@
 # configuring other GNU programs for DJGPP.
 #
 #=====================================================================
-# Copyright 1997-2013 Free Software Foundation, Inc.
+# Copyright 1997,1999,2000,2001,2002,2003 Free Software Foundation, Inc.
 #
 # Originally written by Robert Hoehne, revised by Eli Zaretskii.
-# This file is part of GDB.
+#  This file is part of GDB.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -21,7 +21,9 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330,
+# Boston, MA 02111-1307, USA.  */
 #=====================================================================
 #
 # Call this script like the main configure script with one exception.  If you
@@ -49,22 +51,17 @@ fi
 
 # Make sure they don't have some file names mangled by untarring.
 echo -n "Checking the unpacked distribution..."
-if ( ! test -f ${srcdir}/bfd/ChangeLog.0203      || \
-     ! test -f ${srcdir}/gdb/ChangeLog.002       || \
-     ! test -f ${srcdir}/opcodes/ChangeLog.0203  || \
+if ( ! test -f ${srcdir}/intl/po2tblsed.in || \
+     ! test -f ${srcdir}/gdb/ChangeLog.002 || \
      ! test -f ${srcdir}/readline/config.h-in ) ; then
-  if ( ! test -f ${srcdir}/bfd/ChangeLog.0203 ) ; then
-    notfound=${srcdir}/bfd/ChangeLog.0203
+  if ( ! test -f ${srcdir}/intl/po2tblsed.in ) ; then
+    notfound=${srcdir}/intl/po2tblsed.in
   else
-    if ( ! test -f ${srcdir}/gdb/ChangeLog.002) ; then
+    if ( ! test -d ${srcdir}/gdb/testsuite/cxx) ; then
       notfound=${srcdir}/gdb/ChangeLog.002
     else
       if ( ! test -f ${srcdir}/readline/config.h-in ) ; then
         notfound=${srcdir}/readline/config.h-in
-      else
-        if ( ! test -f ${srcdir}/opcodes/ChangeLog.0203 ) ; then
-          notfound=${srcdir}/opcodes/ChangeLog.0203
-        fi
       fi
     fi
   fi
@@ -140,13 +137,11 @@ utod $srcdir/ltmain.sh
 export LD=ld
 export NM=nm
 export CC=gcc
-export CXX=gpp
-export CFLAGS="-O2 -ggdb -g3"
+export CFLAGS="-O2 -g"
 export RANLIB=ranlib
 export DEFAULT_YACC="bison -y"
 export YACC="bison -y"
 export DEFAULT_LEX=flex
-export PATH_SEPARATOR=';'
 # Define explicitly the .exe extension because on W95 with LFN=y
 # the check might fail
 export am_cv_exeext=.exe
@@ -156,10 +151,6 @@ export am_cv_exeext=.exe
 # need all that crap.  Assuming that the environment size is less
 # than 4KB, we can afford 12KB of command-line arguments.
 export lt_cv_sys_max_cmd_len=12288
-# Force depcomp to use _deps rather than .deps as the name of the
-# subdirectory where the *.Po dependency files are put.  File names
-# with leading dots are invalid on DOS 8+3 filesystems.
-export DEPDIR=${DEPDIR:-_deps}
 
 # The configure script needs to see the `install-sh' script, otherwise
 # it decides the source installation is broken.  But "make install" will
@@ -178,7 +169,7 @@ fi
 echo "Running the configure script..."
 $srcdir/configure --srcdir="$srcdir" --prefix='${DJDIR}' \
   --disable-shared --disable-nls --verbose --enable-build-warnings=\
--Wimplicit,-Wcomment,-Wformat,-Wparentheses,-Wpointer-arith,-Wuninitialized $*
+-Wimplicit,-Wcomment,-Wformat,-Wparentheses,-Wpointer-arith $*
 
 if test -f ${srcdir}/install- ; then
   mv ${srcdir}/install- ${srcdir}/install-.sh

@@ -1,6 +1,7 @@
 /* TUI display registers in window.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2004 Free Software Foundation,
+   Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -8,7 +9,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,20 +18,24 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #ifndef TUI_REGS_H
 #define TUI_REGS_H
 
-#include "tui/tui-data.h"  /* For struct tui_register_display_type.  */
+#include "tui/tui-data.h"	/* For TuiRegisterDisplayType.  */
 
 extern void tui_check_register_values (struct frame_info *);
-extern void tui_show_registers (struct reggroup *group);
+extern void tui_show_registers (enum tui_register_display_type);
 extern void tui_display_registers_from (int);
 extern int tui_display_registers_from_line (int, int);
 extern int tui_last_regs_line_no (void);
 extern int tui_first_reg_element_inline (int);
 extern int tui_line_from_reg_element_no (int);
+extern void tui_toggle_float_regs (void);
+extern int tui_calculate_regs_column_count (enum tui_register_display_type);
 extern int tui_first_reg_element_no_inline (int lineno);
 
 #endif
