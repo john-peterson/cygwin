@@ -1,6 +1,5 @@
-#objdump: -dr --prefix-addresses
+#objdump: -dr --prefix-addresses -mmips:4000
 #name: MIPS add
-#as: -32
 
 # Test the add macro.
 

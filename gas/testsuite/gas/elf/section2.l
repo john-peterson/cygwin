@@ -1,5 +1,5 @@
 .*: Assembler messages:
-.*:2: Warning: .*
+.*:2: Warning: Section symbols are already global
 .*GAS.*
 
 

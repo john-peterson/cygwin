@@ -1,6 +1,6 @@
 #objdump: -dr --prefix-addresses -mmips:3000
 #name: MIPS ulw
-#as: -32 -mips1
+#as: -mips1
 
 # Test the ulw macro.
 

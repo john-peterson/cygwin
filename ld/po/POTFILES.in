@@ -1,5 +1,4 @@
 deffile.h
-elf-hints-local.h
 emultempl/armcoff.em
 emultempl/pe.em
 ld.h
@@ -14,7 +13,6 @@ ldfile.c
 ldfile.h
 ldlang.c
 ldlang.h
-ldlex-wrapper.c
 ldlex.h
 ldmain.c
 ldmain.h
@@ -29,7 +27,3 @@ mri.c
 mri.h
 pe-dll.c
 pe-dll.h
-pep-dll.c
-pep-dll.h
-plugin.c
-plugin.h

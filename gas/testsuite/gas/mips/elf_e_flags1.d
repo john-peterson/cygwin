@@ -1,22 +1,21 @@
 # name: ELF e_flags: nothing special
 # source: elf_e_flags.s
 # objdump: -fd
-# as: -march=4000
 
 .*:.*file format.*mips.*
 architecture: mips:.*, flags 0x00000011:
 HAS_RELOC, HAS_SYMS
-start address 0x0+00
+start address 0x0000000000000000
 
 Disassembly of section .text:
 
-0+00 <foo>:
+0000000000000000 <foo>:
    0:	00850019 	multu	a0,a1
    4:	00001012 	mflo	v0
    8:	03e00008 	jr	ra
    c:	24420001 	addiu	v0,v0,1
 
-0+10 <main>:
+0000000000000010 <main>:
   10:	27bdffd8 	addiu	sp,sp,-40
   14:	afbf0020 	sw	ra,32\(sp\)
   18:	0c000000 	jal	0 <foo>

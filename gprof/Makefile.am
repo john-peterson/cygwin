@@ -1,25 +1,6 @@
 ## Process this file with automake to generate Makefile.in
-#
-#   Copyright 2012 Free Software Foundation
-#
-# This file is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program; see the file COPYING3.  If not see
-# <http://www.gnu.org/licenses/>.
-#
 
-AUTOMAKE_OPTIONS = 1.11 foreign no-dist no-texinfo.tex
-ACLOCAL_AMFLAGS = -I .. -I ../config -I ../bfd
-TEXINFO_TEX = ../texinfo/texinfo.tex
+AUTOMAKE_OPTIONS = cygnus
 
 SUFFIXES = .m
 
@@ -30,12 +11,11 @@ BFDDIR = $(BASEDIR)/bfd
 INCDIR	= $(BASEDIR)/include
 
 WARN_CFLAGS = @WARN_CFLAGS@
-NO_WERROR = @NO_WERROR@
 AM_CFLAGS = $(WARN_CFLAGS)
 
-AM_CPPFLAGS = -DDEBUG -I../bfd -I$(srcdir)/../include \
-	-I$(srcdir)/../bfd @INCINTL@ -I. \
-	-DLOCALEDIR="\"$(datadir)/locale\""
+MKDEP = gcc -MM
+
+INCLUDES = -D_GNU_SOURCE -DDEBUG -I../bfd -I$(srcdir)/../include -I$(srcdir)/../bfd -I$(srcdir)/../intl -I../intl -I. -DLOCALEDIR="\"$(prefix)/share/locale\""
 
 bin_PROGRAMS = gprof
 
@@ -43,27 +23,21 @@ bin_PROGRAMS = gprof
 sources = basic_blocks.c call_graph.c cg_arcs.c cg_dfn.c \
 	cg_print.c corefile.c gmon_io.c gprof.c hertz.c hist.c source.c \
 	search_list.c symtab.c sym_ids.c utils.c \
-	i386.c alpha.c vax.c tahoe.c sparc.c mips.c
+	i386.c alpha.c vax.c tahoe.c sparc.c
 gprof_SOURCES = $(sources) flat_bl.c bsd_callg_bl.c fsf_callg_bl.c
-gprof_DEPENDENCIES = ../bfd/libbfd.la ../libiberty/libiberty.a $(LIBINTL_DEP)
-gprof_LDADD = ../bfd/libbfd.la ../libiberty/libiberty.a $(LIBINTL)
+gprof_DEPENDENCIES = ../bfd/libbfd.la ../libiberty/libiberty.a $(INTLDEPS)
+gprof_LDADD = ../bfd/libbfd.la ../libiberty/libiberty.a $(INTLLIBS)
 
 noinst_HEADERS = \
 	basic_blocks.h call_graph.h cg_arcs.h cg_dfn.h cg_print.h \
 	corefile.h gmon.h gmon_io.h gmon_out.h gprof.h hertz.h hist.h \
 	search_list.h source.h sym_ids.h symtab.h utils.h
 
+EXTRA_DIST = flat_bl.c bsd_callg_bl.c fsf_callg_bl.c bbconv.pl
+
 BUILT_SOURCES = flat_bl.c bsd_callg_bl.c fsf_callg_bl.c
-EXTRA_DIST    = $(BUILT_SOURCES) bbconv.pl $(man_MANS)
 
-diststuff: $(BUILT_SOURCES) info $(man_MANS)
-
-# We extract version from bfd/configure.in, make sure to rerun configure
-# when BFD's version changes.
-CONFIG_STATUS_DEPENDENCIES = $(BFDDIR)/configure.in
-
-# This empty rule is a hack against gmake patched by Apple.
-%.o:%.m
+diststuff: $(BUILT_SOURCES) info
 
 .m.c:
 	awk -f $(srcdir)/gen-c-prog.awk > ./$*.c \
@@ -72,42 +46,153 @@ CONFIG_STATUS_DEPENDENCIES = $(BFDDIR)/configure.in
 
 POTFILES = $(sources) $(noinst_HEADERS)
 po/POTFILES.in: @MAINT@ Makefile
-	for f in $(POTFILES); do echo $$f; done | LC_ALL=C sort > tmp \
+	for file in $(POTFILES); do echo $$file; done | sort > tmp \
 	  && mv tmp $(srcdir)/po/POTFILES.in
 
-MANCONF  = -Dman
-
-TEXI2POD = perl $(srcdir)/../etc/texi2pod.pl $(AM_MAKEINFOFLAGS)
-
-POD2MAN = pod2man --center="GNU" --release="binutils-$(VERSION)" --section=1
-
 info_TEXINFOS = gprof.texi
-gprof_TEXINFOS = config.texi
 man_MANS = gprof.1
 
-AM_MAKEINFOFLAGS = -I "$(srcdir)" -I "$(top_srcdir)/../bfd/doc" -I ../bfd/doc
-TEXI2DVI = texi2dvi -I "$(srcdir)" -I "$(top_srcdir)/../bfd/doc" -I ../bfd/doc
+# Targets to rebuild dependencies in this Makefile.
+# Have to get rid of DEP1 here so that "$?" later includes all sources.
+DEP: dep.sed $(gprof_SOURCES) $(noinst_HEADERS) gconfig.h
+	rm -f DEP1
+	$(MAKE) MKDEP="$(MKDEP)" DEP1
+	sed -f dep.sed < DEP1 > DEPA
+	echo '# IF YOU PUT ANYTHING HERE IT WILL GO AWAY' >> DEPA
+	if grep ' /' DEPA > /dev/null 2> /dev/null; then \
+	  echo 'make DEP failed!'; exit 1; \
+	else \
+	  mv -f DEPA $@; \
+	fi
 
-config.texi:
-	echo "@set top_srcdir $(top_srcdir)" >> ./config.texi
+DEP1: $(gprof_SOURCES)
+	echo '# DO NOT DELETE THIS LINE -- mkdep uses it.' > DEP2
+	echo '# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.' >> DEP2
+	$(MKDEP) $(INCLUDES) $(CFLAGS) $? >> DEP2
+	mv -f DEP2 $@
 
-# Build the man page from the texinfo file
-# The sed command removes the no-adjust Nroff command so that
-# the man output looks standard.
-gprof.1: $(srcdir)/gprof.texi config.texi
-	touch $@
-	-$(TEXI2POD) $(MANCONF) -Dgprof < $(srcdir)/gprof.texi > gprof.pod
-	-($(POD2MAN) gprof.pod | \
-	       sed -e '/^.if n .na/d' > $@.T$$$$ && \
-	       mv -f $@.T$$$$ $@) || \
-	       (rm -f $@.T$$$$ && exit 1)
-	rm -f gprof.pod
+dep.sed: dep-in.sed config.status
+	objdir=`pwd`; \
+	sed <$(srcdir)/dep-in.sed >dep.sed	\
+		-e 's!@INCDIR@!$(INCDIR)!'	\
+		-e 's!@BFDDIR@!$(BFDDIR)!'	\
+		-e 's!@SRCDIR@!$(srcdir)!'	\
+		-e "s!@OBJDIR@!$${objdir}!"
 
-MAINTAINERCLEANFILES = gprof.info
+dep: DEP
+	sed -e '/^..DO NOT DELETE THIS LINE/,$$d' < Makefile > tmp-Makefile
+	cat DEP >> tmp-Makefile
+	$(SHELL) $(srcdir)/../move-if-change tmp-Makefile Makefile
 
-# Automake 1.9 will only build info files in the objdir if they are
-# mentioned in DISTCLEANFILES.  It doesn't have to be unconditional,
-# though, so we use a bogus condition.
-if GENINSRC_NEVER
-DISTCLEANFILES = gprof.info
-endif
+dep-in: DEP
+	sed -e '/^..DO NOT DELETE THIS LINE/,$$d' < $(srcdir)/Makefile.in > tmp-Makefile.in
+	cat DEP >> tmp-Makefile.in
+	$(SHELL) $(srcdir)/../move-if-change tmp-Makefile.in $(srcdir)/Makefile.in
+
+dep-am: DEP
+	sed -e '/^..DO NOT DELETE THIS LINE/,$$d' < $(srcdir)/Makefile.am > tmp-Makefile.am
+	cat DEP >> tmp-Makefile.am
+	$(SHELL) $(srcdir)/../move-if-change tmp-Makefile.am $(srcdir)/Makefile.am
+
+.PHONY: dep dep-in dep-am
+
+CLEANFILES = dep.sed DEP DEPA DEP1 DEP2
+
+# DO NOT DELETE THIS LINE -- mkdep uses it.
+# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.
+basic_blocks.o: basic_blocks.c basic_blocks.h gprof.h \
+  $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h source.h search_list.h symtab.h \
+  ../bfd/bfd.h corefile.h gmon_io.h gmon.h gmon_out.h \
+  $(INCDIR)/libiberty.h sym_ids.h
+call_graph.o: call_graph.c cg_arcs.h gprof.h $(INCDIR)/ansidecl.h \
+  $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  symtab.h ../bfd/bfd.h source.h search_list.h call_graph.h \
+  corefile.h gmon_io.h gmon.h gmon_out.h sym_ids.h
+cg_arcs.o: cg_arcs.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  call_graph.h symtab.h ../bfd/bfd.h source.h search_list.h \
+  cg_arcs.h cg_dfn.h cg_print.h utils.h sym_ids.h
+cg_dfn.o: cg_dfn.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  cg_arcs.h symtab.h ../bfd/bfd.h source.h search_list.h \
+  cg_dfn.h utils.h
+cg_print.o: cg_print.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  cg_arcs.h gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h symtab.h ../bfd/bfd.h source.h \
+  search_list.h cg_print.h hist.h utils.h
+corefile.o: corefile.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  corefile.h ../bfd/bfd.h symtab.h source.h search_list.h
+gmon_io.o: gmon_io.c cg_arcs.h gprof.h $(INCDIR)/ansidecl.h \
+  $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  symtab.h ../bfd/bfd.h source.h search_list.h basic_blocks.h \
+  corefile.h call_graph.h gmon_io.h gmon.h gmon_out.h \
+  hertz.h hist.h $(INCDIR)/libiberty.h
+gprof.o: gprof.c $(INCDIR)/getopt.h $(INCDIR)/libiberty.h \
+  $(INCDIR)/ansidecl.h gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h basic_blocks.h source.h search_list.h \
+  symtab.h ../bfd/bfd.h call_graph.h cg_arcs.h cg_print.h \
+  corefile.h gmon_io.h gmon.h hertz.h hist.h sym_ids.h \
+  $(INCDIR)/demangle.h
+hertz.o: hertz.c hertz.h gprof.h $(INCDIR)/ansidecl.h \
+  $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h
+hist.o: hist.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h $(INCDIR)/fopen-same.h \
+  $(INCDIR)/filenames.h gconfig.h $(INCDIR)/bin-bugs.h \
+  corefile.h ../bfd/bfd.h gmon_io.h gmon.h gmon_out.h \
+  hist.h symtab.h source.h search_list.h sym_ids.h utils.h
+source.o: source.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h $(INCDIR)/libiberty.h \
+  search_list.h source.h
+search_list.o: search_list.c $(INCDIR)/libiberty.h \
+  $(INCDIR)/ansidecl.h gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h search_list.h
+symtab.o: symtab.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h
+sym_ids.o: sym_ids.c $(INCDIR)/libiberty.h $(INCDIR)/ansidecl.h \
+  cg_arcs.h gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h symtab.h ../bfd/bfd.h source.h \
+  search_list.h sym_ids.h
+utils.o: utils.c gprof.h $(BFDDIR)/sysdep.h ../bfd/config.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h gconfig.h \
+  $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h
+i386.o: i386.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h hist.h
+alpha.o: alpha.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h hist.h
+vax.o: vax.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h hist.h
+tahoe.o: tahoe.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h hist.h
+sparc.o: sparc.c gprof.h $(INCDIR)/ansidecl.h $(BFDDIR)/sysdep.h \
+  ../bfd/config.h $(INCDIR)/fopen-same.h $(INCDIR)/filenames.h \
+  gconfig.h $(INCDIR)/bin-bugs.h cg_arcs.h symtab.h ../bfd/bfd.h \
+  source.h search_list.h corefile.h hist.h
+flat_bl.o: flat_bl.c
+bsd_callg_bl.o: bsd_callg_bl.c
+fsf_callg_bl.o: fsf_callg_bl.c
+# IF YOU PUT ANYTHING HERE IT WILL GO AWAY
