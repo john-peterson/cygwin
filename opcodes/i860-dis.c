@@ -1,26 +1,22 @@
 /* Disassembler for the i860.
-   Copyright 2000, 2003, 2005, 2007, 2012 Free Software Foundation, Inc.
+   Copyright 2000 Free Software Foundation, Inc.
 
    Contributed by Jason Eckhardt <jle@cygnus.com>.
 
-   This file is part of the GNU opcodes library.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
-#include "sysdep.h"
 #include "dis-asm.h"
 #include "opcode/i860.h"
 
@@ -41,12 +37,14 @@ static const char *const frnames[] =
   "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23",
   "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31"};
 
-/* Control/status register names (encoded as 0..11 in the instruction).
-   Registers bear, ccr, p0, p1, p2 and p3 are XP only.  */
+/* Control/status register names (encoded as 0..5 in the instruction).  */
 static const char *const crnames[] = 
- {"fir", "psr", "dirbase", "db", "fsr", "epsr", "bear", "ccr",
-  "p0", "p1", "p2", "p3", "--", "--", "--", "--" };
+ {"fir", "psr", "dirbase", "db", "fsr", "epsr", "", ""};
 
+
+/* Prototypes.  */
+static int sign_ext		PARAMS((unsigned int, int)); 
+static void print_br_address	PARAMS((disassemble_info *, bfd_vma, long));
 
 
 /* True if opcode is xor, xorh, and, andh, or, orh, andnot, andnoth.  */
@@ -60,7 +58,9 @@ static const char *const crnames[] =
 
 /* Sign extend N-bit number.  */
 static int
-sign_ext (unsigned int x, int n)
+sign_ext (x, n)
+     unsigned int x;
+     int n;
 {
   int t;
   t = x >> (n - 1);
@@ -72,12 +72,15 @@ sign_ext (unsigned int x, int n)
 /* Print a PC-relative branch offset.  VAL is the sign extended value
    from the branch instruction.  */
 static void
-print_br_address (disassemble_info *info, bfd_vma memaddr, long val)
+print_br_address (info, memaddr, val)
+     disassemble_info *info;
+     bfd_vma memaddr;
+     long val;
 {
 
   long adj = (long)memaddr + 4 + (val << 2);
 
-  (*info->fprintf_func) (info->stream, "0x%08lx", adj);
+  (*info->fprintf_func) (info->stream, "0x%08x", adj);
 	    
   /* Attempt to obtain a symbol for the target address.  */
 	
@@ -91,7 +94,9 @@ print_br_address (disassemble_info *info, bfd_vma memaddr, long val)
 
 /* Print one instruction.  */
 int
-print_insn_i860 (bfd_vma memaddr, disassemble_info *info)
+print_insn_i860 (memaddr, info)
+     bfd_vma memaddr;
+     disassemble_info *info;
 {
   bfd_byte buff[4];
   unsigned int insn, i;
@@ -185,7 +190,7 @@ print_insn_i860 (bfd_vma memaddr, disassemble_info *info)
 	    /* Control register.  */
 	    case 'c':
 	      (*info->fprintf_func) (info->stream, "%s%s", I860_REG_PREFIX,
-				     crnames[(insn >> 21) & 0xf]);
+				     crnames[(insn >> 21) & 0x7]);
 	      break;
 
 	    /* 16-bit immediate (sign extend, except for bitwise ops).  */
