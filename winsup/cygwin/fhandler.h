@@ -1,7 +1,6 @@
 /* fhandler.h
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,13 +8,50 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
-#include "pinfo.h"
+#ifndef _FHANDLER_H_
+#define _FHANDLER_H_
 
-#include "tty.h"
+enum
+{
+  FH_RBINARY	= 0x00001000,	/* binary read mode */
+  FH_WBINARY	= 0x00002000,	/* binary write mode */
+  FH_CLOEXEC	= 0x00004000,	/* close-on-exec */
+  FH_RBINSET	= 0x00008000,	/* binary read mode has been explicitly set */
+  FH_WBINSET	= 0x00010000,	/* binary write mode has been explicitly set */
+  FH_APPEND	= 0x00020000,	/* always append */
+  FH_ASYNC	= 0x00040000,	/* async I/O */
+  FH_ENC	= 0x00080000,	/* native path is encoded */
+  FH_SYMLINK	= 0x00100000,	/* is a symlink */
+  FH_EXECABL	= 0x00200000,	/* file looked like it would run:
+				 * ends in .exe or .bat or begins with #! */
+  FH_LSEEKED	= 0x00400000,	/* set when lseek is called as a flag that
+				 * _write should check if we've moved beyond
+				 * EOF, zero filling or making file sparse
+				   if so. */
+  FH_NOHANDLE	= 0x00800000,	/* No handle associated with fhandler. */
+  FH_NOEINTR	= 0x01000000,	/* Set if I/O should be uninterruptible. */
+  FH_FFIXUP	= 0x02000000,	/* Set if need to fixup after fork. */
+  FH_LOCAL	= 0x04000000,	/* File is unix domain socket */
+  FH_SHUTRD	= 0x08000000,	/* Socket saw a SHUT_RD */
+  FH_SHUTWR	= 0x10000000,	/* Socket saw a SHUT_WR */
+  FH_ISREMOTE	= 0x10000000,	/* File is on a remote drive */
+  FH_DCEXEC	= 0x20000000,	/* Don't care if this is executable */
+  FH_HASACLS	= 0x40000000,	/* True if fs of file has ACLS */
+  FH_QUERYOPEN	= 0x80000000,	/* open file without requesting either read
+				   or write access */
+};
+
+#define FHDEVN(n)	(n)
+#define FHISSETF(x)	__ISSETF (this, x, FH)
+#define FHSETF(x)	__SETF (this, x, FH)
+#define FHCLEARF(x)	__CLEARF (this, x, FH)
+#define FHCONDSETF(n, x) __CONDSETF(n, this, x, FH)
+
+#define FHSTATOFF	0
+
 /* fcntl flags used only internaly. */
-#define O_NOSYMLINK	0x080000
-#define O_DIROPEN	0x100000
+#define O_NOSYMLINK 0x080000
+#define O_DIROPEN   0x100000
 
 /* newlib used to define O_NDELAY differently from O_NONBLOCK.  Now it
    properly defines both to be the same.  Unfortunately, we have to
@@ -26,59 +62,21 @@ details. */
    both flags are set. */
 #define O_NONBLOCK_MASK (O_NONBLOCK | OLD_O_NDELAY)
 
-/* It appears that 64K is the block size used for buffered I/O on NT.
-   Using this blocksize in read/write calls in the application results
-   in a much better performance than using smaller values. */
-#define PREFERRED_IO_BLKSIZE ((blksize_t) 65536)
-
-/* It also appears that this may be the only acceptable block size for
-   atomic writes to a pipe.  It is a shame that we have to make this
-   so small.  http://cygwin.com/ml/cygwin/2011-03/msg00541.html  */
-#define DEFAULT_PIPEBUFSIZE PREFERRED_IO_BLKSIZE
-
-/* Used for fhandler_pipe::create.  Use an available flag which will
-   never be used in Cygwin for this function. */
-#define PIPE_ADD_PID	FILE_FLAG_FIRST_PIPE_INSTANCE
+#define UNCONNECTED     0
+#define CONNECT_PENDING 1
+#define CONNECTED       2
 
 extern const char *windows_device_names[];
 extern struct __cygwin_perfile *perfile_table;
 #define __fmode (*(user_data->fmode_ptr))
 extern const char proc[];
-extern const size_t proc_len;
-extern const char procsys[];
-extern const size_t procsys_len;
+extern const int proc_len;
 
 class select_record;
-class select_stuff;
 class fhandler_disk_file;
-class inode_t;
 typedef struct __DIR DIR;
 struct dirent;
 struct iovec;
-struct __acl32;
-
-enum dirent_states
-{
-  dirent_ok		= 0x0000,
-  dirent_saw_dot	= 0x0001,
-  dirent_saw_dot_dot	= 0x0002,
-  dirent_saw_eof	= 0x0004,
-  dirent_isroot		= 0x0008,
-  dirent_set_d_ino	= 0x0010,
-  dirent_get_d_ino	= 0x0020,
-  dirent_nfs_d_ino	= 0x0040,
-
-  /* Global flags which must not be deleted on rewinddir or seekdir. */
-  dirent_info_mask	= 0x0078
-};
-
-enum conn_state
-{
-  unconnected = 0,
-  connect_pending = 1,
-  connected = 2,
-  connect_failed = 3
-};
 
 enum line_edit_status
 {
@@ -97,73 +95,17 @@ enum bg_check_types
   bg_signalled = 2
 };
 
-enum query_state {
-  no_query = 0,
-  query_read_control = 1,
-  query_read_attributes = 2,
-  query_write_control = 3,
-  query_write_dac = 4,
-  query_write_attributes = 5
-};
-
-enum del_lock_called_from {
-  on_close,
-  after_fork,
-  after_exec
-};
-
-enum virtual_ftype_t {
-  virt_blk = -7,	/* Block special */
-  virt_chr = -6,	/* Character special */
-  virt_fsfile = -5,	/* FS-based file via /proc/sys */
-  virt_socket = -4,	/* Socket */
-  virt_pipe = -3,	/* Pipe */
-  virt_symlink = -2,	/* Symlink */
-  virt_file = -1,	/* Regular file */
-  virt_none = 0,	/* Invalid, Error */
-  virt_directory = 1,	/* Directory */
-  virt_rootdir = 2,	/* Root directory of virtual FS */
-  virt_fsdir = 3,	/* FS-based directory via /proc/sys */
-};
-
 class fhandler_base
 {
   friend class dtable;
-  friend void close_all_files (bool);
-
-  struct status_flags
-  {
-    unsigned rbinary		: 1; /* binary read mode */
-    unsigned rbinset	    	: 1; /* binary read mode explicitly set */
-    unsigned wbinary		: 1; /* binary write mode */
-    unsigned wbinset		: 1; /* binary write mode explicitly set */
-    unsigned nohandle		: 1; /* No handle associated with fhandler. */
-    unsigned did_lseek		: 1; /* set when lseek is called as a flag that
-					_write should check if we've moved
-					beyond EOF, zero filling or making
-					file sparse if so. */
-    unsigned query_open		: 3; /* open file without requesting either
-					read or write access */
-    unsigned close_on_exec      : 1; /* close-on-exec */
-    unsigned need_fork_fixup    : 1; /* Set if need to fixup after fork. */
-    unsigned isclosed		: 1; /* Set when fhandler is closed. */
-
-   public:
-    status_flags () :
-      rbinary (0), rbinset (0), wbinary (0), wbinset (0), nohandle (0),
-      did_lseek (0), query_open (no_query), close_on_exec (0),
-      need_fork_fixup (0), isclosed (0)
-      {}
-  } status, open_status;
-
+  friend void close_all_files ();
+ protected:
+  DWORD status;
  private:
-  ACCESS_MASK access;
-  ULONG options;
-
+  int access;
   HANDLE io_handle;
 
-  __ino64_t ino;	/* file ID or hashed filename, depends on FS. */
-  long _refcnt;
+  __ino64_t namehash;	/* hashed filename, used as inode num */
 
  protected:
   /* File open flags from open () and fcntl () calls */
@@ -175,105 +117,130 @@ class fhandler_base
   size_t raixput;
   size_t rabuflen;
 
-  /* Used for advisory file locking.  See flock.cc.  */
-  long long unique_id;
-  void del_my_locks (del_lock_called_from);
-
+  DWORD open_status;
+  DWORD fs_flags;
   HANDLE read_state;
+  path_conv pc;
 
  public:
-  long inc_refcnt () {return InterlockedIncrement (&_refcnt);}
-  long dec_refcnt () {return InterlockedDecrement (&_refcnt);}
   class fhandler_base *archetype;
   int usecount;
 
-  path_conv pc;
-
-  void reset (const fhandler_base *);
-  virtual bool use_archetype () const {return false;}
-  virtual void set_name (path_conv &pc);
-  virtual void set_name (const char *s)
-  {
-    pc.set_normalized_path (s);
-    pc.set_path (s);
-  }
+  void set_name (path_conv &pc);
   int error () const {return pc.error;}
   void set_error (int error) {pc.error = error;}
   bool exists () const {return pc.exists ();}
   int pc_binmode () const {return pc.binmode ();}
   device& dev () {return pc.dev;}
-  operator DWORD& () {return (DWORD&) pc;}
+  operator DWORD& () {return (DWORD) pc;}
+  virtual size_t size () const {return sizeof (*this);}
+
+  virtual fhandler_base& operator =(fhandler_base &x);
   fhandler_base ();
   virtual ~fhandler_base ();
 
   /* Non-virtual simple accessor functions. */
   void set_io_handle (HANDLE x) { io_handle = x; }
 
-  DWORD& get_device () { return dev (); }
-  DWORD get_major () { return dev ().get_major (); }
-  DWORD get_minor () { return dev ().get_minor (); }
-  virtual int get_unit () { return dev ().get_minor (); }
+  DWORD& get_device () { return dev ().devn; }
+  DWORD get_major () { return dev ().major; }
+  DWORD get_minor () { return dev ().minor; }
+  virtual int get_unit () { return dev ().minor; }
 
-  ACCESS_MASK get_access () const { return access; }
-  void set_access (ACCESS_MASK x) { access = x; }
+  int get_access () const { return access; }
+  void set_access (int x) { access = x; }
 
-  ULONG get_options () const { return options; }
-  void set_options (ULONG x) { options = x; }
+  bool get_async () { return FHISSETF (ASYNC); }
+  void set_async (int x) { FHCONDSETF (x, ASYNC); }
 
   int get_flags () { return openflags; }
   void set_flags (int x, int supplied_bin = 0);
 
   bool is_nonblocking ();
-  void set_nonblocking (int);
+  void set_nonblocking (int yes);
 
-  bool wbinary () const { return status.wbinset ? status.wbinary : 1; }
-  bool rbinary () const { return status.rbinset ? status.rbinary : 1; }
+  bool get_w_binary () { return FHISSETF (WBINSET) ? FHISSETF (WBINARY) : 1; }
+  bool get_r_binary () { return FHISSETF (RBINSET) ? FHISSETF (RBINARY) : 1; }
 
-  void wbinary (bool b) {status.wbinary = b; status.wbinset = 1;}
-  void rbinary (bool b) {status.rbinary = b; status.rbinset = 1;}
+  bool get_w_binset () { return FHISSETF (WBINSET); }
+  bool get_r_binset () { return FHISSETF (RBINSET); }
+
+  void set_w_binary (int b) { FHCONDSETF (b, WBINARY); FHSETF (WBINSET); }
+  void set_r_binary (int b) { FHCONDSETF (b, RBINARY); FHSETF (RBINSET); }
+  void clear_w_binary () {FHCLEARF (WBINARY); FHCLEARF (WBINSET); }
+  void clear_r_binary () {FHCLEARF (RBINARY); FHCLEARF (RBINSET); }
+
+  bool get_nohandle () { return FHISSETF (NOHANDLE); }
+  void set_nohandle (int x) { FHCONDSETF (x, NOHANDLE); }
 
   void set_open_status () {open_status = status;}
+  DWORD get_open_status () {return open_status;}
   void reset_to_open_binmode ()
   {
     set_flags ((get_flags () & ~(O_TEXT | O_BINARY))
-	       | ((open_status.wbinary || open_status.rbinary)
-		   ? O_BINARY : O_TEXT));
+	       | ((open_status & (FH_WBINARY | FH_RBINARY)
+		   ? O_BINARY : O_TEXT)));
   }
-
-  IMPLEMENT_STATUS_FLAG (bool, wbinset)
-  IMPLEMENT_STATUS_FLAG (bool, rbinset)
-  IMPLEMENT_STATUS_FLAG (bool, nohandle)
-  IMPLEMENT_STATUS_FLAG (bool, did_lseek)
-  IMPLEMENT_STATUS_FLAG (query_state, query_open)
-  IMPLEMENT_STATUS_FLAG (bool, close_on_exec)
-  IMPLEMENT_STATUS_FLAG (bool, need_fork_fixup)
-  IMPLEMENT_STATUS_FLAG (bool, isclosed)
 
   int get_default_fmode (int flags);
 
-  virtual void set_close_on_exec (bool val);
+  bool get_r_no_interrupt () { return FHISSETF (NOEINTR); }
+  void set_r_no_interrupt (bool b) { FHCONDSETF (b, NOEINTR); }
+
+  bool get_close_on_exec () { return FHISSETF (CLOEXEC); }
+  int set_close_on_exec_flag (int b) { return FHCONDSETF (b, CLOEXEC); }
 
   LPSECURITY_ATTRIBUTES get_inheritance (bool all = 0)
   {
     if (all)
-      return close_on_exec () ? &sec_all_nih : &sec_all;
+      return get_close_on_exec () ? &sec_all_nih : &sec_all;
     else
-      return close_on_exec () ? &sec_none_nih : &sec_none;
+      return get_close_on_exec () ? &sec_none_nih : &sec_none;
   }
 
-  virtual int fixup_before_fork_exec (DWORD) { return 0; }
+  void set_did_lseek (int b = 1) { FHCONDSETF (b, LSEEKED); }
+  bool get_did_lseek () { return FHISSETF (LSEEKED); }
+
+  bool get_need_fork_fixup () { return FHISSETF (FFIXUP); }
+  void set_need_fork_fixup () { FHSETF (FFIXUP); }
+
+  bool get_encoded () { return FHISSETF (ENC);}
+  void set_encoded () { FHSETF (ENC);}
+
+  virtual void set_close_on_exec (int val);
+
+  virtual void fixup_before_fork_exec (DWORD) {}
   virtual void fixup_after_fork (HANDLE);
-  virtual void fixup_after_exec ();
-  void create_read_state (LONG n)
-  {
-    read_state = CreateSemaphore (&sec_none_nih, 0, n, NULL);
-    ProtectHandle (read_state);
-  }
+  virtual void fixup_after_exec (HANDLE) {}
 
-  void signal_read_state (LONG n)
+  bool get_symlink_p () { return FHISSETF (SYMLINK); }
+  void set_symlink_p (int val) { FHCONDSETF (val, SYMLINK); }
+  void set_symlink_p () { FHSETF (SYMLINK); }
+
+  bool get_socket_p () { return FHISSETF (LOCAL); }
+  void set_socket_p (int val) { FHCONDSETF (val, LOCAL); }
+  void set_socket_p () { FHSETF (LOCAL); }
+
+  bool get_execable_p () { return FHISSETF (EXECABL); }
+  void set_execable_p (executable_states val)
   {
-    ReleaseSemaphore (read_state, n, NULL);
+    FHCONDSETF (val == is_executable, EXECABL);
+    FHCONDSETF (val == dont_care_if_executable, DCEXEC);
   }
+  void set_execable_p () { FHSETF (EXECABL); }
+  bool dont_care_if_execable () { return FHISSETF (DCEXEC); }
+  bool exec_state_isknown () { return FHISSETF (DCEXEC) || FHISSETF (EXECABL); }
+
+  bool get_append_p () { return FHISSETF (APPEND); }
+  void set_append_p (int val) { FHCONDSETF (val, APPEND); }
+  void set_append_p () { FHSETF (APPEND); }
+
+  void set_fs_flags (DWORD flags) { fs_flags = flags; }
+  bool get_fs_flags (DWORD flagval = UINT32_MAX)
+    { return (fs_flags & (flagval)); }
+
+  bool get_query_open () { return FHISSETF (QUERYOPEN); }
+  void set_query_open (bool val) { FHCONDSETF (val, QUERYOPEN); }
 
   bool get_readahead_valid () { return raixget < ralen; }
   int puts_readahead (const char *s, size_t len = (size_t) -1);
@@ -295,86 +262,55 @@ class fhandler_base
   bool has_attribute (DWORD x) const {return pc.has_attribute (x);}
   const char *get_name () const { return pc.normalized_path; }
   const char *get_win32_name () { return pc.get_win32 (); }
-  __dev32_t get_dev () { return pc.fs_serial_number (); }
-  __ino64_t get_ino () { return ino ?: ino = hash_path_name (0, pc.get_nt_native_path ()); }
-  long long get_unique_id () const { return unique_id; }
-  /* Returns name used for /proc/<pid>/fd in buf. */
-  virtual char *get_proc_fd_name (char *buf);
+  __ino64_t get_namehash () { return namehash; }
 
   virtual void hclose (HANDLE h) {CloseHandle (h);}
-  virtual void set_no_inheritance (HANDLE &, bool);
+  virtual void set_inheritance (HANDLE &h, int not_inheriting);
 
   /* fixup fd possibly non-inherited handles after fork */
-  bool fork_fixup (HANDLE, HANDLE &, const char *);
+  void fork_fixup (HANDLE parent, HANDLE &h, const char *name);
   virtual bool need_fixup_before () const {return false;}
 
-  int open_with_arch (int, mode_t = 0);
-  virtual int open (int, mode_t);
-  virtual void open_setup (int flags) { return; }
-
-  int close_with_arch ();
+  virtual int open (int flags, mode_t mode = 0);
+  int open_fs (int flags, mode_t mode = 0);
   virtual int close ();
-  virtual void cleanup () { return; }
-  int _archetype_usecount (const char *fn, int ln, int n)
-  {
-    if (!archetype)
-      return 0;
-    archetype->usecount += n;
-    if (strace.active ())
-      strace.prntf (_STRACE_ALL, fn, "line %d:  %s<%p> usecount + %d = %d", ln, get_name (), archetype, n, archetype->usecount);
-    return archetype->usecount;
-  }
-
-  int open_fs (int, mode_t = 0);
-# define archetype_usecount(n) _archetype_usecount (__PRETTY_FUNCTION__, __LINE__, (n))
-  int close_fs () { return fhandler_base::close (); }
-  virtual int __reg2 fstat (struct __stat64 *buf);
-  void __reg2 stat_fixup (struct __stat64 *buf);
-  int __reg2 fstat_fs (struct __stat64 *buf);
-private:
-  int __reg3 fstat_helper (struct __stat64 *buf,
-			      DWORD nNumberOfLinks);
-  int __reg2 fstat_by_nfs_ea (struct __stat64 *buf);
-  int __reg2 fstat_by_handle (struct __stat64 *buf);
-  int __reg2 fstat_by_name (struct __stat64 *buf);
-public:
-  virtual int __reg2 fstatvfs (struct statvfs *buf);
-  int __reg2 utimens_fs (const struct timespec *);
-  virtual int __reg1 fchmod (mode_t mode);
-  virtual int __reg2 fchown (__uid32_t uid, __gid32_t gid);
-  virtual int __reg3 facl (int, int, __acl32 *);
-  virtual ssize_t __reg3 fgetxattr (const char *, void *, size_t);
-  virtual int __reg3 fsetxattr (const char *, const void *, size_t, int);
-  virtual int __reg3 fadvise (_off64_t, _off64_t, int);
-  virtual int __reg3 ftruncate (_off64_t, bool);
-  virtual int __reg2 link (const char *);
-  virtual int __reg2 utimens (const struct timespec *);
-  virtual int __reg1 fsync ();
+  int close_fs ();
+  virtual int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
+  int __stdcall fstat_fs (struct __stat64 *buf) __attribute__ ((regparm (2)));
+  int __stdcall fstat_helper (struct __stat64 *buf,
+			      FILETIME ftCreateionTime,
+			      FILETIME ftLastAccessTime,
+			      FILETIME ftLastWriteTime,
+			      DWORD nFileSizeHigh,
+			      DWORD nFileSizeLow,
+			      DWORD nFileIndexHigh = 0,
+			      DWORD nFileIndexLow = 0,
+			      DWORD nNumberOfLinks = 1)
+    __attribute__ ((regparm (3)));
+  int __stdcall fstat_by_handle (struct __stat64 *buf) __attribute__ ((regparm (2)));
+  int __stdcall fstat_by_name (struct __stat64 *buf) __attribute__ ((regparm (2)));
   virtual int ioctl (unsigned int cmd, void *);
   virtual int fcntl (int cmd, void *);
   virtual char const *ttyname () { return get_name (); }
-  virtual void __reg3 read (void *ptr, size_t& len);
-  virtual ssize_t __stdcall write (const void *ptr, size_t len);
-  virtual ssize_t __stdcall readv (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  virtual ssize_t __stdcall writev (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  virtual ssize_t __reg3 pread (void *, size_t, _off64_t);
-  virtual ssize_t __reg3 pwrite (void *, size_t, _off64_t);
+  virtual void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
+  virtual int write (const void *ptr, size_t len);
+  virtual ssize_t readv (const struct iovec *, int iovcnt, ssize_t tot = -1);
+  virtual ssize_t writev (const struct iovec *, int iovcnt, ssize_t tot = -1);
   virtual _off64_t lseek (_off64_t offset, int whence);
   virtual int lock (int, struct __flock64 *);
-  virtual int dup (fhandler_base *child, int flags);
-  virtual int fpathconf (int);
+  virtual void dump ();
+  virtual int dup (fhandler_base *child);
 
-  virtual HANDLE mmap (caddr_t *addr, size_t len, int prot,
+  virtual HANDLE mmap (caddr_t *addr, size_t len, DWORD access,
 		       int flags, _off64_t off);
   virtual int munmap (HANDLE h, caddr_t addr, size_t len);
   virtual int msync (HANDLE h, caddr_t addr, size_t len, int flags);
-  virtual bool fixup_mmap_after_fork (HANDLE h, int prot, int flags,
-				      _off64_t offset, DWORD size,
-				      void *address);
+  virtual bool fixup_mmap_after_fork (HANDLE h, DWORD access, DWORD offset,
+				      DWORD size, void *address);
 
-  void *operator new (size_t, void *p) __attribute__ ((nothrow)) {return p;}
+  void *operator new (size_t, void *p) {return p;}
 
-  virtual int init (HANDLE, DWORD, mode_t);
+  virtual void init (HANDLE, DWORD, mode_t);
 
   virtual int tcflush (int);
   virtual int tcsendbreak (int);
@@ -384,30 +320,27 @@ public:
   virtual int tcgetattr (struct termios *t);
   virtual int tcsetpgrp (const pid_t pid);
   virtual int tcgetpgrp ();
-  virtual pid_t tcgetsid ();
-  virtual bool is_tty () const { return false; }
-  virtual bool ispipe () const { return false; }
-  virtual pid_t get_popen_pid () const {return 0;}
-  virtual bool isdevice () const { return true; }
-  virtual bool isfifo () const { return false; }
-  virtual int ptsname_r (char *, size_t);
+  virtual int is_tty () { return 0; }
+  virtual bool isdevice () { return true; }
+  virtual bool isfifo () { return false; }
+  virtual char *ptsname () { return NULL;}
   virtual class fhandler_socket *is_socket () { return NULL; }
   virtual class fhandler_console *is_console () { return 0; }
   virtual int is_windows () {return 0; }
 
-  virtual void __reg3 raw_read (void *ptr, size_t& ulen);
-  virtual ssize_t __reg3 raw_write (const void *ptr, size_t ulen);
+  virtual void raw_read (void *ptr, size_t& ulen);
+  virtual int raw_write (const void *ptr, size_t ulen);
 
   /* Virtual accessor functions to hide the fact
      that some fd's have two handles. */
   virtual HANDLE& get_handle () { return io_handle; }
   virtual HANDLE& get_io_handle () { return io_handle; }
   virtual HANDLE& get_output_handle () { return io_handle; }
-  virtual HANDLE get_stat_handle () { return pc.handle () ?: io_handle; }
   virtual bool hit_eof () {return false;}
-  virtual select_record *select_read (select_stuff *);
-  virtual select_record *select_write (select_stuff *);
-  virtual select_record *select_except (select_stuff *);
+  virtual select_record *select_read (select_record *s);
+  virtual select_record *select_write (select_record *s);
+  virtual select_record *select_except (select_record *s);
+  virtual int ready_for_read (int fd, DWORD howlong);
   virtual const char *get_native_name ()
   {
     return dev ().native;
@@ -418,47 +351,20 @@ public:
     raixput = raixget = ralen = rabuflen = 0;
     rabuf = NULL;
   }
-  void operator delete (void *p) {cfree (p);}
+  void operator delete (void *);
+  virtual HANDLE get_guard () const {return NULL;}
   virtual void set_eof () {}
-  virtual int mkdir (mode_t mode);
-  virtual int rmdir ();
-  virtual __reg2 DIR *opendir (int fd);
-  virtual __reg3 int readdir (DIR *, dirent *);
-  virtual long telldir (DIR *);
-  virtual void seekdir (DIR *, long);
+  virtual DIR *opendir ();
+  virtual dirent *readdir (DIR *);
+  virtual _off64_t telldir (DIR *);
+  virtual void seekdir (DIR *, _off64_t);
   virtual void rewinddir (DIR *);
   virtual int closedir (DIR *);
+  virtual bool is_slow () {return 0;}
   bool is_auto_device () {return isdevice () && !dev ().isfs ();}
   bool is_fs_special () {return pc.is_fs_special ();}
-  bool issymlink () {return pc.issymlink ();}
-  bool __reg2 device_access_denied (int);
-  int __reg3 fhaccess (int flags, bool);
-  virtual bool __reg1 has_ongoing_io ()  {return false;}
-
-  fhandler_base (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_base *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_base *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_base));
-    fhandler_base *fh = new (ptr) fhandler_base (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-struct wsa_event
-{
-  LONG serial_number;
-  long events;
-  int  connect_errorcode;
-  pid_t owner;
+  bool device_access_denied (int) __attribute__ ((regparm (2)));
+  bool fhaccess (int flags) __attribute__ ((regparm (2)));
 };
 
 class fhandler_socket: public fhandler_base
@@ -466,72 +372,11 @@ class fhandler_socket: public fhandler_base
  private:
   int addr_family;
   int type;
-  int connect_secret[4];
-
-  wsa_event *wsock_events;
-  HANDLE wsock_mtx;
-  HANDLE wsock_evt;
- public:
-  bool init_events ();
-  int evaluate_events (const long event_mask, long &events, const bool erase);
-  const HANDLE wsock_event () const { return wsock_evt; }
-  const LONG serial_number () const { return wsock_events->serial_number; }
- private:
-  int wait_for_events (const long event_mask, const DWORD flags);
-  void release_events ();
-
-  pid_t     sec_pid;
-  __uid32_t sec_uid;
-  __gid32_t sec_gid;
-  pid_t     sec_peer_pid;
-  __uid32_t sec_peer_uid;
-  __gid32_t sec_peer_gid;
-  void af_local_set_secret (char *);
-  void af_local_setblocking (bool &, bool &);
-  void af_local_unsetblocking (bool, bool);
-  void af_local_set_cred ();
-  void af_local_copy (fhandler_socket *);
-  bool af_local_recv_secret ();
-  bool af_local_send_secret ();
-  bool af_local_recv_cred ();
-  bool af_local_send_cred ();
-  int af_local_accept ();
- public:
-  int af_local_connect ();
-  void af_local_set_sockpair_cred ();
-
- private:
-  int	    _rmem;
-  int	    _wmem;
- public:
-  int &rmem () { return _rmem; }
-  int &wmem () { return _wmem; }
-  void rmem (int nrmem) { _rmem = nrmem; }
-  void wmem (int nwmem) { _wmem = nwmem; }
-
- private:
-  struct _WSAPROTOCOL_INFOW *prot_info_ptr;
- public:
-  void init_fixup_before ();
-  bool need_fixup_before () const {return prot_info_ptr != NULL;}
-
- private:
+  int connect_secret [4];
+  HANDLE secret_event;
+  struct _WSAPROTOCOL_INFOA *prot_info_ptr;
   char *sun_path;
-  char *peer_sun_path;
-  struct status_flags
-  {
-    unsigned async_io		   : 1; /* async I/O */
-    unsigned saw_shutdown_read     : 1; /* Socket saw a SHUT_RD */
-    unsigned saw_shutdown_write    : 1; /* Socket saw a SHUT_WR */
-    unsigned saw_reuseaddr	   : 1; /* Socket saw SO_REUSEADDR call */
-    unsigned listener		   : 1; /* listen called */
-    unsigned connect_state	   : 2;
-   public:
-    status_flags () :
-      async_io (0), saw_shutdown_read (0), saw_shutdown_write (0),
-      listener (0), connect_state (unconnected)
-      {}
-  } status;
+  int had_connect_or_listen;
 
  public:
   fhandler_socket ();
@@ -539,35 +384,34 @@ class fhandler_socket: public fhandler_base
   int get_socket () { return (int) get_handle(); }
   fhandler_socket *is_socket () { return this; }
 
-  IMPLEMENT_STATUS_FLAG (bool, async_io)
-  IMPLEMENT_STATUS_FLAG (bool, saw_shutdown_read)
-  IMPLEMENT_STATUS_FLAG (bool, saw_shutdown_write)
-  IMPLEMENT_STATUS_FLAG (bool, saw_reuseaddr)
-  IMPLEMENT_STATUS_FLAG (bool, listener)
-  IMPLEMENT_STATUS_FLAG (conn_state, connect_state)
+  bool saw_shutdown_read () const {return FHISSETF (SHUTRD);}
+  bool saw_shutdown_write () const {return FHISSETF (SHUTWR);}
+
+  void set_shutdown_read () {FHSETF (SHUTRD);}
+  void set_shutdown_write () {FHSETF (SHUTWR);}
+
+  bool is_unconnected () const {return had_connect_or_listen == UNCONNECTED;}
+  bool is_connect_pending () const {return had_connect_or_listen == CONNECT_PENDING;}
+  bool is_connected () const {return had_connect_or_listen == CONNECTED;}
+  void set_connect_state (int newstate) { had_connect_or_listen = newstate; }
+  int get_connect_state () const { return had_connect_or_listen; }
 
   int bind (const struct sockaddr *name, int namelen);
   int connect (const struct sockaddr *name, int namelen);
   int listen (int backlog);
-  int accept4 (struct sockaddr *peer, int *len, int flags);
+  int accept (struct sockaddr *peer, int *len);
   int getsockname (struct sockaddr *name, int *namelen);
   int getpeername (struct sockaddr *name, int *namelen);
-  int getpeereid (pid_t *pid, __uid32_t *euid, __gid32_t *egid);
 
-  int open (int flags, mode_t mode = 0);
-  void __reg3 read (void *ptr, size_t& len);
-  ssize_t __stdcall readv (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  inline ssize_t __reg3 recv_internal (struct _WSAMSG *wsamsg, bool use_recvmsg);
-  ssize_t recvfrom (void *ptr, size_t len, int flags,
-		    struct sockaddr *from, int *fromlen);
-  ssize_t recvmsg (struct msghdr *msg, int flags);
+  ssize_t readv (const struct iovec *, int iovcnt, ssize_t tot = -1);
+  int recvfrom (void *ptr, size_t len, int flags,
+		struct sockaddr *from, int *fromlen);
+  int recvmsg (struct msghdr *msg, int flags, ssize_t tot = -1);
 
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  ssize_t __stdcall writev (const struct iovec *, int iovcnt, ssize_t tot = -1);
-  inline ssize_t send_internal (struct _WSAMSG *wsamsg, int flags);
-  ssize_t sendto (const void *ptr, size_t len, int flags,
+  ssize_t writev (const struct iovec *, int iovcnt, ssize_t tot = -1);
+  int sendto (const void *ptr, size_t len, int flags,
 	      const struct sockaddr *to, int tolen);
-  ssize_t sendmsg (const struct msghdr *msg, int flags);
+  int sendmsg (const struct msghdr *msg, int flags, ssize_t tot = -1);
 
   int ioctl (unsigned int cmd, void *);
   int fcntl (int cmd, void *);
@@ -575,518 +419,226 @@ class fhandler_socket: public fhandler_base
   int shutdown (int how);
   int close ();
   void hclose (HANDLE) {close ();}
-  int dup (fhandler_base *child, int);
+  int dup (fhandler_base *child);
 
-  void set_close_on_exec (bool val);
-  int fixup_before_fork_exec (DWORD);
+  void set_close_on_exec (int val);
+  virtual void fixup_before_fork_exec (DWORD);
   void fixup_after_fork (HANDLE);
-  void fixup_after_exec ();
-  char *get_proc_fd_name (char *buf);
+  void fixup_after_exec (HANDLE);
+  bool need_fixup_before () const {return true;}
 
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
   void set_addr_family (int af) {addr_family = af;}
   int get_addr_family () {return addr_family;}
   void set_socket_type (int st) { type = st;}
   int get_socket_type () {return type;}
   void set_sun_path (const char *path);
   char *get_sun_path () {return sun_path;}
-  void set_peer_sun_path (const char *path);
-  char *get_peer_sun_path () {return peer_sun_path;}
-
-  int __reg2 fstat (struct __stat64 *buf);
-  int __reg2 fstatvfs (struct statvfs *buf);
-  int __reg1 fchmod (mode_t mode);
-  int __reg2 fchown (__uid32_t uid, __gid32_t gid);
-  int __reg3 facl (int, int, __acl32 *);
-  int __reg2 link (const char *);
-
-  fhandler_socket (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_socket *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_socket *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_socket));
-    fhandler_socket *fh = new (ptr) fhandler_socket (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void set_connect_secret ();
+  void get_connect_secret (char*);
+  HANDLE create_secret_event (int *secret = NULL);
+  int check_peer_secret_event (struct sockaddr_in *peer, int *secret = NULL);
+  void signal_secret_event ();
+  void close_secret_event ();
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
+  bool is_slow () {return 1;}
 };
 
-class fhandler_base_overlapped: public fhandler_base
+class fhandler_pipe: public fhandler_base
 {
-  static HANDLE asio_done;
-  static LONG asio_close_counter;
 protected:
-  enum wait_return
-  {
-    overlapped_unknown = 0,
-    overlapped_success,
-    overlapped_nonblocking_no_data,
-    overlapped_nullread,
-    overlapped_error
-  };
-  bool io_pending;
-  OVERLAPPED io_status;
-  OVERLAPPED *overlapped;
-  size_t max_atomic_write;
-public:
-  wait_return __reg3 wait_overlapped (bool, bool, DWORD *, bool, DWORD = 0);
-  int __reg1 setup_overlapped ();
-  void __reg1 destroy_overlapped ();
-  virtual void __reg3 raw_read (void *ptr, size_t& len);
-  virtual ssize_t __reg3 raw_write (const void *ptr, size_t len);
-  OVERLAPPED *&get_overlapped () {return overlapped;}
-  OVERLAPPED *get_overlapped_buffer () {return &io_status;}
-  void set_overlapped (OVERLAPPED *ov) {overlapped = ov;}
-  fhandler_base_overlapped (): io_pending (false), overlapped (NULL), max_atomic_write (0)
-  {
-    memset (&io_status, 0, sizeof io_status);
-  }
-  bool __reg1 has_ongoing_io ();
-
-  void fixup_after_fork (HANDLE);
-  void fixup_after_exec ();
-
-  int close ();
-  int dup (fhandler_base *child, int);
-
-  void check_later ();
-  static void __reg1 flush_all_async_io ();;
-
-  fhandler_base_overlapped (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_base_overlapped *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_base_overlapped *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_base_overlapped));
-    fhandler_base_overlapped *fh = new (ptr) fhandler_base_overlapped (ptr);
-    copyto (fh);
-    return fh;
-  }
-
-  friend DWORD WINAPI flush_async_io (void *);
-};
-
-class fhandler_pipe: public fhandler_base_overlapped
-{
-private:
-  pid_t popen_pid;
+  HANDLE guard;
+  bool broken_pipe;
+  HANDLE writepipe_exists;
+  DWORD orig_pid;
+  unsigned id;
 public:
   fhandler_pipe ();
-
-
-  bool ispipe() const { return true; }
-
-  void set_popen_pid (pid_t pid) {popen_pid = pid;}
-  pid_t get_popen_pid () const {return popen_pid;}
   _off64_t lseek (_off64_t offset, int whence);
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-  char *get_proc_fd_name (char *buf);
-  int open (int flags, mode_t mode = 0);
-  int dup (fhandler_base *child, int);
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
+  void set_close_on_exec (int val);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
+  int close ();
+  void create_guard (SECURITY_ATTRIBUTES *sa) {guard = CreateMutex (sa, FALSE, NULL);}
+  int dup (fhandler_base *child);
   int ioctl (unsigned int cmd, void *);
-  int __reg2 fstatvfs (struct statvfs *buf);
-  int __reg3 fadvise (_off64_t, _off64_t, int);
-  int __reg3 ftruncate (_off64_t, bool);
-  int init (HANDLE, DWORD, mode_t);
-  static int create (fhandler_pipe *[2], unsigned, int);
-  static DWORD create (LPSECURITY_ATTRIBUTES, HANDLE *, HANDLE *, DWORD,
-		       const char *, DWORD);
-  fhandler_pipe (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_pipe *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_pipe *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_pipe));
-    fhandler_pipe *fh = new (ptr) fhandler_pipe (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void fixup_after_fork (HANDLE);
+  void fixup_after_exec (HANDLE);
+  bool hit_eof ();
+  void set_eof () {broken_pipe = true;}
+  HANDLE get_guard () const {return guard;}
+  int ready_for_read (int fd, DWORD howlong);
+  static int create (fhandler_pipe *[2], unsigned, int, bool = false);
+  bool is_slow () {return 1;}
+  friend class fhandler_fifo;
 };
 
-class fhandler_fifo: public fhandler_base_overlapped
+class fhandler_fifo: public fhandler_pipe
 {
-  HANDLE read_ready;
-  HANDLE write_ready;
-  bool __reg2 wait (HANDLE);
-  char __reg2 *fifo_name (char *, const char *);
+  HANDLE output_handle;
+  HANDLE owner;		// You can't have too many mutexes, now, can you?
+  ATOM upand;
+  long read_use;
+  long write_use;
 public:
   fhandler_fifo ();
-  int open (int, mode_t);
-  int close ();
-  int dup (fhandler_base *child, int);
-  bool isfifo () const { return true; }
-  void set_close_on_exec (bool val);
-  void __reg3 raw_read (void *ptr, size_t& ulen);
-  bool arm (HANDLE h);
-  void fixup_after_fork (HANDLE);
-  int __reg2 fstatvfs (struct statvfs *buf);
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-
-  fhandler_fifo (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_fifo *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_fifo *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_fifo));
-    fhandler_fifo *fh = new (ptr) fhandler_fifo (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_mailslot : public fhandler_base_overlapped
-{
-  POBJECT_ATTRIBUTES get_object_attr (OBJECT_ATTRIBUTES &, PUNICODE_STRING, int);
- public:
-  fhandler_mailslot ();
-  int __reg2 fstat (struct __stat64 *buf);
   int open (int flags, mode_t mode = 0);
-  ssize_t __reg3 raw_write (const void *, size_t);
-  int ioctl (unsigned int cmd, void *);
-  select_record *select_read (select_stuff *);
-
-  fhandler_mailslot (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_mailslot *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_mailslot *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_mailslot));
-    fhandler_mailslot *fh = new (ptr) fhandler_mailslot (ptr);
-    copyto (fh);
-    return fh;
-  }
+  int open_not_mine (int flags) __attribute__ ((regparm (2)));
+  int close ();
+  void set_use (int flags) __attribute__ ((regparm (2)));
+  bool isfifo () { return true; }
+  HANDLE& get_output_handle () { return output_handle; }
+  void set_output_handle (HANDLE h) { output_handle = h; }
+  void set_use ();
+  int dup (fhandler_base *child);
+  bool is_slow () {return 1;}
+  ATOM& get_atom () {return upand;}
 };
 
 class fhandler_dev_raw: public fhandler_base
 {
  protected:
-  char *devbufalloc;
   char *devbuf;
-  size_t devbufalign;
   size_t devbufsiz;
   size_t devbufstart;
   size_t devbufend;
-  struct status_flags
-  {
-    unsigned lastblk_to_read : 1;
-   public:
-    status_flags () : lastblk_to_read (0) {}
-  } status;
+  int eom_detected    : 1;
+  int eof_detected    : 1;
+  int lastblk_to_read : 1;
+  int is_writing      : 1;
+  int has_written     : 1;
+  int varblkop	      : 1;
 
-  IMPLEMENT_STATUS_FLAG (bool, lastblk_to_read)
+  virtual void clear (void);
+  virtual int writebuf (void);
+
+  /* returns not null, if `win_error' determines an end of media condition */
+  virtual int is_eom(int win_error) = 0;
+  /* returns not null, if `win_error' determines an end of file condition */
+  virtual int is_eof(int win_error) = 0;
 
   fhandler_dev_raw ();
 
  public:
-  ~fhandler_dev_raw ();
+  ~fhandler_dev_raw (void);
 
   int open (int flags, mode_t mode = 0);
+  int close (void);
 
-  int __reg2 fstat (struct __stat64 *buf);
+  void raw_read (void *ptr, size_t& ulen);
+  int raw_write (const void *ptr, size_t ulen);
 
-  int dup (fhandler_base *child, int);
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
+
+  int dup (fhandler_base *child);
+
   int ioctl (unsigned int cmd, void *buf);
 
   void fixup_after_fork (HANDLE);
-  void fixup_after_exec ();
-
-  fhandler_dev_raw (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_raw *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_raw *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_raw));
-    fhandler_dev_raw *fh = new (ptr) fhandler_dev_raw (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-#define MAX_PARTITIONS 15
-
-struct part_t
-{
-  LONG refcnt;
-  HANDLE hdl[MAX_PARTITIONS];
+  void fixup_after_exec (HANDLE);
 };
 
 class fhandler_dev_floppy: public fhandler_dev_raw
 {
- private:
-  _off64_t drive_size;
-  part_t *partitions;
-  struct status_flags
-  {
-    unsigned eom_detected    : 1;
-   public:
-    status_flags () : eom_detected (0) {}
-  } status;
-
-  IMPLEMENT_STATUS_FLAG (bool, eom_detected)
-
-  inline _off64_t get_current_position ();
-  int get_drive_info (struct hd_geometry *geo);
-
-  int lock_partition (DWORD to_write);
-
-  BOOL write_file (const void *buf, DWORD to_write, DWORD *written, int *err);
-  BOOL read_file (void *buf, DWORD to_read, DWORD *read, int *err);
+ protected:
+  virtual int is_eom (int win_error);
+  virtual int is_eof (int win_error);
 
  public:
   fhandler_dev_floppy ();
 
-  int open (int flags, mode_t mode = 0);
-  int close ();
-  int dup (fhandler_base *child, int);
-  void __reg3 raw_read (void *ptr, size_t& ulen);
-  ssize_t __reg3 raw_write (const void *ptr, size_t ulen);
-  _off64_t lseek (_off64_t offset, int whence);
-  int ioctl (unsigned int cmd, void *buf);
+  virtual int open (int flags, mode_t mode = 0);
+  virtual int close (void);
 
-  fhandler_dev_floppy (void *) {}
+  virtual _off64_t lseek (_off64_t offset, int whence);
 
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_floppy *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_floppy *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_floppy));
-    fhandler_dev_floppy *fh = new (ptr) fhandler_dev_floppy (ptr);
-    copyto (fh);
-    return fh;
-  }
+  virtual int ioctl (unsigned int cmd, void *buf);
 };
 
 class fhandler_dev_tape: public fhandler_dev_raw
 {
-  HANDLE mt_mtx;
-  HANDLE mt_evt;
+  int lasterr;
 
-  bool is_rewind_device () { return get_minor () < 128; }
-  unsigned int driveno () { return (unsigned int) get_minor () & 0x7f; }
-  void drive_init ();
+  bool is_rewind_device () { return get_unit () < 128; }
 
-  inline bool _lock (bool);
-  inline int unlock (int ret = 0);
+ protected:
+  virtual void clear (void);
+
+  virtual int is_eom (int win_error);
+  virtual int is_eof (int win_error);
 
  public:
   fhandler_dev_tape ();
 
-  int open (int flags, mode_t mode = 0);
-  virtual int close ();
-
-  void __reg3 raw_read (void *ptr, size_t& ulen);
-  ssize_t __reg3 raw_write (const void *ptr, size_t ulen);
+  virtual int open (int flags, mode_t mode = 0);
+  virtual int close (void);
 
   virtual _off64_t lseek (_off64_t offset, int whence);
 
-  virtual int __reg2 fstat (struct __stat64 *buf);
+  virtual int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
 
-  virtual int dup (fhandler_base *child, int);
-  virtual void fixup_after_fork (HANDLE parent);
-  virtual void set_close_on_exec (bool val);
+  virtual int dup (fhandler_base *child);
+
   virtual int ioctl (unsigned int cmd, void *buf);
 
-  fhandler_dev_tape (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_tape *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_tape *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_tape));
-    fhandler_dev_tape *fh = new (ptr) fhandler_dev_tape (ptr);
-    copyto (fh);
-    return fh;
-  }
+ private:
+  int tape_write_marks (int marktype, DWORD len);
+  int tape_get_pos (unsigned long *ret);
+  int tape_set_pos (int mode, long count, bool sfm_func = false);
+  int tape_erase (int mode);
+  int tape_prepare (int action);
+  bool tape_get_feature (DWORD parm);
+  int tape_get_blocksize (long *min, long *def, long *max, long *cur);
+  int tape_set_blocksize (long count);
+  int tape_status (struct mtget *get);
+  int tape_compression (long count);
 };
 
 /* Standard disk file */
 
 class fhandler_disk_file: public fhandler_base
 {
-  HANDLE prw_handle;
-  int __reg3 readdir_helper (DIR *, dirent *, DWORD, DWORD, PUNICODE_STRING fname);
-
-  int prw_open (bool);
-
  public:
   fhandler_disk_file ();
-  fhandler_disk_file (path_conv &pc);
 
   int open (int flags, mode_t mode);
   int close ();
-  int dup (fhandler_base *child, int);
-  void fixup_after_fork (HANDLE parent);
   int lock (int, struct __flock64 *);
-  bool isdevice () const { return false; }
-  int __reg2 fstat (struct __stat64 *buf);
-  int __reg1 fchmod (mode_t mode);
-  int __reg2 fchown (__uid32_t uid, __gid32_t gid);
-  int __reg3 facl (int, int, __acl32 *);
-  ssize_t __reg3 fgetxattr (const char *, void *, size_t);
-  int __reg3 fsetxattr (const char *, const void *, size_t, int);
-  int __reg3 fadvise (_off64_t, _off64_t, int);
-  int __reg3 ftruncate (_off64_t, bool);
-  int __reg2 link (const char *);
-  int __reg2 utimens (const struct timespec *);
-  int __reg2 fstatvfs (struct statvfs *buf);
+  bool isdevice () { return false; }
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
 
-  HANDLE mmap (caddr_t *addr, size_t len, int prot, int flags, _off64_t off);
+  HANDLE mmap (caddr_t *addr, size_t len, DWORD access, int flags, _off64_t off);
   int munmap (HANDLE h, caddr_t addr, size_t len);
   int msync (HANDLE h, caddr_t addr, size_t len, int flags);
-  bool fixup_mmap_after_fork (HANDLE h, int prot, int flags,
-			      _off64_t offset, DWORD size, void *address);
-  int mkdir (mode_t mode);
-  int rmdir ();
-  DIR __reg2 *opendir (int fd);
-  int __reg3 readdir (DIR *, dirent *);
-  long telldir (DIR *);
-  void seekdir (DIR *, long);
+  bool fixup_mmap_after_fork (HANDLE h, DWORD access, DWORD offset,
+			      DWORD size, void *address);
+  DIR *opendir ();
+  struct dirent *readdir (DIR *);
+  _off64_t telldir (DIR *);
+  void seekdir (DIR *, _off64_t);
   void rewinddir (DIR *);
   int closedir (DIR *);
-
-  ssize_t __reg3 pread (void *, size_t, _off64_t);
-  ssize_t __reg3 pwrite (void *, size_t, _off64_t);
-
-  fhandler_disk_file (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_disk_file *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_disk_file *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_disk_file));
-    fhandler_disk_file *fh = new (ptr) fhandler_disk_file (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_dev: public fhandler_disk_file
-{
-  const struct device *devidx;
-  bool dir_exists;
-public:
-  fhandler_dev ();
-  int open (int flags, mode_t mode);
-  int close ();
-  int __reg2 fstat (struct __stat64 *buf);
-  int __reg2 fstatvfs (struct statvfs *buf);
-  DIR __reg2 *opendir (int fd);
-  int __reg3 readdir (DIR *, dirent *);
-  void rewinddir (DIR *);
-
-  fhandler_dev (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev));
-    fhandler_dev *fh = new (ptr) fhandler_dev (ptr);
-    copyto (fh);
-    return fh;
-  }
 };
 
 class fhandler_cygdrive: public fhandler_disk_file
 {
-  enum
-  {
-    DRVSZ = sizeof ("x:\\")
-  };
   int ndrives;
   const char *pdrive;
-  char pdrive_buf[1 + (2 * 26 * DRVSZ)];
   void set_drives ();
  public:
+  bool iscygdrive_root () { return !dev ().minor; }
   fhandler_cygdrive ();
-  int open (int flags, mode_t mode);
-  int close ();
-  DIR __reg2 *opendir (int fd);
-  int __reg3 readdir (DIR *, dirent *);
+  DIR *opendir ();
+  struct dirent *readdir (DIR *);
+  _off64_t telldir (DIR *);
+  void seekdir (DIR *, _off64_t);
   void rewinddir (DIR *);
   int closedir (DIR *);
-  int __reg2 fstat (struct __stat64 *buf);
-  int __reg2 fstatvfs (struct statvfs *buf);
-
-  fhandler_cygdrive (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_cygdrive *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_cygdrive *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_cygdrive));
-    fhandler_cygdrive *fh = new (ptr) fhandler_cygdrive (ptr);
-    copyto (fh);
-    return fh;
-  }
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
 };
 
 class fhandler_serial: public fhandler_base
@@ -1108,107 +660,70 @@ class fhandler_serial: public fhandler_base
 
   int open (int flags, mode_t mode);
   int close ();
-  int init (HANDLE h, DWORD a, mode_t flags);
+  void init (HANDLE h, DWORD a, mode_t flags);
   void overlapped_setup ();
-  int dup (fhandler_base *child, int);
-  void __reg3 raw_read (void *ptr, size_t& ulen);
-  ssize_t __reg3 raw_write (const void *ptr, size_t ulen);
+  int dup (fhandler_base *child);
+  void raw_read (void *ptr, size_t& ulen);
+  int raw_write (const void *ptr, size_t ulen);
   int tcsendbreak (int);
   int tcdrain ();
   int tcflow (int);
   int ioctl (unsigned int cmd, void *);
-  int switch_modem_lines (int set, int clr);
   int tcsetattr (int a, const struct termios *t);
   int tcgetattr (struct termios *t);
   _off64_t lseek (_off64_t, int) { return 0; }
   int tcflush (int);
-  bool is_tty () const { return true; }
+  void dump ();
+  int is_tty () { return 1; }
   void fixup_after_fork (HANDLE parent);
-  void fixup_after_exec ();
+  void fixup_after_exec (HANDLE);
 
   /* We maintain a pgrp so that tcsetpgrp and tcgetpgrp work, but we
-     don't use it for permissions checking.  fhandler_pty_slave does
+     don't use it for permissions checking.  fhandler_tty_slave does
      permission checking on pgrps.  */
   virtual int tcgetpgrp () { return pgrp_; }
   virtual int tcsetpgrp (const pid_t pid) { pgrp_ = pid; return 0; }
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-
-  fhandler_serial (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_serial *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_serial *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_serial));
-    fhandler_serial *fh = new (ptr) fhandler_serial (ptr);
-    copyto (fh);
-    return fh;
-  }
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
+  bool is_slow () {return 1;}
 };
 
 #define acquire_output_mutex(ms) \
-  __acquire_output_mutex (__PRETTY_FUNCTION__, __LINE__, ms)
+  __acquire_output_mutex (__PRETTY_FUNCTION__, __LINE__, ms);
 
 #define release_output_mutex() \
-  __release_output_mutex (__PRETTY_FUNCTION__, __LINE__)
+  __release_output_mutex (__PRETTY_FUNCTION__, __LINE__);
 
 class tty;
 class tty_min;
 class fhandler_termios: public fhandler_base
 {
- private:
-  HANDLE output_handle;
  protected:
+  HANDLE output_handle;
   virtual void doecho (const void *, DWORD) {};
   virtual int accept_input () {return 1;};
-  int ioctl (int, void *);
-  tty_min *_tc;
-  tty *get_ttyp () {return (tty *) tc ();}
  public:
-  tty_min*& tc () {return _tc;}
+  tty_min *tc;
   fhandler_termios () :
   fhandler_base ()
   {
-    need_fork_fixup (true);
+    set_need_fork_fixup ();
   }
   HANDLE& get_output_handle () { return output_handle; }
   line_edit_status line_edit (const char *rptr, int nread, termios&);
   void set_output_handle (HANDLE h) { output_handle = h; }
-  void tcinit (bool force);
-  bool is_tty () const { return true; }
-  void sigflush ();
+  void tcinit (tty_min *this_tc, bool force = false);
+  virtual int is_tty () { return 1; }
   int tcgetpgrp ();
   int tcsetpgrp (int pid);
   bg_check_types bg_check (int sig);
   virtual DWORD __acquire_output_mutex (const char *fn, int ln, DWORD ms) {return 1;}
   virtual void __release_output_mutex (const char *fn, int ln) {}
+  void fixup_after_fork (HANDLE);
+  void fixup_after_exec (HANDLE parent) { fixup_after_fork (parent); }
   void echo_erase (int force = 0);
   virtual _off64_t lseek (_off64_t, int);
-  pid_t tcgetsid ();
-
-  fhandler_termios (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_termios *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_termios *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_termios));
-    fhandler_termios *fh = new (ptr) fhandler_termios (ptr);
-    copyto (fh);
-    return fh;
-  }
 };
 
 enum ansi_intensity
@@ -1227,8 +742,6 @@ enum ansi_intensity
 #define gotcommand 5
 #define gettitle 6
 #define eattitle 7
-#define gotparen 8
-#define gotrparen 9
 #define MAXARGS 10
 
 class dev_console
@@ -1244,14 +757,7 @@ class dev_console
   int nargs_;
   unsigned rarg;
   bool saw_question_mark;
-  bool saw_greater_than_sign;
-  bool saw_space;
-  bool vt100_graphics_mode_G0;
-  bool vt100_graphics_mode_G1;
-  bool iso_2022_G1;
   bool alternate_charset_active;
-  bool metabit;
-  char backspace_keycode;
 
   char my_title_buf [TITLESIZE + 1];
 
@@ -1282,26 +788,15 @@ class dev_console
     } info;
 
   COORD dwLastCursorPosition;
-  COORD dwMousePosition;	/* scroll-adjusted coord of mouse event */
-  COORD dwLastMousePosition;	/* scroll-adjusted coord of previous mouse event */
-  DWORD dwLastButtonState;	/* (not noting mouse wheel events) */
-  int last_button_code;		/* transformed mouse report button code */
+  DWORD dwLastButtonState;
   int nModifiers;
 
   bool insert_mode;
-  int use_mouse;
-  bool ext_mouse_mode5;
-  bool ext_mouse_mode6;
-  bool ext_mouse_mode15;
-  bool use_focus;
+  bool use_mouse;
   bool raw_win32_keyboard_mode;
 
-  inline UINT get_console_cp ();
-  DWORD con_to_str (char *d, int dlen, WCHAR w);
-  DWORD str_to_con (mbtowc_p, const char *, PWCHAR d, const char *s, DWORD sz);
-  void set_color (HANDLE);
-  bool fillin_info (HANDLE);
-  void set_default_attr ();
+  bool con_to_str (char *d, const char *s, DWORD sz);
+  bool str_to_con (char *d, const char *s, DWORD sz);
 
   friend class fhandler_console;
 };
@@ -1309,35 +804,19 @@ class dev_console
 /* This is a input and output console handle */
 class fhandler_console: public fhandler_termios
 {
-public:
-  struct console_state
-  {
-    tty_min tty_min_state;
-    dev_console dev_state;
-  };
-private:
-  static const unsigned MAX_WRITE_CHARS;
-  static console_state *shared_console_info;
-  static bool invisible_console;
-
-  /* Used when we encounter a truncated multi-byte sequence.  The
-     lead bytes are stored here and revisited in the next write call. */
-  struct {
-    int len;
-    unsigned char buf[4]; /* Max len of valid UTF-8 sequence. */
-  } trunc_buf;
-  PWCHAR write_buf;
+ private:
+  static dev_console *dev_state;
 
 /* Output calls */
   void set_default_attr ();
+  WORD get_win32_attr ();
 
+  bool fillin_info ();
   void clear_screen (int, int, int, int);
   void scroll_screen (int, int, int, int, int, int);
   void cursor_set (bool, int, int);
   void cursor_get (int *, int *);
   void cursor_rel (int, int);
-  inline void write_replacement_char ();
-  inline bool write_console (PWCHAR, DWORD, DWORD&);
   const unsigned char *write_normal (unsigned const char*, unsigned const char *);
   void char_command (char);
   bool set_raw_win32_keyboard_mode (bool);
@@ -1347,234 +826,147 @@ private:
   int igncr_enabled ();
   int input_tcsetattr (int a, const struct termios *t);
   void set_cursor_maybe ();
-  static bool create_invisible_console (HWINSTA);
-  static bool create_invisible_console_workaround ();
-  static console_state *open_shared_console (HWND, HANDLE&, bool&);
 
  public:
-  static pid_t tc_getpgid ()
-  {
-    return shared_console_info ? shared_console_info->tty_min_state.getpgid () : myself->pgid;
-  }
-  fhandler_console (fh_devices);
-  static console_state *open_shared_console (HWND hw, HANDLE& h)
-  {
-    bool createit = false;
-    return open_shared_console (hw, h, createit);
-  }
+  fhandler_console ();
 
   fhandler_console* is_console () { return this; }
 
-  bool use_archetype () const {return true;}
+  int open (int flags, mode_t mode = 0);
 
-  int open (int flags, mode_t mode);
-  void open_setup (int flags);
-  int dup (fhandler_base *, int);
-
-  void __reg3 read (void *ptr, size_t& len);
-  ssize_t __stdcall write (const void *ptr, size_t len);
+  int write (const void *ptr, size_t len);
   void doecho (const void *str, DWORD len) { (void) write (str, len); }
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   int close ();
-  static bool exists () {return !!GetConsoleCP ();}
 
   int tcflush (int);
   int tcsetattr (int a, const struct termios *t);
   int tcgetattr (struct termios *t);
 
-  int ioctl (unsigned int cmd, void *);
-  int init (HANDLE, DWORD, mode_t);
-  bool mouse_aware (MOUSE_EVENT_RECORD& mouse_event);
-  bool focus_aware () {return shared_console_info->dev_state.use_focus;}
+  /* Special dup as we must dup two handles */
+  int dup (fhandler_base *child);
 
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-  void fixup_after_fork_exec (bool);
-  void fixup_after_exec () {fixup_after_fork_exec (true);}
-  void fixup_after_fork (HANDLE) {fixup_after_fork_exec (false);}
-  void set_close_on_exec (bool val);
+  int ioctl (unsigned int cmd, void *);
+  void init (HANDLE, DWORD, mode_t);
+  bool mouse_aware () {return dev_state->use_mouse;}
+
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
+  void fixup_after_exec (HANDLE);
+  void set_close_on_exec (int val);
+  void fixup_after_fork (HANDLE parent);
   void set_input_state ();
   void send_winch_maybe ();
-  void setup ();
-  bool set_unit ();
-  static bool need_invisible ();
-  static void free_console ();
-
-  fhandler_console (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_console *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_console *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_console));
-    fhandler_console *fh = new (ptr) fhandler_console (ptr);
-    copyto (fh);
-    return fh;
-  }
-  friend tty_min * tty_list::get_cttyp ();
+  static tty_min *get_tty_stuff (int);
+  bool is_slow () {return 1;}
 };
 
-class fhandler_pty_common: public fhandler_termios
+class fhandler_tty_common: public fhandler_termios
 {
  public:
-  fhandler_pty_common ()
-    : fhandler_termios (),
-      output_mutex (NULL),
-    input_mutex (NULL), input_available_event (NULL)
+  fhandler_tty_common ()
+    : fhandler_termios (), output_done_event (NULL),
+    ioctl_request_event (NULL), ioctl_done_event (NULL), output_mutex (NULL),
+    input_mutex (NULL), input_available_event (NULL), inuse (NULL)
   {
-    pc.file_attributes (FILE_ATTRIBUTE_NORMAL);
+    // nothing to do
   }
-  static const unsigned pipesize = 128 * 1024;
+  HANDLE output_done_event;	// Raised by master when tty's output buffer
+				// written. Write status in tty::write_retval.
+  HANDLE ioctl_request_event;	// Raised by slave to perform ioctl() request.
+				// Ioctl() request in tty::cmd/arg.
+  HANDLE ioctl_done_event;	// Raised by master on ioctl() completion.
+				// Ioctl() status in tty::ioctl_retval.
   HANDLE output_mutex, input_mutex;
   HANDLE input_available_event;
+  HANDLE inuse;			// used to indicate that a tty is in use
 
-  bool use_archetype () const {return true;}
   DWORD __acquire_output_mutex (const char *fn, int ln, DWORD ms);
   void __release_output_mutex (const char *fn, int ln);
 
+  virtual int dup (fhandler_base *child);
+
+  tty *get_ttyp () { return (tty *) tc; }
+
   int close ();
-  _off64_t lseek (_off64_t, int);
-  bool bytes_available (DWORD& n);
-  void set_close_on_exec (bool val);
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-
-  fhandler_pty_common (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_pty_common *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_pty_common *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_pty_common));
-    fhandler_pty_common *fh = new (ptr) fhandler_pty_common (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void set_close_on_exec (int val);
+  void fixup_after_fork (HANDLE parent);
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
+  bool is_slow () {return 1;}
 };
 
-class fhandler_pty_slave: public fhandler_pty_common
+class fhandler_tty_slave: public fhandler_tty_common
 {
-  HANDLE inuse;			// used to indicate that a tty is in use
-
-  /* Helper functions for fchmod and fchown. */
-  bool fch_open_handles ();
-  int fch_set_sd (security_descriptor &sd, bool chown);
-  void fch_close_handles ();
-
  public:
   /* Constructor */
-  fhandler_pty_slave (int);
+  fhandler_tty_slave ();
 
   int open (int flags, mode_t mode = 0);
-  void open_setup (int flags);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
-  int init (HANDLE, DWORD, mode_t);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
+  void init (HANDLE, DWORD, mode_t);
 
   int tcsetattr (int a, const struct termios *t);
   int tcgetattr (struct termios *t);
   int tcflush (int);
   int ioctl (unsigned int cmd, void *);
   int close ();
-  void cleanup ();
-  int dup (fhandler_base *child, int);
+  int dup (fhandler_base *child);
   void fixup_after_fork (HANDLE parent);
-  void fixup_after_exec ();
 
-  select_record *select_read (select_stuff *);
+  _off64_t lseek (_off64_t, int) { return 0; }
+  select_record *select_read (select_record *s);
+  int cygserver_attach_tty (HANDLE*, HANDLE*);
   int get_unit ();
   virtual char const *ttyname () { return pc.dev.name; }
-  int __reg2 fstat (struct __stat64 *buf);
-  int __reg1 fchmod (mode_t mode);
-  int __reg2 fchown (__uid32_t uid, __gid32_t gid);
-
-  fhandler_pty_slave (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_pty_slave *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_pty_slave *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_pty_slave));
-    fhandler_pty_slave *fh = new (ptr) fhandler_pty_slave (ptr);
-    copyto (fh);
-    return fh;
-  }
 };
 
-#define __ptsname(buf, unit) __small_sprintf ((buf), "/dev/pty%d", (unit))
-class fhandler_pty_master: public fhandler_pty_common
+class fhandler_pty_master: public fhandler_tty_common
 {
   int pktmode;			// non-zero if pty in a packet mode.
-  HANDLE master_ctl;		// Control socket for handle duplication
-  cygthread *master_thread;	// Master control thread
-  HANDLE from_master, to_master;
-  DWORD dwProcessId;		// Owner of master handles
-
+protected:
+  device slave;			// device type of slave
 public:
   int need_nl;			// Next read should start with \n
 
   /* Constructor */
-  fhandler_pty_master (int);
+  fhandler_pty_master ();
 
-  DWORD pty_master_thread ();
   int process_slave_output (char *buf, size_t len, int pktmode_on);
   void doecho (const void *str, DWORD len);
   int accept_input ();
   int open (int flags, mode_t mode = 0);
-  void open_setup (int flags);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   int close ();
-  void cleanup ();
 
   int tcsetattr (int a, const struct termios *t);
   int tcgetattr (struct termios *t);
   int tcflush (int);
   int ioctl (unsigned int cmd, void *);
 
-  int ptsname_r (char *, size_t);
+  _off64_t lseek (_off64_t, int) { return 0; }
+  char *ptsname ();
 
+  void set_close_on_exec (int val);
   bool hit_eof ();
-  bool setup ();
-  int dup (fhandler_base *, int);
-  void fixup_after_fork (HANDLE parent);
-  void fixup_after_exec ();
-  int tcgetpgrp ();
-  void flush_to_slave ();
+  int get_unit () const { return slave.minor; }
+};
 
-  fhandler_pty_master (void *) {}
-  ~fhandler_pty_master ();
+class fhandler_tty_master: public fhandler_pty_master
+{
+ public:
+  /* Constructor */
+  fhandler_console *console;	// device handler to perform real i/o.
 
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_pty_master *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_pty_master *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_pty_master));
-    fhandler_pty_master *fh = new (ptr) fhandler_pty_master (ptr);
-    copyto (fh);
-    return fh;
-  }
+  fhandler_tty_master ();
+  int init ();
+  int init_console ();
+  void set_winsize (bool);
+  bool is_slow () {return 1;}
 };
 
 class fhandler_dev_null: public fhandler_base
@@ -1582,26 +974,10 @@ class fhandler_dev_null: public fhandler_base
  public:
   fhandler_dev_null ();
 
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-
-  fhandler_dev_null (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_null *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_null *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_null));
-    fhandler_dev_null *fh = new (ptr) fhandler_dev_null (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void dump ();
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
 };
 
 class fhandler_dev_zero: public fhandler_base
@@ -1609,34 +985,11 @@ class fhandler_dev_zero: public fhandler_base
  public:
   fhandler_dev_zero ();
   int open (int flags, mode_t mode = 0);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   _off64_t lseek (_off64_t offset, int whence);
 
-  virtual HANDLE mmap (caddr_t *addr, size_t len, int prot,
-		       int flags, _off64_t off);
-  virtual int munmap (HANDLE h, caddr_t addr, size_t len);
-  virtual int msync (HANDLE h, caddr_t addr, size_t len, int flags);
-  virtual bool fixup_mmap_after_fork (HANDLE h, int prot, int flags,
-				      _off64_t offset, DWORD size,
-				      void *address);
-
-  fhandler_dev_zero (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_zero *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_zero *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_zero));
-    fhandler_dev_zero *fh = new (ptr) fhandler_dev_zero (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void dump ();
 };
 
 class fhandler_dev_random: public fhandler_base
@@ -1644,7 +997,6 @@ class fhandler_dev_random: public fhandler_base
  protected:
   HCRYPTPROV crypt_prov;
   long pseudo;
-  _off64_t dummy_offset;
 
   bool crypt_gen_random (void *ptr, size_t len);
   int pseudo_write (const void *ptr, size_t len);
@@ -1653,28 +1005,13 @@ class fhandler_dev_random: public fhandler_base
  public:
   fhandler_dev_random ();
   int open (int flags, mode_t mode = 0);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   _off64_t lseek (_off64_t offset, int whence);
-  int close ();
-  int dup (fhandler_base *child, int);
+  int close (void);
+  int dup (fhandler_base *child);
 
-  fhandler_dev_random (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_random *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_random *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_random));
-    fhandler_dev_random *fh = new (ptr) fhandler_dev_random (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void dump ();
 };
 
 class fhandler_dev_mem: public fhandler_base
@@ -1685,72 +1022,45 @@ class fhandler_dev_mem: public fhandler_base
 
  public:
   fhandler_dev_mem ();
-  ~fhandler_dev_mem ();
+  ~fhandler_dev_mem (void);
 
   int open (int flags, mode_t mode = 0);
-  ssize_t __stdcall write (const void *ptr, size_t ulen);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t ulen);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   _off64_t lseek (_off64_t offset, int whence);
-  int __reg2 fstat (struct __stat64 *buf);
+  int close (void);
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
+  int dup (fhandler_base *child);
 
-  HANDLE mmap (caddr_t *addr, size_t len, int prot, int flags, _off64_t off);
+  HANDLE mmap (caddr_t *addr, size_t len, DWORD access, int flags, _off64_t off);
   int munmap (HANDLE h, caddr_t addr, size_t len);
   int msync (HANDLE h, caddr_t addr, size_t len, int flags);
-  bool fixup_mmap_after_fork (HANDLE h, int prot, int flags,
-			      _off64_t offset, DWORD size, void *address);
+  bool fixup_mmap_after_fork (HANDLE h, DWORD access, DWORD offset,
+			      DWORD size, void *address);
 
-  fhandler_dev_mem (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_mem *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_mem *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_mem));
-    fhandler_dev_mem *fh = new (ptr) fhandler_dev_mem (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
+  void dump ();
+} ;
 
 class fhandler_dev_clipboard: public fhandler_base
 {
+ public:
+  fhandler_dev_clipboard ();
+  int is_windows (void) { return 1; }
+  int open (int flags, mode_t mode = 0);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
+  _off64_t lseek (_off64_t offset, int whence);
+  int close (void);
+
+  int dup (fhandler_base *child);
+
+  void dump ();
+
+ private:
   _off64_t pos;
   void *membuffer;
   size_t msize;
- public:
-  fhandler_dev_clipboard ();
-  int is_windows () { return 1; }
-  int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
-  _off64_t lseek (_off64_t offset, int whence);
-  int close ();
-
-  int dup (fhandler_base *child, int);
-  void fixup_after_exec ();
-
-  fhandler_dev_clipboard (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_clipboard *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_clipboard *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_clipboard));
-    fhandler_dev_clipboard *fh = new (ptr) fhandler_dev_clipboard (ptr);
-    copyto (fh);
-    return fh;
-  }
+  bool eof;
 };
 
 class fhandler_windows: public fhandler_base
@@ -1760,89 +1070,50 @@ class fhandler_windows: public fhandler_base
   int method_;  // write method (Post or Send)
  public:
   fhandler_windows ();
-  int is_windows () { return 1; }
+  int is_windows (void) { return 1; }
   int open (int flags, mode_t mode = 0);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   int ioctl (unsigned int cmd, void *);
   _off64_t lseek (_off64_t, int) { return 0; }
-  int close () { return 0; }
+  int close (void) { return 0; }
 
-  void set_close_on_exec (bool val);
+  void set_close_on_exec (int val);
   void fixup_after_fork (HANDLE parent);
-  select_record *select_read (select_stuff *);
-  select_record *select_write (select_stuff *);
-  select_record *select_except (select_stuff *);
-
-  fhandler_windows (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_windows *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_windows *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_windows));
-    fhandler_windows *fh = new (ptr) fhandler_windows (ptr);
-    copyto (fh);
-    return fh;
-  }
+  select_record *select_read (select_record *s);
+  select_record *select_write (select_record *s);
+  select_record *select_except (select_record *s);
+  bool is_slow () {return 1;}
 };
 
-class fhandler_dev_dsp: public fhandler_base
+class fhandler_dev_dsp : public fhandler_base
 {
- public:
-  class Audio;
-  class Audio_out;
-  class Audio_in;
  private:
   int audioformat_;
   int audiofreq_;
   int audiobits_;
   int audiochannels_;
-  Audio_out *audio_out_;
-  Audio_in  *audio_in_;
+  bool setupwav(const char *pData, int nBytes);
  public:
   fhandler_dev_dsp ();
+  ~fhandler_dev_dsp();
 
   int open (int flags, mode_t mode = 0);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   int ioctl (unsigned int cmd, void *);
   _off64_t lseek (_off64_t, int);
-  int close ();
-  void fixup_after_fork (HANDLE parent);
-  void fixup_after_exec ();
- private:
-  void close_audio_in ();
-  void close_audio_out (bool immediately = false);
-  bool use_archetype () const {return true;}
-
-  fhandler_dev_dsp (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_dev_dsp *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_dev_dsp *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_dev_dsp));
-    fhandler_dev_dsp *fh = new (ptr) fhandler_dev_dsp (ptr);
-    copyto (fh);
-    return fh;
-  }
+  int close (void);
+  int dup (fhandler_base *child);
+  void dump (void);
+  void fixup_after_exec (HANDLE);
 };
 
 class fhandler_virtual : public fhandler_base
 {
  protected:
   char *filebuf;
+  size_t bufalloc;
   _off64_t filesize;
   _off64_t position;
   int fileid; // unique within each class
@@ -1851,211 +1122,53 @@ class fhandler_virtual : public fhandler_base
   fhandler_virtual ();
   virtual ~fhandler_virtual();
 
-  virtual virtual_ftype_t exists();
-  DIR __reg2 *opendir (int fd);
-  long telldir (DIR *);
-  void seekdir (DIR *, long);
+  virtual int exists();
+  DIR *opendir ();
+  _off64_t telldir (DIR *);
+  void seekdir (DIR *, _off64_t);
   void rewinddir (DIR *);
   int closedir (DIR *);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  void __reg3 read (void *ptr, size_t& len);
+  int write (const void *ptr, size_t len);
+  void __stdcall read (void *ptr, size_t& len) __attribute__ ((regparm (3)));
   _off64_t lseek (_off64_t, int);
-  int dup (fhandler_base *child, int);
+  int dup (fhandler_base *child);
   int open (int flags, mode_t mode = 0);
-  int close ();
-  int __reg2 fstat (struct stat *buf);
-  int __reg2 fstatvfs (struct statvfs *buf);
-  int __reg1 fchmod (mode_t mode);
-  int __reg2 fchown (__uid32_t uid, __gid32_t gid);
-  int __reg3 facl (int, int, __acl32 *);
+  int close (void);
+  int __stdcall fstat (struct stat *buf) __attribute__ ((regparm (2)));
   virtual bool fill_filebuf ();
-  char *get_filebuf () { return filebuf; }
-  void fixup_after_exec ();
-
-  fhandler_virtual (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_virtual *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_virtual *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_virtual));
-    fhandler_virtual *fh = new (ptr) fhandler_virtual (ptr);
-    copyto (fh);
-    return fh;
-  }
+  void fixup_after_exec (HANDLE);
 };
 
 class fhandler_proc: public fhandler_virtual
 {
  public:
   fhandler_proc ();
-  virtual_ftype_t exists();
-  DIR __reg2 *opendir (int fd);
-  int closedir (DIR *);
-  int __reg3 readdir (DIR *, dirent *);
-  static fh_devices get_proc_fhandler (const char *path);
+  int exists();
+  struct dirent *readdir (DIR *);
+  static DWORD get_proc_fhandler(const char *path);
 
   int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
   bool fill_filebuf ();
-
-  fhandler_proc (void *) {}
-
-  virtual void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_proc *> (x) = *this;
-    x->reset (this);
-  }
-
-  virtual fhandler_proc *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_proc));
-    fhandler_proc *fh = new (ptr) fhandler_proc (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_procsys: public fhandler_virtual
-{
- public:
-  fhandler_procsys ();
-  virtual_ftype_t __reg2 exists(struct __stat64 *buf);
-  virtual_ftype_t exists();
-  DIR __reg2 *opendir (int fd);
-  int __reg3 readdir (DIR *, dirent *);
-  long telldir (DIR *);
-  void seekdir (DIR *, long);
-  int closedir (DIR *);
-  int open (int flags, mode_t mode = 0);
-  int close ();
-  void __reg3 read (void *ptr, size_t& len);
-  ssize_t __stdcall write (const void *ptr, size_t len);
-  int __reg2 fstat (struct __stat64 *buf);
-  bool fill_filebuf ();
-
-  fhandler_procsys (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_procsys *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_procsys *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_procsys));
-    fhandler_procsys *fh = new (ptr) fhandler_procsys (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_procsysvipc: public fhandler_proc
-{
-  pid_t pid;
- public:
-  fhandler_procsysvipc ();
-  virtual_ftype_t exists();
-  int __reg3 readdir (DIR *, dirent *);
-  int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
-  bool fill_filebuf ();
-
-  fhandler_procsysvipc (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_procsysvipc *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_procsysvipc *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_procsysvipc));
-    fhandler_procsysvipc *fh = new (ptr) fhandler_procsysvipc (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_netdrive: public fhandler_virtual
-{
- public:
-  fhandler_netdrive ();
-  virtual_ftype_t exists();
-  int __reg3 readdir (DIR *, dirent *);
-  void seekdir (DIR *, long);
-  void rewinddir (DIR *);
-  int closedir (DIR *);
-  int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
-
-  fhandler_netdrive (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_netdrive *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_netdrive *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_netdrive));
-    fhandler_netdrive *fh = new (ptr) fhandler_netdrive (ptr);
-    copyto (fh);
-    return fh;
-  }
 };
 
 class fhandler_registry: public fhandler_proc
 {
  private:
-  wchar_t *value_name;
-  DWORD wow64;
-  int prefix_len;
+  char *value_name;
  public:
   fhandler_registry ();
-  void set_name (path_conv &pc);
-  virtual_ftype_t exists();
-  DIR __reg2 *opendir (int fd);
-  int __reg3 readdir (DIR *, dirent *);
-  long telldir (DIR *);
-  void seekdir (DIR *, long);
+  int exists();
+  struct dirent *readdir (DIR *);
+  _off64_t telldir (DIR *);
+  void seekdir (DIR *, _off64_t);
   void rewinddir (DIR *);
   int closedir (DIR *);
 
   int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
   bool fill_filebuf ();
-  int close ();
-  int dup (fhandler_base *child, int);
-
-  fhandler_registry (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_registry *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_registry *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_registry));
-    fhandler_registry *fh = new (ptr) fhandler_registry (ptr);
-    copyto (fh);
-    return fh;
-  }
+  int close (void);
 };
 
 class pinfo;
@@ -2064,77 +1177,30 @@ class fhandler_process: public fhandler_proc
   pid_t pid;
  public:
   fhandler_process ();
-  virtual_ftype_t exists();
-  DIR __reg2 *opendir (int fd);
-  int closedir (DIR *);
-  int __reg3 readdir (DIR *, dirent *);
+  int exists();
+  struct dirent *readdir (DIR *);
   int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
+  int __stdcall fstat (struct __stat64 *buf) __attribute__ ((regparm (2)));
   bool fill_filebuf ();
-
-  fhandler_process (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_process *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_process *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_process));
-    fhandler_process *fh = new (ptr) fhandler_process (ptr);
-    copyto (fh);
-    return fh;
-  }
-};
-
-class fhandler_procnet: public fhandler_proc
-{
-  pid_t pid;
- public:
-  fhandler_procnet ();
-  virtual_ftype_t exists();
-  int __reg3 readdir (DIR *, dirent *);
-  int open (int flags, mode_t mode = 0);
-  int __reg2 fstat (struct __stat64 *buf);
-  bool fill_filebuf ();
-
-  fhandler_procnet (void *) {}
-
-  void copyto (fhandler_base *x)
-  {
-    x->pc.free_strings ();
-    *reinterpret_cast<fhandler_procnet *> (x) = *this;
-    x->reset (this);
-  }
-
-  fhandler_procnet *clone (cygheap_types malloc_type = HEAP_FHANDLER)
-  {
-    void *ptr = (void *) ccalloc (malloc_type, 1, sizeof (fhandler_procnet));
-    fhandler_procnet *fh = new (ptr) fhandler_procnet (ptr);
-    copyto (fh);
-    return fh;
-  }
 };
 
 struct fhandler_nodevice: public fhandler_base
 {
   fhandler_nodevice ();
   int open (int flags, mode_t mode = 0);
+  // int __stdcall fstat (struct __stat64 *buf, path_conv *);
 };
 
-#define report_tty_counts(fh, call, use_op) \
-  termios_printf ("%s %s, %susecount %d",\
+#define report_tty_counts(fh, call, fhs_op, use_op) \
+  termios_printf ("%s %s, %sopen_fhs %d, %susecount %d",\
 		  fh->ttyname (), call,\
-		  use_op, ((fhandler_pty_slave *) (fh->archetype ?: fh))->usecount);
+		  fhs_op, cygheap->open_fhs,\
+		  use_op, ((fhandler_tty_slave *) fh)->archetype->usecount);
 
 typedef union
 {
   char __base[sizeof (fhandler_base)];
   char __console[sizeof (fhandler_console)];
-  char __dev[sizeof (fhandler_dev)];
   char __cygdrive[sizeof (fhandler_cygdrive)];
   char __dev_clipboard[sizeof (fhandler_dev_clipboard)];
   char __dev_dsp[sizeof (fhandler_dev_dsp)];
@@ -2146,23 +1212,69 @@ typedef union
   char __dev_tape[sizeof (fhandler_dev_tape)];
   char __dev_zero[sizeof (fhandler_dev_zero)];
   char __disk_file[sizeof (fhandler_disk_file)];
-  char __fifo[sizeof (fhandler_fifo)];
-  char __mailslot[sizeof (fhandler_mailslot)];
-  char __netdrive[sizeof (fhandler_netdrive)];
-  char __nodevice[sizeof (fhandler_nodevice)];
   char __pipe[sizeof (fhandler_pipe)];
   char __proc[sizeof (fhandler_proc)];
   char __process[sizeof (fhandler_process)];
-  char __procnet[sizeof (fhandler_procnet)];
-  char __procsys[sizeof (fhandler_procsys)];
-  char __procsysvipc[sizeof (fhandler_procsysvipc)];
   char __pty_master[sizeof (fhandler_pty_master)];
   char __registry[sizeof (fhandler_registry)];
   char __serial[sizeof (fhandler_serial)];
   char __socket[sizeof (fhandler_socket)];
   char __termios[sizeof (fhandler_termios)];
-  char __pty_common[sizeof (fhandler_pty_common)];
-  char __pty_slave[sizeof (fhandler_pty_slave)];
+  char __tty_common[sizeof (fhandler_tty_common)];
+  char __tty_master[sizeof (fhandler_tty_master)];
+  char __tty_slave[sizeof (fhandler_tty_slave)];
   char __virtual[sizeof (fhandler_virtual)];
   char __windows[sizeof (fhandler_windows)];
+  char __nodevice[sizeof (fhandler_nodevice)];
 } fhandler_union;
+
+struct select_record
+{
+  int fd;
+  HANDLE h;
+  fhandler_base *fh;
+  bool saw_error;
+  bool windows_handle;
+  bool read_ready, write_ready, except_ready;
+  bool read_selected, write_selected, except_selected;
+  bool except_on_write;
+  int (*startup) (select_record *me, class select_stuff *stuff);
+  int (*peek) (select_record *, bool);
+  int (*verify) (select_record *me, fd_set *readfds, fd_set *writefds,
+		 fd_set *exceptfds);
+  void (*cleanup) (select_record *me, class select_stuff *stuff);
+  struct select_record *next;
+
+  select_record (fhandler_base *in_fh = NULL) : fd (0), h (NULL),
+		 fh (in_fh), saw_error (false), windows_handle (false),
+		 read_ready (false), write_ready (false), except_ready (false),
+		 read_selected (false), write_selected (false),
+		 except_selected (false), except_on_write (false),
+		 startup (NULL), peek (NULL), verify (NULL), cleanup (NULL),
+		 next (NULL) {}
+};
+
+class select_stuff
+{
+ public:
+  ~select_stuff ();
+  bool always_ready, windows_used;
+  select_record start;
+  void *device_specific_pipe;
+  void *device_specific_socket;
+  void *device_specific_serial;
+
+  int test_and_set (int i, fd_set *readfds, fd_set *writefds,
+		     fd_set *exceptfds);
+  int poll (fd_set *readfds, fd_set *writefds, fd_set *exceptfds);
+  int wait (fd_set *readfds, fd_set *writefds, fd_set *exceptfds, DWORD ms);
+  void cleanup ();
+  select_stuff (): always_ready (0), windows_used (0), start (0),
+		   device_specific_pipe (0),
+		   device_specific_socket (0),
+		   device_specific_serial (0) {}
+};
+
+int __stdcall set_console_state_for_spawn ();
+
+#endif /* _FHANDLER_H_ */
