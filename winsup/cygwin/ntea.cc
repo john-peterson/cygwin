@@ -1,7 +1,8 @@
-/* ntea.cc: code for manipulating Extended Attributes
+/* ntea.cc: code for manipulating NTEA information
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011 Red Hat, Inc.
+   Copyright 1997, 1998, 2000, 2001 Red Hat, Inc.
+
+   Written by Sergey S. Okhapkin (sos@prospect.com.ru)
 
 This file is part of Cygwin.
 
@@ -10,533 +11,316 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "cygtls.h"
-#include "security.h"
-#include "path.h"
-#include "fhandler.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "ntdll.h"
+#include <stdio.h>
 #include <stdlib.h>
-#include <attr/xattr.h>
+#include "security.h"
 
-#define MAX_EA_NAME_LEN    256
-#define MAX_EA_VALUE_LEN 65536
+/* Default to not using NTEA information */
+BOOL allow_ntea;
 
-/* At least one maximum sized entry fits. */
-#define EA_BUFSIZ (sizeof (FILE_FULL_EA_INFORMATION) + MAX_EA_NAME_LEN \
-		   + MAX_EA_VALUE_LEN)
+/*
+From Windows NT DDK:
 
-#define NEXT_FEA(p) ((PFILE_FULL_EA_INFORMATION) (p->NextEntryOffset \
-		     ? (char *) p + p->NextEntryOffset : NULL))
+FILE_FULL_EA_INFORMATION provides extended attribute information.
+This structure is used primarily by network drivers.
 
-ssize_t __stdcall
-read_ea (HANDLE hdl, path_conv &pc, const char *name, char *value, size_t size)
-{
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  ssize_t ret = -1;
-  HANDLE h = hdl;
-  ULONG glen = 0;
-  PFILE_GET_EA_INFORMATION gea = NULL;
-  PFILE_FULL_EA_INFORMATION fea;
-  /* We have to store the latest EaName to compare with the next one, since
-     ZwQueryEaFile has a bug when accessing files on a remote share.  It
-     returns the last EA entry of the file infinitely.  Even utilizing the
-     optional EaIndex only helps marginally.  If you use that, the last
-     EA in the file is returned twice. */
-  char lastname[MAX_EA_NAME_LEN];
+Members
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    goto out;
+NextEntryOffset
+The offset of the next FILE_FULL_EA_INFORMATION-type entry. This member is
+zero if no other entries follow this one.
 
-  pc.get_object_attr (attr, sec_none_nih);
+Flags
+Can be zero or can be set with FILE_NEED_EA, indicating that the file to which
+the EA belongs cannot be interpreted without understanding the associated
+extended attributes.
 
-  debug_printf ("read_ea (%S, %s, %p, %lu)",
-		attr.ObjectName, name, value, size);
+EaNameLength
+The length in bytes of the EaName array. This value does not include a
+zero-terminator to EaName.
 
-  /* Early open if handle is NULL.  This allows to return error codes like
-     ENOENT before we actually check for the correctness of the EA name and
-     stuff like that. */
-  if (!hdl)
-    {
-      status = NtOpenFile (&h, READ_CONTROL | FILE_READ_EA, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
-      if (!NT_SUCCESS (status))
-	{
-	  __seterrno_from_nt_status (status);
-	  goto out;
-	}
-      hdl = NULL;
-    }
+EaValueLength
+The length in bytes of each EA value in the array.
 
-  fea = (PFILE_FULL_EA_INFORMATION) alloca (EA_BUFSIZ);
+EaName
+An array of characters naming the EA for this entry.
 
-  if (name)
-    {
-      size_t nlen;
+Comments
+This structure is longword-aligned. If a set of FILE_FULL_EA_INFORMATION
+entries is buffered, NextEntryOffset value in each entry, except the last,
+falls on a longword boundary.
+The value(s) associated with each entry follows the EaName array. That is, an
+EA's values are located at EaName + (EaNameLength + 1).
+*/
 
-      /* For compatibility with Linux, we only allow user xattrs and
-	 return ENOTSUP otherwise. */
-      if (ascii_strncasematch (name, "user.", 5))
-	name += 5;
-      else
-	{
-	  set_errno (ENOTSUP);
-	  goto out;
-	}
+typedef struct _FILE_FULL_EA_INFORMATION {
+    ULONG NextEntryOffset;
+    UCHAR Flags;
+    UCHAR EaNameLength;
+    USHORT EaValueLength;
+    CHAR EaName[1];
+} FILE_FULL_EA_INFORMATION, *PFILE_FULL_EA_INFORMATION;
 
-      if ((nlen = strlen (name)) >= MAX_EA_NAME_LEN)
-	{
-	  set_errno (EINVAL);
-	  return -1;
-	}
-      glen = sizeof (FILE_GET_EA_INFORMATION) + nlen;
-      gea = (PFILE_GET_EA_INFORMATION) alloca (glen);
+/* Functions prototypes */
 
-      gea->NextEntryOffset = 0;
-      gea->EaNameLength = nlen;
-      strcpy (gea->EaName, name);
-    }
+int NTReadEA (const char *file, const char *attrname, char *buf, int len);
+static PFILE_FULL_EA_INFORMATION NTReadEARaw (HANDLE file, int *len);
+BOOL NTWriteEA(const char *file, const char *attrname, char *buf, int len);
 
-  while (true)
-    {
-      if (h)
-	{
-	  status = NtQueryEaFile (h, &io, fea, EA_BUFSIZ, TRUE, gea, glen,
-				  NULL, TRUE);
-	  if (status != STATUS_ACCESS_DENIED || !hdl)
-	    break;
-	}
-      status = NtOpenFile (&h, READ_CONTROL | FILE_READ_EA, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
-      if (!NT_SUCCESS (status))
-	break;
-      hdl = NULL;
-    }
-  if (!NT_SUCCESS (status))
-    {
-      switch (status)
-	{
-	case STATUS_NO_EAS_ON_FILE:
-	  ret = 0;
-	  break;
-	case STATUS_INVALID_DEVICE_REQUEST:
-	  set_errno (ENOTSUP);
-	  break;
-	case STATUS_NOT_FOUND:
-	  /* STATUS_NOT_FOUND is returned when calling NtQueryEaFile on NFS.
-	     In theory this should mean that the file just has no EAs, but in
-	     fact NFS doesn't support EAs, other than the EAs which are used
-	     for NFS requests.  We're playing safe and convert STATUS_NOT_FOUND
-	     to ENOATTR, unless we're on NFS, where we convert it to ENOTSUP. */
-	  set_errno (pc.fs_is_nfs () ? ENOTSUP : ENOATTR);
-	  break;
-	case STATUS_NONEXISTENT_EA_ENTRY:
-	  /* Actually STATUS_NONEXISTENT_EA_ENTRY is either never generated, or
-	     it was only generated in some old and long forgotton NT version.
-	     See below.  For safty reasons, we handle it here, nevertheless. */
-	  set_errno (ENOATTR);
-	  break;
-	default:
-	  __seterrno_from_nt_status (status);
-	  break;
-	}
-      goto out;
-    }
-  if (name)
-    {
-      /* Another weird behaviour of ZwQueryEaFile.  If you ask for a
-	 specific EA which is not present in the file's EA list, you don't
-	 get a useful error code like STATUS_NONEXISTENT_EA_ENTRY.  Rather
-	 ZwQueryEaFile returns success with the entry's EaValueLength
-	 set to 0. */
-      if (!fea->EaValueLength)
-	{
-	  set_errno (ENOATTR);
-	  goto out;
-	}
-      if (size > 0)
-	{
-	  if (size < fea->EaValueLength)
-	    {
-	      set_errno (ERANGE);
-	      goto out;
-	    }
-	  memcpy (value, fea->EaName + fea->EaNameLength + 1,
-		  fea->EaValueLength);
-	}
-      ret = fea->EaValueLength;
-    }
-  else
-    {
-      ret = 0;
-      do
-	{
-	  fea->EaNameLength += 5;	/* "user." */
-	  if (size > 0)
-	    {
-	      if ((size_t) ret + fea->EaNameLength + 1 > size)
-		{
-		  set_errno (ERANGE);
-		  goto out;
-		}
-	      /* For compatibility with Linux, we always prepend "user." to
-		 the attribute name, so effectively we only support user
-		 attributes from a application point of view. */
-	      char tmpbuf[MAX_EA_NAME_LEN * 2];
-	      char *tp = stpcpy (tmpbuf, "user.");
-	      stpcpy (tp, fea->EaName);
-	      /* NTFS stores all EA names in uppercase unfortunately.  To keep
-		 compatibility with ext/xfs EA namespaces and accompanying
-		 tools, which expect the namespaces to be lower case, we return
-		 EA names in lowercase if the file is on a native NTFS. */
-	      if (pc.fs_is_ntfs ())
-		strlwr (tp);
-	      tp = stpcpy (value, tmpbuf) + 1;
-	      ret += tp - value;
-	      value = tp;
-	    }
-	  else
-	    ret += fea->EaNameLength + 1;
-	  strcpy (lastname, fea->EaName);
-	  status = NtQueryEaFile (h, &io, fea, EA_BUFSIZ, TRUE, NULL, 0,
-				  NULL, FALSE);
-	}
-      while (NT_SUCCESS (status) && strcmp (lastname, fea->EaName) != 0);
-    }
-
-out:
-  if (!hdl)
-    CloseHandle (h);
-  debug_printf ("%d = read_ea(%S, %s, %p, %lu)",
-		ret, attr.ObjectName, name, value, size);
-  return ret;
-}
+/*
+ * NTReadEA - read file's Extended Attribute.
+ *
+ * Parameters:
+ *	file	- pointer to filename
+ *	attrname- pointer to EA name (case insensitivy. EAs are sored in upper
+ *		  case).
+ *	attrbuf - pointer to buffer to store EA's value.
+ *	len	- length of attrbuf.
+ * Return value:
+ *	0	- if file or attribute "attrname" not found.
+ *	N	- number of bytes stored in attrbuf if succes.
+ *	-1	- attrbuf too small for EA value.
+ */
 
 int __stdcall
-write_ea (HANDLE hdl, path_conv &pc, const char *name, const char *value,
-	  size_t size, int flags)
+NTReadEA (const char *file, const char *attrname, char *attrbuf, int len)
 {
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  int ret = -1;
-  HANDLE h = hdl;
-  PFILE_FULL_EA_INFORMATION fea;
-  ULONG flen;
-  size_t nlen;
+    HANDLE hFileSource;
+    int eafound = 0;
+    PFILE_FULL_EA_INFORMATION ea, sea;
+    int easize;
 
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    goto out;
+    hFileSource = CreateFile (file, FILE_READ_EA,
+			      FILE_SHARE_READ | FILE_SHARE_WRITE,
+			      &sec_none_nih, // sa
+			      OPEN_EXISTING,
+			      FILE_FLAG_BACKUP_SEMANTICS,
+			      NULL);
 
-  pc.get_object_attr (attr, sec_none_nih);
+    if (hFileSource == INVALID_HANDLE_VALUE)
+	return 0;
 
-  debug_printf ("write_ea (%S, %s, %p, %lu, %d)",
-		attr.ObjectName, name, value, size, flags);
+    /* Read in raw array of EAs */
+    ea = sea = NTReadEARaw (hFileSource, &easize);
 
-  /* Early open if handle is NULL.  This allows to return error codes like
-     ENOENT before we actually check for the correctness of the EA name and
-     stuff like that. */
-  if (!hdl)
+    /* Search for requested attribute */
+    while (sea)
+      {
+	if (strcasematch (ea->EaName, attrname)) /* EA found */
+	  {
+	    if (ea->EaValueLength > len)
+	      {
+		eafound = -1;		/* buffer too small */
+		break;
+	      }
+	    memcpy (attrbuf, ea->EaName + (ea->EaNameLength + 1),
+		    ea->EaValueLength);
+	    eafound = ea->EaValueLength;
+	    break;
+	  }
+	if ((ea->NextEntryOffset == 0) || ((int) ea->NextEntryOffset > easize))
+	  break;
+	ea = (PFILE_FULL_EA_INFORMATION) ((char *) ea + ea->NextEntryOffset);
+      }
+
+    if (sea)
+      free (sea);
+    CloseHandle (hFileSource);
+
+    return eafound;
+}
+
+/*
+ * NTReadEARaw - internal routine to read EAs array to malloced buffer. The
+ *		 caller should free this buffer after usage.
+ * Parameters:
+ *	hFileSource - handle to file. This handle should have FILE_READ_EA
+ *		      rights.
+ *	len	    - pointer to int variable where length of buffer will
+ *		      be stored.
+ * Return value:
+ *	pointer to buffer with file's EAs, or NULL if any error occured.
+ */
+
+static
+PFILE_FULL_EA_INFORMATION
+NTReadEARaw (HANDLE hFileSource, int *len)
+{
+  WIN32_STREAM_ID StreamId;
+  DWORD dwBytesWritten;
+  LPVOID lpContext;
+  DWORD StreamSize;
+  PFILE_FULL_EA_INFORMATION eafound = NULL;
+
+  lpContext = NULL;
+  StreamSize = sizeof (WIN32_STREAM_ID) - sizeof (WCHAR**);
+
+  /* Read the WIN32_STREAM_ID in */
+
+  while (BackupRead (hFileSource, (LPBYTE) &StreamId, StreamSize,
+		     &dwBytesWritten,
+		     FALSE,		// don't abort yet
+		     FALSE,		// don't process security
+		     &lpContext))
     {
-      status = NtOpenFile (&h, READ_CONTROL | FILE_WRITE_EA, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
-      if (!NT_SUCCESS (status))
+      DWORD sl,sh;
+
+      if (dwBytesWritten == 0) /* No more Stream IDs */
+	break;
+      /* skip StreamName */
+      if (StreamId.dwStreamNameSize)
 	{
-	  __seterrno_from_nt_status (status);
-	  goto out;
+	  unsigned char *buf;
+	  buf = (unsigned char *) malloc (StreamId.dwStreamNameSize);
+
+	  if (buf == NULL)
+	    break;
+
+	  if (!BackupRead (hFileSource, buf,  // buffer to read
+			   StreamId.dwStreamNameSize,   // num bytes to read
+			   &dwBytesWritten,
+			   FALSE,		// don't abort yet
+			   FALSE,		// don't process security
+			   &lpContext))		// Stream name read error
+	    {
+	      free (buf);
+	      break;
+	    }
+	  free (buf);
 	}
-      hdl = NULL;
-    }
 
-  /* For compatibility with Linux, we only allow user xattrs and
-     return ENOTSUP otherwise. */
-  if (!ascii_strncasematch (name, "user.", 5))
-    {
-      set_errno (ENOTSUP);
-      goto out;
-    }
+	/* Is it EA stream? */
+	if (StreamId.dwStreamId == BACKUP_EA_DATA)
+	  {
+	    unsigned char *buf;
+	    buf = (unsigned char *) malloc (StreamId.Size.LowPart);
 
-  /* removexattr is supposed to fail with ENOATTR if the requested EA is not
-     available.  This is equivalent to the XATTR_REPLACE flag for setxattr. */
-  if (!value)
-    flags = XATTR_REPLACE;
-
-  if (flags)
-    {
-      if (flags != XATTR_CREATE && flags != XATTR_REPLACE)
-	{
-	  set_errno (EINVAL);
-	  goto out;
-	}
-      ssize_t rret = read_ea (hdl, pc, name, NULL, 0);
-      if (flags == XATTR_CREATE && rret > 0)
-	{
-	  set_errno (EEXIST);
-	  goto out;
-	}
-      if (flags == XATTR_REPLACE && rret < 0)
-	goto out;
-    }
-
-  /* Skip "user." prefix. */
-  name += 5;
-
-  if ((nlen = strlen (name)) >= MAX_EA_NAME_LEN)
-    {
-      set_errno (EINVAL);
-      goto out;
-    }
-  flen = sizeof (FILE_FULL_EA_INFORMATION) + nlen + 1 + size;
-  fea = (PFILE_FULL_EA_INFORMATION) alloca (flen);
-  fea->NextEntryOffset = 0;
-  fea->Flags = 0;
-  fea->EaNameLength = nlen;
-  fea->EaValueLength = size;
-  strcpy (fea->EaName, name);
-  if (value)
-    memcpy (fea->EaName + fea->EaNameLength + 1, value, size);
-
-  while (true)
-    {
-      if (h)
-	{
-	  status = NtSetEaFile (h, &io, fea, flen);
-	  if (status != STATUS_ACCESS_DENIED || !hdl)
+	    if (buf == NULL)
+	      break;
+	    if (!BackupRead (hFileSource, buf,	// buffer to read
+			     StreamId.Size.LowPart, // num bytes to write
+			     &dwBytesWritten,
+			     FALSE,		// don't abort yet
+			     FALSE,		// don't process security
+			     &lpContext))
+	      {
+		free (buf);	/* EA read error */
+		break;
+	      }
+	    eafound = (PFILE_FULL_EA_INFORMATION) buf;
+	    *len = StreamId.Size.LowPart;
 	    break;
 	}
-      status = NtOpenFile (&h, READ_CONTROL | FILE_WRITE_EA, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
-      if (!NT_SUCCESS (status))
-	break;
-      hdl = NULL;
-    }
-  if (!NT_SUCCESS (status))
-    {
-      switch (status)
-	{
-	case STATUS_EA_TOO_LARGE:
-	  /* STATUS_EA_TOO_LARGE has a matching Win32 error ERROR_EA_TABLE_FULL.
-	     For some unknown reason RtlNtStatusToDosError does not translate
-	     STATUS_EA_TOO_LARGE to ERROR_EA_TABLE_FULL, but instead to
-	     ERROR_EA_LIST_INCONSISTENT.  This error code is also returned for
-	     STATUS_EA_LIST_INCONSISTENT, which means the incoming EA list is...
-	     inconsistent.  For obvious reasons we translate
-	     ERROR_EA_LIST_INCONSISTENT to EINVAL, so we have to handle
-	     STATUS_EA_TOO_LARGE explicitely here, to get the correct mapping
-	     to ENOSPC. */
-	  set_errno (ENOSPC);
+	/* Skip current stream */
+	if (!BackupSeek (hFileSource,
+			 StreamId.Size.LowPart,
+			 StreamId.Size.HighPart,
+			 &sl,
+			 &sh,
+			 &lpContext))
 	  break;
-	case STATUS_INVALID_DEVICE_REQUEST:
-	  set_errno (ENOTSUP);
-	  break;
-	default:
-	  __seterrno_from_nt_status (status);
-	  break;
-	}
     }
-  else
-    ret = 0;
 
-out:
-  if (!hdl)
-    CloseHandle (h);
-  debug_printf ("%d = write_ea(%S, %s, %p, %lu, %d)",
-		ret, attr.ObjectName, name, value, size, flags);
-  return ret;
+  /* free context */
+  BackupRead (
+      hFileSource,
+      NULL,		// buffer to write
+      0,		// number of bytes to write
+      &dwBytesWritten,
+      TRUE,		// abort
+      FALSE,		// don't process security
+      &lpContext);
+
+  return eafound;
 }
 
-static ssize_t __stdcall
-getxattr_worker (path_conv &pc, const char *name, void *value, size_t size)
+/*
+ * NTWriteEA - write file's Extended Attribute.
+ *
+ * Parameters:
+ *	file	- pointer to filename
+ *	attrname- pointer to EA name (case insensitivy. EAs are sored in upper
+ *		  case).
+ *	buf	- pointer to buffer with EA value.
+ *	len	- length of buf.
+ * Return value:
+ *	TRUE if success, FALSE otherwice.
+ * Note: if len=0 given EA will be deleted.
+ */
+
+BOOL __stdcall
+NTWriteEA (const char *file, const char *attrname, const char *buf, int len)
 {
-  int res = -1;
+  HANDLE hFileSource;
+  WIN32_STREAM_ID StreamId;
+  DWORD dwBytesWritten;
+  LPVOID lpContext;
+  DWORD StreamSize, easize;
+  BOOL bSuccess=FALSE;
+  PFILE_FULL_EA_INFORMATION ea;
 
-  if (pc.error)
-    {
-      debug_printf ("got %d error from path_conv", pc.error);
-      set_errno (pc.error);
-    }
-  else if (pc.exists ())
-    {
-      fhandler_base *fh;
+  hFileSource = CreateFile (file, FILE_WRITE_EA,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE,
+			    &sec_none_nih, // sa
+			    OPEN_EXISTING,
+			    FILE_FLAG_BACKUP_SEMANTICS,
+			    NULL);
 
-      if (!(fh = build_fh_pc (pc)))
-	return -1;
+  if (hFileSource == INVALID_HANDLE_VALUE)
+    return FALSE;
 
-      res = fh->fgetxattr (name, value, size);
-      delete fh;
-    }
-  else
-    set_errno (ENOENT);
-  return res;
-}
+  lpContext = NULL;
+  StreamSize = sizeof (WIN32_STREAM_ID) - sizeof (WCHAR**);
 
-extern "C" ssize_t
-getxattr (const char *path, const char *name, void *value, size_t size)
-{
-  if (!name)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  path_conv pc (path, PC_SYM_FOLLOW | PC_POSIX, stat_suffixes);
-  return getxattr_worker (pc, name, value, size);
-}
+  /* FILE_FULL_EA_INFORMATION structure is longword-aligned */
+  easize = sizeof (*ea) - sizeof (WCHAR**) + strlen (attrname) + 1 + len
+      + (sizeof (DWORD) - 1);
+  easize &= ~(sizeof (DWORD) - 1);
 
-extern "C" ssize_t
-lgetxattr (const char *path, const char *name, void *value, size_t size)
-{
-  if (!name)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  path_conv pc (path, PC_SYM_NOFOLLOW | PC_POSIX, stat_suffixes);
-  return getxattr_worker (pc, name, value, size);
-}
+  if ((ea = (PFILE_FULL_EA_INFORMATION) malloc (easize)) == NULL)
+    goto cleanup;
 
-extern "C" ssize_t
-fgetxattr (int fd, const char *name, void *value, size_t size)
-{
-  int res;
+  memset (ea, 0, easize);
+  ea->EaNameLength = strlen (attrname);
+  ea->EaValueLength = len;
+  strcpy (ea->EaName, attrname);
+  memcpy (ea->EaName + (ea->EaNameLength + 1), buf, len);
 
-  if (!name)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->fgetxattr (name, value, size);
-  return res;
-}
+  StreamId.dwStreamId = BACKUP_EA_DATA;
+  StreamId.dwStreamAttributes = 0;
+  StreamId.Size.HighPart = 0;
+  StreamId.Size.LowPart = easize;
+  StreamId.dwStreamNameSize = 0;
 
-extern "C" ssize_t
-listxattr (const char *path, char *list, size_t size)
-{
-  path_conv pc (path, PC_SYM_FOLLOW | PC_POSIX, stat_suffixes);
-  return getxattr_worker (pc, NULL, list, size);
-}
+  if (!BackupWrite (hFileSource, (LPBYTE) &StreamId, StreamSize,
+		    &dwBytesWritten,
+		    FALSE,		// don't abort yet
+		    FALSE,		// don't process security
+		    &lpContext))
+    goto cleanup;
 
-extern "C" ssize_t
-llistxattr (const char *path, char *list, size_t size)
-{
-  path_conv pc (path, PC_SYM_NOFOLLOW | PC_POSIX, stat_suffixes);
-  return getxattr_worker (pc, NULL, list, size);
-}
+  if (!BackupWrite (hFileSource, (LPBYTE) ea, easize,
+		    &dwBytesWritten,
+		    FALSE,		// don't abort yet
+		    FALSE,		// don't process security
+		    &lpContext))
+    goto cleanup;
 
-extern "C" ssize_t
-flistxattr (int fd, char *list, size_t size)
-{
-  int res;
+  bSuccess = TRUE;
+  /* free context */
 
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->fgetxattr (NULL, list, size);
-  return res;
-}
+cleanup:
+  BackupRead (hFileSource,
+	      NULL,			// buffer to write
+	      0,			// number of bytes to write
+	      &dwBytesWritten,
+	      TRUE,			// abort
+	      FALSE,			// don't process security
+	      &lpContext);
 
-static int __stdcall
-setxattr_worker (path_conv &pc, const char *name, const void *value,
-		 size_t size, int flags)
-{
-  int res = -1;
+  CloseHandle (hFileSource);
+  if (ea)
+    free (ea);
 
-  if (pc.error)
-    {
-      debug_printf ("got %d error from path_conv", pc.error);
-      set_errno (pc.error);
-    }
-  else if (pc.exists ())
-    {
-      fhandler_base *fh;
-
-      if (!(fh = build_fh_pc (pc)))
-	return -1;
-
-      res = fh->fsetxattr (name, value, size, flags);
-      delete fh;
-    }
-  else
-    set_errno (ENOENT);
-  return res;
-}
-
-extern "C" int
-setxattr (const char *path, const char *name, const void *value, size_t size,
-	  int flags)
-{
-  if (!size)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  path_conv pc (path, PC_SYM_NOFOLLOW | PC_POSIX, stat_suffixes);
-  return setxattr_worker (pc, name, value, size, flags);
-}
-
-extern "C" int
-lsetxattr (const char *path, const char *name, const void *value, size_t size,
-	   int flags)
-{
-  if (!size)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  path_conv pc (path, PC_SYM_NOFOLLOW | PC_POSIX, stat_suffixes);
-  return setxattr_worker (pc, name, value, size, flags);
-}
-
-extern "C" int
-fsetxattr (int fd, const char *name, const void *value, size_t size, int flags)
-{
-  int res;
-
-  if (!size)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->fsetxattr (name, value, size, flags);
-  return res;
-}
-
-extern "C" int
-removexattr (const char *path, const char *name)
-{
-  path_conv pc (path, PC_SYM_FOLLOW | PC_POSIX, stat_suffixes);
-  return setxattr_worker (pc, name, NULL, 0, 0);
-}
-
-extern "C" int
-lremovexattr (const char *path, const char *name)
-{
-  path_conv pc (path, PC_SYM_NOFOLLOW | PC_POSIX, stat_suffixes);
-  return setxattr_worker (pc, name, NULL, 0, 0);
-}
-
-extern "C" int
-fremovexattr (int fd, const char *name)
-{
-  int res;
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->fsetxattr (name, NULL, 0, 0);
-  return res;
+  return bSuccess;
 }
