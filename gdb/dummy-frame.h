@@ -1,12 +1,12 @@
 /* Code dealing with dummy stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright 2002 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,48 +15,91 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (DUMMY_FRAME_H)
 #define DUMMY_FRAME_H 1
 
-#include "frame.h"
+struct frame_info;
+struct regcache;
+struct frame_id;
+struct frame_unwind_cache;
 
-struct infcall_suspend_state;
-struct frame_unwind;
+/* GENERIC DUMMY FRAMES
+  
+   The following code serves to maintain the dummy stack frames for
+   inferior function calls (ie. when gdb calls into the inferior via
+   call_function_by_hand).  This code saves the machine state before
+   the call in host memory, so we must maintain an independent stack
+   and keep it consistant etc.  I am attempting to make this code
+   generic enough to be used by many targets.
+ 
+   The cheapest and most generic way to do CALL_DUMMY on a new target
+   is probably to define CALL_DUMMY to be empty, CALL_DUMMY_LENGTH to
+   zero, and CALL_DUMMY_LOCATION to AT_ENTRY.  Then you must remember
+   to define PUSH_RETURN_ADDRESS, because no call instruction will be
+   being executed by the target.  Also FRAME_CHAIN_VALID as
+   generic_{file,func}_frame_chain_valid and FIX_CALL_DUMMY as
+   generic_fix_call_dummy.  */
 
-/* Push the information needed to identify, and unwind from, a dummy
-   frame onto the dummy frame stack.  */
+/* Assuming that FRAME is a dummy, return a register value for the
+   previous frame.  */
 
-/* NOTE: cagney/2004-08-02: This interface will eventually need to be
-   parameterized with the caller's thread - that will allow per-thread
-   dummy-frame stacks and, hence, per-thread inferior function
-   calls.  */
+extern void dummy_frame_register_unwind (struct frame_info *frame,
+					 struct frame_unwind_cache **unwind_cache,
+					 int regnum,
+					 int *optimized,
+					 enum lval_type *lvalp,
+					 CORE_ADDR *addrp,
+					 int *realnump,
+					 void *valuep);
 
-/* NOTE: cagney/2004-08-02: In the case of ABIs using push_dummy_code
-   containing more than one instruction, this interface many need to
-   be expanded so that it knowns the lower/upper extent of the dummy
-   frame's code.  */
+/* Assuming that FRAME is a dummy, return the resume address for the
+   previous frame.  */
 
-extern void dummy_frame_push (struct infcall_suspend_state *caller_state,
-                              const struct frame_id *dummy_id);
+extern CORE_ADDR dummy_frame_pc_unwind (struct frame_info *frame,
+					struct frame_unwind_cache **unwind_cache);
 
-/* Pop the dummy frame DUMMY_ID, restoring program state to that before the
-   frame was created.
-   On return reinit_frame_cache has been called.
-   If the frame isn't found, flag an internal error.
+/* Assuming that FRAME is a dummy, return the ID of the calling frame
+   (the frame that the dummy has the saved state of).  */
 
-   NOTE: This can only pop the one frame, even if it is in the middle of the
-   stack, because the other frames may be for different threads, and there's
-   currently no way to tell which stack frame is for which thread.  */
+extern void dummy_frame_id_unwind (struct frame_info *frame,
+				   struct frame_unwind_cache **unwind_cache,
+				   struct frame_id *id);
 
-extern void dummy_frame_pop (struct frame_id dummy_id);
+/* Does the PC fall in a dummy frame?
 
-extern void dummy_frame_discard (struct frame_id dummy_id);
+   This function is used by "frame.c" when creating a new `struct
+   frame_info'.
 
-/* If the PC falls in a dummy frame, return a dummy frame
-   unwinder.  */
+   Note that there is also very similar code in breakpoint.c (where
+   the bpstat stop reason is computed).  It is looking for a PC
+   falling on a dummy_frame breakpoint.  Perhaphs this, and that code
+   should be combined?
 
-extern const struct frame_unwind dummy_frame_unwind;
+   Architecture dependant code, that has access to a frame, should not
+   use this function.  Instead (get_frame_type() == DUMMY_FRAME)
+   should be used.
 
+   Hmm, but what about threads?  When the dummy-frame code tries to
+   relocate a dummy frame's saved registers it definitly needs to
+   differentiate between threads (otherwize it will do things like
+   clean-up the wrong threads frames).  However, when just trying to
+   identify a dummy-frame that shouldn't matter.  The wost that can
+   happen is that a thread is marked as sitting in a dummy frame when,
+   in reality, its corrupted its stack, to the point that a PC is
+   pointing into a dummy frame.  */
+
+extern int pc_in_dummy_frame (CORE_ADDR pc);
+
+/* Return the regcache that belongs to the dummy-frame identifed by PC
+   and FP, or NULL if no such frame exists.  */
+/* FIXME: cagney/2002-11-08: The function only exists because of
+   deprecated_generic_get_saved_register.  Eliminate that function and
+   this, to, can go.  */
+
+extern struct regcache *generic_find_dummy_frame (CORE_ADDR pc,
+						  CORE_ADDR fp);
 #endif /* !defined (DUMMY_FRAME_H)  */

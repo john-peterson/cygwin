@@ -1,12 +1,13 @@
 /* Definitions for dealing with stack frames, for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1996,
+   1997, 1998, 1999, 2000, 2001, 2002, 2003 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,70 +16,21 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (FRAME_H)
 #define FRAME_H 1
 
-/* The following is the intended naming schema for frame functions.
-   It isn't 100% consistent, but it is aproaching that.  Frame naming
-   schema:
-
-   Prefixes:
-
-   get_frame_WHAT...(): Get WHAT from the THIS frame (functionaly
-   equivalent to THIS->next->unwind->what)
-
-   frame_unwind_WHAT...(): Unwind THIS frame's WHAT from the NEXT
-   frame.
-
-   frame_unwind_caller_WHAT...(): Unwind WHAT for NEXT stack frame's
-   real caller.  Any inlined functions in NEXT's stack frame are
-   skipped.  Use these to ignore any potentially inlined functions,
-   e.g. inlined into the first instruction of a library trampoline.
-
-   get_stack_frame_WHAT...(): Get WHAT for THIS frame, but if THIS is
-   inlined, skip to the containing stack frame.
-
-   put_frame_WHAT...(): Put a value into this frame (unsafe, need to
-   invalidate the frame / regcache afterwards) (better name more
-   strongly hinting at its unsafeness)
-
-   safe_....(): Safer version of various functions, doesn't throw an
-   error (leave this for later?).  Returns non-zero / non-NULL if the
-   request succeeds, zero / NULL otherwize.
-
-   Suffixes:
-
-   void /frame/_WHAT(): Read WHAT's value into the buffer parameter.
-
-   ULONGEST /frame/_WHAT_unsigned(): Return an unsigned value (the
-   alternative is *frame_unsigned_WHAT).
-
-   LONGEST /frame/_WHAT_signed(): Return WHAT signed value.
-
-   What:
-
-   /frame/_memory* (frame, coreaddr, len [, buf]): Extract/return
-   *memory.
-
-   /frame/_register* (frame, regnum [, buf]): extract/return register.
-
-   CORE_ADDR /frame/_{pc,sp,...} (frame): Resume address, innner most
-   stack *address, ...
-
-   */
-
 struct symtab_and_line;
-struct frame_unwind;
-struct frame_base;
-struct block;
-struct gdbarch;
-struct ui_file;
 
 /* The frame object.  */
 
 struct frame_info;
+
+/* The frame unwind cache object.  */
+struct frame_unwind_cache;
 
 /* The frame object's ID.  This provides a per-frame unique identifier
    that can be used to relocate a `struct frame_info' after a target
@@ -87,145 +39,56 @@ struct frame_info;
 
 struct frame_id
 {
-  /* The frame's stack address.  This shall be constant through out
-     the lifetime of a frame.  Note that this requirement applies to
-     not just the function body, but also the prologue and (in theory
-     at least) the epilogue.  Since that value needs to fall either on
-     the boundary, or within the frame's address range, the frame's
-     outer-most address (the inner-most address of the previous frame)
-     is used.  Watch out for all the legacy targets that still use the
-     function pointer register or stack pointer register.  They are
-     wrong.
-
-     This field is valid only if stack_addr_p is true.  Otherwise, this
-     frame represents the null frame.  */
-  CORE_ADDR stack_addr;
-
-  /* The frame's code address.  This shall be constant through out the
-     lifetime of the frame.  While the PC (a.k.a. resume address)
-     changes as the function is executed, this code address cannot.
-     Typically, it is set to the address of the entry point of the
-     frame's function (as returned by get_frame_func).
-
-     For inlined functions (INLINE_DEPTH != 0), this is the address of
-     the first executed instruction in the block corresponding to the
-     inlined function.
-
-     This field is valid only if code_addr_p is true.  Otherwise, this
-     frame is considered to have a wildcard code address, i.e. one that
-     matches every address value in frame comparisons.  */
-  CORE_ADDR code_addr;
-
-  /* The frame's special address.  This shall be constant through out the
-     lifetime of the frame.  This is used for architectures that may have
-     frames that do not change the stack but are still distinct and have 
-     some form of distinct identifier (e.g. the ia64 which uses a 2nd 
-     stack for registers).  This field is treated as unordered - i.e. will
-     not be used in frame ordering comparisons.
-
-     This field is valid only if special_addr_p is true.  Otherwise, this
-     frame is considered to have a wildcard special address, i.e. one that
-     matches every address value in frame comparisons.  */
-  CORE_ADDR special_addr;
-
-  /* Flags to indicate the above fields have valid contents.  */
-  unsigned int stack_addr_p : 1;
-  unsigned int code_addr_p : 1;
-  unsigned int special_addr_p : 1;
-
-  /* It is non-zero for a frame made up by GDB without stack data
-     representation in inferior, such as INLINE_FRAME or TAILCALL_FRAME.
-     Caller of inlined function will have it zero, each more inner called frame
-     will have it increasingly one, two etc.  Similarly for TAILCALL_FRAME.  */
-  int artificial_depth;
+  /* The frame's address.  This should be constant through out the
+     lifetime of a frame.  */
+  /* NOTE: cagney/2002-11-16: The ia64 has two stacks and hence two
+     frame bases.  This will need to be expanded to accomodate that.  */
+  CORE_ADDR base;
+  /* The frame's current PC.  While the PC within the function may
+     change, the function that contains the PC does not.  Should this
+     instead be the frame's function?  */
+  CORE_ADDR pc;
 };
 
-/* Methods for constructing and comparing Frame IDs.  */
+/* Methods for constructing and comparing Frame IDs.
 
-/* For convenience.  All fields are zero.  This means "there is no frame".  */
+   NOTE: Given frameless functions A and B, where A calls B (and hence
+   B is inner-to A).  The relationships: !eq(A,B); !eq(B,A);
+   !inner(A,B); !inner(B,A); all hold.  This is because, while B is
+   inner to A, B is not strictly inner to A (being frameless, they
+   have the same .base value).  */
+
+/* For convenience.  All fields are zero.  */
 extern const struct frame_id null_frame_id;
 
-/* This means "there is no frame ID, but there is a frame".  It should be
-   replaced by best-effort frame IDs for the outermost frame, somehow.
-   The implementation is only special_addr_p set.  */
-extern const struct frame_id outer_frame_id;
-
-/* Flag to control debugging.  */
-
-extern unsigned int frame_debug;
-
-/* Construct a frame ID.  The first parameter is the frame's constant
-   stack address (typically the outer-bound), and the second the
-   frame's constant code address (typically the entry point).
-   The special identifier address is set to indicate a wild card.  */
-extern struct frame_id frame_id_build (CORE_ADDR stack_addr,
-				       CORE_ADDR code_addr);
-
-/* Construct a special frame ID.  The first parameter is the frame's constant
-   stack address (typically the outer-bound), the second is the
-   frame's constant code address (typically the entry point),
-   and the third parameter is the frame's special identifier address.  */
-extern struct frame_id frame_id_build_special (CORE_ADDR stack_addr,
-					       CORE_ADDR code_addr,
-					       CORE_ADDR special_addr);
-
-/* Construct a wild card frame ID.  The parameter is the frame's constant
-   stack address (typically the outer-bound).  The code address as well
-   as the special identifier address are set to indicate wild cards.  */
-extern struct frame_id frame_id_build_wild (CORE_ADDR stack_addr);
+/* Construct a frame ID.  The second parameter isn't yet well defined.
+   It might be the containing function, or the resume PC (see comment
+   above in `struct frame_id')?  A func/pc of zero indicates a
+   wildcard (i.e., do not use func in frame ID comparisons).  */
+extern struct frame_id frame_id_build (CORE_ADDR base,
+				       CORE_ADDR func_or_pc);
 
 /* Returns non-zero when L is a valid frame (a valid frame has a
-   non-zero .base).  The outermost frame is valid even without an
-   ID.  */
+   non-zero .base).  */
 extern int frame_id_p (struct frame_id l);
-
-/* Returns non-zero when L is a valid frame representing a frame made up by GDB
-   without stack data representation in inferior, such as INLINE_FRAME or
-   TAILCALL_FRAME.  */
-extern int frame_id_artificial_p (struct frame_id l);
 
 /* Returns non-zero when L and R identify the same frame, or, if
    either L or R have a zero .func, then the same frame base.  */
 extern int frame_id_eq (struct frame_id l, struct frame_id r);
 
-/* Write the internal representation of a frame ID on the specified
-   stream.  */
-extern void fprint_frame_id (struct ui_file *file, struct frame_id id);
+/* Returns non-zero when L is strictly inner-than R (they have
+   different frame .bases).  Neither L, nor R can be `null'.  See note
+   above about frameless functions.  */
+extern int frame_id_inner (struct frame_id l, struct frame_id r);
 
-
-/* Frame types.  Some are real, some are signal trampolines, and some
-   are completely artificial (dummy).  */
-
-enum frame_type
-{
-  /* A true stack frame, created by the target program during normal
-     execution.  */
-  NORMAL_FRAME,
-  /* A fake frame, created by GDB when performing an inferior function
-     call.  */
-  DUMMY_FRAME,
-  /* A frame representing an inlined function, associated with an
-     upcoming (prev, outer, older) NORMAL_FRAME.  */
-  INLINE_FRAME,
-  /* A virtual frame of a tail call - see dwarf2_tailcall_frame_unwind.  */
-  TAILCALL_FRAME,
-  /* In a signal handler, various OSs handle this in various ways.
-     The main thing is that the frame may be far from normal.  */
-  SIGTRAMP_FRAME,
-  /* Fake frame representing a cross-architecture call.  */
-  ARCH_FRAME,
-  /* Sentinel or registers frame.  This frame obtains register values
-     direct from the inferior's registers.  */
-  SENTINEL_FRAME
-};
 
 /* For every stopped thread, GDB tracks two frames: current and
    selected.  Current frame is the inner most frame of the selected
-   thread.  Selected frame is the one being examined by the GDB
+   thread.  Selected frame is the one being examined by the the GDB
    CLI (selected using `up', `down', ...).  The frames are created
    on-demand (via get_prev_frame()) and then held in a frame cache.  */
 /* FIXME: cagney/2002-11-28: Er, there is a lie here.  If you do the
-   sequence: `thread 1; up; thread 2; thread 1' you lose thread 1's
+   sequence: `thread 1; up; thread 2; thread 1' you loose thread 1's
    selected frame.  At present GDB only tracks the selected frame of
    the current thread.  But be warned, that might change.  */
 /* FIXME: cagney/2002-11-14: At any time, only one thread's selected
@@ -238,33 +101,30 @@ enum frame_type
    error.  */
 extern struct frame_info *get_current_frame (void);
 
-/* Does the current target interface have enough state to be able to
-   query the current inferior for frame info, and is the inferior in a
-   state where that is possible?  */
-extern int has_stack_frames (void);
-
 /* Invalidates the frame cache (this function should have been called
    invalidate_cached_frames).
 
-   FIXME: cagney/2002-11-28: There should be two methods: one that
-   reverts the thread's selected frame back to current frame (for when
-   the inferior resumes) and one that does not (for when the user
-   modifies the target invalidating the frame cache).  */
+   FIXME: cagney/2002-11-28: The only difference between
+   flush_cached_frames() and reinit_frame_cache() is that the latter
+   explicitly sets the selected frame back to the current frame there
+   isn't any real difference (except that one delays the selection of
+   a new frame).  Code can instead simply rely on get_selected_frame()
+   to reinit's the selected frame as needed.  As for invalidating the
+   cache, there should be two methods one that reverts the thread's
+   selected frame back to current frame (for when the inferior
+   resumes) and one that does not (for when the user modifies the
+   target invalidating the frame cache).  */
+extern void flush_cached_frames (void);
 extern void reinit_frame_cache (void);
 
 /* On demand, create the selected frame and then return it.  If the
-   selected frame can not be created, this function prints then throws
-   an error.  When MESSAGE is non-NULL, use it for the error message,
-   otherwize use a generic error message.  */
+   selected frame can not be created, this function throws an error.  */
 /* FIXME: cagney/2002-11-28: At present, when there is no selected
    frame, this function always returns the current (inner most) frame.
    It should instead, when a thread has previously had its frame
    selected (but not resumed) and the frame cache invalidated, find
    and then return that thread's previously selected frame.  */
-extern struct frame_info *get_selected_frame (const char *message);
-
-/* If there is a selected frame, return it.  Otherwise, return NULL.  */
-extern struct frame_info *get_selected_frame_if_set (void);
+extern struct frame_info *get_selected_frame (void);
 
 /* Select a specific frame.  NULL, apparently implies re-select the
    inner most frame.  */
@@ -282,64 +142,15 @@ extern struct frame_info *frame_find_by_id (struct frame_id id);
 /* Base attributes of a frame: */
 
 /* The frame's `resume' address.  Where the program will resume in
-   this frame.
-
-   This replaced: frame->pc; */
+   this frame.  */
 extern CORE_ADDR get_frame_pc (struct frame_info *);
-
-/* Same as get_frame_pc, but return a boolean indication of whether
-   the PC is actually available, instead of throwing an error.  */
-
-extern int get_frame_pc_if_available (struct frame_info *frame,
-				      CORE_ADDR *pc);
-
-/* An address (not necessarily aligned to an instruction boundary)
-   that falls within THIS frame's code block.
-
-   When a function call is the last statement in a block, the return
-   address for the call may land at the start of the next block.
-   Similarly, if a no-return function call is the last statement in
-   the function, the return address may end up pointing beyond the
-   function, and possibly at the start of the next function.
-
-   These methods make an allowance for this.  For call frames, this
-   function returns the frame's PC-1 which "should" be an address in
-   the frame's block.  */
-
-extern CORE_ADDR get_frame_address_in_block (struct frame_info *this_frame);
-
-/* Same as get_frame_address_in_block, but returns a boolean
-   indication of whether the frame address is determinable (when the
-   PC is unavailable, it will not be), instead of possibly throwing an
-   error trying to read an unavailable PC.  */
-
-extern int
-  get_frame_address_in_block_if_available (struct frame_info *this_frame,
-					   CORE_ADDR *pc);
-
-/* The frame's inner-most bound.  AKA the stack-pointer.  Confusingly
-   known as top-of-stack.  */
-
-extern CORE_ADDR get_frame_sp (struct frame_info *);
-
-/* Following on from the `resume' address.  Return the entry point
-   address of the function containing that resume address, or zero if
-   that function isn't known.  */
-extern CORE_ADDR get_frame_func (struct frame_info *fi);
-
-/* Same as get_frame_func, but returns a boolean indication of whether
-   the frame function is determinable (when the PC is unavailable, it
-   will not be), instead of possibly throwing an error trying to read
-   an unavailable PC.  */
-
-extern int get_frame_func_if_available (struct frame_info *fi, CORE_ADDR *);
 
 /* Closely related to the resume address, various symbol table
    attributes that are determined by the PC.  Note that for a normal
    frame, the PC refers to the resume address after the return, and
    not the call instruction.  In such a case, the address is adjusted
-   so that it (approximately) identifies the call site (and not the
-   return site).
+   so that it (approximatly) identifies the call site (and not return
+   site).
 
    NOTE: cagney/2002-11-28: The frame cache could be used to cache the
    computed value.  Working on the assumption that the bottle-neck is
@@ -355,272 +166,340 @@ extern int get_frame_func_if_available (struct frame_info *fi, CORE_ADDR *);
 extern void find_frame_sal (struct frame_info *frame,
 			    struct symtab_and_line *sal);
 
-/* Set the current source and line to the location given by frame
-   FRAME, if possible.  When CENTER is true, adjust so the relevant
-   line is in the center of the next 'list'.  */
+/* Return the frame address from FI.  Except in the machine-dependent
+   *FRAME* macros, a frame address has no defined meaning other than
+   as a magic cookie which identifies a frame over calls to the
+   inferior (um, SEE NOTE BELOW).  The only known exception is
+   inferior.h (DEPRECATED_PC_IN_CALL_DUMMY) [ON_STACK]; see comments
+   there.  You cannot assume that a frame address contains enough
+   information to reconstruct the frame; if you want more than just to
+   identify the frame (e.g. be able to fetch variables relative to
+   that frame), then save the whole struct frame_info (and the next
+   struct frame_info, since the latter is used for fetching variables
+   on some machines) (um, again SEE NOTE BELOW).
 
-void set_current_sal_from_frame (struct frame_info *, int);
+   NOTE: cagney/2002-11-18: Actually, the frame address isn't
+   sufficient for identifying a frame, and the counter examples are
+   wrong!
 
-/* Return the frame base (what ever that is) (DEPRECATED).
+   Code that needs to (re)identify a frame must use get_frame_id() and
+   frame_find_by_id() (and in the future, a frame_compare() function
+   instead of INNER_THAN()).  Two reasons: an architecture (e.g.,
+   ia64) can have more than one frame address (due to multiple stack
+   pointers) (frame ID is going to be expanded to accomodate this);
+   successive frameless function calls can only be differientated by
+   comparing both the frame's base and the frame's enclosing function
+   (frame_find_by_id() is going to be modified to perform this test). 
 
-   Old code was trying to use this single method for two conflicting
-   purposes.  Such code needs to be updated to use either of:
+   The generic dummy frame version of DEPRECATED_PC_IN_CALL_DUMMY() is
+   able to identify a dummy frame using only the PC value.  So the
+   frame address is not needed.  In fact, most
+   DEPRECATED_PC_IN_CALL_DUMMY() calls now pass zero as the frame/sp
+   values as the caller knows that those values won't be used.  Once
+   all architectures are using generic dummy frames,
+   DEPRECATED_PC_IN_CALL_DUMMY() can drop the sp/frame parameters.
+   When it comes to finding a dummy frame, the next frame's frame ID
+   (with out duing an unwind) can be used (ok, could if it wasn't for
+   the need to change the way the PPC defined frame base in a strange
+   way).
 
-   get_frame_id: A low level frame unique identifier, that consists of
-   both a stack and a function address, that can be used to uniquely
-   identify a frame.  This value is determined by the frame's
-   low-level unwinder, the stack part [typically] being the
-   top-of-stack of the previous frame, and the function part being the
-   function's start address.  Since the correct identification of a
-   frameless function requires both a stack and function address,
-   the old get_frame_base method was not sufficient.
-
-   get_frame_base_address: get_frame_locals_address:
-   get_frame_args_address: A set of high-level debug-info dependant
-   addresses that fall within the frame.  These addresses almost
-   certainly will not match the stack address part of a frame ID (as
-   returned by get_frame_base).
-
-   This replaced: frame->frame; */
+   Modern architectures should be using something like dwarf2's
+   location expression to describe where a variable lives.  Such
+   expressions specify their own debug info centric frame address.
+   Consequently, a generic frame address is pretty meaningless.  */
 
 extern CORE_ADDR get_frame_base (struct frame_info *);
 
 /* Return the per-frame unique identifer.  Can be used to relocate a
    frame after a frame cache flush (and other similar operations).  If
-   FI is NULL, return the null_frame_id.
-
-   NOTE: kettenis/20040508: These functions return a structure.  On
-   platforms where structures are returned in static storage (vax,
-   m68k), this may trigger compiler bugs in code like:
-
-   if (frame_id_eq (get_frame_id (l), get_frame_id (r)))
-
-   where the return value from the first get_frame_id (l) gets
-   overwritten by the second get_frame_id (r).  Please avoid writing
-   code like this.  Use code like:
-
-   struct frame_id id = get_frame_id (l);
-   if (frame_id_eq (id, get_frame_id (r)))
-
-   instead, since that avoids the bug.  */
+   FI is NULL, return the null_frame_id.  */
 extern struct frame_id get_frame_id (struct frame_info *fi);
-extern struct frame_id get_stack_frame_id (struct frame_info *fi);
-extern struct frame_id frame_unwind_caller_id (struct frame_info *next_frame);
-
-/* Assuming that a frame is `normal', return its base-address, or 0 if
-   the information isn't available.  NOTE: This address is really only
-   meaningful to the frame's high-level debug info.  */
-extern CORE_ADDR get_frame_base_address (struct frame_info *);
-
-/* Assuming that a frame is `normal', return the base-address of the
-   local variables, or 0 if the information isn't available.  NOTE:
-   This address is really only meaningful to the frame's high-level
-   debug info.  Typically, the argument and locals share a single
-   base-address.  */
-extern CORE_ADDR get_frame_locals_address (struct frame_info *);
-
-/* Assuming that a frame is `normal', return the base-address of the
-   parameter list, or 0 if that information isn't available.  NOTE:
-   This address is really only meaningful to the frame's high-level
-   debug info.  Typically, the argument and locals share a single
-   base-address.  */
-extern CORE_ADDR get_frame_args_address (struct frame_info *);
 
 /* The frame's level: 0 for innermost, 1 for its caller, ...; or -1
    for an invalid frame).  */
 extern int frame_relative_level (struct frame_info *fi);
 
-/* Return the frame's type.  */
+/* Return the frame's type.  Some are real, some are signal
+   trampolines, and some are completly artificial (dummy).  */
 
+enum frame_type
+{
+  /* A true stack frame, created by the target program during normal
+     execution.  */
+  NORMAL_FRAME,
+  /* A fake frame, created by GDB when performing an inferior function
+     call.  */
+  DUMMY_FRAME,
+  /* In a signal handler, various OSs handle this in various ways.
+     The main thing is that the frame may be far from normal.  */
+  SIGTRAMP_FRAME,
+  /* The sentinel frame.  Marks the inner-most end of the chain of
+     frames.  */
+  SENTINEL_FRAME
+};
 extern enum frame_type get_frame_type (struct frame_info *);
 
-/* Return the frame's program space.  */
-extern struct program_space *get_frame_program_space (struct frame_info *);
-
-/* Unwind THIS frame's program space from the NEXT frame.  */
-extern struct program_space *frame_unwind_program_space (struct frame_info *);
-
-/* Return the frame's address space.  */
-extern struct address_space *get_frame_address_space (struct frame_info *);
-
-/* For frames where we can not unwind further, describe why.  */
-
-enum unwind_stop_reason
-  {
-#define SET(name, description) name,
-#define FIRST_ENTRY(name) UNWIND_FIRST = name,
-#define LAST_ENTRY(name) UNWIND_LAST = name,
-#define FIRST_ERROR(name) UNWIND_FIRST_ERROR = name,
-
-#include "unwind_stop_reasons.def"
-#undef SET
-#undef FIRST_ENTRY
-#undef LAST_ENTRY
-#undef FIRST_ERROR
-  };
-
-/* Return the reason why we can't unwind past this frame.  */
-
-enum unwind_stop_reason get_frame_unwind_stop_reason (struct frame_info *);
-
-/* Translate a reason code to an informative string.  */
-
-const char *frame_stop_reason_string (enum unwind_stop_reason);
+/* FIXME: cagney/2002-11-10: Some targets want to directly mark a
+   frame as being of a specific type.  This shouldn't be necessary.
+   PC_IN_SIGTRAMP() indicates a SIGTRAMP_FRAME and
+   DEPRECATED_PC_IN_CALL_DUMMY() indicates a DUMMY_FRAME.  I suspect
+   the real problem here is that get_prev_frame() only sets
+   initialized after INIT_EXTRA_FRAME_INFO as been called.
+   Consequently, some targets found that the frame's type was wrong
+   and tried to fix it.  The correct fix is to modify get_prev_frame()
+   so that it initializes the frame's type before calling any other
+   functions.  */
+extern void deprecated_set_frame_type (struct frame_info *,
+				       enum frame_type type);
 
 /* Unwind the stack frame so that the value of REGNUM, in the previous
    (up, older) frame is returned.  If VALUEP is NULL, don't
    fetch/compute the value.  Instead just return the location of the
    value.  */
 extern void frame_register_unwind (struct frame_info *frame, int regnum,
-				   int *optimizedp, int *unavailablep,
-				   enum lval_type *lvalp,
+				   int *optimizedp, enum lval_type *lvalp,
 				   CORE_ADDR *addrp, int *realnump,
-				   gdb_byte *valuep);
+				   void *valuep);
 
-/* Fetch a register from this, or unwind a register from the next
-   frame.  Note that the get_frame methods are wrappers to
-   frame->next->unwind.  They all [potentially] throw an error if the
-   fetch fails.  The value methods never return NULL, but usually
-   do return a lazy value.  */
+/* More convenient interface to frame_register_unwind().  */
+/* NOTE: cagney/2002-09-13: Return void as one day these functions may
+   be changed to return an indication that the read succeeded.  */
 
-extern void frame_unwind_register (struct frame_info *frame,
-				   int regnum, gdb_byte *buf);
-extern void get_frame_register (struct frame_info *frame,
-				int regnum, gdb_byte *buf);
+extern void frame_unwind_signed_register (struct frame_info *frame,
+					  int regnum, LONGEST *val);
 
-struct value *frame_unwind_register_value (struct frame_info *frame,
-					   int regnum);
-struct value *get_frame_register_value (struct frame_info *frame,
-					int regnum);
-
-extern LONGEST frame_unwind_register_signed (struct frame_info *frame,
-					     int regnum);
-extern LONGEST get_frame_register_signed (struct frame_info *frame,
-					  int regnum);
-extern ULONGEST frame_unwind_register_unsigned (struct frame_info *frame,
-					       int regnum);
-extern ULONGEST get_frame_register_unsigned (struct frame_info *frame,
-					     int regnum);
-
-/* Read a register from this, or unwind a register from the next
-   frame.  Note that the read_frame methods are wrappers to
-   get_frame_register_value, that do not throw if the result is
-   optimized out or unavailable.  */
-
-extern int read_frame_register_unsigned (struct frame_info *frame,
-					 int regnum, ULONGEST *val);
+extern void frame_unwind_unsigned_register (struct frame_info *frame,
+					    int regnum, ULONGEST *val);
 
 /* Get the value of the register that belongs to this FRAME.  This
-   function is a wrapper to the call sequence ``frame_register_unwind
+   function is a wrapper to the call sequence ``frame_unwind_register
    (get_next_frame (FRAME))''.  As per frame_register_unwind(), if
    VALUEP is NULL, the registers value is not fetched/computed.  */
 
 extern void frame_register (struct frame_info *frame, int regnum,
-			    int *optimizedp, int *unavailablep,
-			    enum lval_type *lvalp,
+			    int *optimizedp, enum lval_type *lvalp,
 			    CORE_ADDR *addrp, int *realnump,
-			    gdb_byte *valuep);
+			    void *valuep);
 
-/* The reverse.  Store a register value relative to the specified
-   frame.  Note: this call makes the frame's state undefined.  The
-   register and frame caches must be flushed.  */
-extern void put_frame_register (struct frame_info *frame, int regnum,
-				const gdb_byte *buf);
+/* More convenient interface to frame_register().  */
+/* NOTE: cagney/2002-09-13: Return void as one day these functions may
+   be changed to return an indication that the read succeeded.  */
 
-/* Read LEN bytes from one or multiple registers starting with REGNUM
-   in frame FRAME, starting at OFFSET, into BUF.  If the register
-   contents are optimized out or unavailable, set *OPTIMIZEDP,
-   *UNAVAILABLEP accordingly.  */
-extern int get_frame_register_bytes (struct frame_info *frame, int regnum,
-				     CORE_ADDR offset, int len,
-				     gdb_byte *myaddr,
-				     int *optimizedp, int *unavailablep);
+extern void frame_read_signed_register (struct frame_info *frame,
+					int regnum, LONGEST *val);
 
-/* Write LEN bytes to one or multiple registers starting with REGNUM
-   in frame FRAME, starting at OFFSET, into BUF.  */
-extern void put_frame_register_bytes (struct frame_info *frame, int regnum,
-				      CORE_ADDR offset, int len,
-				      const gdb_byte *myaddr);
+extern void frame_read_unsigned_register (struct frame_info *frame,
+					  int regnum, ULONGEST *val);
+
+/* Map between a frame register number and its name.  A frame register
+   space is a superset of the cooked register space --- it also
+   includes builtin registers.  */
+
+extern int frame_map_name_to_regnum (const char *name, int strlen);
+extern const char *frame_map_regnum_to_name (int regnum);
 
 /* Unwind the PC.  Strictly speaking return the resume address of the
    calling frame.  For GDB, `pc' is the resume address and not a
    specific register.  */
 
-extern CORE_ADDR frame_unwind_caller_pc (struct frame_info *frame);
+extern CORE_ADDR frame_pc_unwind (struct frame_info *frame);
 
-/* Same as frame_unwind_caller_pc, but returns a boolean indication of
-   whether the caller PC is determinable (when the PC is unavailable,
-   it will not be), instead of possibly throwing an error trying to
-   read unavailable memory or registers.  */
+/* Unwind the frame ID.  Return an ID that uniquely identifies the
+   caller's frame.  */
+extern struct frame_id frame_id_unwind (struct frame_info *frame);
 
-extern int frame_unwind_caller_pc_if_available (struct frame_info *this_frame,
-						CORE_ADDR *pc);
+
+/* Return the location (and possibly value) of REGNUM for the previous
+   (older, up) frame.  All parameters except VALUEP can be assumed to
+   be non NULL.  When VALUEP is NULL, just the location of the
+   register should be returned.
 
-/* Discard the specified frame.  Restoring the registers to the state
-   of the caller.  */
-extern void frame_pop (struct frame_info *frame);
+   UNWIND_CACHE is provided as mechanism for implementing a per-frame
+   local cache.  It's initial value being NULL.  Memory for that cache
+   should be allocated using frame_obstack_zalloc().
 
-/* Return memory from the specified frame.  A frame knows its thread /
-   LWP and hence can find its way down to a target.  The assumption
-   here is that the current and previous frame share a common address
-   space.
+   Register window architectures (eg SPARC) should note that REGNUM
+   identifies the register for the previous frame.  For instance, a
+   request for the value of "o1" for the previous frame would be found
+   in the register "i1" in this FRAME.  */
 
-   If the memory read fails, these methods throw an error.
+typedef void (frame_register_unwind_ftype) (struct frame_info *frame,
+					    struct frame_unwind_cache **unwind_cache,
+					    int regnum,
+					    int *optimized,
+					    enum lval_type *lvalp,
+					    CORE_ADDR *addrp,
+					    int *realnump,
+					    void *valuep);
 
-   NOTE: cagney/2003-06-03: Should there be unwind versions of these
-   methods?  That isn't clear.  Can code, for instance, assume that
-   this and the previous frame's memory or architecture are identical?
-   If architecture / memory changes are always separated by special
-   adaptor frames this should be ok.  */
+/* Same as for registers above, but return the address at which the
+   calling frame would resume.  */
 
-extern void get_frame_memory (struct frame_info *this_frame, CORE_ADDR addr,
-			      gdb_byte *buf, int len);
-extern LONGEST get_frame_memory_signed (struct frame_info *this_frame,
-					CORE_ADDR memaddr, int len);
-extern ULONGEST get_frame_memory_unsigned (struct frame_info *this_frame,
-					   CORE_ADDR memaddr, int len);
+typedef CORE_ADDR (frame_pc_unwind_ftype) (struct frame_info *frame,
+					   struct frame_unwind_cache **unwind_cache);
 
-/* Same as above, but return non-zero when the entire memory read
-   succeeds, zero otherwize.  */
-extern int safe_frame_unwind_memory (struct frame_info *this_frame,
-				     CORE_ADDR addr, gdb_byte *buf, int len);
+/* Same as for registers above, but return the ID of the frame that
+   called this one.  */
 
-/* Return this frame's architecture.  */
-extern struct gdbarch *get_frame_arch (struct frame_info *this_frame);
+typedef void (frame_id_unwind_ftype) (struct frame_info *frame,
+				      struct frame_unwind_cache **unwind_cache,
+				      struct frame_id *id);
 
-/* Return the previous frame's architecture.  */
-extern struct gdbarch *frame_unwind_arch (struct frame_info *frame);
+/* Describe the saved registers of a frame.  */
 
-/* Return the previous frame's architecture, skipping inline functions.  */
-extern struct gdbarch *frame_unwind_caller_arch (struct frame_info *frame);
+#if defined (EXTRA_FRAME_INFO) || defined (FRAME_FIND_SAVED_REGS)
+/* XXXX - deprecated */
+struct frame_saved_regs
+  {
+    /* For each register R (except the SP), regs[R] is the address at
+       which it was saved on entry to the frame, or zero if it was not
+       saved on entry to this frame.  This includes special registers
+       such as pc and fp saved in special ways in the stack frame.
 
+       regs[SP_REGNUM] is different.  It holds the actual SP, not the
+       address at which it was saved.  */
 
-/* Values for the source flag to be used in print_frame_info_base().  */
+    CORE_ADDR regs[NUM_REGS];
+  };
+#endif
+
+/* We keep a cache of stack frames, each of which is a "struct
+   frame_info".  The innermost one gets allocated (in
+   wait_for_inferior) each time the inferior stops; current_frame
+   points to it.  Additional frames get allocated (in
+   get_prev_frame) as needed, and are chained through the next
+   and prev fields.  Any time that the frame cache becomes invalid
+   (most notably when we execute something, but also if we change how
+   we interpret the frames (e.g. "set heuristic-fence-post" in
+   mips-tdep.c, or anything which reads new symbols)), we should call
+   reinit_frame_cache.  */
+
+struct frame_info
+  {
+    /* Nominal address of the frame described.  See comments at
+       get_frame_base() about what this means outside the *FRAME*
+       macros; in the *FRAME* macros, it can mean whatever makes most
+       sense for this machine.  */
+    CORE_ADDR frame;
+
+    /* Address at which execution is occurring in this frame.
+       For the innermost frame, it's the current pc.
+       For other frames, it is a pc saved in the next frame.  */
+    CORE_ADDR pc;
+
+    /* Level of this frame.  The inner-most (youngest) frame is at
+       level 0.  As you move towards the outer-most (oldest) frame,
+       the level increases.  This is a cached value.  It could just as
+       easily be computed by counting back from the selected frame to
+       the inner most frame.  */
+    /* NOTE: cagney/2002-04-05: Perhaphs a level of ``-1'' should be
+       reserved to indicate a bogus frame - one that has been created
+       just to keep GDB happy (GDB always needs a frame).  For the
+       moment leave this as speculation.  */
+    int level;
+
+    /* The frame's type.  */
+    enum frame_type type;
+
+    /* For each register, address of where it was saved on entry to
+       the frame, or zero if it was not saved on entry to this frame.
+       This includes special registers such as pc and fp saved in
+       special ways in the stack frame.  The SP_REGNUM is even more
+       special, the address here is the sp for the previous frame, not
+       the address where the sp was saved.  */
+    /* Allocated by frame_saved_regs_zalloc () which is called /
+       initialized by FRAME_INIT_SAVED_REGS(). */
+    CORE_ADDR *saved_regs;	/*NUM_REGS + NUM_PSEUDO_REGS*/
+
+#ifdef EXTRA_FRAME_INFO
+    /* XXXX - deprecated */
+    /* Anything extra for this structure that may have been defined
+       in the machine dependent files. */
+      EXTRA_FRAME_INFO
+#endif
+
+    /* Anything extra for this structure that may have been defined
+       in the machine dependent files. */
+    /* Allocated by frame_extra_info_zalloc () which is called /
+       initialized by INIT_EXTRA_FRAME_INFO */
+    struct frame_extra_info *extra_info;
+
+    /* If dwarf2 unwind frame informations is used, this structure holds all
+       related unwind data.  */
+    struct context *context;
+
+    /* Unwind cache shared between the unwind functions - they had
+       better all agree as to the contents.  */
+    struct frame_unwind_cache *unwind_cache;
+
+    /* See description above.  The previous frame's registers.  */
+    frame_register_unwind_ftype *register_unwind;
+
+    /* See description above.  The previous frame's resume address.
+       Save the previous PC in a local cache.  */
+    frame_pc_unwind_ftype *pc_unwind;
+    int pc_unwind_cache_p;
+    CORE_ADDR pc_unwind_cache;
+
+    /* See description above.  The previous frame's resume address.
+       Save the previous PC in a local cache.  */
+    frame_id_unwind_ftype *id_unwind;
+    int id_unwind_cache_p;
+    struct frame_id id_unwind_cache;
+
+    /* Pointers to the next (down, inner, younger) and previous (up,
+       outer, older) frame_info's in the frame cache.  */
+    struct frame_info *next; /* down, inner, younger */
+    int prev_p;
+    struct frame_info *prev; /* up, outer, older */
+  };
+
+/* Values for the source flag to be used in print_frame_info_base(). */
 enum print_what
   { 
-    /* Print only the source line, like in stepi.  */
+    /* Print only the source line, like in stepi. */
     SRC_LINE = -1, 
     /* Print only the location, i.e. level, address (sometimes)
-       function, args, file, line, line num.  */
+       function, args, file, line, line num. */
     LOCATION,
-    /* Print both of the above.  */
+    /* Print both of the above. */
     SRC_AND_LOC, 
-    /* Print location only, but always include the address.  */
+    /* Print location only, but always include the address. */
     LOC_AND_ADDRESS 
   };
+
+/* Allocate additional space for appendices to a struct frame_info.
+   NOTE: Much of GDB's code works on the assumption that the allocated
+   saved_regs[] array is the size specified below.  If you try to make
+   that array smaller, GDB will happily walk off its end. */
+
+#ifdef SIZEOF_FRAME_SAVED_REGS
+#error "SIZEOF_FRAME_SAVED_REGS can not be re-defined"
+#endif
+#define SIZEOF_FRAME_SAVED_REGS \
+        (sizeof (CORE_ADDR) * (NUM_REGS+NUM_PSEUDO_REGS))
 
 /* Allocate zero initialized memory from the frame cache obstack.
    Appendices to the frame info (such as the unwind cache) should
    allocate memory using this method.  */
 
 extern void *frame_obstack_zalloc (unsigned long size);
-#define FRAME_OBSTACK_ZALLOC(TYPE) \
-  ((TYPE *) frame_obstack_zalloc (sizeof (TYPE)))
-#define FRAME_OBSTACK_CALLOC(NUMBER,TYPE) \
-  ((TYPE *) frame_obstack_zalloc ((NUMBER) * sizeof (TYPE)))
+#define FRAME_OBSTACK_ZALLOC(TYPE) ((TYPE *) frame_obstack_zalloc (sizeof (TYPE)))
 
-/* Create a regcache, and copy the frame's registers into it.  */
-struct regcache *frame_save_as_regcache (struct frame_info *this_frame);
+/* If FRAME_CHAIN_VALID returns zero it means that the given frame
+   is the outermost one and has no caller.  */
+
+extern int frame_chain_valid (CORE_ADDR, struct frame_info *);
+
+extern void generic_save_dummy_frame_tos (CORE_ADDR sp);
+
+
+#ifdef FRAME_FIND_SAVED_REGS
+/* XXX - deprecated */
+#define FRAME_INIT_SAVED_REGS(FI) deprecated_get_frame_saved_regs (FI, NULL)
+extern void deprecated_get_frame_saved_regs (struct frame_info *,
+					     struct frame_saved_regs *);
+#endif
 
 extern struct block *get_frame_block (struct frame_info *,
                                       CORE_ADDR *addr_in_block);
@@ -638,7 +517,7 @@ extern struct block *get_frame_block (struct frame_info *,
    Should it look at the most recently specified SAL?  If the target
    has no state, should this function try to extract a block from the
    most recently selected SAL?  That way `list foo' would give it some
-   sort of reference point.  Then again, perhaps that would confuse
+   sort of reference point.  Then again, perhaphs that would confuse
    things.
 
    Calls to this function can be broken down into two categories: Code
@@ -648,128 +527,202 @@ extern struct block *get_frame_block (struct frame_info *,
 
    The latter can be eliminated by correctly parameterizing the code,
    the former though is more interesting.  Per the "address" command,
-   it occurs in the CLI code and makes it possible for commands to
+   it occures in the CLI code and makes it possible for commands to
    work, even when the inferior has no state.  */
 
 extern struct block *get_selected_block (CORE_ADDR *addr_in_block);
 
 extern struct symbol *get_frame_function (struct frame_info *);
 
+extern CORE_ADDR frame_address_in_block (struct frame_info *);
+
 extern CORE_ADDR get_pc_function_start (CORE_ADDR);
+
+extern struct block *block_for_pc (CORE_ADDR);
+
+extern struct block *block_for_pc_sect (CORE_ADDR, asection *);
+
+extern int frameless_look_for_prologue (struct frame_info *);
+
+extern void print_frame_args (struct symbol *, struct frame_info *,
+			      int, struct ui_file *);
 
 extern struct frame_info *find_relative_frame (struct frame_info *, int *);
 
-extern void show_and_print_stack_frame (struct frame_info *fi, int print_level,
-					enum print_what print_what);
+extern void show_and_print_stack_frame (struct frame_info *fi, int level,
+					int source);
 
-extern void print_stack_frame (struct frame_info *, int print_level,
-			       enum print_what print_what);
+extern void print_stack_frame (struct frame_info *, int, int);
 
-extern void print_frame_info (struct frame_info *, int print_level,
-			      enum print_what print_what, int args);
+extern void print_only_stack_frame (struct frame_info *, int, int);
 
-extern struct frame_info *block_innermost_frame (const struct block *);
+extern void show_stack_frame (struct frame_info *);
 
-extern int deprecated_frame_register_read (struct frame_info *frame, int regnum,
-				gdb_byte *buf);
+extern void print_frame_info (struct frame_info *, int, int, int);
+
+extern void show_frame_info (struct frame_info *, int, int, int);
+
+extern struct frame_info *block_innermost_frame (struct block *);
+
+/* NOTE: cagney/2002-09-13: There is no need for this function.
+   Instead either of frame_unwind_signed_register() or
+   frame_unwind_unsigned_register() can be used.  */
+extern CORE_ADDR deprecated_read_register_dummy (CORE_ADDR pc,
+						 CORE_ADDR fp, int);
+extern void generic_push_dummy_frame (void);
+extern void generic_pop_current_frame (void (*)(struct frame_info *));
+extern void generic_pop_dummy_frame (void);
+
+extern int generic_pc_in_call_dummy (CORE_ADDR pc,
+				     CORE_ADDR sp, CORE_ADDR fp);
+
+/* NOTE: cagney/2002-06-26: Targets should no longer use this
+   function.  Instead, the contents of a dummy frames registers can be
+   obtained by applying: frame_register_unwind to the dummy frame; or
+   get_saved_register to the next outer frame.  */
+
+extern char *deprecated_generic_find_dummy_frame (CORE_ADDR pc, CORE_ADDR fp);
+
+extern void generic_fix_call_dummy (char *dummy, CORE_ADDR pc, CORE_ADDR fun,
+				    int nargs, struct value **args,
+				    struct type *type, int gcc_p);
+
+/* The function generic_get_saved_register() has been made obsolete.
+   GET_SAVED_REGISTER now defaults to the recursive equivalent -
+   generic_unwind_get_saved_register() - so there is no need to even
+   set GET_SAVED_REGISTER.  Architectures that need to override the
+   register unwind mechanism should modify frame->unwind().  */
+extern void deprecated_generic_get_saved_register (char *, int *, CORE_ADDR *,
+						   struct frame_info *, int,
+						   enum lval_type *);
+
+extern void generic_save_call_dummy_addr (CORE_ADDR lo, CORE_ADDR hi);
+
+extern void get_saved_register (char *raw_buffer, int *optimized,
+				CORE_ADDR * addrp,
+				struct frame_info *frame,
+				int regnum, enum lval_type *lval);
+
+extern int frame_register_read (struct frame_info *frame, int regnum,
+				void *buf);
 
 /* From stack.c.  */
-
-extern const char print_entry_values_no[];
-extern const char print_entry_values_only[];
-extern const char print_entry_values_preferred[];
-extern const char print_entry_values_if_needed[];
-extern const char print_entry_values_both[];
-extern const char print_entry_values_compact[];
-extern const char print_entry_values_default[];
-extern const char *print_entry_values;
-
-/* Inferior function parameter value read in from a frame.  */
-
-struct frame_arg
-{
-  /* Symbol for this parameter used for example for its name.  */
-  struct symbol *sym;
-
-  /* Value of the parameter.  It is NULL if ERROR is not NULL; if both VAL and
-     ERROR are NULL this parameter's value should not be printed.  */
-  struct value *val;
-
-  /* String containing the error message, it is more usually NULL indicating no
-     error occured reading this parameter.  */
-  char *error;
-
-  /* One of the print_entry_values_* entries as appropriate specifically for
-     this frame_arg.  It will be different from print_entry_values.  With
-     print_entry_values_no this frame_arg should be printed as a normal
-     parameter.  print_entry_values_only says it should be printed as entry
-     value parameter.  print_entry_values_compact says it should be printed as
-     both as a normal parameter and entry values parameter having the same
-     value - print_entry_values_compact is not permitted fi ui_out_is_mi_like_p
-     (in such case print_entry_values_no and print_entry_values_only is used
-     for each parameter kind specifically.  */
-  const char *entry_kind;
-};
-
-extern void read_frame_arg (struct symbol *sym, struct frame_info *frame,
-			    struct frame_arg *argp,
-			    struct frame_arg *entryargp);
-
 extern void args_info (char *, int);
 
 extern void locals_info (char *, int);
 
-extern void (*deprecated_selected_frame_level_changed_hook) (int);
+extern void (*selected_frame_level_changed_hook) (int);
 
 extern void return_command (char *, int);
 
-/* Set FRAME's unwinder temporarily, so that we can call a sniffer.
-   Return a cleanup which should be called if unwinding fails, and
-   discarded if it succeeds.  */
 
-struct cleanup *frame_prepare_for_sniffer (struct frame_info *frame,
-					   const struct frame_unwind *unwind);
+/* NOTE: cagney/2002-11-27:
 
-/* Notes (cagney/2002-11-27, drow/2003-09-06):
+   You might think that the below global can simply be replaced by a
+   call to either get_selected_frame() or select_frame().
 
-   You might think that calls to this function can simply be replaced by a
-   call to get_selected_frame().
-
-   Unfortunately, it isn't that easy.
+   Unfortunatly, it isn't that easy.
 
    The relevant code needs to be audited to determine if it is
-   possible (or practical) to instead pass the applicable frame in as a
+   possible (or pratical) to instead pass the applicable frame in as a
    parameter.  For instance, DEPRECATED_DO_REGISTERS_INFO() relied on
    the deprecated_selected_frame global, while its replacement,
    PRINT_REGISTERS_INFO(), is parameterized with the selected frame.
-   The only real exceptions occur at the edge (in the CLI code) where
+   The only real exceptions occure at the edge (in the CLI code) where
    user commands need to pick up the selected frame before proceeding.
-
-   There are also some functions called with a NULL frame meaning either "the
-   program is not running" or "use the selected frame".
 
    This is important.  GDB is trying to stamp out the hack:
 
-   saved_frame = deprecated_safe_get_selected_frame ();
-   select_frame (...);
+   saved_frame = deprecated_selected_frame;
+   deprecated_selected_frame = ...;
    hack_using_global_selected_frame ();
-   select_frame (saved_frame);
+   deprecated_selected_frame = saved_frame;
 
-   Take care!
+   Take care!  */
 
-   This function calls get_selected_frame if the inferior should have a
-   frame, or returns NULL otherwise.  */
+extern struct frame_info *deprecated_selected_frame;
 
-extern struct frame_info *deprecated_safe_get_selected_frame (void);
 
 /* Create a frame using the specified BASE and PC.  */
 
 extern struct frame_info *create_new_frame (CORE_ADDR base, CORE_ADDR pc);
 
-/* Return true if the frame unwinder for frame FI is UNWINDER; false
-   otherwise.  */
 
-extern int frame_unwinder_is (struct frame_info *fi,
-			      const struct frame_unwind *unwinder);
+/* Create/access the frame's `extra info'.  The extra info is used by
+   older code to store information such as the analyzed prologue.  The
+   zalloc() should only be called by the INIT_EXTRA_INFO method.  */
+
+extern struct frame_extra_info *frame_extra_info_zalloc (struct frame_info *fi,
+							 long size);
+extern struct frame_extra_info *get_frame_extra_info (struct frame_info *fi);
+
+/* Create/access the frame's `saved_regs'.  The saved regs are used by
+   older code to store the address of each register (except for
+   SP_REGNUM where the value of the register in the previous frame is
+   stored).  */
+extern CORE_ADDR *frame_saved_regs_zalloc (struct frame_info *);
+extern CORE_ADDR *get_frame_saved_regs (struct frame_info *);
+
+/* FIXME: cagney/2002-12-06: Has the PC in the current frame changed?
+   "infrun.c", Thanks to DECR_PC_AFTER_BREAK, can change the PC after
+   the initial frame create.  This puts things back in sync.  */
+extern void deprecated_update_frame_pc_hack (struct frame_info *frame,
+					     CORE_ADDR pc);
+
+/* FIXME: cagney/2002-12-18: Has the frame's base changed?  Or to be
+   more exact, whas that initial guess at the frame's base as returned
+   by read_fp() wrong.  If it was, fix it.  This shouldn't be
+   necessary since the code should be getting the frame's base correct
+   from the outset.  */
+extern void deprecated_update_frame_base_hack (struct frame_info *frame,
+					       CORE_ADDR base);
+
+/* FIXME: cagney/2003-01-04: Explicitly set the frame's saved_regs
+   and/or extra_info.  Target code is allocating a fake frame and than
+   initializing that to get around the problem of, when creating the
+   inner most frame, there is no where to cache information such as
+   the prologue analysis.  This is fixed by the new unwind mechanism -
+   even the inner most frame has somewhere to store things like the
+   prolog analysis (or at least will once the frame overhaul is
+   finished).  */
+extern void deprecated_set_frame_saved_regs_hack (struct frame_info *frame,
+						  CORE_ADDR *saved_regs);
+extern void deprecated_set_frame_extra_info_hack (struct frame_info *frame,
+						  struct frame_extra_info *extra_info);
+
+/* FIXME: cagney/2003-01-04: Allocate a frame from the heap (rather
+   than the frame obstack).  Targets do this as a way of saving the
+   prologue analysis from the inner most frame before that frame has
+   been created.  By always creating a frame, this problem goes away.  */
+extern struct frame_info *deprecated_frame_xmalloc (void);
+
+/* FIXME: cagney/2003-01-05: Allocate a frame, along with the
+   saved_regs and extra_info.  Set up cleanups for all three.  Same as
+   for deprecated_frame_xmalloc, targets are calling this when
+   creating a scratch `struct frame_info'.  The frame overhaul makes
+   this unnecessary since all frame queries are parameterized with a
+   common cache parameter and a frame.  */
+extern struct frame_info *deprecated_frame_xmalloc_with_cleanup (long sizeof_saved_regs,
+								 long sizeof_extra_info);
+
+/* FIXME: cagney/2003-01-07: These are just nasty.  Code shouldn't be
+   doing this.  I suspect it dates back to the days when every field
+   of an allocated structure was explicitly initialized.  */
+extern void deprecated_set_frame_next_hack (struct frame_info *fi,
+					    struct frame_info *next);
+extern void deprecated_set_frame_prev_hack (struct frame_info *fi,
+					    struct frame_info *prev);
+
+/* FIXME: cagney/2003-01-07: Instead of the dwarf2cfi having its own
+   dedicated `struct frame_info . context' field, the code should use
+   the per frame `unwind_cache' that is passed to the
+   frame_pc_unwind(), frame_register_unwind() and frame_id_unwind()
+   methods.
+
+   See "dummy-frame.c" for an example of how a cfi-frame object can be
+   implemented using this.  */
+extern struct context *deprecated_get_frame_context (struct frame_info *fi);
+extern void deprecated_set_frame_context (struct frame_info *fi,
+					  struct context *context);
 
 #endif /* !defined (FRAME_H)  */
