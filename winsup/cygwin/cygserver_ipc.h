@@ -1,6 +1,8 @@
 /* cygserver_ipc.h
 
-   Copyright 2002, 2003, 2004, 2012 Red Hat, Inc.
+   Copyright 2002 Red Hat, Inc.
+
+   Originally written by Conrad Scott <conrad.scott@dsl.pipex.com>
 
 This file is part of Cygwin.
 
@@ -11,75 +13,59 @@ details. */
 #ifndef __CYGSERVER_IPC_H__
 #define __CYGSERVER_IPC_H__
 
+#include <limits.h>		/* For OPEN_MAX. */
+
 /*
- * Datastructure which is part of any IPC input parameter block.
+ * The sysv ipc id's (msgid, semid, shmid) are small integers arranged
+ * such that they no subsystem will generate the same id as some other
+ * subsystem, and nor do these ids overlap file descriptors (the other
+ * common small integer ids).  Since Cygwin can allocate more than
+ * OPEN_MAX file descriptor, it can't be guarenteed not to overlap,
+ * but it should help catch some errors.
+ *
+ * msgid's: OPEN_MAX,     OPEN_MAX + 3, OPEN_MAX + 6, . . .
+ * semid's: OPEN_MAX + 1, OPEN_MAX + 4, OPEN_MAX + 7, . . . 
+ * shmid's: OPEN_MAX + 2, OPEN_MAX + 5, OPEN_MAX + 8, . . . 
+ *
+ * Internal ipc id's, which are 0, 1, ... within each subsystem, are
+ * used solely by the ipcs(8) interface.
  */
-struct vmspace {
-  void *vm_map;			/* UNUSED */
-  struct shmmap_state *vm_shm;
+
+enum ipc_subsys_t {
+  IPC_MSGOP = 0,
+  IPC_SEMOP = 1,
+  IPC_SHMOP = 2,
+  IPC_SUBSYS_COUNT
 };
 
-struct proc {
-  pid_t cygpid;
-  DWORD winpid;
-  __uid32_t uid;
-  __gid32_t gid;
-  int gidcnt;
-  __gid32_t *gidlist;
-  bool is_admin;
-  struct vmspace *p_vmspace;
-  HANDLE signal_arrived;
-};
-
-#ifdef __INSIDE_CYGWIN__
-#include "sigproc.h"
-extern inline void
-ipc_set_proc_info (proc &blk)
+inline int
+ipc_int2ext (const int id, const ipc_subsys_t subsys)
 {
-  blk.cygpid = getpid ();
-  blk.winpid = GetCurrentProcessId ();
-  blk.uid = geteuid32 ();
-  blk.gid = getegid32 ();
-  blk.gidcnt = 0;
-  blk.gidlist = NULL;
-  blk.is_admin = false;
-  _my_tls.set_signal_arrived (true, blk.signal_arrived);
+  return OPEN_MAX + (id * IPC_SUBSYS_COUNT) + subsys;
 }
-#endif /* __INSIDE_CYGWIN__ */
 
-#ifndef __INSIDE_CYGWIN__
-class ipc_retval {
-private:
-  union {
-    int i;
-    unsigned int u;
-    vm_offset_t off;
-    vm_object_t obj;
-  };
+inline int
+ipc_ext2int (const int id)
+{
+  return (id - OPEN_MAX) / IPC_SUBSYS_COUNT;
+}
 
-public:
-  ipc_retval (int ni) { i = ni; }
+inline int
+ipc_ext2int_subsys (const int id)
+{
+  return (id - OPEN_MAX) % IPC_SUBSYS_COUNT;
+}
 
-  operator int () const { return i; }
-  int operator = (int ni) { return i = ni; }
+inline int
+ipc_inc_id (const int id, const ipc_subsys_t subsys)
+{
+  return id + IPC_SUBSYS_COUNT;
+}
 
-  operator unsigned int () const { return u; }
-  unsigned int operator = (unsigned int nu) { return u = nu; }
-
-  operator vm_offset_t () const { return off; }
-  vm_offset_t operator = (vm_offset_t noff) { return off = noff; }
-
-  operator vm_object_t () const { return obj; }
-  vm_object_t operator = (vm_object_t nobj) { return obj = nobj; }
-};
-
-struct thread {
-  class process *client;
-  proc *ipcblk;
-  ipc_retval td_retval[2];
-};
-#define td_proc ipcblk
-#define p_pid cygpid
-#endif
+inline int
+ipc_dec_id (const int id, const ipc_subsys_t subsys)
+{
+  return id - IPC_SUBSYS_COUNT;
+}
 
 #endif /* __CYGSERVER_IPC_H__ */
