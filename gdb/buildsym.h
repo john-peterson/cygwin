@@ -1,11 +1,12 @@
 /* Build symbol tables in GDB's internal format.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1995, 1996,
+   1997, 1998, 1999, 2000 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,14 +15,12 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #if !defined (BUILDSYM_H)
 #define BUILDSYM_H 1
-
-struct objfile;
-struct symbol;
-struct addrmap;
 
 /* This module provides definitions used for creating and adding to
    the symbol table.  These routines are called from various symbol-
@@ -35,19 +34,20 @@ struct addrmap;
    normally extern, but which get defined in a single module using
    this technique.  */
 
-struct block;
-struct pending_block;
-
 #ifndef EXTERN
 #define	EXTERN extern
 #endif
 
 #define HASHSIZE 127		/* Size of things hashed via
-				   hashname().  */
+				   hashname() */
+
+/* Name of source file whose symbol data we are now processing.  This
+   comes from a symbol of type N_SO. */
+
+EXTERN char *last_source_file;
 
 /* Core address of start of text of current source file.  This too
-   comes from the N_SO symbol.  For Dwarf it typically comes from the
-   DW_AT_low_pc attribute of a DW_TAG_compile_unit DIE.  */
+   comes from the N_SO symbol. */
 
 EXTERN CORE_ADDR last_source_start_addr;
 
@@ -63,10 +63,10 @@ struct subfile
     struct linetable *line_vector;
     int line_vector_length;
     enum language language;
-    const char *producer;
-    const char *debugformat;
-    struct symtab *symtab;
+    char *debugformat;
   };
+
+EXTERN struct subfile *subfiles;
 
 EXTERN struct subfile *current_subfile;
 
@@ -82,6 +82,22 @@ EXTERN unsigned char processing_gcc_compilation;
    compatible.  */
 
 EXTERN unsigned char processing_acc_compilation;
+
+/* elz: added this flag to know when a block is compiled with HP
+   compilers (cc, aCC). This is necessary because of the macro
+   COERCE_FLOAT_TO_DOUBLE defined in tm_hppa.h, which causes a
+   coercion of float to double to always occur in parameter passing
+   for a function called by gdb (see the function value_arg_coerce in
+   valops.c). This is necessary only if the target was compiled with
+   gcc, not with HP compilers or with g++ */
+
+EXTERN unsigned char processing_hp_compilation;
+
+/* When set, the file that we're processing seems to have debugging
+   info for C++ namespaces, so buildsym.c shouldn't try to guess
+   namespace info itself.  */
+
+EXTERN unsigned char processing_has_namespace_info;
 
 /* Count symbols as they are processed, for error messages.  */
 
@@ -114,9 +130,9 @@ EXTERN struct pending *global_symbols;
 
 EXTERN struct pending *local_symbols;
 
-/* "using" directives local to lexical context.  */
+/* func params local to lexical  context */
 
-EXTERN struct using_direct *using_directives;
+EXTERN struct pending *param_symbols;
 
 /* Stack representing unclosed lexical contexts (that will become
    blocks, eventually).  */
@@ -127,9 +143,9 @@ struct context_stack
 
     struct pending *locals;
 
-    /* Pending using directives at the time we entered.  */
+    /* Pending func params at the time we entered */
 
-    struct using_direct *using_directives;
+    struct pending *params;
 
     /* Pointer into blocklist as of entry */
 
@@ -143,7 +159,7 @@ struct context_stack
 
     CORE_ADDR start_addr;
 
-    /* Temp slot for exception handling.  */
+    /* Temp slot for exception handling. */
 
     CORE_ADDR end_addr;
 
@@ -163,14 +179,32 @@ EXTERN int context_stack_depth;
 
 EXTERN int context_stack_size;
 
-/* Non-zero if the context stack is empty.  */
-#define outermost_context_p() (context_stack_depth == 0)
+/* Macro "function" for popping contexts from the stack.  Pushing is
+   done by a real function, push_context.  This returns a pointer to a
+   struct context_stack.  */
+
+#define	pop_context() (&context_stack[--context_stack_depth]);
 
 /* Nonzero if within a function (so symbols should be local, if
    nothing says specifically).  */
 
 EXTERN int within_function;
 
+/* List of blocks already made (lexical contexts already closed).
+   This is used at the end to make the blockvector.  */
+
+struct pending_block
+  {
+    struct pending_block *next;
+    struct block *block;
+  };
+
+/* Pointer to the head of a linked list of symbol blocks which have
+   already been finalized (lexical contexts already closed) and which
+   are just waiting to be built into a blockvector when finalizing the
+   associated symtab. */
+
+EXTERN struct pending_block *pending_blocks;
 
 
 struct subfile_stack
@@ -183,7 +217,7 @@ EXTERN struct subfile_stack *subfile_stack;
 
 #define next_symbol_text(objfile) (*next_symbol_text_func)(objfile)
 
-/* Function to invoke get the next symbol.  Return the symbol name.  */
+/* Function to invoke get the next symbol.  Return the symbol name. */
 
 EXTERN char *(*next_symbol_text_func) (struct objfile *);
 
@@ -204,24 +238,26 @@ EXTERN int type_vector_length;
 
 #define	INITIAL_TYPE_VECTOR_LENGTH	160
 
+extern void add_free_pendings (struct pending *list);
+
 extern void add_symbol_to_list (struct symbol *symbol,
 				struct pending **listhead);
 
 extern struct symbol *find_symbol_in_list (struct pending *list,
 					   char *name, int length);
 
-extern struct block *finish_block (struct symbol *symbol,
-                                   struct pending **listhead,
-                                   struct pending_block *old_blocks,
-                                   CORE_ADDR start, CORE_ADDR end,
-                                   struct objfile *objfile);
+extern void add_using_directive (const char *name, unsigned int outer_length,
+				 unsigned int inner_length);
 
-extern void record_block_range (struct block *,
-                                CORE_ADDR start, CORE_ADDR end_inclusive);
+extern void finish_block (struct symbol *symbol,
+			  struct pending **listhead,
+			  struct pending_block *old_blocks,
+			  CORE_ADDR start, CORE_ADDR end,
+			  struct objfile *objfile);
 
-extern void really_free_pendings (void *dummy);
+extern void really_free_pendings (PTR dummy);
 
-extern void start_subfile (const char *name, const char *dirname);
+extern void start_subfile (char *name, char *dirname);
 
 extern void patch_subfile_names (struct subfile *subfile, char *name);
 
@@ -229,25 +265,8 @@ extern void push_subfile (void);
 
 extern char *pop_subfile (void);
 
-extern struct block *end_symtab_get_static_block (CORE_ADDR end_addr,
-						  struct objfile *objfile,
-						  int expandable,
-						  int required);
-
-extern struct symtab *end_symtab_from_static_block (struct block *static_block,
-						    struct objfile *objfile,
-						    int section,
-						    int expandable);
-
 extern struct symtab *end_symtab (CORE_ADDR end_addr,
 				  struct objfile *objfile, int section);
-
-extern struct symtab *end_expandable_symtab (CORE_ADDR end_addr,
-					     struct objfile *objfile,
-					     int section);
-
-extern void augment_type_symtab (struct objfile *objfile,
-				 struct symtab *primary_symtab);
 
 /* Defined in stabsread.c.  */
 
@@ -259,46 +278,35 @@ extern void buildsym_init (void);
 
 extern struct context_stack *push_context (int desc, CORE_ADDR valu);
 
-extern struct context_stack *pop_context (void);
-
 extern void record_line (struct subfile *subfile, int line, CORE_ADDR pc);
 
-extern void start_symtab (const char *name, const char *dirname,
-			  CORE_ADDR start_addr);
+extern void start_symtab (char *name, char *dirname, CORE_ADDR start_addr);
 
-extern void restart_symtab (CORE_ADDR start_addr);
-
-extern int hashname (const char *name);
+extern int hashname (char *name);
 
 extern void free_pending_blocks (void);
 
-/* Record the name of the debug format in the current pending symbol
-   table.  FORMAT must be a string with a lifetime at least as long as
-   the symtab's objfile.  */
+/* OBSOLETE FIXME: Note that this is used only in buildsym.c and dstread.c, */
+/* OBSOLETE which should be fixed to not need direct access to */
+/* OBSOLETE make_blockvector. */
 
-extern void record_debugformat (const char *format);
+/* OBSOLETE extern struct blockvector *make_blockvector (struct objfile *objfile); */
 
-/* Record the name of the debuginfo producer (usually the compiler) in
-   the current pending symbol table.  PRODUCER must be a string with a
-   lifetime at least as long as the symtab's objfile.  */
+/* FIXME: Note that this is used only in buildsym.c and dstread.c,
+   which should be fixed to not need direct access to
+   record_pending_block. */
 
-extern void record_producer (const char *producer);
+extern void record_pending_block (struct objfile *objfile,
+				  struct block *block,
+				  struct pending_block *opblock);
+
+extern void record_debugformat (char *format);
 
 extern void merge_symbol_lists (struct pending **srclist,
 				struct pending **targetlist);
 
-/* Set the name of the last source file.  NAME is copied by this
-   function.  */
-
-extern void set_last_source_file (const char *name);
-
-/* Fetch the name of the last source file.  */
-
-extern const char *get_last_source_file (void);
-
 /* The macro table for the compilation unit whose symbols we're
-   currently reading.  All the symtabs for this CU will point to
-   this.  */
+   currently reading.  All the symtabs for this CU will point to this.  */
 EXTERN struct macro_table *pending_macros;
 
 #undef EXTERN
