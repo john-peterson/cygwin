@@ -164,7 +164,7 @@ ${RELOCATING-/* Linker script for 68HC11 object file (ld -r).  */}
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+${EXECUTABLE_SYMBOLS}}
@@ -328,11 +328,6 @@ SECTIONS
     KEEP (*(.eh_frame))
   } ${RELOCATING+ > ${TEXT_MEMORY}}
 
-  .gcc_except_table ${RELOCATING-0} :
-  {
-    *(.gcc_except_table)
-  } ${RELOCATING+ > ${TEXT_MEMORY}}
-
   .rodata  ${RELOCATING-0} :
   {
     *(.rodata)
@@ -456,12 +451,5 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 }
 EOF

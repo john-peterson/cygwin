@@ -87,7 +87,6 @@ MEMORY
   page0 (rwx) : ORIGIN = 0x0, LENGTH = 256
   text  (rx)  : ORIGIN = ${ROM_START_ADDR}, LENGTH = ${ROM_SIZE}
   data        : ORIGIN = ${RAM_START_ADDR}, LENGTH = ${RAM_SIZE}
-  eeprom      : ORIGIN = ${EEPROM_START_ADDR}, LENGTH = ${EEPROM_SIZE}
 }
 
 /* Setup the stack on the top of the data memory bank.  */
@@ -164,7 +163,7 @@ ${RELOCATING-/* Linker script for 68HC12 object file (ld -r).  */}
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+${EXECUTABLE_SYMBOLS}}
@@ -319,17 +318,12 @@ SECTIONS
 
     ${RELOCATING+_etext = .;}
     ${RELOCATING+PROVIDE (etext = .);}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xa7a7a7a7}
+
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .eh_frame ${RELOCATING-0} :
   {
     KEEP (*(.eh_frame))
-  } ${RELOCATING+ > ${TEXT_MEMORY}}
-
-  .gcc_except_table ${RELOCATING-0} :
-  {
-    *(.gcc_except_table)
   } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .rodata  ${RELOCATING-0} :
@@ -337,14 +331,12 @@ SECTIONS
     *(.rodata)
     ${RELOCATING+*(.rodata.*)}
     ${RELOCATING+*(.gnu.linkonce.r*)}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .rodata1 ${RELOCATING-0} :
   {
     *(.rodata1)
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   /* Constructor and destructor tables are in ROM.  */
   ${RELOCATING+${CTOR}}
@@ -378,8 +370,7 @@ SECTIONS
 
     ${RELOCATING+_edata  =  .;}
     ${RELOCATING+PROVIDE (edata = .);}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${DATA_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${DATA_MEMORY}}
 
   ${RELOCATING+__data_section_size = SIZEOF(.data);}
   ${RELOCATING+PROVIDE (__data_section_size = SIZEOF(.data));}
@@ -459,12 +450,5 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 }
 EOF
