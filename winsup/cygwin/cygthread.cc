@@ -1,65 +1,38 @@
 /* cygthread.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009,
-   2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
+#include <windows.h>
 #include <stdlib.h>
+#include "exceptions.h"
+#include "security.h"
+#include "cygthread.h"
+#include "sync.h"
+#include "cygerrno.h"
 #include "sigproc.h"
+#include "thread.h"
 #include "cygtls.h"
-#include "ntdll.h"
 
 #undef CloseHandle
 
-static cygthread NO_COPY threads[64];
+static cygthread NO_COPY threads[128];
 #define NTHREADS (sizeof (threads) / sizeof (threads[0]))
 
 DWORD NO_COPY cygthread::main_thread_id;
 bool NO_COPY cygthread::exiting;
 
-void
-cygthread::callfunc (bool issimplestub)
-{
-  void *pass_arg;
-  if (arg == cygself)
-    pass_arg = this;
-  else if (!arglen)
-    pass_arg = arg;
-  else
-    {
-      if (issimplestub)
-	ev = CreateEvent (&sec_none_nih, TRUE, FALSE, NULL);
-      pass_arg = alloca (arglen);
-      memcpy (pass_arg, arg, arglen);
-      SetEvent (ev);
-    }
-  if (issimplestub)
-    {
-      /* Wait for main thread to assign 'h' */
-      while (!h)
-	yield ();
-      if (ev)
-	CloseHandle (ev);
-      ev = h;
-    }
-  /* Cygwin threads should not call ExitThread directly */
-  func (pass_arg);
-  /* ...so the above should always return */
-}
-
 /* Initial stub called by cygthread constructor. Performs initial
-   per-thread initialization and loops waiting for another thread function
+   per-thread initialization and loops waiting for new thread functions
    to execute.  */
 DWORD WINAPI
 cygthread::stub (VOID *arg)
 {
   cygthread *info = (cygthread *) arg;
-  _my_tls._ctinfo = info;
   if (info->arg == cygself)
     {
       if (info->ev)
@@ -72,7 +45,6 @@ cygthread::stub (VOID *arg)
   else
     {
       info->stack_ptr = &arg;
-      debug_printf ("thread '%s', id %p, stack_ptr %p", info->name (), info->id, info->stack_ptr);
       if (!info->ev)
 	{
 	  info->ev = CreateEvent (&sec_none_nih, TRUE, FALSE, NULL);
@@ -83,33 +55,21 @@ cygthread::stub (VOID *arg)
   while (1)
     {
       if (!info->__name)
-#ifdef DEBUGGING
-	system_printf ("erroneous thread activation, name is NULL prev thread name = '%s'", info->__oldname);
-#else
-	system_printf ("erroneous thread activation, name is NULL");
-#endif
+	system_printf ("erroneous thread activation");
       else
 	{
-	  info->callfunc (false);
+	  if (!info->func || exiting)
+	    return 0;
 
-	  HANDLE notify = info->notify_detached;
-	  /* If func is NULL, the above function has set that to indicate
-	     that it doesn't want to alert anyone with a SetEvent and should
-	     just be marked as no longer inuse.  Hopefully the function knows
-	     what it is doing.  */
-	  if (!info->func)
-	    info->release (false);
-	  else
-	    {
+	  /* Cygwin threads should not call ExitThread directly */
+	  info->func (info->arg == cygself ? info : info->arg);
+	  /* ...so the above should always return */
+
 #ifdef DEBUGGING
-	      info->func = NULL;	// catch erroneous activation
-	      info->__oldname = info->__name;
+	  info->func = NULL;	// catch erroneous activation
 #endif
-	      info->__name = NULL;
-	      SetEvent (info->ev);
-	    }
-	  if (notify)
-	    SetEvent (notify);
+	  info->__name = NULL;
+	  SetEvent (info->ev);
 	}
       switch (WaitForSingleObject (info->thread_sync, INFINITE))
 	{
@@ -128,12 +88,9 @@ DWORD WINAPI
 cygthread::simplestub (VOID *arg)
 {
   cygthread *info = (cygthread *) arg;
-  _my_tls._ctinfo = info;
   info->stack_ptr = &arg;
-  HANDLE notify = info->notify_detached;
-  info->callfunc (true);
-  if (notify)
-     SetEvent (notify);
+  info->ev = info->h;
+  info->func (info->arg == cygself ? info : info->arg);
   return 0;
 }
 
@@ -165,16 +122,17 @@ new (size_t)
 	/* available */
 #ifdef DEBUGGING
 	if (info->__name)
-	  api_fatal ("name not NULL? %s, id %p, i %d", info->__name, info->id, info - threads);
+	  api_fatal ("name not NULL? id %p, i %d", info->id, info - threads);
 #endif
 	goto out;
       }
 
 #ifdef DEBUGGING
-  if (!getenv ("CYGWIN_FREERANGE_NOCHECK"))
-    api_fatal ("overflowed cygwin thread pool");
+  char buf[1024];
+  if (!GetEnvironmentVariable ("CYGWIN_FREERANGE_NOCHECK", buf, sizeof (buf)))
+    api_fatal ("Overflowed cygwin thread pool");
   else
-    thread_printf ("overflowed cygwin thread pool");
+    thread_printf ("Overflowed cygwin thread pool");
 #endif
 
   info = freerange ();	/* exhausted thread pool */
@@ -183,53 +141,27 @@ out:
   return info;
 }
 
-/* This function is called via QueueUserAPC.  Apparently creating threads
-   asynchronously is a huge performance win on Win64.  */
-void CALLBACK
-cygthread::async_create (ULONG_PTR arg)
+cygthread::cygthread (LPTHREAD_START_ROUTINE start, LPVOID param,
+		      const char *name): __name (name),
+					 func (start), arg (param)
 {
-  cygthread *that = (cygthread *) arg;
-  that->create ();
-  ::SetThreadPriority (that->h, THREAD_PRIORITY_HIGHEST);
-  that->zap_h ();
-}
-
-void
-cygthread::create ()
-{
-  thread_printf ("name %s, id %p, this %p", __name, id, this);
-  HANDLE htobe;
+  thread_printf ("name %s, id %p", name, id);
   if (h)
     {
-      if (ev)
-	ResetEvent (ev);
       while (!thread_sync)
-	yield ();
+	low_priority_sleep (0);
       SetEvent (thread_sync);
-      thread_printf ("activated name '%s', thread_sync %p for id %p", __name, thread_sync, id);
-      htobe = h;
+      thread_printf ("activated thread_sync %p", thread_sync);
     }
   else
     {
       stack_ptr = NULL;
-      htobe = CreateThread (&sec_none_nih, 0, is_freerange ? simplestub : stub,
-			    this, 0, &id);
-      if (!htobe)
-	api_fatal ("CreateThread failed for %s - %p<%p>, %E", __name, h, id);
-      thread_printf ("created name '%s', thread %p, id %p", __name, h, id);
-#ifdef DEBUGGING
-      terminated = false;
-#endif
+      h = CreateThread (&sec_none_nih, 0, is_freerange ? simplestub : stub,
+			this, 0, &id);
+      if (!h)
+	api_fatal ("thread handle not set - %p<%p>, %E", h, id);
+      thread_printf ("created thread %p", h);
     }
-
-  if (arglen)
-    {
-      while (!ev)
-	yield ();
-      WaitForSingleObject (ev, INFINITE);
-      ResetEvent (ev);
-    }
-  h = htobe;
 }
 
 /* Return the symbolic name of the current thread for debugging.
@@ -251,15 +183,13 @@ cygthread::name (DWORD tid)
 	break;
       }
 
-  if (res)
-    /* ok */;
-  else if (!_main_tls)
-    res = "main";
-  else
+  if (!res)
     {
-      __small_sprintf (_my_tls.locals.unknown_thread_name, "unknown (%p)", tid);
-      res = _my_tls.locals.unknown_thread_name;
+      static char buf[30] NO_COPY = {0};
+      __small_sprintf (buf, "unknown (%p)", tid);
+      res = buf;
     }
+
   return res;
 }
 
@@ -267,55 +197,39 @@ cygthread::operator
 HANDLE ()
 {
   while (!ev)
-    yield ();
+    low_priority_sleep (0);
   return ev;
 }
 
+/* Should only be called when the process is exiting since it
+   leaves an open thread slot. */
 void
-cygthread::release (bool nuke_h)
+cygthread::exit_thread ()
 {
-  if (nuke_h)
-    h = NULL;
-#ifdef DEBUGGING
-  __oldname = __name;
-  debug_printf ("released thread '%s'", __oldname);
-#endif
-  __name = NULL;
-  func = NULL;
-  /* Must be last */
-  if (!InterlockedExchange (&inuse, 0))
-#ifdef DEBUGGING
-    api_fatal ("released a thread that was not inuse");
-#else
-    system_printf ("released a thread that was not inuse");
-#endif
+  if (!is_freerange)
+    SetEvent (*this);
+  ExitThread (0);
 }
 
 /* Forcibly terminate a thread. */
-bool
+void
 cygthread::terminate_thread ()
 {
-  bool terminated = true;
-  debug_printf ("thread '%s', id %p, inuse %d, stack_ptr %p", __name, id, inuse, stack_ptr);
-  while (inuse && !stack_ptr)
-    yield ();
-
-  if (!inuse)
-    goto force_notterminated;
-
-  TerminateThread (h, 0);
-  WaitForSingleObject (h, INFINITE);
+  if (!is_freerange)
+    {
+      ResetEvent (*this);
+      ResetEvent (thread_sync);
+    }
+  (void) TerminateThread (h, 0);
+  (void) WaitForSingleObject (h, INFINITE);
   CloseHandle (h);
 
-  if (!inuse || exiting)
-    goto force_notterminated;
-
-  if (ev && !(terminated = !IsEventSignalled (ev)))
-    ResetEvent (ev);
+  while (!stack_ptr)
+    low_priority_sleep (0);
 
   MEMORY_BASIC_INFORMATION m;
   memset (&m, 0, sizeof (m));
-  VirtualQuery (stack_ptr, &m, sizeof m);
+  (void) VirtualQuery (stack_ptr, &m, sizeof m);
 
   if (!m.RegionSize)
     system_printf ("m.RegionSize 0?  stack_ptr %p", stack_ptr);
@@ -327,18 +241,11 @@ cygthread::terminate_thread ()
     free (this);
   else
     {
-#ifdef DEBUGGING
-      terminated = true;
-#endif
-      release (true);
+      h = NULL;
+      __name = NULL;
+      stack_ptr = NULL;
+      (void) InterlockedExchange (&inuse, 0); /* No longer in use */
     }
-
-  goto out;
-
-force_notterminated:
-  terminated = false;
-out:
-  return terminated;
 }
 
 /* Detach the cygthread from the current thread.  Note that the
@@ -349,7 +256,6 @@ bool
 cygthread::detach (HANDLE sigwait)
 {
   bool signalled = false;
-  bool thread_was_reset = false;
   if (!inuse)
     system_printf ("called detach but inuse %d, thread %p?", inuse, id);
   else
@@ -357,79 +263,33 @@ cygthread::detach (HANDLE sigwait)
       DWORD res;
 
       if (!sigwait)
-	/* If the caller specified a special handle for notification, wait for that.
-	   This assumes that the thread in question is auto releasing. */
 	res = WaitForSingleObject (*this, INFINITE);
       else
 	{
-	  /* Lower our priority and give priority to the read thread */
-	  HANDLE hth = GetCurrentThread ();
-	  LONG prio = GetThreadPriority (hth);
-	  ::SetThreadPriority (hth, THREAD_PRIORITY_BELOW_NORMAL);
-
 	  HANDLE w4[2];
-	  unsigned n = 2;
-	  DWORD howlong = INFINITE;
-	  w4[0] = sigwait;
-	  set_signal_arrived here (w4[1]);
-	  /* For a description of the below loop see the end of this file */
-	  for (int i = 0; i < 2; i++)
-	    switch (res = WaitForMultipleObjects (n, w4, FALSE, howlong))
-	      {
-	      case WAIT_OBJECT_0:
-		if (n == 1)
-		  howlong = 50;
-		break;
-	      case WAIT_OBJECT_0 + 1:
-		n = 1;
-		if (i--)
-		  howlong = 50;
-		break;
-	      case WAIT_TIMEOUT:
-		break;
-	      default:
-		if (!exiting)
-		  {
-		    system_printf ("WFMO failed waiting for cygthread '%s', %E", __name);
-		    for (unsigned j = 0; j < n; j++)
-		      switch (WaitForSingleObject (w4[j], 0))
-			{
-			case WAIT_OBJECT_0:
-			case WAIT_TIMEOUT:
-			  break;
-			default:
-			  system_printf ("%s handle %p is bad", (j ? "signal_arrived" : "semaphore"), w4[j]);
-			  break;
-			}
-		    api_fatal ("exiting on fatal error");
-		  }
-		break;
-	      }
-	  /* WAIT_OBJECT_0 means that the thread successfully read something,
-	     so wait for the cygthread to "terminate". */
+	  w4[0] = *this;
+	  w4[1] = signal_arrived;
+	  res = WaitForSingleObject (sigwait, INFINITE);
+	  if (res != WAIT_OBJECT_0)
+	    system_printf ("WFSO sigwait %p failed, res %u, %E", sigwait, res);
+	  res = WaitForMultipleObjects (2, w4, FALSE, INFINITE);
 	  if (res == WAIT_OBJECT_0)
-	    WaitForSingleObject (*this, INFINITE);
-	  else
+	    /* nothing */;
+	  else if (WaitForSingleObject (sigwait, 0) == WAIT_OBJECT_0)
+	    res = WaitForSingleObject (*this, INFINITE);
+	  else if ((res = WaitForSingleObject (*this, 0)) != WAIT_OBJECT_0)
 	    {
-	      /* Thread didn't terminate on its own, so maybe we have to
-		 do it. */
-	      signalled = terminate_thread ();
-	      /* Possibly the thread completed *just* before it was
-		 terminated.  Detect this. If this happened then the
-		 read was not terminated on a signal. */
-	      if (WaitForSingleObject (sigwait, 0) == WAIT_OBJECT_0)
-		signalled = false;
-	      if (signalled)
-		set_sig_errno (EINTR);
-	      thread_was_reset = true;
+	      signalled = true;
+	      terminate_thread ();
+	      set_sig_errno (EINTR);	/* caller should be dealing with return
+					   values. */
 	    }
-	  ::SetThreadPriority (hth, prio);
 	}
 
       thread_printf ("%s returns %d, id %p", sigwait ? "WFMO" : "WFSO",
 		     res, id);
 
-      if (thread_was_reset)
+      if (signalled)
 	/* already handled */;
       else if (is_freerange)
 	{
@@ -440,7 +300,7 @@ cygthread::detach (HANDLE sigwait)
 	{
 	  ResetEvent (*this);
 	  /* Mark the thread as available by setting inuse to zero */
-	  InterlockedExchange (&inuse, 0);
+	  (void) InterlockedExchange (&inuse, 0);
 	}
     }
   return signalled;
@@ -451,71 +311,3 @@ cygthread::terminate ()
 {
   exiting = 1;
 }
-
-/* The below is an explanation of synchronization loop in cygthread::detach.
-   The intent is that the loop will always try hard to wait for both
-   synchronization events from the reader thread but will exit with
-   res == WAIT_TIMEOUT if a signal occurred and the reader thread is
-   still blocked.
-
-    case 0 - no signal
-
-    i == 0 (howlong == INFINITE)
-	W0 activated
-	howlong not set because n != 1
-	just loop
-
-    i == 1 (howlong == INFINITE)
-	W0 activated
-	howlong not set because n != 1
-	just loop (to exit loop) - no signal
-
-    i == 2 (howlong == INFINITE)
-	exit loop
-
-    case 1 - signal before thread initialized
-
-    i == 0 (howlong == INFINITE)
-	WO + 1 activated
-	n set to 1
-	howlong untouched because i-- == 0
-	loop
-
-    i == 0 (howlong == INFINITE)
-	W0 must be activated
-	howlong set to 50 because n == 1
-
-    i == 1 (howlong == 50)
-	W0 activated
-	loop (to exit loop) - no signal
-
-	WAIT_TIMEOUT activated
-	signal potentially detected
-	loop (to exit loop)
-
-    i == 2 (howlong == 50)
-	exit loop
-
-    case 2 - signal after thread initialized
-
-    i == 0 (howlong == INFINITE)
-	W0 activated
-	howlong not set because n != 1
-	loop
-
-    i == 1 (howlong == INFINITE)
-	W0 + 1 activated
-	n set to 1
-	howlong set to 50 because i-- != 0
-	loop
-
-    i == 1 (howlong == 50)
-	W0 activated
-	loop (to exit loop) - no signal
-
-	WAIT_TIMEOUT activated
-	loop (to exit loop) - signal
-
-    i == 2 (howlong == 50)
-	exit loop
-*/

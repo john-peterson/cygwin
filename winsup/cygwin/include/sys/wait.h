@@ -1,7 +1,6 @@
 /* sys/wait.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2006, 2011, 2012 Red
-   Hat, Inc.
+   Copyright 1997, 1998, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -14,40 +13,35 @@ details. */
 
 #include <sys/types.h>
 #include <sys/resource.h>
-#include <cygwin/wait.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef __INSIDE_CYGWIN__
+#define WNOHANG 1
+#define WUNTRACED 2
 
-typedef int *__wait_status_ptr_t;
+/* A status looks like:
+      <2 bytes info> <2 bytes code>
 
-#elif defined(__cplusplus)
+      <code> == 0, child has exited, info is the exit value
+      <code> == 1..7e, child has exited, info is the signal number.
+      <code> == 7f, child has stopped, info was the signal number.
+      <code> == 80, there was a core dump.
+*/
 
-/* Attribute __transparent_union__ is only supported for C.  */
-typedef void *__wait_status_ptr_t;
+#define WIFEXITED(w)	(((w) & 0xff) == 0)
+#define WIFSIGNALED(w)	(((w) & 0x7f) > 0 && (((w) & 0x7f) < 0x7f))
+#define WIFSTOPPED(w)	(((w) & 0xff) == 0x7f)
+#define WEXITSTATUS(w)	(((w) >> 8) & 0xff)
+#define WTERMSIG(w)	((w) & 0x7f)
+#define WSTOPSIG	WEXITSTATUS
+#define WCOREDUMP(w)	(WIFSIGNALED(w) && (w & 0x80))
 
-#else /* !__INSIDE_CYGWIN__ && !__cplusplus */
-
-/* Allow `int' and `union wait' for the status.  */
-typedef union
-  {
-    int *__int_ptr;
-    union wait *__union_wait_ptr;
-  } __wait_status_ptr_t  __attribute__ ((__transparent_union__));
-
-#endif /* __INSIDE_CYGWIN__ */
-
-pid_t wait (__wait_status_ptr_t __status);
-pid_t waitpid (pid_t __pid, __wait_status_ptr_t __status, int __options);
-pid_t wait3 (__wait_status_ptr_t __status, int __options, struct rusage *__rusage);
-pid_t wait4 (pid_t __pid, __wait_status_ptr_t __status, int __options, struct rusage *__rusage);
-
-#ifdef _COMPILING_NEWLIB
-pid_t _wait (__wait_status_ptr_t __status);
-#endif
+pid_t wait (int *);
+pid_t waitpid (pid_t, int *, int);
+pid_t wait3 (int *__status, int __options, struct rusage *__rusage);
+pid_t wait4 (pid_t __pid, int *__status, int __options, struct rusage *__rusage);
 
 union wait
   {
@@ -65,7 +59,8 @@ union wait
 	unsigned int __w_stopsig:8; /* Stopping signal.  */
 	unsigned int:16;
       } __wait_stopped;
-  }; 
+  };
+
 #define	w_termsig	__wait_terminated.__w_termsig
 #define	w_coredump	__wait_terminated.__w_coredump
 #define	w_retcode	__wait_terminated.__w_retcode
@@ -73,26 +68,7 @@ union wait
 #define	w_stopval	__wait_stopped.__w_stopval
 
 #ifdef __cplusplus
-}
+};
 #endif
 
-/* Used in cygwin/wait.h, redefine to accept `int' and `union wait'.  */
-#undef __wait_status_to_int
-
-#ifdef __cplusplus
-
-extern "C++" {
-inline int __wait_status_to_int (int __status)
-  { return __status; }
-inline int __wait_status_to_int (const union wait & __status)
-  { return __status.w_status; }
-}
-
-#else /* !__cplusplus */
-
-#define __wait_status_to_int(__status)  (__extension__ \
-  (((union { __typeof(__status) __in; int __out; }) { .__in = (__status) }).__out))
-
-#endif /* __cplusplus */
-
-#endif /* _SYS_WAIT_H */
+#endif

@@ -1,7 +1,6 @@
 /* exceptions.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,39 +8,52 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#define CYGTLS_HANDLE
 #include "winsup.h"
-#include "miscfuncs.h"
-#include <wingdi.h>
-#include <winuser.h>
 #include <imagehlp.h>
 #include <stdlib.h>
-#include <syslog.h>
-#include <wchar.h>
+#include <setjmp.h>
+#include <assert.h>
 
-#include "cygtls.h"
+#include "exceptions.h"
+#include "sync.h"
 #include "pinfo.h"
+#include "cygtls.h"
 #include "sigproc.h"
+#include "cygerrno.h"
+#define NEED_VFORK
+#include "perthread.h"
 #include "shared_info.h"
 #include "perprocess.h"
-#include "path.h"
-#include "fhandler.h"
-#include "dtable.h"
-#include "cygheap.h"
-#include "child_info.h"
-#include "ntdll.h"
-#include "exception.h"
+#include "security.h"
+#include "cygthread.h"
 
-#define CALL_HANDLER_RETRY_OUTER 10
-#define CALL_HANDLER_RETRY_INNER 10
+#define CALL_HANDLER_RETRY 20
 
-char debugger_command[2 * NT_MAX_PATH + 20];
+char debugger_command[2 * CYG_MAX_PATH + 20];
+
+extern "C" {
+static int handle_exceptions (EXCEPTION_RECORD *, void *, CONTEXT *, void *);
+extern void sigdelayed ();
+};
+
+extern DWORD sigtid;
+
+extern HANDLE hExeced;
+extern DWORD dwExeced;
 
 static BOOL WINAPI ctrl_c_handler (DWORD);
+static void signal_exit (int) __attribute__ ((noreturn));
+static char windows_system_directory[1024];
+static size_t windows_system_directory_length;
+
+/* This is set to indicate that we have already exited.  */
+
+static NO_COPY int exit_already = 0;
+static NO_COPY muto *mask_sync = NULL;
 
 NO_COPY static struct
 {
-  NTSTATUS code;
+  unsigned int code;
   const char *name;
 } status_info[] =
 {
@@ -80,18 +92,33 @@ NO_COPY static struct
 
 /* Initialization code.  */
 
-void
-init_console_handler (bool install_handler)
-{
-  BOOL res;
+// Set up the exception handler for the current thread.  The PowerPC & Mips
+// use compiler generated tables to set up the exception handlers for each
+// region of code, and the kernel walks the call list until it finds a region
+// of code that handles exceptions.  The x86 on the other hand uses segment
+// register fs, offset 0 to point to the current exception handler.
 
-  SetConsoleCtrlHandler (ctrl_c_handler, FALSE);
-  SetConsoleCtrlHandler (NULL, FALSE);
-  if (install_handler)
-    res = SetConsoleCtrlHandler (ctrl_c_handler, TRUE);
-  else
-    res = SetConsoleCtrlHandler (NULL, TRUE);
-  if (!res)
+extern exception_list *_except_list asm ("%fs:0");
+
+void
+init_exception_handler (exception_list *el, exception_handler *eh)
+{
+  el->handler = eh;
+  el->prev = _except_list;
+  _except_list = el;
+}
+
+extern "C" void
+init_exceptions (exception_list *el)
+{
+  init_exception_handler (el, handle_exceptions);
+}
+
+void
+init_console_handler ()
+{
+  (void) SetConsoleCtrlHandler (ctrl_c_handler, FALSE);
+  if (!SetConsoleCtrlHandler (ctrl_c_handler, TRUE))
     system_printf ("SetConsoleCtrlHandler failed, %E");
 }
 
@@ -104,8 +131,8 @@ error_start_init (const char *buf)
       return;
     }
 
-  char pgm[NT_MAX_PATH];
-  if (!GetModuleFileName (NULL, pgm, NT_MAX_PATH))
+  char pgm[CYG_MAX_PATH + 1];
+  if (!GetModuleFileName (NULL, pgm, CYG_MAX_PATH))
     strcpy (pgm, "cygwin1.dll");
   for (char *p = strchr (pgm, '\\'); p; p = strchr (p, '\\'))
     *p = '/';
@@ -116,44 +143,26 @@ error_start_init (const char *buf)
 static void
 open_stackdumpfile ()
 {
-  /* If we have no executable name, or if the CWD handle is NULL,
-     which means, the CWD is a virtual path, don't even try to open
-     a stackdump file. */
-  if (myself->progname[0] && cygheap->cwd.get_handle ())
+  if (myself->progname[0])
     {
-      const WCHAR *p;
+      const char *p;
       /* write to progname.stackdump if possible */
       if (!myself->progname[0])
-	p = L"unknown";
-      else if ((p = wcsrchr (myself->progname, L'\\')))
+	p = "unknown";
+      else if ((p = strrchr (myself->progname, '\\')))
 	p++;
       else
 	p = myself->progname;
-
-      WCHAR corefile[wcslen (p) + sizeof (".stackdump")];
-      wcpcpy (wcpcpy(corefile, p), L".stackdump");
-      UNICODE_STRING ucore;
-      OBJECT_ATTRIBUTES attr;
-      /* Create the UNICODE variation of <progname>.stackdump. */
-      RtlInitUnicodeString (&ucore, corefile);
-      /* Create an object attribute which refers to <progname>.stackdump
-	 in Cygwin's cwd.  Stick to caseinsensitivity. */
-      InitializeObjectAttributes (&attr, &ucore, OBJ_CASE_INSENSITIVE,
-				  cygheap->cwd.get_handle (), NULL);
-      HANDLE h;
-      IO_STATUS_BLOCK io;
-      NTSTATUS status;
-      /* Try to open it to dump the stack in it. */
-      status = NtCreateFile (&h, GENERIC_WRITE | SYNCHRONIZE, &attr, &io,
-			     NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF,
-			     FILE_SYNCHRONOUS_IO_NONALERT
-			     | FILE_OPEN_FOR_BACKUP_INTENT, NULL, 0);
-      if (NT_SUCCESS (status))
+      char corefile[strlen (p) + sizeof (".stackdump")];
+      __small_sprintf (corefile, "%s.stackdump", p);
+      HANDLE h = CreateFile (corefile, GENERIC_WRITE, 0, &sec_none_nih,
+			     CREATE_ALWAYS, 0, 0);
+      if (h != INVALID_HANDLE_VALUE)
 	{
 	  if (!myself->cygstarted)
-	    system_printf ("Dumping stack trace to %S", &ucore);
+	    system_printf ("Dumping stack trace to %s", corefile);
 	  else
-	    debug_printf ("Dumping stack trace to %S", &ucore);
+	    debug_printf ("Dumping stack trace to %s", corefile);
 	  SetStdHandle (STD_ERROR_HANDLE, h);
 	}
     }
@@ -161,8 +170,8 @@ open_stackdumpfile ()
 
 /* Utilities for dumping the stack, etc.  */
 
-void
-cygwin_exception::dump_exception ()
+static void
+exception (EXCEPTION_RECORD *e,  CONTEXT *in)
 {
   const char *exception_name = NULL;
 
@@ -170,7 +179,7 @@ cygwin_exception::dump_exception ()
     {
       for (int i = 0; status_info[i].name; i++)
 	{
-	  if (status_info[i].code == (NTSTATUS) e->ExceptionCode)
+	  if (status_info[i].code == e->ExceptionCode)
 	    {
 	      exception_name = status_info[i].name;
 	      break;
@@ -179,15 +188,15 @@ cygwin_exception::dump_exception ()
     }
 
   if (exception_name)
-    small_printf ("Exception: %s at eip=%08x\r\n", exception_name, ctx->Eip);
+    small_printf ("Exception: %s at eip=%08x\r\n", exception_name, in->Eip);
   else
-    small_printf ("Signal %d at eip=%08x\r\n", e->ExceptionCode, ctx->Eip);
+    small_printf ("Exception %d at eip=%08x\r\n", e->ExceptionCode, in->Eip);
   small_printf ("eax=%08x ebx=%08x ecx=%08x edx=%08x esi=%08x edi=%08x\r\n",
-		ctx->Eax, ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi);
-  small_printf ("ebp=%08x esp=%08x program=%W, pid %u, thread %s\r\n",
-		ctx->Ebp, ctx->Esp, myself->progname, myself->pid, cygthread::name ());
+		in->Eax, in->Ebx, in->Ecx, in->Edx, in->Esi, in->Edi);
+  small_printf ("ebp=%08x esp=%08x program=%s, pid %u, thread %s\r\n",
+		in->Ebp, in->Esp, myself->progname, myself->pid, cygthread::name ());
   small_printf ("cs=%04x ds=%04x es=%04x fs=%04x gs=%04x ss=%04x\r\n",
-		ctx->SegCs, ctx->SegDs, ctx->SegEs, ctx->SegFs, ctx->SegGs, ctx->SegSs);
+		in->SegCs, in->SegDs, in->SegEs, in->SegFs, in->SegGs, in->SegSs);
 }
 
 /* A class for manipulating the stack. */
@@ -230,62 +239,46 @@ stack_info::init (DWORD ebp, bool wantargs, bool goodframe)
 # undef debp
 }
 
-extern "C" void _cygwin_exit_return ();
-
 /* Walk the stack by looking at successive stored 'bp' frames.
    This is not foolproof. */
 int
 stack_info::walk ()
 {
   char **ebp;
-
-  if ((void (*) ()) sf.AddrPC.Offset == _cygwin_exit_return)
-    return 0;		/* stack frames are exhausted */
-
-  if (((ebp = (char **) next_offset ()) == NULL) || (ebp >= (char **) cygwin_hmodule))
+  if ((ebp = (char **) next_offset ()) == NULL)
     return 0;
 
   sf.AddrFrame.Offset = (DWORD) ebp;
   sf.AddrPC.Offset = sf.AddrReturn.Offset;
 
+  if (!sf.AddrPC.Offset)
+    return 0;		/* stack frames are exhausted */
+
   /* The return address always follows the stack pointer */
   sf.AddrReturn.Offset = (DWORD) *++ebp;
 
   if (needargs)
-    {
-      unsigned nparams = NPARAMS;
-
-      /* The arguments follow the return address */
-      sf.Params[0] = (DWORD) *++ebp;
-      /* Hack for XP/2K3 WOW64.  If the first stack param points to the
-	 application entry point, we can only fetch one additional
-	 parameter.  Accessing anything beyond this address results in
-	 a SEGV.  This is fixed in Vista/2K8 WOW64. */
-      if (wincap.has_restricted_stack_args () && sf.Params[0] == 0x401000)
-	nparams = 2;
-      for (unsigned i = 1; i < nparams; i++)
-	sf.Params[i] = (DWORD) *++ebp;
-    }
+    /* The arguments follow the return address */
+    for (unsigned i = 0; i < NPARAMS; i++)
+      sf.Params[i] = (DWORD) *++ebp;
 
   return 1;
 }
 
-void
-cygwin_exception::dumpstack ()
+static void
+stackdump (DWORD ebp, int open_file, bool isexception)
 {
-  static bool already_dumped;
+  extern unsigned long rlim_core;
 
-  if (already_dumped || cygheap->rlim_core == 0Ul)
+  if (rlim_core == 0UL)
     return;
-  already_dumped = true;
-  open_stackdumpfile ();
 
-  if (e)
-    dump_exception ();
+  if (open_file)
+    open_stackdumpfile ();
 
   int i;
 
-  thestack.init (ebp, 1, !ctx);	/* Initialize from the input CONTEXT */
+  thestack.init (ebp, 1, !isexception);	/* Initialize from the input CONTEXT */
   small_printf ("Stack trace:\r\nFrame     Function  Args\r\n");
   for (i = 0; i < 16 && thestack++; i++)
     {
@@ -299,47 +292,6 @@ cygwin_exception::dumpstack ()
 	      i == 16 ? " (more stack frames may be present)" : "");
 }
 
-bool
-_cygtls::inside_kernel (CONTEXT *cx)
-{
-  int res;
-  MEMORY_BASIC_INFORMATION m;
-
-  if (!isinitialized ())
-    return true;
-
-  memset (&m, 0, sizeof m);
-  if (!VirtualQuery ((LPCVOID) cx->Eip, &m, sizeof m))
-    sigproc_printf ("couldn't get memory info, pc %p, %E", cx->Eip);
-
-  size_t size = (windows_system_directory_length + 6) * sizeof (WCHAR);
-  PWCHAR checkdir = (PWCHAR) alloca (size);
-  memset (checkdir, 0, size);
-
-# define h ((HMODULE) m.AllocationBase)
-  if (!h || m.State != MEM_COMMIT)	/* Be defensive */
-    res = true;
-  else if (h == user_data->hmodule)
-    res = false;
-  else if (!GetModuleFileNameW (h, checkdir, windows_system_directory_length + 6))
-    res = false;
-  else
-    {
-      /* Skip potential long path prefix. */
-      if (!wcsncmp (checkdir, L"\\\\?\\", 4))
-	checkdir += 4;
-      res = wcsncasecmp (windows_system_directory, checkdir,
-			 windows_system_directory_length) == 0;
-      if (!res && system_wow64_directory_length)
-	res = wcsncasecmp (system_wow64_directory, checkdir,
-			   system_wow64_directory_length) == 0;
-
-    }
-  sigproc_printf ("pc %p, h %p, inside_kernel %d", cx->Eip, h, res);
-# undef h
-  return res;
-}
-
 /* Temporary (?) function for external callers to get a stack dump */
 extern "C" void
 cygwin_stackdump ()
@@ -347,8 +299,7 @@ cygwin_stackdump ()
   CONTEXT c;
   c.ContextFlags = CONTEXT_FULL;
   GetThreadContext (GetCurrentThread (), &c);
-  cygwin_exception exc (c.Ebp);
-  exc.dumpstack ();
+  stackdump (c.Ebp, 0, 0);
 }
 
 #define TIME_TO_WAIT_FOR_DEBUGGER 10000
@@ -357,14 +308,8 @@ extern "C" int
 try_to_debug (bool waitloop)
 {
   debug_printf ("debugger_command '%s'", debugger_command);
-  if (*debugger_command == '\0')
+  if (*debugger_command == '\0' || being_debugged ())
     return 0;
-  if (being_debugged ())
-    {
-      extern void break_here ();
-      break_here ();
-      return 0;
-    }
 
   __small_sprintf (strchr (debugger_command, '\0'), " %u", GetCurrentProcessId ());
 
@@ -372,7 +317,7 @@ try_to_debug (bool waitloop)
   SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_HIGHEST);
   PROCESS_INFORMATION pi = {NULL, 0, 0, 0};
 
-  STARTUPINFOW si = {0, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL};
+  STARTUPINFO si = {0, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL};
   si.lpReserved = NULL;
   si.lpDesktop = NULL;
   si.dwFlags = 0;
@@ -382,24 +327,23 @@ try_to_debug (bool waitloop)
      suspend_all_threads_except (current_thread_id);
   */
 
-  /* If the tty mutex is owned, we will fail to start any cygwin app
-     until the trapped app exits.  However, this will only release any
-     the mutex if it is owned by this thread so that may be problematic. */
+  /* if any of these mutexes is owned, we will fail to start any cygwin app
+     until trapped app exits */
 
-  lock_ttys::release ();
+  ReleaseMutex (tty_mutex);
 
   /* prevent recursive exception handling */
-  PWCHAR rawenv = GetEnvironmentStringsW () ;
-  for (PWCHAR p = rawenv; *p != L'\0'; p = wcschr (p, L'\0') + 1)
+  char* rawenv = GetEnvironmentStrings () ;
+  for (char* p = rawenv; *p != '\0'; p = strchr (p, '\0') + 1)
     {
-      if (wcsncmp (p, L"CYGWIN=", wcslen (L"CYGWIN=")) == 0)
+      if (strncmp (p, "CYGWIN=", strlen ("CYGWIN=")) == 0)
 	{
-	  PWCHAR q = wcsstr (p, L"error_start") ;
+	  char* q = strstr (p, "error_start") ;
 	  /* replace 'error_start=...' with '_rror_start=...' */
 	  if (q)
 	    {
-	      *q = L'_' ;
-	      SetEnvironmentVariableW (L"CYGWIN", p + wcslen (L"CYGWIN=")) ;
+	      *q = '_' ;
+	      SetEnvironmentVariable ("CYGWIN", p + strlen ("CYGWIN=")) ;
 	    }
 	  break ;
 	}
@@ -408,18 +352,16 @@ try_to_debug (bool waitloop)
   console_printf ("*** starting debugger for pid %u, tid %u\n",
 		  cygwin_pid (GetCurrentProcessId ()), GetCurrentThreadId ());
   BOOL dbg;
-  WCHAR dbg_cmd[strlen(debugger_command)];
-  sys_mbstowcs (dbg_cmd, strlen(debugger_command) + 1, debugger_command);
-  dbg = CreateProcessW (NULL,
-			dbg_cmd,
-			NULL,
-			NULL,
-			FALSE,
-			CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP,
-			NULL,
-			NULL,
-			&si,
-			&pi);
+  dbg = CreateProcess (NULL,
+		       debugger_command,
+		       NULL,
+		       NULL,
+		       FALSE,
+		       CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP,
+		       NULL,
+		       NULL,
+		       &si,
+		       &pi);
 
   if (!dbg)
     system_printf ("Failed to start debugger, %E");
@@ -429,7 +371,7 @@ try_to_debug (bool waitloop)
 	return dbg;
       SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_IDLE);
       while (!being_debugged ())
-	yield ();
+	Sleep (0);
       Sleep (2000);
     }
 
@@ -440,37 +382,14 @@ try_to_debug (bool waitloop)
   return dbg;
 }
 
-extern "C" void WINAPI RtlUnwind (void *, void *, PEXCEPTION_RECORD, void *);
-static void __reg3 rtl_unwind (exception_list *, PEXCEPTION_RECORD) __attribute__ ((noinline, ));
-void __stdcall
-rtl_unwind (exception_list *frame, PEXCEPTION_RECORD e)
-{
-  __asm__ ("\n\
-  pushl		%%ebx					\n\
-  pushl		%%edi					\n\
-  pushl		%%esi					\n\
-  pushl		$0					\n\
-  pushl		%1					\n\
-  pushl		$1f					\n\
-  pushl		%0					\n\
-  call		_RtlUnwind@16				\n\
-1:							\n\
-  popl		%%esi					\n\
-  popl		%%edi					\n\
-  popl		%%ebx					\n\
-": : "r" (frame), "r" (e));
-}
-
 /* Main exception handler. */
 
-extern exception_list *_except_list asm ("%fs:0");
-
-int
-exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void *)
+extern "C" DWORD __stdcall RtlUnwind (void *, void *, void *, DWORD);
+static int
+handle_exceptions (EXCEPTION_RECORD *e0, void *frame, CONTEXT *in0, void *)
 {
-  static bool NO_COPY debugging;
-  static int NO_COPY recursed;
-  _cygtls& me = _my_tls;
+  static bool NO_COPY debugging = false;
+  static int NO_COPY recursed = 0;
 
   if (debugging && ++debugging < 500000)
     {
@@ -478,104 +397,81 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
       return 0;
     }
 
-  /* If we're exiting, don't do anything here.  Returning 1
+  /* If we've already exited, don't do anything here.  Returning 1
      tells Windows to keep looking for an exception handler.  */
-  if (exit_state || e->ExceptionFlags)
+  if (exit_already)
     return 1;
 
-  siginfo_t si = {};
-  si.si_code = SI_KERNEL;
+  EXCEPTION_RECORD e = *e0;
+  CONTEXT in = *in0;
+
+  siginfo_t si;
   /* Coerce win32 value to posix value.  */
-  switch (e->ExceptionCode)
+  switch (e.ExceptionCode)
     {
     case STATUS_FLOAT_DENORMAL_OPERAND:
     case STATUS_FLOAT_DIVIDE_BY_ZERO:
     case STATUS_FLOAT_INVALID_OPERATION:
     case STATUS_FLOAT_STACK_CHECK:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_FLTSUB;
+      si.si_sigval.sival_int = FPE_FLTSUB;
       break;
     case STATUS_FLOAT_INEXACT_RESULT:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_FLTRES;
+      si.si_sigval.sival_int = FPE_FLTRES;
       break;
     case STATUS_FLOAT_OVERFLOW:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_FLTOVF;
+      si.si_sigval.sival_int = FPE_FLTOVF;
       break;
     case STATUS_FLOAT_UNDERFLOW:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_FLTUND;
+      si.si_sigval.sival_int = FPE_FLTUND;
       break;
     case STATUS_INTEGER_DIVIDE_BY_ZERO:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_INTDIV;
+      si.si_sigval.sival_int = FPE_INTDIV;
       break;
     case STATUS_INTEGER_OVERFLOW:
       si.si_signo = SIGFPE;
-      si.si_code = FPE_INTOVF;
+      si.si_sigval.sival_int = FPE_INTOVF;
       break;
 
     case STATUS_ILLEGAL_INSTRUCTION:
       si.si_signo = SIGILL;
-      si.si_code = ILL_ILLOPC;
+      si.si_sigval.sival_int = ILL_ILLOPC;
       break;
 
     case STATUS_PRIVILEGED_INSTRUCTION:
       si.si_signo = SIGILL;
-      si.si_code = ILL_PRVOPC;
+      si.si_sigval.sival_int = ILL_PRVOPC;
       break;
 
     case STATUS_NONCONTINUABLE_EXCEPTION:
       si.si_signo = SIGILL;
-      si.si_code = ILL_ILLADR;
+      si.si_sigval.sival_int = ILL_ILLADR;
       break;
 
     case STATUS_TIMEOUT:
       si.si_signo = SIGALRM;
-      break;
-
-    case STATUS_GUARD_PAGE_VIOLATION:
-      si.si_signo = SIGBUS;
-      si.si_code = BUS_OBJERR;
-      break;
-
-    case STATUS_DATATYPE_MISALIGNMENT:
-      si.si_signo = SIGBUS;
-      si.si_code = BUS_ADRALN;
+      si.si_sigval.sival_int = 0;
       break;
 
     case STATUS_ACCESS_VIOLATION:
-      switch (mmap_is_attached_or_noreserve ((void *)e->ExceptionInformation[1],
-					     1))
-	{
-	case MMAP_NORESERVE_COMMITED:
-	  return 0;
-	case MMAP_RAISE_SIGBUS:	/* MAP_NORESERVE page, commit failed, or
-				   access to mmap page beyond EOF. */
-	  si.si_signo = SIGBUS;
-	  si.si_code = BUS_OBJERR;
-	  break;
-	default:
-	  MEMORY_BASIC_INFORMATION m;
-	  VirtualQuery ((PVOID) e->ExceptionInformation[1], &m, sizeof m);
-	  si.si_signo = SIGSEGV;
-	  si.si_code = m.State == MEM_FREE ? SEGV_MAPERR : SEGV_ACCERR;
-	  break;
-	}
-      break;
-
+    case STATUS_DATATYPE_MISALIGNMENT:
     case STATUS_ARRAY_BOUNDS_EXCEEDED:
+    case STATUS_GUARD_PAGE_VIOLATION:
     case STATUS_IN_PAGE_ERROR:
     case STATUS_NO_MEMORY:
     case STATUS_INVALID_DISPOSITION:
     case STATUS_STACK_OVERFLOW:
       si.si_signo = SIGSEGV;
-      si.si_code = SEGV_MAPERR;
+      si.si_sigval.sival_int = SEGV_MAPERR;
       break;
 
     case STATUS_CONTROL_C_EXIT:
       si.si_signo = SIGINT;
+      si.si_sigval.sival_int = 0;
       break;
 
     case STATUS_INVALID_HANDLE:
@@ -593,62 +489,69 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
       return 1;
     }
 
-  if (me.andreas)
-    me.andreas->leave ();	/* Return from a "san" caught fault */
+  debug_printf ("In cygwin_except_handler exc %p at %p sp %p", e.ExceptionCode, in.Eip, in.Esp);
+  debug_printf ("In cygwin_except_handler sig %d at %p", si.si_signo, in.Eip);
 
-  debug_printf ("In cygwin_except_handler exception %p at %p sp %p", e->ExceptionCode, in->Eip, in->Esp);
-  debug_printf ("In cygwin_except_handler signal %d at %p", si.si_signo, in->Eip);
+  if (global_sigs[si.si_signo].sa_mask & SIGTOMASK (si.si_signo))
+    syscall_printf ("signal %d, masked %p", si.si_signo,
+		    global_sigs[si.si_signo].sa_mask);
 
-  DWORD *ebp = (DWORD *) in->Esp;
+  debug_printf ("In cygwin_except_handler calling %p",
+		 global_sigs[si.si_signo].sa_handler);
+
+  DWORD *ebp = (DWORD *)in.Esp;
   for (DWORD *bpend = (DWORD *) __builtin_frame_address (0); ebp > bpend; ebp--)
-    if (*ebp == in->SegCs && ebp[-1] == in->Eip)
+    if (*ebp == in.SegCs && ebp[-1] == in.Eip)
       {
 	ebp -= 2;
 	break;
       }
 
-  me.copy_context (in);
-
-  /* Temporarily replace windows top level SEH with our own handler.
-     We don't want any Windows magic kicking in.  This top level frame
-     will be removed automatically after our exception handler returns. */
-  _except_list->handler = handle;
-
-  /* Another exception could happen while tracing or while exiting.
-     Only do this once.  */
-  if (recursed++)
-    api_fatal ("Error while dumping state (probably corrupted stack)");
-  else if (!try_to_debug (0))
-    rtl_unwind (frame, e);
-  else
+  if (!cygwin_finished_initializing
+      || GetCurrentThreadId () == sigtid
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_DFL
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_IGN
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_ERR)
     {
-      debugging = true;
-      return 0;
+      /* Print the exception to the console */
+      if (!myself->cygstarted)
+	for (int i = 0; status_info[i].name; i++)
+	  if (status_info[i].code == e.ExceptionCode)
+	    {
+	      system_printf ("Exception: %s", status_info[i].name);
+	      break;
+	    }
+
+      /* Another exception could happen while tracing or while exiting.
+	 Only do this once.  */
+      if (recursed++)
+	system_printf ("Error while dumping state (probably corrupted stack)");
+      else
+	{
+	  if (try_to_debug (0))
+	    {
+	      debugging = true;
+	      return 0;
+	    }
+
+	  open_stackdumpfile ();
+	  exception (&e, &in);
+	  stackdump ((DWORD) ebp, 0, 1);
+	}
+
+      signal_exit (0x80 | si.si_signo);	// Flag signal + core dump
     }
 
-  /* FIXME: Probably should be handled in sigpacket::process */
-  if ((NTSTATUS) e->ExceptionCode == STATUS_ACCESS_VIOLATION)
-    {
-      int error_code = 0;
-      if (si.si_code == SEGV_ACCERR)	/* Address present */
-	error_code |= 1;
-      if (e->ExceptionInformation[0])	/* Write access */
-	error_code |= 2;
-      if (!me.inside_kernel (in))	/* User space */
-	error_code |= 4;
-      klog (LOG_INFO, "%s[%d]: segfault at %08x rip %08x rsp %08x error %d",
-		      __progname, myself->pid, e->ExceptionInformation[1],
-		      in->Eip, in->Esp, error_code);
-    }
+  extern DWORD ret_here[];
+  RtlUnwind (frame, ret_here, e0, 0);
+  __asm__ volatile (".equ _ret_here,.");
 
-  cygwin_exception exc ((DWORD) ebp, in, e);
-  si.si_cyg = (void *) &exc;
-  si.si_addr = (void *) in->Eip;
-  me.incyg++;
-  sig_send (NULL, si, &me);	/* Signal myself */
-  me.incyg--;
-  e->ExceptionFlags = 0;
-  return 0;
+  si.si_addr = ebp;
+  si.si_code = SI_KERNEL;
+  si.si_errno = si.si_pid = si.si_uid = 0;
+  _my_tls.push ((__stack_t) ebp, true);
+  sig_send (NULL, si, &_my_tls);	// Signal myself
+  return 1;
 }
 
 /* Utilities to call a user supplied exception handler.  */
@@ -665,13 +568,13 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
 int __stdcall
 handle_sigsuspend (sigset_t tempmask)
 {
-  sigset_t oldmask = _my_tls.sigmask;	// Remember for restoration
+  sigset_t oldmask = myself->getsigmask ();	// Remember for restoration
 
-  set_signal_mask (_my_tls.sigmask, tempmask);
+  set_signal_mask (tempmask, oldmask);
   sigproc_printf ("oldmask %p, newmask %p", oldmask, tempmask);
 
   pthread_testcancel ();
-  cygwait (NULL, cw_infinite, cw_cancel | cw_cancel_self | cw_sig_eintr);
+  pthread::cancelable_wait (signal_arrived, INFINITE);
 
   set_sig_errno (EINTR);	// Per POSIX
 
@@ -688,69 +591,99 @@ extern DWORD exec_exit;		// Possible exit value for exec
 
 extern "C" {
 static void
-sig_handle_tty_stop (int sig, siginfo_t *, void *)
+sig_handle_tty_stop (int sig)
 {
   _my_tls.incyg = 1;
   /* Silently ignore attempts to suspend if there is no accommodating
      cygwin parent to deal with this behavior. */
   if (!myself->cygstarted)
-    myself->process_state &= ~PID_STOPPED;
-  else
     {
-      myself->stopsig = sig;
-      myself->alert_parent (sig);
-      sigproc_printf ("process %d stopped by signal %d", myself->pid, sig);
-      /* FIXME! This does nothing to suspend anything other than the main
-	 thread. */
-      DWORD res = cygwait (NULL, cw_infinite, cw_sig_eintr);
-      switch (res)
+      myself->process_state &= ~PID_STOPPED;
+      return;
+    }
+
+  myself->stopsig = sig;
+  char pipesig;
+  DWORD nb;
+  /* See if we have a living parent.  If so, send it a special signal.
+     It will figure out exactly which pid has stopped by scanning
+     its list of subprocesses.  */
+  if (my_parent_is_alive ())
+    {
+      pinfo parent (myself->ppid);
+      if (NOTSTATE (parent, PID_NOCLDSTOP))
 	{
-	case WAIT_SIGNALED:
-	  _my_tls.sig = 0;
-	  myself->stopsig = SIGCONT;
-	  myself->alert_parent (SIGCONT);
-	  break;
-	default:
-	  api_fatal ("WaitSingleObject returned %d", res);
-	  break;
+	  pipesig = sig;
+	  if (!WriteFile (myself->wr_proc_pipe, &pipesig, 1, &nb, NULL))
+	    debug_printf ("sending stop notification to parent failed, %E");
 	}
     }
+  sigproc_printf ("process %d stopped by signal %d", myself->pid, sig);
+  HANDLE w4[2];
+  w4[0] = sigCONT;
+  w4[1] = signal_arrived;
+  switch (WaitForMultipleObjects (2, w4, TRUE, INFINITE))
+    {
+    case WAIT_OBJECT_0:
+    case WAIT_OBJECT_0 + 1:
+      reset_signal_arrived ();
+      if (my_parent_is_alive ())
+	{
+	  pinfo parent (myself->ppid);
+	  if (parent)
+	    {
+	      sig = SIGCONT;
+	      if (!WriteFile (myself->wr_proc_pipe, &sig, 1, &nb, NULL))
+		debug_printf ("sending stop notification to parent failed, %E");
+	    }
+	}
+      break;
+    default:
+      api_fatal ("WaitSingleObject failed, %E");
+      break;
+    }
   _my_tls.incyg = 0;
+  return;
 }
-} /* end extern "C" */
+}
 
 bool
-_cygtls::interrupt_now (CONTEXT *cx, siginfo_t& si, void *handler,
-			struct sigaction& siga)
+interruptible (DWORD pc)
 {
-  bool interrupted;
+  int res;
+  MEMORY_BASIC_INFORMATION m;
 
-  /* Delay the interrupt if we are
-     1) somehow inside the DLL
-     2) in _sigfe (spinning is true) and about to enter cygwin DLL
-     3) in a Windows DLL.  */
-  if (incyg || spinning || inside_kernel (cx))
-    interrupted = false;
+  memset (&m, 0, sizeof m);
+  if (!VirtualQuery ((LPCVOID) pc, &m, sizeof m))
+    sigproc_printf ("couldn't get memory info, pc %p, %E", pc);
+
+  char *checkdir = (char *) alloca (windows_system_directory_length + 4);
+  memset (checkdir, 0, sizeof (checkdir));
+
+# define h ((HMODULE) m.AllocationBase)
+  /* Apparently Windows 95 can sometimes return bogus addresses from
+     GetThreadContext.  These resolve to a strange allocation base.
+     These should *never* be treated as interruptible. */
+  if (!h || m.State != MEM_COMMIT)
+    res = false;
+  else if (h == user_data->hmodule)
+    res = true;
+  else if (!GetModuleFileName (h, checkdir, windows_system_directory_length + 2))
+    res = false;
   else
-    {
-      push ((__stack_t) cx->Eip);
-      interrupt_setup (si, handler, siga);
-      cx->Eip = pop ();
-      SetThreadContext (*this, cx); /* Restart the thread in a new location */
-      interrupted = true;
-    }
-  return interrupted;
+    res = !strncasematch (windows_system_directory, checkdir,
+			  windows_system_directory_length);
+  sigproc_printf ("pc %p, h %p, interruptible %d", pc, h, res);
+# undef h
+  return res;
 }
-
 void __stdcall
-_cygtls::interrupt_setup (siginfo_t& si, void *handler, struct sigaction& siga)
+_cygtls::interrupt_setup (int sig, void *handler, struct sigaction& siga)
 {
-  push ((__stack_t) sigdelayed);
-  deltamask = siga.sa_mask & ~SIG_NONMASKABLE;
+  push ((__stack_t) sigdelayed, false);
+  deltamask = (siga.sa_mask | SIGTOMASK (sig)) & ~SIG_NONMASKABLE;
   sa_flags = siga.sa_flags;
-  func = (void (*) (int, siginfo_t *, void *)) handler;
-  if (siga.sa_flags & SA_RESETHAND)
-    siga.sa_handler = SIG_DFL;
+  func = (void (*) (int)) handler;
   saved_errno = -1;		// Flag: no errno to save
   if (handler == sig_handle_tty_stop)
     {
@@ -758,15 +691,24 @@ _cygtls::interrupt_setup (siginfo_t& si, void *handler, struct sigaction& siga)
       myself->process_state |= PID_STOPPED;
     }
 
-  infodata = si;
-  this->sig = si.si_signo;		// Should always be last thing set to avoid a race
+  this->sig = sig;			// Should always be last thing set to avoid a race
 
-  if (incyg)
-    SetEvent (get_signal_arrived (false));
+  /* Clear any waiting threads prior to dispatching to handler function */
+  int res = SetEvent (signal_arrived);	// For an EINTR case
+  proc_subproc (PROC_CLEARWAIT, 1);
+  sigproc_printf ("armed signal_arrived %p, sig %d, res %d", signal_arrived,
+		  sig, res);
+}
 
-  if (!have_execed)
-    proc_subproc (PROC_CLEARWAIT, 1);
-  sigproc_printf ("armed signal_arrived %p, signal %d", signal_arrived, si.si_signo);
+bool
+_cygtls::interrupt_now (CONTEXT *ctx, int sig, void *handler,
+			struct sigaction& siga)
+{
+  push ((__stack_t) ctx->Eip, false);
+  interrupt_setup (sig, handler, siga);
+  ctx->Eip = pop ();
+  SetThreadContext (*this, ctx); /* Restart the thread in a new location */
+  return 1;
 }
 
 extern "C" void __stdcall
@@ -774,103 +716,95 @@ set_sig_errno (int e)
 {
   *_my_tls.errno_addr = e;
   _my_tls.saved_errno = e;
+  // sigproc_printf ("errno %d", e);
 }
 
-int
-sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
+static int setup_handler (int, void *, struct sigaction&, _cygtls *tls)
+  __attribute__((regparm(3)));
+static int
+setup_handler (int sig, void *handler, struct sigaction& siga, _cygtls *tls)
 {
   CONTEXT cx;
   bool interrupted = false;
 
   if (tls->sig)
     {
-      sigproc_printf ("trying to send signal %d but signal %d already armed",
-		      si.si_signo, tls->sig);
+      sigproc_printf ("trying to send sig %d but signal %d already armed",
+		      sig, tls->sig);
       goto out;
     }
 
-  while (in_forkee)
-    yield ();		/* Won't be able to send signals until we're finished
-			   processing fork().  */
-
-  for (int n = 0; n < CALL_HANDLER_RETRY_OUTER; n++)
+  for (int i = 0; i < CALL_HANDLER_RETRY; i++)
     {
-      for (int i = 0; i < CALL_HANDLER_RETRY_INNER; i++)
+      tls->lock ();
+      if (tls->incyg || tls->in_exception ())
 	{
-	  tls->lock ();
-	  if (tls->incyg)
-	    {
-	      sigproc_printf ("controlled interrupt. stackptr %p, stack %p, stackptr[-1] %p",
-			      tls->stackptr, tls->stack, tls->stackptr[-1]);
-	      tls->interrupt_setup (si, handler, siga);
-	      interrupted = true;
-	      tls->unlock ();
-	      goto out;
-	    }
-
-	  DWORD res;
-	  HANDLE hth = (HANDLE) *tls;
-	  if (!hth)
-	    sigproc_printf ("thread handle NULL, not set up yet?");
-	  else
-	    {
-	      /* Suspend the thread which will receive the signal.
-		 If one of these conditions is not true we loop.
-		 If the thread is already suspended (which can occur when a program
-		 has called SuspendThread on itself) then just queue the signal. */
-
-	      sigproc_printf ("suspending thread, tls %p, _main_tls %p", tls, _main_tls);
-	      res = SuspendThread (hth);
-	      /* Just set pending if thread is already suspended */
-	      if (res)
-		{
-		  ResumeThread (hth);
-		  goto out;
-		}
-	      cx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-	      if (!GetThreadContext (hth, &cx))
-		sigproc_printf ("couldn't get context of thread, %E");
-	      else
-		interrupted = tls->interrupt_now (&cx, si, handler, siga);
-
-	      tls->unlock ();
-	      ResumeThread (hth);
-	      if (interrupted)
-		goto out;
-	    }
-
-	  sigproc_printf ("couldn't interrupt.  trying again.");
-	  yield ();
+	  sigproc_printf ("controlled interrupt. incyg %d, exception %d, stackptr %p, stack %p, stackptr[-1] %p",
+			  tls->incyg, tls->in_exception (), tls->stackptr, tls->stack, tls->stackptr[-1]);
+	  tls->reset_exception ();
+	  tls->interrupt_setup (sig, handler, siga);
+	  interrupted = true;
+	  tls->unlock ();
+	  break;
 	}
-      /* Hit here if we couldn't deliver the signal.  Take a more drastic
-	 action before trying again. */
-      Sleep (1);
+
+      tls->unlock ();
+      DWORD res;
+      HANDLE hth = (HANDLE) *tls;
+
+      /* Suspend the thread which will receive the signal.
+	 For Windows 95, we also have to ensure that the addresses returned by
+	 GetThreadContext are valid.
+	 If one of these conditions is not true we loop for a fixed number of times
+	 since we don't want to stall the signal handler.  FIXME: Will this result in
+	 noticeable delays?
+	 If the thread is already suspended (which can occur when a program has called
+	 SuspendThread on itself) then just queue the signal. */
+
+#ifndef DEBUGGING
+      sigproc_printf ("suspending mainthread");
+#else
+      cx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+      if (!GetThreadContext (hth, &cx))
+	memset (&cx, 0, sizeof cx);
+      sigproc_printf ("suspending mainthread PC %p", cx.Eip);
+#endif
+      res = SuspendThread (hth);
+      /* Just set pending if thread is already suspended */
+      if (res)
+	{
+	  (void) ResumeThread (hth);
+	  break;
+	}
+      if (tls->incyg || tls->in_exception () || tls->spinning || tls->locked ())
+	sigproc_printf ("incyg %d, in_exception %d, spinning %d, locked %d\n",
+			tls->incyg, tls->in_exception (), tls->spinning, tls->locked ());
+      else
+	{
+	  cx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+	  if (!GetThreadContext (hth, &cx))
+	    system_printf ("couldn't get context of main thread, %E");
+	  else if (interruptible (cx.Eip))
+	    interrupted = tls->interrupt_now (&cx, sig, handler, siga);
+	}
+
+      res = ResumeThread (hth);
+      if (interrupted)
+	break;
+
+      sigproc_printf ("couldn't interrupt.  trying again.");
+      low_priority_sleep (0);
     }
 
 out:
-  sigproc_printf ("signal %d %sdelivered", si.si_signo, interrupted ? "" : "not ");
+  if (interrupted && tls->event)
+    {
+      HANDLE h = tls->event;
+      tls->event = NULL;
+      SetEvent (h);
+    }
+  sigproc_printf ("signal %d %sdelivered", sig, interrupted ? "" : "not ");
   return interrupted;
-}
-
-static inline bool
-has_visible_window_station ()
-{
-  HWINSTA station_hdl;
-  USEROBJECTFLAGS uof;
-  DWORD len;
-
-  /* Check if the process is associated with a visible window station.
-     These are processes running on the local desktop as well as processes
-     running in terminal server sessions.
-     Processes running in a service session not explicitely associated
-     with the desktop (using the "Allow service to interact with desktop"
-     property) are running in an invisible window station. */
-  if ((station_hdl = GetProcessWindowStation ())
-      && GetUserObjectInformationW (station_hdl, UOI_FLAGS, &uof,
-				    sizeof uof, &len)
-      && (uof.dwFlags & WSF_VISIBLE))
-    return true;
-  return false;
 }
 
 /* Keyboard interrupt handler.  */
@@ -879,17 +813,15 @@ ctrl_c_handler (DWORD type)
 {
   static bool saw_close;
 
-  /* Remove early or we could overthrow the threadlist in cygheap.
-     Deleting this line causes ash to SEGV if CTRL-C is hit repeatedly.
-     I am not exactly sure why that is.  Maybe it's just because this
-     adds some early serialization to ctrl_c_handler which prevents
-     multiple simultaneous calls? */
-  _my_tls.remove (INFINITE);
+  if (!cygwin_finished_initializing)
+    {
+      if (myself->cygstarted)	/* Was this process created by a cygwin process? */
+	return TRUE;		/* Yes.  Let the parent eventually handle CTRL-C issues. */
+      debug_printf ("exiting with status %p", STATUS_CONTROL_C_EXIT);
+      ExitProcess (STATUS_CONTROL_C_EXIT);
+    }
 
-#if 0
-  if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT)
-    proc_subproc (PROC_KILLFORKED, 0);
-#endif
+  _my_tls.remove (INFINITE);
 
   /* Return FALSE to prevent an "End task" dialog box from appearing
      for each Cygwin process window that's open when the computer
@@ -917,22 +849,18 @@ ctrl_c_handler (DWORD type)
 	}
       if (!saw_close && type == CTRL_LOGOFF_EVENT)
 	{
-	  /* The CTRL_LOGOFF_EVENT is sent when *any* user logs off.
-	     The below code sends a SIGHUP only if it is not performing the
-	     default activity for SIGHUP.  Note that it is possible for two
-	     SIGHUP signals to arrive if a process group leader is exiting
-	     too.  Getting this 100% right is saved for a future cygwin mailing
-	     list goad.  */
-	  if (global_sigs[SIGHUP].sa_handler != SIG_DFL)
-	    {
-	      sig_send (myself, SIGHUP);
-	      return TRUE;
-	    }
+	  /* Check if the process is actually associated with a visible
+	     window station, one which actually represents a visible desktop.
+	     If not, the CTRL_LOGOFF_EVENT doesn't concern this process. */
+	  if (has_visible_window_station ())
+	    sig_send (myself_nowait, SIGHUP);
 	  return FALSE;
 	}
     }
 
-  if (ch_spawn.set_saw_ctrl_c ())
+  /* If we are a stub and the new process has a pinfo structure, let it
+     handle this signal. */
+  if (dwExeced && pinfo (dwExeced))
     return TRUE;
 
   /* We're only the process group leader when we have a valid pinfo structure.
@@ -940,23 +868,17 @@ ctrl_c_handler (DWORD type)
   if (!pinfo (cygwin_pid (GetCurrentProcessId ())))
     return TRUE;
 
-  tty_min *t = cygwin_shared->tty.get_cttyp ();
+  tty_min *t = cygwin_shared->tty.get_tty (myself->ctty);
   /* Ignore this if we're not the process group leader since it should be handled
      *by* the process group leader. */
-  if (t && (!have_execed || have_execed_cygwin)
-      && t->getpgid () == myself->pid &&
-      (GetTickCount () - t->last_ctrl_c) >= MIN_CTRL_C_SLOP)
+  if (myself->ctty != -1 && t->getpgid () == myself->pid &&
+       (GetTickCount () - t->last_ctrl_c) >= MIN_CTRL_C_SLOP)
     /* Otherwise we just send a SIGINT to the process group and return TRUE (to indicate
        that we have handled the signal).  At this point, type should be
        a CTRL_C_EVENT or CTRL_BREAK_EVENT. */
     {
-      int sig = SIGINT;
-      /* If intr and quit are both mapped to ^C, send SIGQUIT on ^BREAK */
-      if (type == CTRL_BREAK_EVENT
-	  && t->ti.c_cc[VINTR] == 3 && t->ti.c_cc[VQUIT] == 3)
-	sig = SIGQUIT;
       t->last_ctrl_c = GetTickCount ();
-      t->kill_pgrp (sig);
+      killsys (-myself->pid, SIGINT);
       t->last_ctrl_c = GetTickCount ();
       return TRUE;
     }
@@ -968,7 +890,7 @@ ctrl_c_handler (DWORD type)
 extern "C" void __stdcall
 set_process_mask (sigset_t newmask)
 {
-  set_signal_mask (_my_tls.sigmask, newmask);
+  set_signal_mask (newmask);
 }
 
 extern "C" int
@@ -981,161 +903,63 @@ sighold (int sig)
       syscall_printf ("signal %d out of range", sig);
       return -1;
     }
-  sigset_t mask = _my_tls.sigmask;
+  mask_sync->acquire (INFINITE);
+  sigset_t mask = myself->getsigmask ();
   sigaddset (&mask, sig);
-  set_signal_mask (_my_tls.sigmask, mask);
+  set_signal_mask (mask);
+  mask_sync->release ();
   return 0;
 }
 
-extern "C" int
-sigrelse (int sig)
-{
-  /* check that sig is in right range */
-  if (sig < 0 || sig >= NSIG)
-    {
-      set_errno (EINVAL);
-      syscall_printf ("signal %d out of range", sig);
-      return -1;
-    }
-  sigset_t mask = _my_tls.sigmask;
-  sigdelset (&mask, sig);
-  set_signal_mask (_my_tls.sigmask, mask);
-  return 0;
-}
-
-extern "C" _sig_func_ptr
-sigset (int sig, _sig_func_ptr func)
-{
-  sig_dispatch_pending ();
-  _sig_func_ptr prev;
-
-  /* check that sig is in right range */
-  if (sig < 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP)
-    {
-      set_errno (EINVAL);
-      syscall_printf ("SIG_ERR = sigset (%d, %p)", sig, func);
-      return (_sig_func_ptr) SIG_ERR;
-    }
-
-  sigset_t mask = _my_tls.sigmask;
-  /* If sig was in the signal mask return SIG_HOLD, otherwise return the
-     previous disposition. */
-  if (sigismember (&mask, sig))
-    prev = SIG_HOLD;
-  else
-    prev = global_sigs[sig].sa_handler;
-  /* If func is SIG_HOLD, add sig to the signal mask, otherwise set the
-     disposition to func and remove sig from the signal mask. */
-  if (func == SIG_HOLD)
-    sigaddset (&mask, sig);
-  else
-    {
-      /* No error checking.  The test which could return SIG_ERR has already
-	 been made above. */
-      signal (sig, func);
-      sigdelset (&mask, sig);
-    }
-  set_signal_mask (_my_tls.sigmask, mask);
-  return prev;
-}
-
-extern "C" int
-sigignore (int sig)
-{
-  return sigset (sig, SIG_IGN) == SIG_ERR ? -1 : 0;
-}
-
-/* Update the signal mask for this process and return the old mask.
-   Called from call_signal_handler */
+/* Update the signal mask for this process
+   and return the old mask.
+   Called from sigdelayed */
 extern "C" sigset_t
 set_process_mask_delta ()
 {
+  mask_sync->acquire (INFINITE);
   sigset_t newmask, oldmask;
 
   if (_my_tls.deltamask & SIG_NONMASKABLE)
     oldmask = _my_tls.oldmask; /* from handle_sigsuspend */
   else
-    oldmask = _my_tls.sigmask;
+    oldmask = myself->getsigmask ();
   newmask = (oldmask | _my_tls.deltamask) & ~SIG_NONMASKABLE;
   sigproc_printf ("oldmask %p, newmask %p, deltamask %p", oldmask, newmask,
 		  _my_tls.deltamask);
-  _my_tls.sigmask = newmask;
+  myself->setsigmask (newmask);
+  mask_sync->release ();
   return oldmask;
 }
 
 /* Set the signal mask for this process.
    Note that some signals are unmaskable, as in UNIX.  */
-
-void
-set_signal_mask (sigset_t& setmask, sigset_t newmask)
+extern "C" void __stdcall
+set_signal_mask (sigset_t newmask, sigset_t oldmask)
 {
+  mask_sync->acquire (INFINITE);
   newmask &= ~SIG_NONMASKABLE;
-  sigset_t mask_bits = setmask & ~newmask;
-  sigproc_printf ("setmask %p, newmask %p, mask_bits %p", setmask, newmask,
+  sigset_t mask_bits = oldmask & ~newmask;
+  sigproc_printf ("oldmask %p, newmask %p, mask_bits %p", oldmask, newmask,
 		  mask_bits);
-  setmask = newmask;
+  myself->setsigmask (newmask);	// Set a new mask
   if (mask_bits)
     sig_dispatch_pending (true);
+  else
+    sigproc_printf ("not calling sig_dispatch_pending");
+  mask_sync->release ();
+  return;
 }
-
-/* Exit due to a signal.  Should only be called from the signal thread.  */
-extern "C" {
-static void
-signal_exit (int sig, siginfo_t *si)
-{
-  debug_printf ("exiting due to signal %d", sig);
-  exit_state = ES_SIGNAL_EXIT;
-
-  if (cygheap->rlim_core > 0UL)
-    switch (sig)
-      {
-      case SIGABRT:
-      case SIGBUS:
-      case SIGFPE:
-      case SIGILL:
-      case SIGQUIT:
-      case SIGSEGV:
-      case SIGSYS:
-      case SIGTRAP:
-      case SIGXCPU:
-      case SIGXFSZ:
-	if (try_to_debug ())
-	  break;
-	if (si->si_code != SI_USER && si->si_cyg)
-	  ((cygwin_exception *) si->si_cyg)->dumpstack ();
-	else
-	  {
-	    cygwin_exception exc (_my_tls.thread_context.ebp);
-	    exc.dumpstack ();
-	  }
-	break;
-      }
-
-  lock_process until_exit (true);
-
-  if (have_execed || exit_state > ES_PROCESS_LOCKED)
-    myself.exit (sig);
-
-  /* Starve other threads in a vain attempt to stop them from doing something
-     stupid. */
-  SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_TIME_CRITICAL);
-
-  sigproc_printf ("about to call do_exit (%x)", sig);
-  do_exit (sig);
-}
-} /* extern "C" */
 
 int __stdcall
 sigpacket::process ()
 {
-  bool continue_now;
-  struct sigaction dummy = global_sigs[SIGSTOP];
-
+  DWORD continue_now;
   if (si.si_signo != SIGCONT)
     continue_now = false;
   else
     {
-      continue_now = ISSTATE (myself, PID_STOPPED);
+      continue_now = myself->process_state & PID_STOPPED;
       myself->stopsig = 0;
       myself->process_state &= ~PID_STOPPED;
       /* Clear pending stop signals */
@@ -1148,60 +972,69 @@ sigpacket::process ()
   int rc = 1;
 
   sigproc_printf ("signal %d processing", si.si_signo);
-  struct sigaction& thissig = global_sigs[si.si_signo];
+  struct sigaction thissig = global_sigs[si.si_signo];
 
   myself->rusage_self.ru_nsignals++;
 
-  _cygtls *tls;
-  if (sigtls)
-    {
-      tls = sigtls;
-      sigproc_printf ("using sigtls %p", sigtls);
-    }
-  else
-    {
-      tls = cygheap->find_tls (si.si_signo);
-      sigproc_printf ("using tls %p", tls);
-    }
-
-  void *handler = have_execed ? NULL : (void *) thissig.sa_handler;
-
-  if (handler == SIG_IGN)
-    {
-      sigproc_printf ("signal %d ignored", si.si_signo);
-      goto done;
-    }
-
   if (si.si_signo == SIGKILL)
     goto exit_sig;
-  if (si.si_signo == SIGSTOP)
+  if ( si.si_signo == SIGSTOP)
     {
       sig_clear (SIGCONT);
+      if (!tls)
+	tls = _main_tls;
       goto stop;
     }
 
-  if (sigismember (&tls->sigwait_mask, si.si_signo))
-    {
-      tls->sigwait_mask = 0;
-      goto dosig;
-    }
-  if (sigismember (&tls->sigmask, si.si_signo) || ISSTATE (myself, PID_STOPPED))
+  bool masked;
+  bool special_case;
+  bool insigwait_mask;
+  insigwait_mask = masked = false;
+  if (special_case = (VFORKPID || ISSTATE (myself, PID_STOPPED)))
+    /* nothing to do */;
+  else if (tls && sigismember (&tls->sigwait_mask, si.si_signo))
+    insigwait_mask = true;
+  else if (!tls && (tls = _cygtls::find_tls (si.si_signo)))
+    insigwait_mask = true;
+  else if (!(masked = sigismember (mask, si.si_signo)) && tls)
+    masked  = sigismember (&tls->sigmask, si.si_signo);
+
+  if (insigwait_mask)
+    goto thread_specific;
+
+  if (!tls)
+    tls = _main_tls;
+
+  if (special_case || masked)
     {
       sigproc_printf ("signal %d blocked", si.si_signo);
       rc = -1;
       goto done;
     }
 
+  void *handler;
+  handler = (void *) thissig.sa_handler;
+
   /* Clear pending SIGCONT on stop signals */
   if (si.si_signo == SIGTSTP || si.si_signo == SIGTTIN || si.si_signo == SIGTTOU)
     sig_clear (SIGCONT);
 
+#if 0
+  char sigmsg[24];
+  __small_sprintf (sigmsg, "cygwin: signal %d\n", si.si_signo);
+  OutputDebugString (sigmsg);
+#endif
+
   if (handler == (void *) SIG_DFL)
     {
+      if (insigwait_mask)
+	goto thread_specific;
       if (si.si_signo == SIGCHLD || si.si_signo == SIGIO || si.si_signo == SIGCONT || si.si_signo == SIGWINCH
 	  || si.si_signo == SIGURG)
 	{
-	  sigproc_printf ("signal %d default is currently ignore", si.si_signo);
+	  sigproc_printf ("default signal %d ignored", si.si_signo);
+	  if (continue_now)
+	    SetEvent (signal_arrived);
 	  goto done;
 	}
 
@@ -1211,121 +1044,163 @@ sigpacket::process ()
       goto exit_sig;
     }
 
-  if (handler == (void *) SIG_ERR)
-    goto exit_sig;
-
-  goto dosig;
-
-stop:
-  handler = (void *) sig_handle_tty_stop;
-  thissig = dummy;
-  goto dosig;
-
-exit_sig:
-  handler = (void *) signal_exit;
-  thissig.sa_flags |= SA_SIGINFO;
-  if (si.si_signo == SIGKILL)
-    goto dispatch_sig;
-
-dosig:
-  if (ISSTATE (myself, PID_STOPPED) && !continue_now)
+  if (handler == (void *) SIG_IGN)
     {
-      rc = -1;		/* No signals delivered if stopped */
+      sigproc_printf ("signal %d ignored", si.si_signo);
       goto done;
     }
 
-dispatch_sig:
-  /* Do stuff for gdb */
-  if (si.si_code == SI_USER || !si.si_cyg)
+  if (handler == (void *) SIG_ERR)
+    goto exit_sig;
+
+  tls->set_siginfo (this);
+  goto dosig;
+
+stop:
+  /* Eat multiple attempts to STOP */
+  if (ISSTATE (myself, PID_STOPPED))
+    goto done;
+  handler = (void *) sig_handle_tty_stop;
+  thissig = global_sigs[SIGSTOP];
+
+dosig:
+  /* Dispatch to the appropriate function. */
+  sigproc_printf ("signal %d, about to call %p", si.si_signo, handler);
+  rc = setup_handler (si.si_signo, handler, thissig, tls);
+
+done:
+  if (continue_now)
+    SetEvent (sigCONT);
+  sigproc_printf ("returning %d", rc);
+  return rc;
+
+thread_specific:
+  tls->sig = si.si_signo;
+  tls->set_siginfo (this);
+  sigproc_printf ("releasing sigwait for thread");
+  SetEvent (tls->event);
+  goto done;
+
+exit_sig:
+  if (si.si_signo == SIGQUIT || si.si_signo == SIGABRT)
     {
       CONTEXT c;
       c.ContextFlags = CONTEXT_FULL;
       GetThreadContext (hMainThread, &c);
-      _my_tls.copy_context (&c);
-
-      /* Tell gdb that we got a signal. Presumably, gdb already noticed this
-         if we hit an exception.  */
-      _my_tls.signal_debugger (si.si_signo);
+      if (!try_to_debug ())
+	stackdump (c.Ebp, 1, 1);
+      si.si_signo |= 0x80;
     }
-  if (have_execed)
+  sigproc_printf ("signal %d, about to call do_exit", si.si_signo);
+  signal_exit (si.si_signo);
+  /* Never returns */
+}
+
+CRITICAL_SECTION NO_COPY exit_lock;
+
+/* Cover function to `do_exit' to handle exiting even in presence of more
+   exceptions.  We used to call exit, but a SIGSEGV shouldn't cause atexit
+   routines to run.  */
+static void
+signal_exit (int rc)
+{
+  EnterCriticalSection (&exit_lock);
+  if (exit_already++)
+    myself->exit (rc);
+
+  /* We'd like to stop the main thread from executing but when we do that it
+     causes random, inexplicable hangs.  So, instead, we set up the priority
+     of this thread really high so that it should do its thing and then exit. */
+  (void) SetThreadPriority (hMainThread, THREAD_PRIORITY_IDLE);
+  (void) SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_TIME_CRITICAL);
+
+  user_data->resourcelocks->Delete ();
+  user_data->resourcelocks->Init ();
+
+  if (hExeced)
     {
       sigproc_printf ("terminating captive process");
-      TerminateProcess (ch_spawn, sigExeced = si.si_signo);
+      TerminateProcess (hExeced, rc);
     }
-  /* Dispatch to the appropriate function. */
-  sigproc_printf ("signal %d, signal handler %p", si.si_signo, handler);
-  rc = setup_handler (handler, thissig, tls);
-  continue_now = false;
 
-done:
-  if (continue_now)
+  sigproc_printf ("about to call do_exit (%x)", rc);
+  (void) SetEvent (signal_arrived);
+  do_exit (rc);
+}
+
+HANDLE NO_COPY tty_mutex = NULL;
+
+void
+events_init (void)
+{
+  char *name;
+  char mutex_name[CYG_MAX_PATH];
+  /* tty_mutex is on while searching for a tty slot. It's necessary
+     while finding console window handle */
+
+  if (!(tty_mutex = CreateMutex (&sec_all_nih, FALSE,
+				   name = shared_name (mutex_name,
+						       "tty_mutex", 0))))
+    api_fatal ("can't create title mutex '%s', %E", name);
+
+  ProtectHandle (tty_mutex);
+  new_muto (mask_sync);
+  windows_system_directory[0] = '\0';
+  (void) GetSystemDirectory (windows_system_directory, sizeof (windows_system_directory) - 2);
+  char *end = strchr (windows_system_directory, '\0');
+  if (end == windows_system_directory)
+    api_fatal ("can't find windows system directory");
+  if (end[-1] != '\\')
     {
-      tls->sig = SIGCONT;
-      SetEvent (tls->signal_arrived);
+      *end++ = '\\';
+      *end = '\0';
     }
-  sigproc_printf ("returning %d", rc);
-  return rc;
+  windows_system_directory_length = end - windows_system_directory;
+  debug_printf ("windows_system_directory '%s', windows_system_directory_length %d",
+		windows_system_directory, windows_system_directory_length);
+  InitializeCriticalSection (&exit_lock);
+}
 
+void
+events_terminate (void)
+{
+  exit_already = 1;
 }
 
 int
 _cygtls::call_signal_handler ()
 {
-  int this_sa_flags = SA_RESTART;
-  while (1)
+  int this_sa_flags = 0;
+  /* Call signal handler.  */
+  while (sig)
     {
-      lock ();
-      if (!sig)
-	{
-	  unlock ();
-	  break;
-	}
-
-      /* Pop the stack if the next "return address" is sigdelayed, since
-	 this function is doing what sigdelayed would have done anyway. */
-      if (retaddr () == (__stack_t) sigdelayed)
-	pop ();
-
-      debug_only_printf ("dealing with signal %d", sig);
+      lock (); unlock ();	// make sure synchronized
       this_sa_flags = sa_flags;
-
-      /* Save information locally on stack to pass to handler. */
       int thissig = sig;
-      siginfo_t thissi = infodata;
-      void (*thisfunc) (int, siginfo_t *, void *) = func;
+      void (*sigfunc) (int) = func;
 
+      (void) pop ();
+      reset_signal_arrived ();
       sigset_t this_oldmask = set_process_mask_delta ();
       int this_errno = saved_errno;
-      sig = 0;		/* Flag that we can accept another signal */
-      reset_signal_arrived ();
-      unlock ();	/* unlock signal stack */
-
-      incyg = false;
-      /* no ucontext_t information provided yet, so third arg is NULL */
-      thisfunc (thissig, &thissi, NULL);
-      incyg = true;
-
-      set_signal_mask (_my_tls.sigmask, this_oldmask);
+      incyg--;
+      sig = 0;
+      sigfunc (thissig);
+      incyg++;
+      set_signal_mask (this_oldmask);
       if (this_errno >= 0)
 	set_errno (this_errno);
     }
 
-  return this_sa_flags & SA_RESTART || (this != _main_tls);
+  return this_sa_flags & SA_RESTART;
 }
 
-void
-_cygtls::copy_context (CONTEXT *c)
+extern "C" void __stdcall
+reset_signal_arrived ()
 {
-  memcpy (&thread_context, c, (&thread_context._internal - (unsigned char *) &thread_context));
-}
-
-void
-_cygtls::signal_debugger (int sig)
-{
-  if (isinitialized () && being_debugged ())
-    {
-      char sigmsg[2 * sizeof (_CYGWIN_SIGNAL_STRING " ffffffff ffffffff")];
-      __small_sprintf (sigmsg, _CYGWIN_SIGNAL_STRING " %d %p %p", sig, thread_id, &thread_context);
-      OutputDebugString (sigmsg);
-    }
+  // NEEDED? WaitForSingleObject (signal_arrived, 10);
+  (void) ResetEvent (signal_arrived);
+  sigproc_printf ("reset signal_arrived");
+  if (_my_tls.stackptr > _my_tls.stack)
+    debug_printf ("stackptr[-1] %p", _my_tls.stackptr[-1]);
 }

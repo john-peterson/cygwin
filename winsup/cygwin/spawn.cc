@@ -1,7 +1,6 @@
 /* spawn.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -11,50 +10,43 @@ details. */
 
 #include "winsup.h"
 #include <stdlib.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <process.h>
 #include <sys/wait.h>
+#include <limits.h>
 #include <wingdi.h>
 #include <winuser.h>
-#include <wchar.h>
 #include <ctype.h>
-#include <sys/cygwin.h>
 #include "cygerrno.h"
+#include <sys/cygwin.h>
 #include "security.h"
-#include "sigproc.h"
-#include "pinfo.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
+#include "sigproc.h"
 #include "cygheap.h"
 #include "child_info.h"
+#include "shared_info.h"
+#include "pinfo.h"
+#define NEED_VFORK
+#include "perthread.h"
+#include "registry.h"
 #include "environ.h"
-#include "cygtls.h"
-#include "tls_pbuf.h"
-#include "winf.h"
-#include "ntdll.h"
+#include "cygthread.h"
 
-static suffix_info NO_COPY exe_suffixes[] =
+#define LINE_BUF_CHUNK (CYG_MAX_PATH * 2)
+
+static suffix_info std_suffixes[] =
 {
-  suffix_info ("", 1),
-  suffix_info (".exe", 1),
-  suffix_info (".com"),
+  suffix_info (".exe", 1), suffix_info ("", 1),
+  suffix_info (".com"), suffix_info (".cmd"),
+  suffix_info (".bat"), suffix_info (".dll"),
   suffix_info (NULL)
 };
 
-#if 0
-/* CV, 2009-11-05: Used to be used when searching for DLLs in calls to
-   dlopen().  However, dlopen() on other platforms never adds a suffix by
-   its own.  Therefore we use stat_suffixes now, which only adds a .exe
-   suffix for symmetry. */
-static suffix_info dll_suffixes[] =
-{
-  suffix_info (".dll"),
-  suffix_info ("", 1),
-  suffix_info (".exe", 1),
-  suffix_info (NULL)
-};
-#endif
+HANDLE hExeced;
+DWORD dwExeced;
 
 /* Add .exe to PROG if not already present and see if that exists.
    If not, return PROG (converted from posix to win32 rules if necessary).
@@ -63,31 +55,21 @@ static suffix_info dll_suffixes[] =
    Returns (possibly NULL) suffix */
 
 static const char *
-perhaps_suffix (const char *prog, path_conv& buf, int& err, unsigned opt)
+perhaps_suffix (const char *prog, path_conv& buf)
 {
-  const char *ext;
+  char *ext;
 
-  err = 0;
   debug_printf ("prog '%s'", prog);
-  buf.check (prog, PC_SYM_FOLLOW | PC_NULLEMPTY,
-	     (opt & FE_DLL) ? stat_suffixes : exe_suffixes);
+  buf.check (prog, PC_SYM_FOLLOW | PC_FULL, std_suffixes);
 
-  if (buf.isdir ())
-    {
-      err = EACCES;
-      ext = NULL;
-    }
-  else if (!buf.exists ())
-    {
-      err = ENOENT;
-      ext = NULL;
-    }
+  if (!buf.exists () || buf.isdir ())
+    ext = NULL;
   else if (buf.known_suffix)
-    ext = buf.get_win32 () + (buf.known_suffix - buf.get_win32 ());
+    ext = (char *) buf + (buf.known_suffix - buf.get_win32 ());
   else
-    ext = strchr (buf.get_win32 (), '\0');
+    ext = strchr (buf, '\0');
 
-  debug_printf ("buf %s, suffix found '%s'", (char *) buf.get_win32 (), ext);
+  debug_printf ("buf %s, suffix found '%s'", (char *) buf, ext);
   return ext;
 }
 
@@ -105,18 +87,16 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
 {
   const char *suffix = "";
   debug_printf ("find_exec (%s)", name);
-  const char *retval;
-  tmp_pathbuf tp;
-  char *tmp = tp.c_get ();
+  const char *retval = buf;
+  char tmp[CYG_MAX_PATH];
   const char *posix = (opt & FE_NATIVE) ? NULL : name;
-  bool has_slash = !!strpbrk (name, "/\\");
-  int err;
+  bool has_slash = strchr (name, '/');
 
   /* Check to see if file can be opened as is first.
      Win32 systems always check . first, but PATH may not be set up to
      do this. */
   if ((has_slash || opt & FE_CWD)
-      && (suffix = perhaps_suffix (name, buf, err, opt)) != NULL)
+      && (suffix = perhaps_suffix (name, buf)) != NULL)
     {
       if (posix && !has_slash)
 	{
@@ -125,7 +105,6 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
 	  strcpy (tmp + 2, name);
 	  posix = tmp;
 	}
-      retval = buf.get_win32 ();
       goto out;
     }
 
@@ -133,30 +112,19 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
   const char *path;
   const char *posix_path;
 
-  posix = (opt & FE_NATIVE) ? NULL : tmp;
-
-  if (strchr (mywinenv, '/'))
-    {
-      /* it's not really an environment variable at all */
-      int n = cygwin_conv_path_list (CCP_POSIX_TO_WIN_A, mywinenv, NULL, 0);
-      char *s = (char *) alloca (n);
-      if (cygwin_conv_path_list (CCP_POSIX_TO_WIN_A, mywinenv, s, n))
-	goto errout;
-      path = s;
-      posix_path = mywinenv - 1;
-    }
-  else if (has_slash || strchr (name, '\\') || isdrive (name)
+  /* Return the error condition if this is an absolute path or if there
+     is no PATH to search. */
+  if (has_slash || strchr (name, '\\') || isdrive (name)
       || !(winpath = getwinenv (mywinenv))
       || !(path = winpath->get_native ()) || *path == '\0')
-    /* Return the error condition if this is an absolute path or if there
-       is no PATH to search. */
     goto errout;
-  else
-    posix_path = winpath->get_posix () - 1;
 
   debug_printf ("%s%s", mywinenv, path);
-  /* Iterate over the specified path, looking for the file with and without
-     executable extensions. */
+
+  posix = (opt & FE_NATIVE) ? NULL : tmp;
+  posix_path = winpath->get_posix () - 1;
+  /* Iterate over the specified path, looking for the file with and
+     without executable extensions. */
   do
     {
       posix_path++;
@@ -171,13 +139,8 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
 
       debug_printf ("trying %s", tmp);
 
-      int err1;
-
-      if ((suffix = perhaps_suffix (tmp, buf, err1, opt)) != NULL)
+      if ((suffix = perhaps_suffix (tmp, buf)) != NULL)
 	{
-	  if (buf.has_acls () && check_file_access (buf, X_OK, true))
-	    continue;
-
 	  if (posix == tmp)
 	    {
 	      eotmp = strccpy (tmp, &posix_path, ':');
@@ -186,7 +149,6 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
 	      *eotmp++ = '/';
 	      strcpy (eotmp, name);
 	    }
-	  retval = buf.get_win32 ();
 	  goto out;
 	}
     }
@@ -198,43 +160,34 @@ find_exec (const char *name, path_conv& buf, const char *mywinenv,
      Take the appropriate action based on null_if_not_found. */
   if (opt & FE_NNF)
     retval = NULL;
-  else if (!(opt & FE_NATIVE))
-    retval = name;
+  else if (opt & FE_NATIVE)
+    buf.check (name);
   else
-    {
-      buf.check (name);
-      retval = buf.get_win32 ();
-    }
+    retval = name;
 
  out:
   if (posix)
-    retval = buf.set_path (posix);
-  debug_printf ("%s = find_exec (%s)", (char *) buf.get_win32 (), name);
+    buf.set_path (posix);
+  debug_printf ("%s = find_exec (%s)", (char *) buf, name);
   if (known_suffix)
-    *known_suffix = suffix ?: strchr (buf.get_win32 (), '\0');
-  if (!retval && err)
-    set_errno (err);
+    *known_suffix = suffix ?: strchr (buf, '\0');
   return retval;
 }
 
-/* Utility for child_info_spawn::worker.  */
+/* Utility for spawn_guts.  */
 
 static HANDLE
-handle (int fd, bool writing)
+handle (int n, int direction)
 {
-  HANDLE h;
-  cygheap_fdget cfd (fd);
+  fhandler_base *fh = cygheap->fdtab[n];
 
-  if (cfd < 0)
-    h = INVALID_HANDLE_VALUE;
-  else if (cfd->close_on_exec ())
-    h = INVALID_HANDLE_VALUE;
-  else if (!writing)
-    h = cfd->get_handle ();
-  else
-    h = cfd->get_output_handle ();
-
-  return h;
+  if (!fh)
+    return INVALID_HANDLE_VALUE;
+  if (fh->close_on_exec ())
+    return INVALID_HANDLE_VALUE;
+  if (direction == 0)
+    return fh->get_handle ();
+  return fh->get_output_handle ();
 }
 
 int
@@ -246,6 +199,126 @@ iscmd (const char *argv0, const char *what)
     return 0;
   return n >= 0 && strcasematch (argv0 + n, what) &&
 	 (n == 0 || isdirsep (argv0[n - 1]));
+}
+
+class linebuf
+{
+ public:
+  size_t ix;
+  char *buf;
+  size_t alloced;
+  linebuf () : ix (0), buf (NULL), alloced (0) {}
+  ~linebuf () {if (buf) free (buf);}
+  void add (const char *what, int len);
+  void add (const char *what) {add (what, strlen (what));}
+  void prepend (const char *what, int len);
+};
+
+void
+linebuf::add (const char *what, int len)
+{
+  size_t newix;
+  if ((newix = ix + len) >= alloced || !buf)
+    {
+      alloced += LINE_BUF_CHUNK + newix;
+      buf = (char *) realloc (buf, alloced + 1);
+    }
+  memcpy (buf + ix, what, len);
+  ix = newix;
+  buf[ix] = '\0';
+}
+
+void
+linebuf::prepend (const char *what, int len)
+{
+  int buflen;
+  size_t newix;
+  if ((newix = ix + len) >= alloced)
+    {
+      alloced += LINE_BUF_CHUNK + newix;
+      buf = (char *) realloc (buf, alloced + 1);
+      buf[ix] = '\0';
+    }
+  if ((buflen = strlen (buf)))
+      memmove (buf + len, buf, buflen + 1);
+  else
+      buf[newix] = '\0';
+  memcpy (buf, what, len);
+  ix = newix;
+}
+
+class av
+{
+  char **argv;
+  int calloced;
+ public:
+  int error;
+  int argc;
+  av (int ac, const char * const *av) : calloced (0), error (false), argc (ac)
+  {
+    argv = (char **) cmalloc (HEAP_1_ARGV, (argc + 5) * sizeof (char *));
+    memcpy (argv, av, (argc + 1) * sizeof (char *));
+  }
+  ~av ()
+  {
+    if (argv)
+      {
+	for (int i = 0; i < calloced; i++)
+	  if (argv[i])
+	    cfree (argv[i]);
+	cfree (argv);
+      }
+  }
+  int unshift (const char *what, int conv = 0);
+  operator char **() {return argv;}
+  void all_calloced () {calloced = argc;}
+  void replace0_maybe (const char *arg0)
+  {
+    /* Note: Assumes that argv array has not yet been "unshifted" */
+    if (!calloced
+	&& (argv[0] = cstrdup1 (arg0)))
+      calloced = true;
+    else
+      error = errno;
+  }
+  void dup_maybe (int i)
+  {
+    if (i >= calloced
+	&& !(argv[i] = cstrdup1 (argv[i])))
+      error = errno;
+  }
+  void dup_all ()
+  {
+    for (int i = calloced; i < argc; i++)
+      if (!(argv[i] = cstrdup1 (argv[i])))
+	error = errno;
+  }
+};
+
+int
+av::unshift (const char *what, int conv)
+{
+  char **av;
+  av = (char **) crealloc (argv, (argc + 2) * sizeof (char *));
+  if (!av)
+    return 0;
+
+  argv = av;
+  memmove (argv + 1, argv, (argc + 1) * sizeof (char *));
+  char buf[CYG_MAX_PATH + 1];
+  if (conv)
+    {
+      cygwin_conv_to_posix_path (what, buf);
+      char *p = strchr (buf, '\0') - 4;
+      if (p > buf && strcasematch (p, ".exe"))
+	*p = '\0';
+      what = buf;
+    }
+  if (!(*argv = cstrdup1 (what)))
+    error = errno;
+  argc++;
+  calloced++;
+  return 1;
 }
 
 struct pthread_cleanup
@@ -260,47 +333,34 @@ static void
 do_cleanup (void *args)
 {
 # define cleanup ((pthread_cleanup *) args)
+  if (cleanup->oldint)
+    signal (SIGINT, cleanup->oldint);
+  if (cleanup->oldquit)
+    signal (SIGQUIT, cleanup->oldquit);
   if (cleanup->oldmask != (sigset_t) -1)
-    {
-      signal (SIGINT, cleanup->oldint);
-      signal (SIGQUIT, cleanup->oldquit);
-      sigprocmask (SIG_SETMASK, &(cleanup->oldmask), NULL);
-    }
+    sigprocmask (SIG_SETMASK, &(cleanup->oldmask), NULL);
 # undef cleanup
 }
 
-child_info_spawn NO_COPY ch_spawn;
 
-int
-child_info_spawn::worker (const char *prog_arg, const char *const *argv,
-			  const char *const envp[], int mode,
-			  int in__stdin, int in__stdout)
+static int __stdcall
+spawn_guts (const char * prog_arg, const char *const *argv,
+	    const char *const envp[], int mode)
 {
   bool rc;
   pid_t cygpid;
-  int res = -1;
 
-  /* Check if we have been called from exec{lv}p or spawn{lv}p and mask
-     mode to keep only the spawn mode. */
-  bool p_type_exec = !!(mode & _P_PATH_TYPE_EXEC);
-  mode = _P_MODE (mode);
+  MALLOC_CHECK;
 
   if (prog_arg == NULL)
     {
       syscall_printf ("prog_arg is NULL");
-      set_errno (EFAULT);	/* As on Linux. */
-      return -1;
-    }
-  if (!prog_arg[0])
-    {
-      syscall_printf ("prog_arg is empty");
-      set_errno (ENOENT);	/* Per POSIX */
+      set_errno (EINVAL);
       return -1;
     }
 
-  syscall_printf ("mode = %d, prog_arg = %.9500s", mode, prog_arg);
+  syscall_printf ("spawn_guts (%d, %.9500s)", mode, prog_arg);
 
-  /* FIXME: This is no error condition on Linux. */
   if (argv == NULL)
     {
       syscall_printf ("argv is NULL");
@@ -308,51 +368,35 @@ child_info_spawn::worker (const char *prog_arg, const char *const *argv,
       return -1;
     }
 
-  /* FIXME: There is a small race here and FIXME: not thread safe! */
-  pthread_cleanup cleanup;
-  if (mode == _P_SYSTEM)
-    {
-      sigset_t child_block;
-      cleanup.oldint = signal (SIGINT, SIG_IGN);
-      cleanup.oldquit = signal (SIGQUIT, SIG_IGN);
-      sigemptyset (&child_block);
-      sigaddset (&child_block, SIGCHLD);
-      sigprocmask (SIG_BLOCK, &child_block, &cleanup.oldmask);
-    }
-  pthread_cleanup_push (do_cleanup, (void *) &cleanup);
-  av newargv;
-  linebuf one_line;
-  PWCHAR envblock = NULL;
   path_conv real_path;
-  bool reset_sendsig = false;
 
-  tmp_pathbuf tp;
-  PWCHAR runpath = tp.w_get ();
-  int c_flags;
-  bool wascygexec;
+  linebuf one_line;
 
-  bool null_app_name = false;
-  STARTUPINFOW si = {};
-  int looped = 0;
+  STARTUPINFO si = {0, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL};
 
-  myfault efault;
-  if (efault.faulted ())
+  child_info_spawn ciresrv;
+  si.lpReserved2 = (LPBYTE) &ciresrv;
+  si.cbReserved2 = sizeof (ciresrv);
+
+  DWORD chtype;
+  if (mode != _P_OVERLAY)
+    chtype = PROC_SPAWN;
+  else
+    chtype = PROC_EXEC;
+
+  HANDLE subproc_ready;
+  if (1 || chtype != PROC_EXEC)
+    subproc_ready = NULL;
+  else
     {
-      if (get_errno () == ENOMEM)
-	set_errno (E2BIG);
-      else
-	set_errno (EFAULT);
-      res = -1;
-      goto out;
+      subproc_ready = CreateEvent (&sec_all, TRUE, FALSE, NULL);
+      ProtectHandleINH (subproc_ready);
     }
 
-  child_info_types chtype;
-  if (mode == _P_OVERLAY)
-    chtype = _CH_EXEC;
-  else
-    chtype = _CH_SPAWN;
+  init_child_info (chtype, &ciresrv, subproc_ready);
 
-  moreinfo = cygheap_exec_info::alloc ();
+  ciresrv.moreinfo = (cygheap_exec_info *) ccalloc (HEAP_1_EXEC, 1, sizeof (cygheap_exec_info));
+  ciresrv.moreinfo->old_title = NULL;
 
   /* CreateProcess takes one long string that is the command line (sigh).
      We need to quote any argument that has whitespace or embedded "'s.  */
@@ -361,41 +405,16 @@ child_info_spawn::worker (const char *prog_arg, const char *const *argv,
   for (ac = 0; argv[ac]; ac++)
     /* nothing */;
 
-  newargv.set (ac, argv);
+  av newargv (ac, argv);
 
-  int err;
-  const char *ext;
-  if ((ext = perhaps_suffix (prog_arg, real_path, err, FE_NADA)) == NULL)
-    {
-      set_errno (err);
-      res = -1;
-      goto out;
-    }
-
-
-  wascygexec = real_path.iscygexec ();
-  res = newargv.fixup (prog_arg, real_path, ext, p_type_exec);
-
-  if (res)
-    goto out;
-
-  if (!real_path.iscygexec () && ::cygheap->cwd.get_error ())
-    {
-      small_printf ("Error: Current working directory %s.\n"
-		    "Can't start native Windows application from here.\n\n",
-		    ::cygheap->cwd.get_error_desc ());
-      set_errno (::cygheap->cwd.get_error ());
-      res = -1;
-      goto out;
-    }
-
-  if (ac == 3 && argv[1][0] == '/' && tolower (argv[1][1]) == 'c' &&
+  int null_app_name = 0;
+  if (ac == 3 && argv[1][0] == '/' && argv[1][1] == 'c' &&
       (iscmd (argv[0], "command.com") || iscmd (argv[0], "cmd.exe")))
     {
       real_path.check (prog_arg);
       one_line.add ("\"");
       if (!real_path.error)
-	one_line.add (real_path.get_win32 ());
+	one_line.add (real_path);
       else
 	one_line.add (argv[0]);
       one_line.add ("\"");
@@ -403,252 +422,259 @@ child_info_spawn::worker (const char *prog_arg, const char *const *argv,
       one_line.add (argv[1]);
       one_line.add (" ");
       one_line.add (argv[2]);
-      real_path.set_path (argv[0]);
-      null_app_name = true;
+      strcpy (real_path, argv[0]);
+      null_app_name = 1;
+      goto skip_arg_parsing;
     }
-  else
+
+  const char *ext;
+  if ((ext = perhaps_suffix (prog_arg, real_path)) == NULL)
     {
-      if (wascygexec)
-	newargv.dup_all ();
-      else if (!one_line.fromargv (newargv, real_path.get_win32 (),
-				   real_path.iscygexec ()))
+      set_errno (ENOENT);
+      return -1;
+    }
+
+  MALLOC_CHECK;
+
+  /* If the file name ends in either .exe, .com, .bat, or .cmd we assume
+     that it is NOT a script file */
+  while (*ext == '\0')
+    {
+      HANDLE hnd = CreateFile (real_path, GENERIC_READ,
+			       FILE_SHARE_READ | FILE_SHARE_WRITE,
+			       &sec_none_nih, OPEN_EXISTING,
+			       FILE_ATTRIBUTE_NORMAL, 0);
+      if (hnd == INVALID_HANDLE_VALUE)
 	{
-	  res = -1;
-	  goto out;
+	  __seterrno ();
+	  return -1;
 	}
 
+      DWORD done;
 
-      newargv.all_calloced ();
-      moreinfo->argc = newargv.argc;
-      moreinfo->argv = newargv;
+      char buf[2 * CYG_MAX_PATH + 1];
+      buf[0] = buf[1] = buf[2] = buf[sizeof (buf) - 1] = '\0';
+      if (!ReadFile (hnd, buf, sizeof (buf) - 1, &done, 0))
+	{
+	  CloseHandle (hnd);
+	  __seterrno ();
+	  return -1;
+	}
 
-      if (mode != _P_OVERLAY || !real_path.iscygexec ()
-	  || !DuplicateHandle (GetCurrentProcess (), myself.shared_handle (),
-			       GetCurrentProcess (), &moreinfo->myself_pinfo,
-			       0, TRUE, DUPLICATE_SAME_ACCESS))
-	moreinfo->myself_pinfo = NULL;
+      CloseHandle (hnd);
+
+      if (buf[0] == 'M' && buf[1] == 'Z')
+	break;
+
+      debug_printf ("%s is a script", (char *) real_path);
+
+      if (real_path.has_acls () && allow_ntsec
+	  && check_file_access (real_path, X_OK))
+	{
+	  debug_printf ("... but not executable");
+	  break;
+	}
+
+      char *pgm, *arg1;
+
+      if (buf[0] != '#' || buf[1] != '!')
+	{
+	  pgm = (char *) "/bin/sh";
+	  arg1 = NULL;
+	}
       else
-	VerifyHandle (moreinfo->myself_pinfo);
+	{
+	  char *ptr;
+	  pgm = buf + 2;
+	  pgm += strspn (pgm, " \t");
+	  for (ptr = pgm, arg1 = NULL;
+	       *ptr && *ptr != '\r' && *ptr != '\n';
+	       ptr++)
+	    if (!arg1 && (*ptr == ' ' || *ptr == '\t'))
+	      {
+		/* Null terminate the initial command and step over
+		   any additional white space.  If we've hit the
+		   end of the line, exit the loop.  Otherwise, we've
+		   found the first argument. Position the current
+		   pointer on the last known white space. */
+		*ptr = '\0';
+		char *newptr = ptr + 1;
+		newptr += strspn (newptr, " \t");
+		if (!*newptr || *newptr == '\r' || *newptr == '\n')
+		  break;
+		arg1 = newptr;
+		ptr = newptr - 1;
+	      }
+
+	  *ptr = '\0';
+	}
+
+      /* Replace argv[0] with the full path to the script if this is the
+	 first time through the loop. */
+      newargv.replace0_maybe (prog_arg);
+
+      /* pointers:
+       * pgm	interpreter name
+       * arg1	optional string
+       */
+      if (arg1)
+	newargv.unshift (arg1);
+
+      /* FIXME: This should not be using FE_NATIVE.  It should be putting
+	 the posix path on the argv list. */
+      find_exec (pgm, real_path, "PATH=", FE_NATIVE, &ext);
+      newargv.unshift (real_path, 1);
     }
-  WCHAR wone_line[one_line.ix + 1];
-  if (one_line.ix)
-    sys_mbstowcs (wone_line, one_line.ix + 1, one_line.buf);
+
+  if (real_path.iscygexec ())
+    newargv.dup_all ();
   else
-    wone_line[0] = L'\0';
+    {
+      for (int i = 0; i < newargv.argc; i++)
+	{
+	  char *p = NULL;
+	  const char *a;
 
-  PROCESS_INFORMATION pi;
-  pi.hProcess = pi.hThread = NULL;
-  pi.dwProcessId = pi.dwThreadId = 0;
+	  newargv.dup_maybe (i);
+	  a = i ? newargv[i] : (char *) real_path;
+	  int len = strlen (a);
+	  if (len != 0 && !strpbrk (a, " \t\n\r\""))
+	    one_line.add (a, len);
+	  else
+	    {
+	      one_line.add ("\"", 1);
+	      /* Handle embedded special characters " and \.
+		 A " is always preceded by a \.
+		 A \ is not special unless it precedes a ".  If it does,
+		 then all preceding \'s must be doubled to avoid having
+		 the Windows command line parser interpret the \ as quoting
+		 the ".  This rule applies to a string of \'s before the end
+		 of the string, since cygwin/windows uses a " to delimit the
+		 argument. */
+	      for (; (p = strpbrk (a, "\"\\")); a = ++p)
+		{
+		  one_line.add (a, p - a);
+		  /* Find length of string of backslashes */
+		  int n = strspn (p, "\\");
+		  if (!n)
+		    one_line.add ("\\\"", 2);	/* No backslashes, so it must be a ".
+						   The " has to be protected with a backslash. */
+		  else
+		    {
+		      one_line.add (p, n);	/* Add the run of backslashes */
+		      /* Need to double up all of the preceding
+			 backslashes if they precede a quote or EOS. */
+		      if (!p[n] || p[n] == '"')
+			one_line.add (p, n);
+		      p += n - 1;		/* Point to last backslash */
+		    }
+		}
+	      if (*a)
+		one_line.add (a);
+	      one_line.add ("\"", 1);
+	    }
+	  MALLOC_CHECK;
+	  one_line.add (" ", 1);
+	  MALLOC_CHECK;
+	}
 
-  /* Set up needed handles for stdio */
+      MALLOC_CHECK;
+      if (one_line.ix)
+	one_line.buf[one_line.ix - 1] = '\0';
+      else
+	one_line.add ("", 1);
+      MALLOC_CHECK;
+
+      if (one_line.ix > 32767)
+	{
+	  debug_printf ("Command line too long (>32K), return E2BIG");
+	  set_errno (E2BIG);
+	  return -1;
+	}
+    }
+
+  char *envblock;
+  newargv.all_calloced ();
+  if (newargv.error)
+    {
+      set_errno (newargv.error);
+      return -1;
+    }
+
+  ciresrv.moreinfo->argc = newargv.argc;
+  ciresrv.moreinfo->argv = newargv;
+  ciresrv.hexec_proc = hexec_proc;
+
+  if (mode != _P_OVERLAY ||
+      !DuplicateHandle (hMainProc, myself.shared_handle (), hMainProc,
+			&ciresrv.moreinfo->myself_pinfo, 0,
+			TRUE, DUPLICATE_SAME_ACCESS))
+    ciresrv.moreinfo->myself_pinfo = NULL;
+  else
+    VerifyHandle (ciresrv.moreinfo->myself_pinfo);
+
+ skip_arg_parsing:
+  PROCESS_INFORMATION pi = {NULL, 0, 0, 0};
+  si.lpReserved = NULL;
+  si.lpDesktop = NULL;
   si.dwFlags = STARTF_USESTDHANDLES;
-  si.hStdInput = handle ((in__stdin < 0 ? 0 : in__stdin), false);
-  si.hStdOutput = handle ((in__stdout < 0 ? 1 : in__stdout), true);
-  si.hStdError = handle (2, true);
-
+  si.hStdInput = handle (0, 0); /* Get input handle */
+  si.hStdOutput = handle (1, 1); /* Get output handle */
+  si.hStdError = handle (2, 1); /* Get output handle */
   si.cb = sizeof (si);
 
-  c_flags = GetPriorityClass (GetCurrentProcess ());
-  sigproc_printf ("priority class %d", c_flags);
+  int flags = CREATE_DEFAULT_ERROR_MODE | GetPriorityClass (hMainProc);
 
-  c_flags |= CREATE_SEPARATE_WOW_VDM | CREATE_UNICODE_ENVIRONMENT;
-
-  if (wincap.has_program_compatibility_assistant ())
-    {
-      /* We're adding the CREATE_BREAKAWAY_FROM_JOB flag here to workaround
-	 issues with the "Program Compatibility Assistant (PCA) Service"
-	 starting with Windows Vista.  For some reason, when starting long
-	 running sessions from mintty(*), the affected svchost.exe process
-	 takes more and more memory and at one point takes over the CPU.  At
-	 this point the machine becomes unresponsive.  The only way to get
-	 back to normal is to stop the entire mintty session, or to stop the
-	 PCA service.  However, a process which is controlled by PCA is part
-	 of a compatibility job, which allows child processes to break away
-	 from the job.  This helps to avoid this issue.
-
-	 (*) Note that this is not mintty's fault.  It has just been observed
-	 with mintty in the first place.  See the archives for more info:
-	 http://cygwin.com/ml/cygwin-developers/2012-02/msg00018.html */
-
-      JOBOBJECT_BASIC_LIMIT_INFORMATION jobinfo;
-
-      /* Calling QueryInformationJobObject costs time.  Starting with
-	 Windows XP there's a function IsProcessInJob, which fetches the
-	 information whether or not we're part of a job 20 times faster than
-	 the call to QueryInformationJobObject.  But we're still
-	 supporting Windows 2000, so we can't just link to that function.
-	 On the other hand, loading the function pointer at runtime is a
-	 time comsuming operation, too.  So, what we do here is to emulate
-	 the IsProcessInJob function when called for the own process and with
-	 a NULL job handle.  In this case it just returns the value of the
-	 lowest bit from PEB->EnvironmentUpdateCount (observed with WinDbg).
-	 The name of this PEB member is the same in all (inofficial)
-	 documentations of the PEB.  Apparently it's a bit misleading.
-	 As a result, we only call QueryInformationJobObject if we're on
-	 Vista or later *and* if the PEB indicates we're running in a job.
-	 Tested on Vista/32, Vista/64, W7/32, W7/64, W8/64. */
-      if ((NtCurrentTeb ()->Peb->EnvironmentUpdateCount & 1) != 0
-	  && QueryInformationJobObject (NULL, JobObjectBasicLimitInformation,
-				     &jobinfo, sizeof jobinfo, NULL)
-	  && (jobinfo.LimitFlags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK
-				    | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)))
-	{
-	  debug_printf ("Add CREATE_BREAKAWAY_FROM_JOB");
-	  c_flags |= CREATE_BREAKAWAY_FROM_JOB;
-	}
-    }
-
-  if (mode == _P_DETACH)
-    c_flags |= DETACHED_PROCESS;
-  else
-    fhandler_console::need_invisible ();
-
+  if (mode == _P_DETACH || !set_console_state_for_spawn ())
+    flags |= DETACHED_PROCESS;
   if (mode != _P_OVERLAY)
-    myself->exec_sendsig = NULL;
+    flags |= CREATE_SUSPENDED;
+#if 0 //someday
   else
-    {
-      /* Reset sendsig so that any process which wants to send a signal
-	 to this pid will wait for the new process to become active.
-	 Save the old value in case the exec fails.  */
-      if (!myself->exec_sendsig)
-	{
-	  myself->exec_sendsig = myself->sendsig;
-	  myself->exec_dwProcessId = myself->dwProcessId;
-	  myself->sendsig = NULL;
-	  reset_sendsig = true;
-	}
-    }
+    myself->dwProcessId = 0;
+#endif
 
-  if (null_app_name)
-    runpath = NULL;
-  else
-    {
-      USHORT len = real_path.get_nt_native_path ()->Length / sizeof (WCHAR);
-      if (RtlEqualUnicodePathPrefix (real_path.get_nt_native_path (),
-				     &ro_u_natp, FALSE))
-	{
-	  runpath = real_path.get_wide_win32_path (runpath);
-	  /* If the executable path length is < MAX_PATH, make sure the long
-	     path win32 prefix is removed from the path to make subsequent
-	     not long path aware native Win32 child processes happy. */
-	  if (len < MAX_PATH + 4)
-	    {
-	      if (runpath[5] == ':')
-		runpath += 4;
-	      else if (len < MAX_PATH + 6)
-		*(runpath += 6) = L'\\';
-	    }
-	}
-      else if (len < NT_MAX_PATH - ro_u_globalroot.Length / sizeof (WCHAR))
-	{
-	  UNICODE_STRING rpath;
+  /* Some file types (currently only sockets) need extra effort in the
+     parent after CreateProcess and before copying the datastructures
+     to the child. So we have to start the child in suspend state,
+     unfortunately, to avoid a race condition. */
+  if (cygheap->fdtab.need_fixup_before ())
+    flags |= CREATE_SUSPENDED;
 
-	  RtlInitEmptyUnicodeString (&rpath, runpath,
-				     (NT_MAX_PATH - 1) * sizeof (WCHAR));
-	  RtlCopyUnicodeString (&rpath, &ro_u_globalroot);
-	  RtlAppendUnicodeStringToString (&rpath,
-					  real_path.get_nt_native_path ());
-	}
-      else
-	{
-	  set_errno (ENAMETOOLONG);
-	  res = -1;
-	  goto out;
-	}
-    }
-  syscall_printf ("null_app_name %d (%W, %.9500W)", null_app_name,
-		  runpath, wone_line);
+  const char *runpath = null_app_name ? NULL : (const char *) real_path;
 
-  cygbench ("spawn-worker");
+  syscall_printf ("null_app_name %d (%s, %.9500s)", null_app_name, runpath, one_line.buf);
 
-  if (!real_path.iscygexec())
-    ::cygheap->fdtab.set_file_pointers_for_exec ();
+  void *newheap;
 
-  moreinfo->envp = build_env (envp, envblock, moreinfo->envc,
-			      real_path.iscygexec ());
-  if (!moreinfo->envp || !envblock)
-    {
-      set_errno (E2BIG);
-      res = -1;
-      goto out;
-    }
-  set (chtype, real_path.iscygexec ());
-  __stdin = in__stdin;
-  __stdout = in__stdout;
-  record_children ();
+  cygbench ("spawn-guts");
 
-  si.lpReserved2 = (LPBYTE) this;
-  si.cbReserved2 = sizeof (*this);
-
-  /* Depends on set call above.
-     Some file types might need extra effort in the parent after CreateProcess
-     and before copying the datastructures to the child.  So we have to start
-     the child in suspend state, unfortunately, to avoid a race condition. */
-  if (!newargv.win16_exe
-      && (!iscygwin () || mode != _P_OVERLAY
-	  || ::cygheap->fdtab.need_fixup_before ()))
-    c_flags |= CREATE_SUSPENDED;
-  /* If a native application should be spawned, we test here if the spawning
-     process is running in a console and, if so, if it's a foreground or
-     background process.  If it's a background process, we start the native
-     process with the CREATE_NEW_PROCESS_GROUP flag set.  This lets the native
-     process ignore Ctrl-C by default.  If we don't do that, pressing Ctrl-C
-     in a console will break native processes running in the background,
-     because the Ctrl-C event is sent to all processes in the console, unless
-     they ignore it explicitely.  CREATE_NEW_PROCESS_GROUP does that for us. */
-  if (!iscygwin () && fhandler_console::exists ()
-      && fhandler_console::tc_getpgid () != myself->pgid)
-    c_flags |= CREATE_NEW_PROCESS_GROUP;
-  refresh_cygheap ();
-
-  if (mode == _P_DETACH)
-    /* all set */;
-  else if (mode != _P_OVERLAY || !my_wr_proc_pipe)
-    prefork ();
-  else
-    wr_proc_pipe = my_wr_proc_pipe;
-
-  /* Don't allow child to inherit these handles if it's not a Cygwin program.
-     wr_proc_pipe will be injected later.  parent won't be used by the child
-     so there is no reason for the child to have it open as it can confuse
-     ps into thinking that children of windows processes are all part of
-     the same "execed" process.
-     FIXME: Someday, make it so that parent is never created when starting
-     non-Cygwin processes. */
-  if (!iscygwin ())
-    {
-      SetHandleInformation (wr_proc_pipe, HANDLE_FLAG_INHERIT, 0);
-      SetHandleInformation (parent, HANDLE_FLAG_INHERIT, 0);
-    }
-  parent_winpid = GetCurrentProcessId ();
+  cygheap->fdtab.set_file_pointers_for_exec ();
+  cygheap->user.deimpersonate ();
 
   /* When ruid != euid we create the new process under the current original
      account and impersonate in child, this way maintaining the different
      effective vs. real ids.
      FIXME: If ruid != euid and ruid != saved_uid we currently give
      up on ruid. The new process will have ruid == euid. */
-loop:
-  ::cygheap->user.deimpersonate ();
-
-  if (!real_path.iscygexec () && mode == _P_OVERLAY)
-    myself->process_state |= PID_NOTCYGWIN;
-
-  if (!::cygheap->user.issetuid ()
-      || (::cygheap->user.saved_uid == ::cygheap->user.real_uid
-	  && ::cygheap->user.saved_gid == ::cygheap->user.real_gid
-	  && !::cygheap->user.groups.issetgroups ()
-	  && !::cygheap->user.setuid_to_restricted))
+  if (!cygheap->user.issetuid ()
+      || (cygheap->user.saved_uid == cygheap->user.real_uid
+	  && cygheap->user.saved_gid == cygheap->user.real_gid
+	  && !cygheap->user.groups.issetgroups ()))
     {
-      rc = CreateProcessW (runpath,	  /* image name - with full path */
-			   wone_line,	  /* what was passed to exec */
-			   &sec_none_nih, /* process security attrs */
-			   &sec_none_nih, /* thread security attrs */
-			   TRUE,	  /* inherit handles from parent */
-			   c_flags,
-			   envblock,	  /* environment */
-			   NULL,
-			   &si,
-			   &pi);
+      ciresrv.moreinfo->envp = build_env (envp, envblock, ciresrv.moreinfo->envc,
+					  real_path.iscygexec ());
+      newheap = cygheap_setup_for_child (&ciresrv, cygheap->fdtab.need_fixup_before ());
+      rc = CreateProcess (runpath,	/* image name - with full path */
+			  one_line.buf,	/* what was passed to exec */
+			  &sec_none_nih,/* process security attrs */
+			  &sec_none_nih,/* thread security attrs */
+			  TRUE,		/* inherit handles from parent */
+			  flags,
+			  envblock,	/* environment */
+			  0,		/* use current drive/directory */
+			  &si,
+			  &pi);
     }
   else
     {
@@ -656,78 +682,48 @@ loop:
       if (mode == _P_OVERLAY)
 	myself.set_acl();
 
-      WCHAR wstname[1024] = { L'\0' };
-      HWINSTA hwst_orig = NULL, hwst = NULL;
-      HDESK hdsk_orig = NULL, hdsk = NULL;
-      PSECURITY_ATTRIBUTES sa;
+      /* allow the child to interact with our window station/desktop */
+      HANDLE hwst, hdsk;
+      SECURITY_INFORMATION dsi = DACL_SECURITY_INFORMATION;
       DWORD n;
+      char wstname[1024];
+      char dskname[1024];
 
-      hwst_orig = GetProcessWindowStation ();
-      hdsk_orig = GetThreadDesktop (GetCurrentThreadId ());
-      GetUserObjectInformationW (hwst_orig, UOI_NAME, wstname, 1024, &n);
-      /* Prior to Vista it was possible to start a service with the
-	 "Interact with desktop" flag.  This started the service in the
-	 interactive window station of the console.  A big security
-	 risk, but we don't want to disable this behaviour for older
-	 OSes because it's still heavily used by some users.  They have
-	 been warned. */
-      if (!::cygheap->user.setuid_to_restricted
-	  && wcscasecmp (wstname, L"WinSta0") != 0)
-	{
-	  WCHAR sid[128];
+      hwst = GetProcessWindowStation ();
+      SetUserObjectSecurity (hwst, &dsi, get_null_sd ());
+      GetUserObjectInformation (hwst, UOI_NAME, wstname, 1024, &n);
+      hdsk = GetThreadDesktop (GetCurrentThreadId ());
+      SetUserObjectSecurity (hdsk, &dsi, get_null_sd ());
+      GetUserObjectInformation (hdsk, UOI_NAME, dskname, 1024, &n);
+      strcat (wstname, "\\");
+      strcat (wstname, dskname);
+      si.lpDesktop = wstname;
 
-	  sa = sec_user ((PSECURITY_ATTRIBUTES) alloca (1024),
-			 ::cygheap->user.sid ());
-	  /* We're creating a window station per user, not per logon session.
-	     First of all we might not have a valid logon session for
-	     the user (logon by create_token), and second, it doesn't
-	     make sense in terms of security to create a new window
-	     station for every logon of the same user.  It just fills up
-	     the system with window stations for no good reason. */
-	  hwst = CreateWindowStationW (::cygheap->user.get_windows_id (sid), 0,
-				       GENERIC_READ | GENERIC_WRITE, sa);
-	  if (!hwst)
-	    system_printf ("CreateWindowStation failed, %E");
-	  else if (!SetProcessWindowStation (hwst))
-	    system_printf ("SetProcessWindowStation failed, %E");
-	  else if (!(hdsk = CreateDesktopW (L"Default", NULL, NULL, 0,
-					    GENERIC_ALL, sa)))
-	    system_printf ("CreateDesktop failed, %E");
-	  else
-	    {
-	      wcpcpy (wcpcpy (wstname, sid), L"\\Default");
-	      si.lpDesktop = wstname;
-	      debug_printf ("Desktop: %W", si.lpDesktop);
-	    }
-	}
-
-      rc = CreateProcessAsUserW (::cygheap->user.primary_token (),
-			   runpath,	  /* image name - with full path */
-			   wone_line,	  /* what was passed to exec */
-			   &sec_none_nih, /* process security attrs */
-			   &sec_none_nih, /* thread security attrs */
-			   TRUE,	  /* inherit handles from parent */
-			   c_flags,
-			   envblock,	  /* environment */
-			   NULL,
-			   &si,
-			   &pi);
-      if (hwst)
-	{
-	  SetProcessWindowStation (hwst_orig);
-	  CloseWindowStation (hwst);
-	}
-      if (hdsk)
-	{
-	  SetThreadDesktop (hdsk_orig);
-	  CloseDesktop (hdsk);
-	}
+      ciresrv.moreinfo->envp = build_env (envp, envblock, ciresrv.moreinfo->envc,
+					  real_path.iscygexec ());
+      newheap = cygheap_setup_for_child (&ciresrv, cygheap->fdtab.need_fixup_before ());
+      rc = CreateProcessAsUser (cygheap->user.token (),
+		       runpath,		/* image name - with full path */
+		       one_line.buf,	/* what was passed to exec */
+		       &sec_none_nih,   /* process security attrs */
+		       &sec_none_nih,   /* thread security attrs */
+		       TRUE,		/* inherit handles from parent */
+		       flags,
+		       envblock,	/* environment */
+		       0,		/* use current drive/directory */
+		       &si,
+		       &pi);
     }
 
   /* Restore impersonation. In case of _P_OVERLAY this isn't
      allowed since it would overwrite child data. */
   if (mode != _P_OVERLAY || !rc)
-    ::cygheap->user.reimpersonate ();
+      cygheap->user.reimpersonate ();
+
+  MALLOC_CHECK;
+  if (envblock)
+    free (envblock);
+  MALLOC_CHECK;
 
   /* Set errno now so that debugging messages from it appear before our
      final debugging message [this is a general rule for debugging
@@ -736,33 +732,45 @@ loop:
     {
       __seterrno ();
       syscall_printf ("CreateProcess failed, %E");
-      /* If this was a failed exec, restore the saved sendsig. */
-      if (reset_sendsig)
-	{
-	  myself->sendsig = myself->exec_sendsig;
-	  myself->exec_sendsig = NULL;
-	}
-      myself->process_state &= ~PID_NOTCYGWIN;
-      /* Reset handle inheritance to default when the execution of a non-Cygwin
-	 process fails.  Only need to do this for _P_OVERLAY since the handle will
-	 be closed otherwise.  Don't need to do this for 'parent' since it will
-	 be closed in every case.  See FIXME above. */
-      if (!iscygwin () && mode == _P_OVERLAY)
-	SetHandleInformation (wr_proc_pipe, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-      if (wr_proc_pipe == my_wr_proc_pipe)
-	wr_proc_pipe = NULL;	/* We still own it: don't nuke in destructor */
-      res = -1;
-      goto out;
+#if 0 // someday
+      if (mode == _P_OVERLAY)
+	myself->dwProcessId = GetCurrentProcessId ();
+#endif
+      if (subproc_ready)
+	ForceCloseHandle (subproc_ready);
+      cygheap_setup_for_child_cleanup (newheap, &ciresrv, 0);
+      return -1;
     }
 
-  /* The CREATE_SUSPENDED case is handled below */
-  if (iscygwin () && !(c_flags & CREATE_SUSPENDED))
-    strace.write_childpid (pi.dwProcessId);
+  /* FIXME: There is a small race here */
+
+  int res;
+  pthread_cleanup cleanup;
+  pthread_cleanup_push (do_cleanup, (void *) &cleanup);
+  if (mode == _P_SYSTEM)
+    {
+      sigset_t child_block;
+      cleanup.oldint = signal (SIGINT, SIG_IGN);
+      cleanup.oldquit = signal (SIGQUIT, SIG_IGN);
+      sigemptyset (&child_block);
+      sigaddset (&child_block, SIGCHLD);
+      (void) sigprocmask (SIG_BLOCK, &child_block, &cleanup.oldmask);
+    }
 
   /* Fixup the parent data structures if needed and resume the child's
      main thread. */
-  if (::cygheap->fdtab.need_fixup_before ())
-    ::cygheap->fdtab.fixup_before_exec (pi.dwProcessId);
+  if (!cygheap->fdtab.need_fixup_before ())
+    cygheap_setup_for_child_cleanup (newheap, &ciresrv, 0);
+  else
+    {
+      cygheap->fdtab.fixup_before_exec (pi.dwProcessId);
+      cygheap_setup_for_child_cleanup (newheap, &ciresrv, 1);
+      if (mode == _P_OVERLAY)
+	{
+	  ResumeThread (pi.hThread);
+	  cygthread::terminate ();
+	}
+    }
 
   if (mode != _P_OVERLAY)
     cygpid = cygwin_pid (pi.dwProcessId);
@@ -770,30 +778,27 @@ loop:
     cygpid = myself->pid;
 
   /* We print the original program name here so the user can see that too.  */
-  syscall_printf ("pid %d, prog_arg %s, cmd line %.9500s)",
+  syscall_printf ("%d = spawn_guts (%s, %.9500s)",
 		  rc ? cygpid : (unsigned int) -1, prog_arg, one_line.buf);
 
   /* Name the handle similarly to proc_subproc. */
   ProtectHandle1 (pi.hProcess, childhProc);
 
-  pid_t pid;
   if (mode == _P_OVERLAY)
     {
-      myself->dwProcessId = pi.dwProcessId;
+      /* These are both duplicated in the child code.  We do this here,
+	 primarily for strace. */
       strace.execing = 1;
-      myself.hProcess = hExeced = pi.hProcess;
-      real_path.get_wide_win32_path (myself->progname); // FIXME: race?
-      sigproc_printf ("new process name %W", myself->progname);
-      pid = myself->pid;
-      if (!iscygwin ())
-	close_all_files ();
+      hExeced = pi.hProcess;
+      dwExeced = pi.dwProcessId;
+      strcpy (myself->progname, real_path);
+      close_all_files ();
     }
   else
     {
       myself->set_has_pgid_children ();
       ProtectHandle (pi.hThread);
-      pinfo child (cygpid,
-		   PID_IN_USE | (real_path.iscygexec () ? 0 : PID_NOTCYGWIN));
+      pinfo child (cygpid, PID_IN_USE);
       if (!child)
 	{
 	  syscall_printf ("pinfo failed");
@@ -804,84 +809,98 @@ loop:
 	}
       child->dwProcessId = pi.dwProcessId;
       child.hProcess = pi.hProcess;
+      if (!child.remember ())
+	{
+	  syscall_printf ("process table full");
+	  set_errno (EAGAIN);
+	  res = -1;
+	  goto out;
+	}
 
-      real_path.get_wide_win32_path (child->progname);
+      strcpy (child->progname, real_path);
       /* FIXME: This introduces an unreferenced, open handle into the child.
 	 The purpose is to keep the pid shared memory open so that all of
 	 the fields filled out by child.remember do not disappear and so there
 	 is not a brief period during which the pid is not available.
 	 However, we should try to find another way to do this eventually. */
-      DuplicateHandle (GetCurrentProcess (), child.shared_handle (),
-		       pi.hProcess, NULL, 0, 0, DUPLICATE_SAME_ACCESS);
-      child->start_time = time (NULL); /* Register child's starting time. */
-      child->nice = myself->nice;
-      postfork (child);
-      if (!child.remember (mode == _P_DETACH))
-	{
-	  /* FIXME: Child in strange state now */
-	  CloseHandle (pi.hProcess);
-	  ForceCloseHandle (pi.hThread);
-	  res = -1;
-	  goto out;
-	}
-      pid = child->pid;
+      (void) DuplicateHandle (hMainProc, child.shared_handle (), pi.hProcess,
+			      NULL, 0, 0, DUPLICATE_SAME_ACCESS);
+      /* Start the child running */
+      ResumeThread (pi.hThread);
     }
 
-  /* Start the child running */
-  if (c_flags & CREATE_SUSPENDED)
-    {
-      /* Inject a non-inheritable wr_proc_pipe handle into child so that we
-	 can accurately track when the child exits without keeping this
-	 process waiting around for it to exit.  */
-      if (!iscygwin ())
-	DuplicateHandle (GetCurrentProcess (), wr_proc_pipe, pi.hProcess, NULL,
-			 0, false, DUPLICATE_SAME_ACCESS);
-      ResumeThread (pi.hThread);
-      if (iscygwin ())
-	strace.write_childpid (pi.dwProcessId);
-    }
   ForceCloseHandle (pi.hThread);
 
   sigproc_printf ("spawned windows pid %d", pi.dwProcessId);
 
-  bool synced;
-  if ((mode == _P_DETACH || mode == _P_NOWAIT) && !iscygwin ())
-    synced = false;
-  else
-    /* Just mark a non-cygwin process as 'synced'.  We will still eventually
-       wait for it to exit in maybe_set_exit_code_from_windows(). */
-    synced = iscygwin () ? sync (pi.dwProcessId, pi.hProcess, INFINITE) : true;
+  bool exited;
+
+  res = 0;
+  exited = false;
+#if 0
+  if (mode == _P_OVERLAY)
+    {
+      int nwait = 3;
+      HANDLE waitbuf[3] = {pi.hProcess, signal_arrived, subproc_ready};
+      for (int i = 0; i < 100; i++)
+	{
+	  switch (WaitForMultipleObjects (nwait, waitbuf, FALSE, INFINITE))
+	    {
+	    case WAIT_OBJECT_0:
+	      sigproc_printf ("subprocess exited");
+	      DWORD exitcode;
+	      if (!GetExitCodeProcess (pi.hProcess, &exitcode))
+		exitcode = 1;
+	      res |= exitcode;
+	      exited = true;
+	      break;
+	    case WAIT_OBJECT_0 + 1:
+	      sigproc_printf ("signal arrived");
+	      reset_signal_arrived ();
+	      continue;
+	    case WAIT_OBJECT_0 + 2:
+	      if (!myself->cygstarted)
+		{
+		  nwait = 2;
+		  sigproc_terminate ();
+		  continue;
+		}
+	      break;
+	    case WAIT_FAILED:
+	      system_printf ("wait failed: nwait %d, pid %d, winpid %d, %E",
+			     nwait, myself->pid, myself->dwProcessId);
+	      system_printf ("waitbuf[0] %p %d", waitbuf[0],
+			     WaitForSingleObject (waitbuf[0], 0));
+	      system_printf ("waitbuf[1] %p %d", waitbuf[1],
+			     WaitForSingleObject (waitbuf[1], 0));
+	      system_printf ("waitbuf[w] %p %d", waitbuf[2],
+			     WaitForSingleObject (waitbuf[2], 0));
+	      set_errno (ECHILD);
+	      try_to_debug ();
+	      return -1;
+	    }
+	  break;
+	}
+
+      ForceCloseHandle (subproc_ready);
+      sigproc_printf ("P_OVERLAY res %p", res);
+    }
+#endif
+
+  ForceCloseHandle1 (pi.hProcess, childhProc);
 
   switch (mode)
     {
     case _P_OVERLAY:
-      myself.hProcess = pi.hProcess;
-      if (!synced)
-	{
-	  if (!proc_retry (pi.hProcess))
-	    {
-	      looped++;
-	      goto loop;
-	    }
-	  close_all_files (true);
-	}
-      else
-	{
-	  if (iscygwin ())
-	    close_all_files (true);
-	  if (!my_wr_proc_pipe
-	      && WaitForSingleObject (pi.hProcess, 0) == WAIT_TIMEOUT)
-	    wait_for_myself ();
-	}
-      myself.exit (EXITCODE_NOSET);
+      myself->exit (res, 1);
       break;
     case _P_WAIT:
     case _P_SYSTEM:
-      if (waitpid (cygpid, &res, 0) != cygpid)
+      if (waitpid (cygpid, (int *) &res, 0) != cygpid)
 	res = -1;
       break;
     case _P_DETACH:
-      res = 0;	/* Lost all memory of this child. */
+      res = 0;	/* Lose all memory of this child. */
       break;
     case _P_NOWAIT:
     case _P_NOWAITO:
@@ -893,9 +912,6 @@ loop:
     }
 
 out:
-  this->cleanup ();
-  if (envblock)
-    free (envblock);
   pthread_cleanup_pop (1);
   return (int) res;
 }
@@ -907,16 +923,14 @@ cwait (int *result, int pid, int)
 }
 
 /*
-* Helper function for spawn runtime calls.
-* Doesn't search the path.
-*/
+ * Helper function for spawn runtime calls.
+ * Doesn't search the path.
+ */
 
 extern "C" int
 spawnve (int mode, const char *path, const char *const *argv,
-       const char *const *envp)
+	 const char *const *envp)
 {
-  static char *const empty_env[] = { NULL };
-
   int ret;
 #ifdef NEWVFORK
   vfork_save *vf = vfork_storage.val ();
@@ -929,14 +943,13 @@ spawnve (int mode, const char *path, const char *const *argv,
 
   syscall_printf ("spawnve (%s, %s, %x)", path, argv[0], envp);
 
-  if (!envp)
-    envp = empty_env;
-
-  switch (_P_MODE (mode))
+  switch (mode)
     {
     case _P_OVERLAY:
-      ch_spawn.worker (path, argv, envp, mode);
-      /* Errno should be set by worker.  */
+      /* We do not pass _P_SEARCH_PATH here. execve doesn't search PATH.*/
+      /* Just act as an exec if _P_OVERLAY set. */
+      spawn_guts (path, argv, envp, mode);
+      /* Errno should be set by spawn_guts.  */
       ret = -1;
       break;
     case _P_VFORK:
@@ -945,7 +958,7 @@ spawnve (int mode, const char *path, const char *const *argv,
     case _P_WAIT:
     case _P_DETACH:
     case _P_SYSTEM:
-      ret = ch_spawn.worker (path, argv, envp, mode);
+      ret = spawn_guts (path, argv, envp, mode);
 #ifdef NEWVFORK
       if (vf)
 	{
@@ -966,9 +979,9 @@ spawnve (int mode, const char *path, const char *const *argv,
 }
 
 /*
-* spawn functions as implemented in the MS runtime library.
-* Most of these based on (and copied from) newlib/libc/posix/execXX.c
-*/
+ * spawn functions as implemented in the MS runtime library.
+ * Most of these based on (and copied from) newlib/libc/posix/execXX.c
+ */
 
 extern "C" int
 spawnl (int mode, const char *path, const char *arg0, ...)
@@ -1013,12 +1026,11 @@ spawnle (int mode, const char *path, const char *arg0, ...)
 }
 
 extern "C" int
-spawnlp (int mode, const char *file, const char *arg0, ...)
+spawnlp (int mode, const char *path, const char *arg0, ...)
 {
   int i;
   va_list args;
   const char *argv[256];
-  path_conv buf;
 
   va_start (args, arg0);
   argv[0] = arg0;
@@ -1030,18 +1042,16 @@ spawnlp (int mode, const char *file, const char *arg0, ...)
 
   va_end (args);
 
-  return spawnve (mode | _P_PATH_TYPE_EXEC, find_exec (file, buf),
-		  (char * const *) argv, cur_environ ());
+  return spawnvpe (mode, path, (char * const *) argv, cur_environ ());
 }
 
 extern "C" int
-spawnlpe (int mode, const char *file, const char *arg0, ...)
+spawnlpe (int mode, const char *path, const char *arg0, ...)
 {
   int i;
   va_list args;
   const char * const *envp;
   const char *argv[256];
-  path_conv buf;
 
   va_start (args, arg0);
   argv[0] = arg0;
@@ -1054,8 +1064,7 @@ spawnlpe (int mode, const char *file, const char *arg0, ...)
   envp = va_arg (args, const char * const *);
   va_end (args);
 
-  return spawnve (mode | _P_PATH_TYPE_EXEC, find_exec (file, buf),
-		  (char * const *) argv, envp);
+  return spawnvpe (mode, path, (char * const *) argv, envp);
 }
 
 extern "C" int
@@ -1065,193 +1074,15 @@ spawnv (int mode, const char *path, const char * const *argv)
 }
 
 extern "C" int
-spawnvp (int mode, const char *file, const char * const *argv)
+spawnvp (int mode, const char *path, const char * const *argv)
 {
-  path_conv buf;
-  return spawnve (mode | _P_PATH_TYPE_EXEC, find_exec (file, buf), argv,
-		  cur_environ ());
+  return spawnvpe (mode, path, argv, cur_environ ());
 }
 
 extern "C" int
 spawnvpe (int mode, const char *file, const char * const *argv,
-	  const char * const *envp)
+					     const char * const *envp)
 {
   path_conv buf;
-  return spawnve (mode | _P_PATH_TYPE_EXEC, find_exec (file, buf), argv, envp);
-}
-
-int
-av::fixup (const char *prog_arg, path_conv& real_path, const char *ext,
-	   bool p_type_exec)
-{
-  const char *p;
-  bool exeext = ascii_strcasematch (ext, ".exe");
-  if ((exeext && real_path.iscygexec ()) || ascii_strcasematch (ext, ".bat"))
-    return 0;
-  if (!*ext && ((p = ext - 4) > real_path.get_win32 ())
-      && (ascii_strcasematch (p, ".bat") || ascii_strcasematch (p, ".cmd")
-	  || ascii_strcasematch (p, ".btm")))
-    return 0;
-  while (1)
-    {
-      char *pgm = NULL;
-      char *arg1 = NULL;
-      char *ptr, *buf;
-      OBJECT_ATTRIBUTES attr;
-      IO_STATUS_BLOCK io;
-      HANDLE h;
-      NTSTATUS status;
-      LARGE_INTEGER size;
-
-      status = NtOpenFile (&h, SYNCHRONIZE | GENERIC_READ,
-			   real_path.get_object_attr (attr, sec_none_nih),
-			   &io, FILE_SHARE_VALID_FLAGS,
-			   FILE_SYNCHRONOUS_IO_NONALERT
-			   | FILE_OPEN_FOR_BACKUP_INTENT
-			   | FILE_NON_DIRECTORY_FILE);
-      if (!NT_SUCCESS (status))
-	{
-	  /* File is not readable?  Doesn't mean it's not executable.
-	     Test for executability and if so, just assume the file is
-	     a cygwin executable and go ahead. */
-	  if (status == STATUS_ACCESS_DENIED && real_path.has_acls ()
-	      && check_file_access (real_path, X_OK, true) == 0)
-	    {
-	      real_path.set_cygexec (true);
-	      break;
-	    }
-	  goto err;
-	}
-      if (!GetFileSizeEx (h, &size))
-	{
-	  NtClose (h);
-	  goto err;
-	}
-      if (size.QuadPart > wincap.allocation_granularity ())
-	size.LowPart = wincap.allocation_granularity ();
-
-      HANDLE hm = CreateFileMapping (h, &sec_none_nih, PAGE_READONLY,
-				     0, 0, NULL);
-      NtClose (h);
-      if (!hm)
-	{
-	  /* ERROR_FILE_INVALID indicates very likely an empty file. */
-	  if (GetLastError () == ERROR_FILE_INVALID)
-	    {
-	      debug_printf ("zero length file, treat as script.");
-	      goto just_shell;
-	    }
-	  goto err;
-	}
-      /* Try to map the first 64K of the image.  That's enough for the local
-	 tests, and it's enough for hook_or_detect_cygwin to compute the IAT
-	 address. */
-      buf = (char *) MapViewOfFile (hm, FILE_MAP_READ, 0, 0, size.LowPart);
-      if (!buf)
-	{
-	  CloseHandle (hm);
-	  goto err;
-	}
-
-      {
-	myfault efault;
-	if (efault.faulted ())
-	  {
-	    UnmapViewOfFile (buf);
-	    CloseHandle (hm);
-	    real_path.set_cygexec (false);
-	    break;
-	  }
-	if (buf[0] == 'M' && buf[1] == 'Z')
-	  {
-	    WORD subsys;
-	    unsigned off = (unsigned char) buf[0x18] | (((unsigned char) buf[0x19]) << 8);
-	    win16_exe = off < sizeof (IMAGE_DOS_HEADER);
-	    if (!win16_exe)
-	      real_path.set_cygexec (!!hook_or_detect_cygwin (buf, NULL,
-							      subsys, hm));
-	    else
-	      real_path.set_cygexec (false);
-	    UnmapViewOfFile (buf);
-	    CloseHandle (hm);
-	    break;
-	  }
-      }
-      CloseHandle (hm);
-
-      debug_printf ("%s is possibly a script", real_path.get_win32 ());
-
-      ptr = buf;
-      if (*ptr++ == '#' && *ptr++ == '!')
-	{
-	  ptr += strspn (ptr, " \t");
-	  size_t len = strcspn (ptr, "\r\n");
-	  if (len)
-	    {
-	      char *namebuf = (char *) alloca (len + 1);
-	      memcpy (namebuf, ptr, len);
-	      namebuf[len] = '\0';
-	      for (ptr = pgm = namebuf; *ptr; ptr++)
-		if (!arg1 && (*ptr == ' ' || *ptr == '\t'))
-		  {
-		    /* Null terminate the initial command and step over any
-		       additional white space.  If we've hit the end of the
-		       line, exit the loop.  Otherwise, we've found the first
-		       argument. Position the current pointer on the last known
-		       white space. */
-		    *ptr = '\0';
-		    char *newptr = ptr + 1;
-		    newptr += strspn (newptr, " \t");
-		    if (!*newptr)
-		      break;
-		    arg1 = newptr;
-		    ptr = newptr - 1;
-		  }
-	    }
-	}
-      UnmapViewOfFile (buf);
-just_shell:
-      if (!pgm)
-	{
-	  if (!p_type_exec)
-	    {
-	      /* Not called from exec[lv]p.  Don't try to treat as script. */
-	      debug_printf ("%s is not a valid executable",
-			    real_path.get_win32 ());
-	      set_errno (ENOEXEC);
-	      return -1;
-	    }
-	  if (ascii_strcasematch (ext, ".com"))
-	    break;
-	  pgm = (char *) "/bin/sh";
-	  arg1 = NULL;
-	}
-
-      /* Check if script is executable.  Otherwise we start non-executable
-	 scripts successfully, which is incorrect behaviour. */
-      if (real_path.has_acls ()
-	  && check_file_access (real_path, X_OK, true) < 0)
-	return -1;	/* errno is already set. */
-
-      /* Replace argv[0] with the full path to the script if this is the
-	 first time through the loop. */
-      replace0_maybe (prog_arg);
-
-      /* pointers:
-       * pgm	interpreter name
-       * arg1	optional string
-       */
-      if (arg1)
-	unshift (arg1);
-
-      /* FIXME: This should not be using FE_NATIVE.  It should be putting
-	 the posix path on the argv list. */
-      find_exec (pgm, real_path, "PATH=", FE_NATIVE, &ext);
-      unshift (real_path.get_win32 (), 1);
-    }
-  return 0;
-
-err:
-  __seterrno ();
-  return -1;
+  return spawnve (mode, find_exec (file, buf), argv, envp);
 }
