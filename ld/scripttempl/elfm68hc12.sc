@@ -1,6 +1,6 @@
 #
 # Unusual variables checked by this code:
-#	NOP - four byte opcode for no-op (defaults to 0)
+#	NOP - two byte opcode for no-op (defaults to 0)
 #	DATA_ADDR - if end-of-text-plus-one-page isn't right for data start
 #	OTHER_READWRITE_SECTIONS - other than .data .bss .ctors .sdata ...
 #		(e.g., .PARISC.global)
@@ -28,18 +28,31 @@ CTOR=".ctors ${CONSTRUCTING-0} :
   {
     ${CONSTRUCTING+ PROVIDE (__CTOR_LIST__ = .); }
     ${CONSTRUCTING+${CTOR_START}}
-    KEEP (*(.ctors))
+    *(.ctors)
+    /* We don't want to include the .ctor section from
+       from the crtend.o file until after the sorted ctors.
+       The .ctor section from the crtend file contains the
+       end of ctors marker and it must be last
+
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
+    KEEP (*(SORT(.ctors.*)))
+    KEEP (*(.ctors)) */
 
     ${CONSTRUCTING+${CTOR_END}}
     ${CONSTRUCTING+ PROVIDE(__CTOR_END__ = .); }
-  } ${RELOCATING+ > ${TEXT_MEMORY}}"
+  } ${RELOCATING+ > ${DATA_MEMORY}}"
 
 DTOR="  .dtors	${CONSTRUCTING-0} :
   {
     ${CONSTRUCTING+ PROVIDE(__DTOR_LIST__ = .); }
-    KEEP (*(.dtors))
+    *(.dtors)
+    /*
+    KEEP (*crtbegin.o(.dtors))
+    KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
+    KEEP (*(SORT(.dtors.*)))
+    KEEP (*(.dtors)) */
     ${CONSTRUCTING+ PROVIDE(__DTOR_END__ = .); }
-  } ${RELOCATING+ > ${TEXT_MEMORY}}"
+  } ${RELOCATING+ > ${DATA_MEMORY}}"
 
 
 VECTORS="
@@ -62,7 +75,7 @@ VECTORS="
   PROVIDE (_vectors_addr = DEFINED (vectors_addr) ? vectors_addr : 0xffc0);
   .vectors DEFINED (vectors_addr) ? vectors_addr : 0xffc0 :
   {
-    KEEP (*(.vectors))
+    *(.vectors)
   }"
 
 #
@@ -87,7 +100,6 @@ MEMORY
   page0 (rwx) : ORIGIN = 0x0, LENGTH = 256
   text  (rx)  : ORIGIN = ${ROM_START_ADDR}, LENGTH = ${ROM_SIZE}
   data        : ORIGIN = ${RAM_START_ADDR}, LENGTH = ${RAM_SIZE}
-  eeprom      : ORIGIN = ${EEPROM_START_ADDR}, LENGTH = ${EEPROM_SIZE}
 }
 
 /* Setup the stack on the top of the data memory bank.  */
@@ -98,20 +110,20 @@ esac
 
 STARTUP_CODE="
     /* Startup code.  */
-    KEEP (*(.install0))	/* Section should setup the stack pointer.  */
-    KEEP (*(.install1))	/* Place holder for applications.  */
-    KEEP (*(.install2))	/* Optional installation of data sections in RAM.  */
-    KEEP (*(.install3))	/* Place holder for applications.  */
-    KEEP (*(.install4))	/* Section that calls the main.  */
+    *(.install0)	/* Section should setup the stack pointer.  */
+    *(.install1)	/* Place holder for applications.  */
+    *(.install2)	/* Optional installation of data sections in RAM.  */
+    *(.install3)	/* Place holder for applications.  */
+    *(.install4)	/* Section that calls the main.  */
 "
 
 FINISH_CODE="
     /* Finish code.  */
-    KEEP (*(.fini0))	/* Beginning of finish code (_exit symbol).  */
-    KEEP (*(.fini1))	/* Place holder for applications.  */
-    KEEP (*(.fini2))	/* C++ destructors.  */
-    KEEP (*(.fini3))	/* Place holder for applications.  */
-    KEEP (*(.fini4))	/* Runtime exit.  */
+    *(.fini0)		/* Beginning of finish code (_exit symbol).  */
+    *(.fini1)		/* Place holder for applications.  */
+    *(.fini2)		/* C++ destructors.  */
+    *(.fini3)		/* Place holder for applications.  */
+    *(.fini4)		/* Runtime exit.  */
 "
 
 PRE_COMPUTE_DATA_SIZE="
@@ -153,10 +165,6 @@ BSS_DATA_RELOC="
   .scommon 0 : { *(.scommon) }
 "
 
-SOFT_REGS_RELOC="
-  .softregs 0 : { *(.softregs) }
-"
-
 cat <<EOF
 ${RELOCATING+/* Linker script for 68HC12 executable (PROM).  */}
 ${RELOCATING-/* Linker script for 68HC12 object file (ld -r).  */}
@@ -164,7 +172,7 @@ ${RELOCATING-/* Linker script for 68HC12 object file (ld -r).  */}
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+${EXECUTABLE_SYMBOLS}}
@@ -251,34 +259,35 @@ SECTIONS
       ${RELOCATING+*(.rela.bss.*)}
       ${RELOCATING+*(.rela.gnu.linkonce.b.*)}
     }
-  .rel.stext		${RELOCATING-0} : { *(.rel.stest) }
   .rela.stext		${RELOCATING-0} : { *(.rela.stest) }
-  .rel.etext		${RELOCATING-0} : { *(.rel.etest) }
   .rela.etext		${RELOCATING-0} : { *(.rela.etest) }
-  .rel.sdata		${RELOCATING-0} : { *(.rel.sdata) }
   .rela.sdata		${RELOCATING-0} : { *(.rela.sdata) }
-  .rel.edata		${RELOCATING-0} : { *(.rel.edata) }
   .rela.edata		${RELOCATING-0} : { *(.rela.edata) }
-  .rel.eit_v		${RELOCATING-0} : { *(.rel.eit_v) }
   .rela.eit_v		${RELOCATING-0} : { *(.rela.eit_v) }
-  .rel.ebss		${RELOCATING-0} : { *(.rel.ebss) }
   .rela.ebss		${RELOCATING-0} : { *(.rela.ebss) }
-  .rel.srodata		${RELOCATING-0} : { *(.rel.srodata) }
   .rela.srodata		${RELOCATING-0} : { *(.rela.srodata) }
-  .rel.erodata		${RELOCATING-0} : { *(.rel.erodata) }
   .rela.erodata		${RELOCATING-0} : { *(.rela.erodata) }
-  .rel.got		${RELOCATING-0} : { *(.rel.got) }
   .rela.got		${RELOCATING-0} : { *(.rela.got) }
-  .rel.ctors		${RELOCATING-0} : { *(.rel.ctors) }
   .rela.ctors		${RELOCATING-0} : { *(.rela.ctors) }
-  .rel.dtors		${RELOCATING-0} : { *(.rel.dtors) }
   .rela.dtors		${RELOCATING-0} : { *(.rela.dtors) }
-  .rel.init		${RELOCATING-0} : { *(.rel.init) }
   .rela.init		${RELOCATING-0} : { *(.rela.init) }
-  .rel.fini		${RELOCATING-0} : { *(.rel.fini) }
   .rela.fini		${RELOCATING-0} : { *(.rela.fini) }
-  .rel.plt		${RELOCATING-0} : { *(.rel.plt) }
   .rela.plt		${RELOCATING-0} : { *(.rela.plt) }
+
+  .rel.stext		${RELOCATING-0} : { *(.rel.stest) }
+  .rel.etext		${RELOCATING-0} : { *(.rel.etest) }
+  .rel.sdata		${RELOCATING-0} : { *(.rel.sdata) }
+  .rel.edata		${RELOCATING-0} : { *(.rel.edata) }
+  .rel.ebss		${RELOCATING-0} : { *(.rel.ebss) }
+  .rel.eit_v		${RELOCATING-0} : { *(.rel.eit_v) }
+  .rel.srodata		${RELOCATING-0} : { *(.rel.srodata) }
+  .rel.erodata		${RELOCATING-0} : { *(.rel.erodata) }
+  .rel.got		${RELOCATING-0} : { *(.rel.got) }
+  .rel.ctors		${RELOCATING-0} : { *(.rel.ctors) }
+  .rel.dtors		${RELOCATING-0} : { *(.rel.dtors) }
+  .rel.init		${RELOCATING-0} : { *(.rel.init) }
+  .rel.fini		${RELOCATING-0} : { *(.rel.fini) }
+  .rel.plt		${RELOCATING-0} : { *(.rel.plt) }
 
   /* Concatenate .page0 sections.  Put them in the page0 memory bank
      unless we are creating a relocatable file.  */
@@ -312,24 +321,17 @@ SECTIONS
     /* .gnu.warning sections are handled specially by elf32.em.  */
     *(.gnu.warning)
     ${RELOCATING+*(.gnu.linkonce.t.*)}
-    ${RELOCATING+*(.tramp)}
-    ${RELOCATING+*(.tramp.*)}
 
     ${RELOCATING+${FINISH_CODE}}
 
     ${RELOCATING+_etext = .;}
     ${RELOCATING+PROVIDE (etext = .);}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xa7a7a7a7}
+
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .eh_frame ${RELOCATING-0} :
   {
     KEEP (*(.eh_frame))
-  } ${RELOCATING+ > ${TEXT_MEMORY}}
-
-  .gcc_except_table ${RELOCATING-0} :
-  {
-    *(.gcc_except_table)
   } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .rodata  ${RELOCATING-0} :
@@ -337,14 +339,12 @@ SECTIONS
     *(.rodata)
     ${RELOCATING+*(.rodata.*)}
     ${RELOCATING+*(.gnu.linkonce.r*)}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   .rodata1 ${RELOCATING-0} :
   {
     *(.rodata1)
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${TEXT_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${TEXT_MEMORY}}
 
   /* Constructor and destructor tables are in ROM.  */
   ${RELOCATING+${CTOR}}
@@ -378,8 +378,7 @@ SECTIONS
 
     ${RELOCATING+_edata  =  .;}
     ${RELOCATING+PROVIDE (edata = .);}
-    ${RELOCATING+. = ALIGN(2);}
-  } ${RELOCATING+ > ${DATA_MEMORY} =0xffffffff}
+  } ${RELOCATING+ > ${DATA_MEMORY}}
 
   ${RELOCATING+__data_section_size = SIZEOF(.data);}
   ${RELOCATING+PROVIDE (__data_section_size = SIZEOF(.data));}
@@ -394,12 +393,10 @@ SECTIONS
 
   /* Relocation for some bss and data sections.  */
   ${RELOCATING-${BSS_DATA_RELOC}}
-  ${RELOCATING-${SOFT_REGS_RELOC}}
 
   .bss ${RELOCATING-0} :
   {
     ${RELOCATING+__bss_start = .;}
-    ${RELOCATING+*(.softregs)}
     ${RELOCATING+*(.sbss)}
     ${RELOCATING+*(.scommon)}
 
@@ -412,12 +409,6 @@ SECTIONS
   } ${RELOCATING+ > ${DATA_MEMORY}}
   ${RELOCATING+__bss_size = SIZEOF(.bss);}
   ${RELOCATING+PROVIDE (__bss_size = SIZEOF(.bss));}
-
-  .eeprom ${RELOCATING-0} :
-  {
-    *(.eeprom)
-    *(.eeprom.*)
-  } ${RELOCATING+ > ${EEPROM_MEMORY}}
 
   ${RELOCATING+${VECTORS}}
 
@@ -459,12 +450,5 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 }
 EOF
