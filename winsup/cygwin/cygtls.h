@@ -1,24 +1,26 @@
 /* cygtls.h
 
-   Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-   Red Hat, Inc.
+   Copyright 2003, 2004 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
+#ifndef _CYGTLS_H
+#define _CYGTLS_H
 
 #include <signal.h>
 #include <pwd.h>
 #include <grp.h>
-#include <time.h>
+#include <sys/time.h>
 #define _NOMNTENT_FUNCS
 #include <mntent.h>
 #undef _NOMNTENT_FUNCS
-#include <setjmp.h>
+#define USE_SYS_TYPES_FD_SET
+#include <winsock.h>
 
-#define CYGTLS_INITIALIZED 0xc763173f
+#define CYGTLS_INITIALIZED 0x43227
+#define CYGTLS_EXCEPTION (0x43227 + true)
 
 #ifndef CYG_MAX_PATH
 # define CYG_MAX_PATH 260
@@ -32,47 +34,7 @@ details. */
 
 #include "cygthread.h"
 
-#define TP_NUM_C_BUFS 10
-#define TP_NUM_W_BUFS 10
-
-#ifdef CYGTLS_HANDLE
-#include "thread.h"
-#endif
-
 #pragma pack(push,4)
-/* Defined here to support auto rebuild of tlsoffsets.h. */
-class tls_pathbuf
-{
-  int c_cnt;
-  int w_cnt;
-  char  *c_buf[TP_NUM_C_BUFS];
-  WCHAR *w_buf[TP_NUM_W_BUFS];
-
-public:
-  void destroy ();
-  friend class tmp_pathbuf;
-  friend class _cygtls;
-  friend class san;
-};
-
-class unionent
-{
-public:
-  char *name;
-  char **list;
-  short port_proto_addrtype;
-  short h_len;
-  union
-  {
-    char *s_proto;
-    char **h_addr_list;
-  };
-  enum struct_type
-  {
-    t_hostent, t_protoent, t_servent
-  };
-};
-
 struct _local_storage
 {
   /*
@@ -81,6 +43,9 @@ struct _local_storage
   struct __group16 grp;
   char *namearray[2];
   int grp_pos;
+
+  /* console.cc */
+  unsigned rarg;
 
   /* dlfcn.cc */
   int dl_error;
@@ -101,42 +66,31 @@ struct _local_storage
   char mnt_dir[CYG_MAX_PATH];
 
   /* select.cc */
-  struct {
-    HANDLE  sockevt;
-    int     max_w4;
-    LONG   *ser_num;			// note: malloced
-    HANDLE *w4;				// note: malloced
-  } select;
+  SOCKET exitsock;
+  struct sockaddr_in exitsock_sin;
 
-  /* strerror errno.cc */
-  char strerror_buf[sizeof ("Unknown error -2147483648")];
-  char strerror_r_buf[sizeof ("Unknown error -2147483648")];
+  /* strerror */
+  char strerror_buf[20];
+
+  /* sysloc.cc */
+  char *process_ident;
+  int process_logopt;
+  int process_facility;
+  int process_logmask;
 
   /* times.cc */
   char timezone_buf[20];
+  struct tm _localtime_buf;
 
-  /* strsig.cc */
-  char signamebuf[sizeof ("Unknown signal 4294967295   ")];
+  /* uinfo.cc */
+  char username[UNLEN + 1];
 
   /* net.cc */
-  char *ntoa_buf;			// note: malloced
-  unionent *hostent_buf;		// note: malloced
-  unionent *protoent_buf;		// note: malloced
-  unionent *servent_buf;		// note: malloced
-
-  /* cygthread.cc */
-  char unknown_thread_name[30];
-
-  /* syscalls.cc */
-  int setmode_file;
-  int setmode_mode;
-
-  /* thread.cc */
-  HANDLE cw_timer;
-
-  /* All functions requiring temporary path buffers. */
-  tls_pathbuf pathbufs;
-  char ttybuf[32];
+  char *ntoa_buf;
+  struct protoent *protoent_buf;
+  struct servent *servent_buf;
+  struct hostent *hostent_buf;
+  char signamebuf[sizeof ("Unknown signal 4294967295   ")];
 };
 
 typedef struct struct_waitq
@@ -156,181 +110,80 @@ typedef struct struct_waitq
    of the compiler used to generate tlsoffsets.h and the cygwin cross compiler.
 */
 
-/*gentls_offsets*/
-#include "cygerrno.h"
-#include "security.h"
-
-extern "C" int __sjfault (jmp_buf);
-extern "C" int __ljfault (jmp_buf, int);
-
-/*gentls_offsets*/
-
 typedef __uint32_t __stack_t;
-
-class _cygtls
+struct _cygtls
 {
-public:
-  /* Please keep these two declarations first */
-  struct _local_storage locals;
-  union
-  {
-    struct _reent local_clib;
-    char __dontuse[8 * ((sizeof(struct _reent) + 4) / 8)];
-  };
-  /**/
-  void (*func) /*gentls_offsets*/(int, siginfo_t *, void *)/*gentls_offsets*/;
+  void (*func) /*gentls_offsets*/(int)/*gentls_offsets*/;
   int saved_errno;
   int sa_flags;
   sigset_t oldmask;
   sigset_t deltamask;
+  HANDLE event;
   int *errno_addr;
+  unsigned initialized;
   sigset_t sigmask;
   sigset_t sigwait_mask;
   siginfo_t *sigwait_info;
-  HANDLE signal_arrived;
-  bool will_wait_for_signal;
-  struct ucontext thread_context;
-  DWORD thread_id;
+  unsigned threadkill;
   siginfo_t infodata;
   struct pthread *tid;
+  union
+    {
+      struct _reent local_clib;
+      char __dontuse[8 * ((sizeof(struct _reent) + 4) / 8)];
+    };
+  struct _local_storage locals;
   class cygthread *_ctinfo;
-  class san *andreas;
   waitq wq;
+  struct _cygtls *prev, *next;
+  __stack_t *stackptr;
   int sig;
   unsigned incyg;
   unsigned spinning;
   unsigned stacklock;
-  __stack_t *stackptr;
   __stack_t stack[TLS_STACK_SIZE];
-  unsigned initialized;
+  unsigned padding[0];
 
   /*gentls_offsets*/
+  static CRITICAL_SECTION protect_linked_list;
+  static void init ();
   void init_thread (void *, DWORD (*) (void *, void *));
   static void call (DWORD (*) (void *, void *), void *);
+  static void call2 (DWORD (*) (void *, void *), void *, void *) __attribute__ ((regparm (3)));
+  static struct _cygtls *find_tls (int sig);
   void remove (DWORD);
-  void push (__stack_t addr) {*stackptr++ = (__stack_t) addr;}
-  __stack_t __reg1 pop ();
-  __stack_t retaddr () {return stackptr[-1];}
-  bool isinitialized () const
-  {
-    return initialized == CYGTLS_INITIALIZED;
-  }
-  bool __reg3 interrupt_now (CONTEXT *, siginfo_t&, void *, struct sigaction&);
-  void __reg3 interrupt_setup (siginfo_t&, void *, struct sigaction&);
-
-  bool inside_kernel (CONTEXT *);
-  void __reg2 copy_context (CONTEXT *);
-  void __reg2 signal_debugger (int);
-
-#ifdef CYGTLS_HANDLE
-  operator HANDLE () const {return tid ? tid->win32_obj_id : NULL;}
-#endif
-  int __reg1 call_signal_handler ();
-  void __reg1 remove_wq (DWORD);
-  void __reg1 fixup_after_fork ();
-  void __reg1 lock ();
-  void __reg1 unlock ();
-  bool __reg1 locked ();
-  HANDLE get_signal_arrived (bool wait_for_lock = true)
-  {
-    if (!signal_arrived)
-      {
-	if (wait_for_lock)
-	  lock ();
-	if (!signal_arrived)
-	  signal_arrived = CreateEvent (&sec_none_nih, false, false, NULL);
-	if (wait_for_lock)
-	  unlock ();
-      }
-    return signal_arrived;
-  }
-  void set_signal_arrived (bool setit, HANDLE& h)
-  {
-    if (!setit)
-      will_wait_for_signal = false;
-    else
-      {
-	h = get_signal_arrived ();
-	will_wait_for_signal = true;
-      }
-  }
-  void reset_signal_arrived () { will_wait_for_signal = false; }
-private:
-  void __reg3 call2 (DWORD (*) (void *, void *), void *, void *);
+  void push (__stack_t, bool) __attribute__ ((regparm (3)));
+  __stack_t pop () __attribute__ ((regparm (1)));
+  bool isinitialized () const {return initialized == CYGTLS_INITIALIZED || initialized == CYGTLS_EXCEPTION;}
+  bool in_exception () const {return initialized == CYGTLS_EXCEPTION;}
+  void set_state (bool);
+  void reset_exception ();
+  bool interrupt_now (CONTEXT *, int, void *, struct sigaction&)
+    __attribute__((regparm(3)));
+  void __stdcall interrupt_setup (int sig, void *handler,
+				  struct sigaction& siga)
+    __attribute__((regparm(3)));
+  void init_threadlist_exceptions (struct _exception_list *);
+  operator HANDLE () const {return tid->win32_obj_id;}
+  void set_siginfo (struct sigpacket *) __attribute__ ((regparm (3)));
+  void set_threadkill () {threadkill = true;}
+  void reset_threadkill () {threadkill = false;}
+  int call_signal_handler () __attribute__ ((regparm (1)));
+  void remove_wq (DWORD) __attribute__ ((regparm (1)));
+  void fixup_after_fork () __attribute__ ((regparm (1)));
+  void lock () __attribute__ ((regparm (1)));
+  void unlock () __attribute__ ((regparm (1)));
+  bool locked () __attribute__ ((regparm (1)));
   /*gentls_offsets*/
 };
 #pragma pack(pop)
 
-const int CYGTLS_PADSIZE = 12700;	/* FIXME: Find some way to autogenerate
-					   this value */
-/*gentls_offsets*/
-
 extern char *_tlsbase __asm__ ("%fs:4");
 extern char *_tlstop __asm__ ("%fs:8");
-#define _my_tls (*((_cygtls *) (_tlsbase - CYGTLS_PADSIZE)))
+#define _my_tls (((_cygtls *) _tlsbase)[-1])
 extern _cygtls *_main_tls;
-extern _cygtls *_sig_tls;
-
-class san
-{
-  san *_clemente;
-  jmp_buf _context;
-  int _errno;
-  int _c_cnt;
-  int _w_cnt;
-public:
-  int setup (int myerrno = 0) __attribute__ ((always_inline))
-  {
-    _clemente = _my_tls.andreas;
-    _my_tls.andreas = this;
-    _errno = myerrno;
-    _c_cnt = _my_tls.locals.pathbufs.c_cnt;
-    _w_cnt = _my_tls.locals.pathbufs.w_cnt;
-    return __sjfault (_context);
-  }
-  void leave () __attribute__ ((always_inline))
-  {
-    if (_errno)
-      set_errno (_errno);
-    /* Restore tls_pathbuf counters in case of error. */
-    _my_tls.locals.pathbufs.c_cnt = _c_cnt;
-    _my_tls.locals.pathbufs.w_cnt = _w_cnt;
-    __ljfault (_context, 1);
-  }
-  void reset () __attribute__ ((always_inline))
-  {
-    _my_tls.andreas = _clemente;
-  }
-};
-
-class myfault
-{
-  san sebastian;
-public:
-  ~myfault () __attribute__ ((always_inline)) { sebastian.reset (); }
-  inline int faulted () __attribute__ ((always_inline))
-  {
-    return sebastian.setup (0);
-  }
-  inline int faulted (void const *obj, int myerrno = 0) __attribute__ ((always_inline))
-  {
-    return !obj || !(*(const char **) obj) || sebastian.setup (myerrno);
-  }
-  inline int faulted (int myerrno) __attribute__ ((always_inline))
-  {
-    return sebastian.setup (myerrno);
-  }
-};
-
-class set_signal_arrived
-{
-public:
-  set_signal_arrived (bool setit, HANDLE& h) { _my_tls.set_signal_arrived (setit, h); }
-  set_signal_arrived (HANDLE& h) { _my_tls.set_signal_arrived (true, h); }
-
-  operator int () const {return _my_tls.will_wait_for_signal;}
-  ~set_signal_arrived () { _my_tls.reset_signal_arrived (); }
-};
 
 #define __getreent() (&_my_tls.local_clib)
-/*gentls_offsets*/
+
+const int CYGTLS_PADSIZE  = (((char *) _main_tls->padding) - ((char *) _main_tls));
+#endif /*_CYGTLS_H*/
