@@ -17,7 +17,7 @@ fn:
 	movl	%gs:0, %eax
 
 	/* Arbitrary instructions in between.  */
-	addl	$0, %esi
+	leal	0(%esi, 1), %esi
 
 	subl	foo@GOTTPOFF(%ebx), %eax
 	/* %eax now contains &foo  */
@@ -26,7 +26,7 @@ fn:
 	movl	foo@GOTNTPOFF(%ebx), %eax
 
 	/* Arbitrary instructions in between.  */
-	addl	$0, %esi
+	leal	0(%esi, 1), %esi
 
 	movl	%gs:(%eax), %eax
 	/* %eax now contains foo  */
