@@ -1,7 +1,6 @@
 /* external.cc: Interface to Cygwin internals from external programs.
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
    Written by Christopher Faylor <cgf@cygnus.com>
 
@@ -12,40 +11,34 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include "security.h"
 #include "sigproc.h"
 #include "pinfo.h"
+#include <exceptions.h>
 #include "shared_info.h"
 #include "cygwin_version.h"
+#include "perprocess.h"
 #include "cygerrno.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
+#include "wincap.h"
 #include "heap.h"
+#include "cygthread.h"
+#include "pwdgrp.h"
 #include "cygtls.h"
-#include "child_info.h"
-#include "environ.h"
-#include "cygserver_setpwd.h"
-#include <unistd.h>
-#include <stdlib.h>
-#include <wchar.h>
-#include <iptypes.h>
-
-child_info *get_cygwin_startup_info ();
-static void exit_process (UINT, bool) __attribute__((noreturn));
-
-static winpids pids;
 
 static external_pinfo *
 fillout_pinfo (pid_t pid, int winpid)
 {
   BOOL nextpid;
   static external_pinfo ep;
-  static char ep_progname_long_buf[NT_MAX_PATH];
 
   if ((nextpid = !!(pid & CW_NEXTPID)))
     pid ^= CW_NEXTPID;
 
+  static winpids pids (0);
 
   static unsigned int i;
   if (!pids.npids || !nextpid)
@@ -76,7 +69,7 @@ fillout_pinfo (pid_t pid, int winpid)
 	}
       else if (nextpid || p->pid == pid || (winpid && thispid == (DWORD) pid))
 	{
-	  ep.ctty = (p->ctty < 0 || iscons_dev (p->ctty)) ? p->ctty : device::minor (p->ctty);
+	  ep.ctty = p->ctty;
 	  ep.pid = p->pid;
 	  ep.ppid = p->ppid;
 	  ep.dwProcessId = p->dwProcessId;
@@ -88,8 +81,7 @@ fillout_pinfo (pid_t pid, int winpid)
 	  ep.start_time = p->start_time;
 	  ep.rusage_self = p->rusage_self;
 	  ep.rusage_children = p->rusage_children;
-	  ep.progname[0] = '\0';
-	  sys_wcstombs(ep.progname, MAX_PATH, p->progname);
+	  strcpy (ep.progname, p->progname);
 	  ep.strace_mask = 0;
 	  ep.version = EXTERNAL_PINFO_VERSION;
 
@@ -97,9 +89,6 @@ fillout_pinfo (pid_t pid, int winpid)
 
 	  ep.uid32 = p->uid;
 	  ep.gid32 = p->gid;
-
-	  ep.progname_long = ep_progname_long_buf;
-	  mount_table->conv_to_posix_path (p->progname, ep.progname_long, 0);
 	  break;
 	}
     }
@@ -108,12 +97,12 @@ fillout_pinfo (pid_t pid, int winpid)
     {
       i = 0;
       pids.reset ();
-      return NULL;
+      return 0;
     }
   return &ep;
 }
 
-static inline DWORD
+static DWORD
 get_cygdrive_info (char *user, char *system, char *user_flags,
 		   char *system_flags)
 {
@@ -123,154 +112,76 @@ get_cygdrive_info (char *user, char *system, char *user_flags,
 }
 
 static DWORD
+get_cygdrive_prefixes (char *user, char *system)
+{
+  char user_flags[CYG_MAX_PATH];
+  char system_flags[CYG_MAX_PATH];
+  DWORD res = get_cygdrive_info (user, system, user_flags, system_flags);
+  return res;
+}
+
+static DWORD
 check_ntsec (const char *filename)
 {
   if (!filename)
-    return true;
+    return allow_ntsec;
   path_conv pc (filename);
-  return pc.has_acls ();
+  return allow_ntsec && pc.has_acls ();
 }
-
-/* Copy cygwin environment variables to the Windows environment. */
-static PWCHAR
-create_winenv (const char * const *env)
-{
-  int unused_envc;
-  PWCHAR envblock = NULL;
-  char **envp = build_env (env ?: cur_environ (), envblock, unused_envc, false);
-  PWCHAR p = envblock;
-
-  if (envp)
-    {
-      for (char **e = envp; *e; e++)
-	cfree (*e);
-      cfree (envp);
-    }
-  /* If we got an env block, just return pointer to win env. */
-  if (env)
-    return envblock;
-  /* Otherwise sync win env of current process with its posix env. */
-  if (!p)
-    return NULL;
-  while (*p)
-    {
-      PWCHAR eq = wcschr (p, L'=');
-      if (eq)
-	{
-	  *eq = L'\0';
-	  SetEnvironmentVariableW (p, ++eq);
-	  p = eq;
-	}
-      p = wcschr (p, L'\0') + 1;
-    }
-  free (envblock);
-  return NULL;
-}
-
-/*
- * Cygwin-specific wrapper for win32 ExitProcess and TerminateProcess.
- * It ensures that the correct exit code, derived from the specified
- * status value, will be made available to this process's parent (if
- * that parent is also a cygwin process). If useTerminateProcess is
- * true, then TerminateProcess(GetCurrentProcess(),...) will be used;
- * otherwise, ExitProcess(...) is called.
- *
- * Used by startup code for cygwin processes which is linked statically
- * into applications, and is not part of the cygwin DLL -- which is why
- * this interface is exposed. "Normal" programs should use ANSI exit(),
- * ANSI abort(), or POSIX _exit(), rather than this function -- because
- * calling ExitProcess or TerminateProcess, even through this wrapper,
- * skips much of the cygwin process cleanup code.
- */
-static void
-exit_process (UINT status, bool useTerminateProcess)
-{
-  pid_t pid = getpid ();
-  external_pinfo *ep = fillout_pinfo (pid, 1);
-  DWORD dwpid = ep ? ep->dwProcessId : pid;
-  pinfo p (pid, PID_MAP_RW);
-  if (ep)
-    pid = ep->pid;
-  if ((dwpid == GetCurrentProcessId()) && (p->pid == pid))
-    p.set_exit_code ((DWORD)status);
-  if (useTerminateProcess)
-    TerminateProcess (GetCurrentProcess(), status);
-  /* avoid 'else' clause to silence warning */
-  ExitProcess (status);
-}
-
 
 extern "C" unsigned long
 cygwin_internal (cygwin_getinfo_types t, ...)
 {
   va_list arg;
-  uintptr_t res = (uintptr_t) -1;
   va_start (arg, t);
 
   switch (t)
     {
       case CW_LOCK_PINFO:
-	res = 1;
-	break;
+	return 1;
 
       case CW_UNLOCK_PINFO:
-	res = 1;
-	break;
+	return 1;
 
       case CW_GETTHREADNAME:
-	res = (DWORD) cygthread::name (va_arg (arg, DWORD));
-	break;
+	return (DWORD) cygthread::name (va_arg (arg, DWORD));
 
       case CW_SETTHREADNAME:
 	{
 	  set_errno (ENOSYS);
-	  res = 0;
+	  return 0;
 	}
-	break;
 
       case CW_GETPINFO:
-	res = (DWORD) fillout_pinfo (va_arg (arg, DWORD), 0);
-	break;
+	return (DWORD) fillout_pinfo (va_arg (arg, DWORD), 0);
 
       case CW_GETVERSIONINFO:
-	res = (DWORD) cygwin_version_strings;
-	break;
+	return (DWORD) cygwin_version_strings;
 
       case CW_READ_V1_MOUNT_TABLES:
 	set_errno (ENOSYS);
-	res = 1;
-	break;
+	return 1;
 
       case CW_USER_DATA:
-	/* This is a kludge to work around a version of _cygwin_common_crt0
-	   which overwrote the cxx_malloc field with the local DLL copy.
-	   Hilarity ensues if the DLL is not loaded like while the process
-	   is forking. */
-	__cygwin_user_data.cxx_malloc = &default_cygwin_cxx_malloc;
-	res = (DWORD) &__cygwin_user_data;
-	break;
+	return (DWORD) &__cygwin_user_data;
 
       case CW_PERFILE:
 	perfile_table = va_arg (arg, struct __cygwin_perfile *);
-	res = 0;
-	break;
+	return 0;
 
       case CW_GET_CYGDRIVE_PREFIXES:
 	{
 	  char *user = va_arg (arg, char *);
 	  char *system = va_arg (arg, char *);
-	  res = get_cygdrive_info (user, system, NULL, NULL);
+	  return get_cygdrive_prefixes (user, system);
 	}
-	break;
 
       case CW_GETPINFO_FULL:
-	res = (DWORD) fillout_pinfo (va_arg (arg, pid_t), 1);
-	break;
+	return (DWORD) fillout_pinfo (va_arg (arg, pid_t), 1);
 
       case CW_INIT_EXCEPTIONS:
-	/* noop */ /* init_exceptions (va_arg (arg, exception_list *)); */
-	res = 0;
-	break;
+	init_exceptions (va_arg (arg, exception_list *));
+	return 0;
 
       case CW_GET_CYGDRIVE_INFO:
 	{
@@ -278,14 +189,20 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	  char *system = va_arg (arg, char *);
 	  char *user_flags = va_arg (arg, char *);
 	  char *system_flags = va_arg (arg, char *);
-	  res = get_cygdrive_info (user, system, user_flags, system_flags);
+	  return get_cygdrive_info (user, system, user_flags, system_flags);
 	}
-	break;
 
       case CW_SET_CYGWIN_REGISTRY_NAME:
+	{
+	  const char *cr = va_arg (arg, char *);
+	  if (check_null_empty_str_errno (cr))
+	    return (DWORD) NULL;
+	  cygheap->cygwin_regname = (char *) crealloc (cygheap->cygwin_regname,
+						       strlen (cr) + 1);
+	  strcpy (cygheap->cygwin_regname, cr);
+	}
       case CW_GET_CYGWIN_REGISTRY_NAME:
-	res = 0;
-	break;
+	  return (DWORD) cygheap->cygwin_regname;
 
       case CW_STRACE_TOGGLE:
 	{
@@ -294,268 +211,95 @@ cygwin_internal (cygwin_getinfo_types t, ...)
 	  if (p)
 	    {
 	      sig_send (p, __SIGSTRACE);
-	      res = 0;
+	      return 0;
 	    }
 	  else
 	    {
 	      set_errno (ESRCH);
-	      res = (DWORD) -1;
+	      return (DWORD) -1;
 	    }
 	}
-	break;
 
       case CW_STRACE_ACTIVE:
 	{
-	  res = strace.active ();
+	  return strace.active;
 	}
-	break;
 
       case CW_CYGWIN_PID_TO_WINPID:
 	{
 	  pinfo p (va_arg (arg, pid_t));
-	  res = p ? p->dwProcessId : 0;
+	  return p ? p->dwProcessId : 0;
 	}
-	break;
       case CW_EXTRACT_DOMAIN_AND_USER:
 	{
-	  WCHAR nt_domain[MAX_DOMAIN_NAME_LEN + 1];
-	  WCHAR nt_user[UNLEN + 1];
-
 	  struct passwd *pw = va_arg (arg, struct passwd *);
 	  char *domain = va_arg (arg, char *);
 	  char *user = va_arg (arg, char *);
-	  extract_nt_dom_user (pw, nt_domain, nt_user);
-	  if (domain)
-	    sys_wcstombs (domain, MAX_DOMAIN_NAME_LEN + 1, nt_domain);
-	  if (user)
-	    sys_wcstombs (user, UNLEN + 1, nt_user);
-	  res = 0;
+	  extract_nt_dom_user (pw, domain, user);
+	  return 0;
 	}
-	break;
       case CW_CMDLINE:
 	{
 	  size_t n;
 	  pid_t pid = va_arg (arg, pid_t);
 	  pinfo p (pid);
-	  res = (DWORD) p->cmdline (n);
+	  return (DWORD) p->cmdline (n);
 	}
-	break;
       case CW_CHECK_NTSEC:
 	{
 	  char *filename = va_arg (arg, char *);
-	  res = check_ntsec (filename);
+	  return check_ntsec (filename);
 	}
-	break;
       case CW_GET_ERRNO_FROM_WINERROR:
 	{
 	  int error = va_arg (arg, int);
 	  int deferrno = va_arg (arg, int);
-	  res = geterrno_from_win_error (error, deferrno);
+	  return geterrno_from_win_error (error, deferrno);
 	}
-	break;
       case CW_GET_POSIX_SECURITY_ATTRIBUTE:
 	{
-	  path_conv dummy;
 	  security_descriptor sd;
 	  int attribute = va_arg (arg, int);
 	  PSECURITY_ATTRIBUTES psa = va_arg (arg, PSECURITY_ATTRIBUTES);
 	  void *sd_buf = va_arg (arg, void *);
 	  DWORD sd_buf_size = va_arg (arg, DWORD);
-	  set_security_attribute (dummy, attribute, psa, sd);
-	  if (!psa->lpSecurityDescriptor)
-	    res = sd.size ();
-	  else
-	    {
-	      psa->lpSecurityDescriptor = sd_buf;
-	      res = sd.copy (sd_buf, sd_buf_size);
-	    }
+	  set_security_attribute (attribute, psa, sd);
+	  if (!psa->lpSecurityDescriptor || sd.size () > sd_buf_size)
+	    return sd.size ();
+	  memcpy (sd_buf, sd, sd.size ());
+	  psa->lpSecurityDescriptor = sd_buf;
+	  return 0;
 	}
-	break;
       case CW_GET_SHMLBA:
 	{
-	  res = wincap.allocation_granularity ();
+	  return getshmlba ();
 	}
-	break;
       case CW_GET_UID_FROM_SID:
 	{
-	  cygpsid psid = va_arg (arg, PSID);
-	  res = psid.get_id (false, NULL);
+	  PSID psid = va_arg (arg, PSID);
+	  cygsid sid (psid);
+	  struct passwd *pw = internal_getpwsid (sid);
+	  return pw ? pw->pw_uid : (__uid32_t)-1;
 	}
-	break;
       case CW_GET_GID_FROM_SID:
 	{
-	  cygpsid psid = va_arg (arg, PSID);
-	  res = psid.get_id (true, NULL);
+	  PSID psid = va_arg (arg, PSID);
+	  cygsid sid (psid);
+	  struct __group32 *gr = internal_getgrsid (sid);
+	  return gr ? gr->gr_gid : (__gid32_t)-1;
 	}
-	break;
       case CW_GET_BINMODE:
 	{
 	  const char *path = va_arg (arg, const char *);
-	  path_conv p (path, PC_SYM_FOLLOW | PC_NULLEMPTY);
+	  path_conv p (path, PC_SYM_FOLLOW | PC_FULL | PC_NULLEMPTY);
 	  if (p.error)
 	    {
 	      set_errno (p.error);
-	      res = (unsigned long) -1;
+	      return (unsigned long) -1;
 	    }
-	  else
-	    res = p.binmode ();
+	  return p.binmode ();
 	}
-	break;
-      case CW_HOOK:
-	{
-	  const char *name = va_arg (arg, const char *);
-	  const void *hookfn = va_arg (arg, const void *);
-	  WORD subsys;
-	  res = (unsigned long) hook_or_detect_cygwin (name, hookfn, subsys);
-	}
-	break;
-      case CW_ARGV:
-	{
-	  child_info_spawn *ci = (child_info_spawn *) get_cygwin_startup_info ();
-	  res = (unsigned long) (ci ? ci->moreinfo->argv : NULL);
-	}
-	break;
-      case CW_ENVP:
-	{
-	  child_info_spawn *ci = (child_info_spawn *) get_cygwin_startup_info ();
-	  res = (unsigned long) (ci ? ci->moreinfo->envp : NULL);
-	}
-	break;
-      case CW_DEBUG_SELF:
-	error_start_init (va_arg (arg, const char *));
-	try_to_debug ();
-	break;
-      case CW_SYNC_WINENV:
-	create_winenv (NULL);
-	res = 0;
-	break;
-      case CW_CYGTLS_PADSIZE:
-	res = CYGTLS_PADSIZE;
-	break;
-      case CW_SET_DOS_FILE_WARNING:
-	{
-	  dos_file_warning = va_arg (arg, int);
-	  res = 0;
-	}
-	break;
-      case CW_SET_PRIV_KEY:
-	{
-	  const char *passwd = va_arg (arg, const char *);
-	  const char *username = va_arg (arg, const char *);
-	  res = setlsapwd (passwd, username);
-	}
-	break;
-      case CW_SETERRNO:
-	{
-	  const char *file = va_arg (arg, const char *);
-	  int line = va_arg (arg, int);
-	  seterrno(file, line);
-	  res = 0;
-	}
-	break;
-      case CW_EXIT_PROCESS:
-	{
-	  UINT status = va_arg (arg, UINT);
-	  int useTerminateProcess = va_arg (arg, int);
-	  exit_process (status, !!useTerminateProcess); /* no return */
-	}
-      case CW_SET_EXTERNAL_TOKEN:
-	{
-	  HANDLE token = va_arg (arg, HANDLE);
-	  int type = va_arg (arg, int);
-	  set_imp_token (token, type);
-	  res = 0;
-	}
-	break;
-      case CW_GET_INSTKEY:
-	{
-	  PWCHAR dest = va_arg (arg, PWCHAR);
-	  wcscpy (dest, cygheap->installation_key_buf);
-	  res = 0;
-	}
-	break;
-      case CW_INT_SETLOCALE:
-	{
-	  extern void internal_setlocale ();
-	  internal_setlocale ();
-	  res = 0;
-	}
-	break;
-      case CW_CVT_MNT_OPTS:
-	{
-	  extern bool fstab_read_flags (char **, unsigned &, bool);
-	  char **option_string = va_arg (arg, char **);
-	  if (!option_string || !*option_string)
-	    set_errno (EINVAL);
-	  else
-	    {
-	      unsigned *pflags = va_arg (arg, unsigned *);
-	      unsigned flags = pflags ? *pflags : 0;
-	      if (fstab_read_flags (option_string, flags, true))
-		{
-		  if (pflags)
-		    *pflags = flags;
-		  res = 0;
-		}
-	    }
-	}
-	break;
-      case CW_LST_MNT_OPTS:
-	{
-	  extern char *fstab_list_flags ();
-	  char **option_string = va_arg (arg, char **);
-	  if (!option_string)
-	    set_errno (EINVAL);
-	  else
-	    {
-	      *option_string = fstab_list_flags ();
-	      if (*option_string)
-		res = 0;
-	    }
-	}
-	break;
-      case CW_STRERROR:
-	{
-	  int err = va_arg (arg, int);
-	  res = (uintptr_t) strerror (err);
-	}
-	break;
-
-      case CW_CVT_ENV_TO_WINENV:
-	{
-	  char **posix_env = va_arg (arg, char **);
-	  res = (uintptr_t) create_winenv (posix_env);
-	}
-	break;
-
-      case CW_ALLOC_DRIVE_MAP:
-      	{
-	  dos_drive_mappings *ddm = new dos_drive_mappings ();
-	  res = (uintptr_t) ddm;
-	}
-	break;
-
-      case CW_MAP_DRIVE_MAP:
-	{
-	  dos_drive_mappings *ddm = va_arg (arg, dos_drive_mappings *);
-	  wchar_t *pathbuf = va_arg (arg, wchar_t *);
-	  if (ddm && pathbuf)
-	    res = (uintptr_t) ddm->fixup_if_match (pathbuf);
-	}
-	break;
-
-      case CW_FREE_DRIVE_MAP:
-	{
-	  dos_drive_mappings *ddm = va_arg (arg, dos_drive_mappings *);
-	  if (ddm)
-	    delete ddm;
-	  res = 0;
-	}
-	break;
-
       default:
-	set_errno (ENOSYS);
+	return (DWORD) -1;
     }
-  va_end (arg);
-  return res;
 }
