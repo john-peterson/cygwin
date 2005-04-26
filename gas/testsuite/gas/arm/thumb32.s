@@ -1,6 +1,5 @@
 	.text
-	.thumb
-	.syntax unified
+	.thumb32
 
 encode_thumb32_immediate:
 	orr	r0, r1, #0x00000000
@@ -42,11 +41,10 @@ encode_thumb32_immediate:
 	orr	r0, r1, #0xa5 << 1
 
 add_sub:
-	@ Should be format 1, Some have equivalent format 2 encodings
-	adds	r0, r0, #0
+	adds	r0, r0, #0	@ format 1
 	adds	r5, r0, #0
 	adds	r0, r5, #0
-	adds	r0, r2, #5
+	adds	r0, r0, #5
 
 	adds	r0, #129	@ format 2
 	adds	r0, r0, #129
@@ -84,10 +82,6 @@ add_sub:
 	add.w	r9, r0, #0
 	add.w	r0, r9, #0
 	add.w	r0, r0, #129
-	adds	r5, r3, #0x10000
-	add	r0, sp, #1
-	add	r9, sp, #0
-	add.w	sp, sp, #4
 
 	add.w	r0, r0, r0	@ T32 format 2
 	adds.w	r0, r0, r0
@@ -107,7 +101,7 @@ add_sub:
 	subs	r0, r0, #0	@ format 1
 	subs	r5, r0, #0
 	subs	r0, r5, #0
-	subs	r0, r2, #5
+	subs	r0, r0, #5
 
 	subs	r0, r0, #129
 	subs	r5, #8
@@ -123,11 +117,6 @@ add_sub:
 	subs	r8, r0		@ T32 format 2
 	subs	r0, r8
 	subs	r0, #260	@ T32 format 1
-	subs.w	r1, r2, #4
-	subs	r5, r3, #0x10000
-	sub	r1, sp, #4
-	sub	r9, sp, #0
-	sub.w	sp, sp, #4
 
 arit3:
 	.macro arit3 op ops opw opsw
@@ -153,7 +142,6 @@ arit3:
 	arit3	orr orrs orr.w orrs.w
 	arit3	rsb rsbs rsb.w rsbs.w
 	arit3	sbc sbcs sbc.w sbcs.w
-	arit3	orn orns orn orns
 
 	.purgem arit3
 
@@ -206,33 +194,33 @@ branches:
 	bra	bal.n
 	bra	b.n
 	@ bl, blx have no short form.
-	.balign 4
 1:
-	bra	beq.w
-	bra	bne.w
-	bra	bcs.w
-	bra	bhs.w
-	bra	bcc.w
-	bra	bul.w
-	bra	blo.w
-	bra	bmi.w
-	bra	bpl.w
-	bra	bvs.w
-	bra	bvc.w
-	bra	bhi.w
-	bra	bls.w
-	bra	bvc.w
-	bra	bhi.w
-	bra	bls.w
-	bra	bge.w
-	bra	blt.w
-	bra	bgt.w
-	bra	ble.w
-	bra	b.w
+	bra	beq
+	bra	bne
+	bra	bcs
+	bra	bhs
+	bra	bcc
+	bra	bul
+	bra	blo
+	bra	bmi
+	bra	bpl
+	bra	bvs
+	bra	bvc
+	bra	bhi
+	bra	bls
+	bra	bvc
+	bra	bhi
+	bra	bls
+	bra	bge
+	bra	blt
+	bra	bgt
+	bra	ble
+	bra	b
 	bra	bl
 	bra	blx
-	.balign 4
 1:
+
+	bx	r0
 	bx	r9
 	blx	r0
 	blx	r9
@@ -266,8 +254,8 @@ cpy:
 	cpy.w	r0, r9
 
 czb:
-	cbnz	r0, 2f
-	cbz	r5, 1f
+	czbne	r0, 2f
+	czbeq	r5, 1f
 
 nop_hint:
 	nop
@@ -286,79 +274,88 @@ nop_hint:
 	nop {129}
 
 it:
-	.macro nop1 cond ncond a
-	.ifc \a,t
-	nop\cond
-	.else
-	nop\ncond
-	.endif
-	.endm
-	.macro it0 cond m=
-	it\m \cond
-	nop\cond
-	.endm
-	.macro it1 cond ncond a m=
-	it0 \cond \a\m
-	nop1 \cond \ncond \a
-	.endm
-	.macro it2 cond ncond a b m=
-	it1 \cond \ncond \a \b\m
-	nop1 \cond \ncond \b
-	.endm
-	.macro it3 cond ncond a b c
-	it2 \cond \ncond \a \b \c
-	nop1 \cond \ncond \c
+	.macro	itx opc cond n
+	\opc	\cond
+	.rept	\n
+	nop
+	.endr
 	.endm
 
-	it0	eq
-	it0	ne
-	it0	cs
-	it0	hs
-	it0	cc
-	it0	ul
-	it0	lo
-	it0	mi
-	it0	pl
-	it0	vs
-	it0	vc
-	it0	hi
-	it0	ge
-	it0	lt
-	it0	gt
-	it0	le
-	it0	al
-	it1 eq ne t
-	it1 eq ne e
-	it2 eq ne t t
-	it2 eq ne e t
-	it2 eq ne t e
-	it2 eq ne e e
-	it3 eq ne t t t
-	it3 eq ne e t t
-	it3 eq ne t e t
-	it3 eq ne t t e
-	it3 eq ne t e e
-	it3 eq ne e t e
-	it3 eq ne e e t
-	it3 eq ne e e e
+	itx	it eq 1
+	itx	it ne 1
+	itx	it cs 1
+	itx	it hs 1
+	itx	it cc 1
+	itx	it ul 1
+	itx	it lo 1
+	itx	it mi 1
+	itx	it pl 1
+	itx	it vs 1
+	itx	it vc 1
+	itx	it hi 1
+	itx	it ge 1
+	itx	it lt 1
+	itx	it gt 1
+	itx	it le 1
+	itx	it al 1
 
-	it1 ne eq t
-	it1 ne eq e
-	it2 ne eq t t
-	it2 ne eq e t
-	it2 ne eq t e
-	it2 ne eq e e
-	it3 ne eq t t t
-	it3 ne eq e t t
-	it3 ne eq t e t
-	it3 ne eq t t e
-	it3 ne eq t e e
-	it3 ne eq e t e
-	it3 ne eq e e t
-	it3 ne eq e e e
+	itx	itt eq 2
+	itx	ite eq 2
+	itx	ittt eq 3
+	itx	itet eq 3
+	itx	itte eq 3
+	itx	itee eq 3
+	itx	itttt eq 4
+	itx	itett eq 4
+	itx	ittet eq 4
+	itx	ittte eq 4
+	itx	ittee eq 4
+	itx	itete eq 4
+	itx	iteet eq 4
+	itx	iteee eq 4
+	
+	itx	itt ne 2
+	itx	ite ne 2
+	itx	ittt ne 3
+	itx	itet ne 3
+	itx	itte ne 3
+	itx	itee ne 3
+	itx	itttt ne 4
+	itx	itett ne 4
+	itx	ittet ne 4
+	itx	ittte ne 4
+	itx	ittee ne 4
+	itx	itete ne 4
+	itx	iteet ne 4
+	itx	iteee ne 4
+
+	.purgem itx
 
 ldst:
+	.macro	ls op
+	\op	r1, [r5]
+	\op	r1, [r5, #0x330]
+	\op	r1, [r5, #-0x30]
+	\op	r1, [r5], #0x30
+	\op	r1, [r5], #-0x30
+	\op	r1, [r5, #0x30]!
+	\op	r1, [r5, #-0x30]!
+	\op	r1, [r5, r4]
+	\op	r1, [r9, ip]
+	\op	r1, 1f
+	\op	r1, 1b
+	.endm
 1:
+	ls	ldrb
+	ls	ldrsb
+	ls	ldrh
+	ls	ldrsh
+	ls	ldr
+1:
+	ls	strb
+	ls	strh
+	ls	str
+
 	pld	[r5]
 	pld	[r5, #0x330]
 	pld	[r5, #-0x30]
@@ -371,17 +368,14 @@ ldst:
 	pld	1f
 	pld	1b
 1:
-	nop
-here:
+
 	ldrd	r2, r3, [r5]
 	ldrd	r2, [r5, #0x30]
 	ldrd	r2, [r5, #-0x30]
-	ldrd	r4, r5, here
 	strd	r2, r3, [r5]
 	strd	r2, [r5, #0x30]
 	strd	r2, [r5, #-0x30]
-	strd    r2, r3, here
-	
+
 	ldrbt	r1, [r5]
 	ldrbt	r1, [r5, #0x30]
 	ldrsbt	r1, [r5]
@@ -393,6 +387,8 @@ here:
 	ldrt	r1, [r5]
 	ldrt	r1, [r5, #0x30]
 
+	.purgem ls
+
 ldxstx:
 	ldrexb	r1, [r4]
 	ldrexh	r1, [r4]
@@ -403,7 +399,6 @@ ldxstx:
 	strexh	r1, r2, [r4]
 	strex	r1, r2, [r4]
 	strexd	r1, r2, r3, [r4]
-	strexd	r1, r3, r3, [r4]
 
 	ldrex	r1, [r4,#516]
 	strex	r1, r2, [r4,#516]
@@ -444,8 +439,8 @@ tst_teq_cmp_cmn_mov_mvn:
 	\opw	r0, r0
 	\ops	r9, r0
 	\opsw	r0, r9
-	\opw	r0, #129
-	\opw	r5, #129
+	\op	r0, #129
+	\op	r5, #129
 	.endm
 
 	mt	tst tsts tst.w tsts.w
@@ -531,57 +526,41 @@ push_pop:
 	pop	{r8,r9,r10,r11,r12}
 
 qadd:
-	qadd		r1, r2, r3
 	qadd16		r1, r2, r3
 	qadd8		r1, r2, r3
-	qasx		r1, r2, r3
 	qaddsubx	r1, r2, r3
-	qdadd		r1, r2, r3
-	qdsub		r1, r2, r3
-	qsub		r1, r2, r3
 	qsub16		r1, r2, r3
 	qsub8		r1, r2, r3
-	qsax		r1, r2, r3
 	qsubaddx	r1, r2, r3
 	sadd16		r1, r2, r3
 	sadd8		r1, r2, r3
-	sasx		r1, r2, r3
 	saddsubx	r1, r2, r3
 	ssub16		r1, r2, r3
 	ssub8		r1, r2, r3
-	ssax		r1, r2, r3
 	ssubaddx	r1, r2, r3
 	shadd16		r1, r2, r3
 	shadd8		r1, r2, r3
-	shasx		r1, r2, r3
 	shaddsubx	r1, r2, r3
 	shsub16		r1, r2, r3
 	shsub8		r1, r2, r3
-	shsax		r1, r2, r3
 	shsubaddx	r1, r2, r3
 	uadd16		r1, r2, r3
 	uadd8		r1, r2, r3
-	uasx		r1, r2, r3
 	uaddsubx	r1, r2, r3
 	usub16		r1, r2, r3
 	usub8		r1, r2, r3
-	usax		r1, r2, r3
 	usubaddx	r1, r2, r3
 	uhadd16		r1, r2, r3
 	uhadd8		r1, r2, r3
-	uhasx		r1, r2, r3
 	uhaddsubx	r1, r2, r3
 	uhsub16		r1, r2, r3
 	uhsub8		r1, r2, r3
-	uhsax		r1, r2, r3
 	uhsubaddx	r1, r2, r3
 	uqadd16		r1, r2, r3
 	uqadd8		r1, r2, r3
-	uqasx		r1, r2, r3
 	uqaddsubx	r1, r2, r3
 	uqsub16		r1, r2, r3
 	uqsub8		r1, r2, r3
-	uqsax		r1, r2, r3
 	uqsubaddx	r1, r2, r3
 	sel		r1, r2, r3
 
@@ -630,15 +609,9 @@ shift:
 
 	.purgem sh
 
-rrx:	
-	rrx	r1, r2
-	rrxs	r3, r4
-
-	.arch armv7-a
-	.arch_extension sec
-smc:
-	smc	#0
-	smc	#0xabcd
+smi:
+	smi	#0
+	smi	#0xabcd
 
 smla:
 	smlabb	r0, r0, r0, r0
@@ -759,88 +732,3 @@ xta:
 	uxtab	r1, r2, r3
 	uxtab16	r1, r2, r3
 	uxtah	r1, r2, r3
-
-	.macro	ldpcimm op
-	\op	r1, [pc, #0x2aa]
-	\op	r1, [pc, #0x155]
-	\op	r1, [pc, #-0x2aa]
-	\op	r1, [pc, #-0x155]
-	.endm
-	ldpcimm	ldrb
-	ldpcimm	ldrsb
-	ldpcimm	ldrh
-	ldpcimm	ldrsh
-	ldpcimm	ldr
-	addw r9, r0, #0
-	addw r6, pc, #0xfff
-	subw r6, r9, #0xa85
-	subw r6, r9, #0x57a
-	tbb [pc, r6]
-	tbb [r0, r9]
-	tbh [pc, r7, lsl #1]
-	tbh [r0, r8, lsl #1]
-
-	push	{r8}
-	pop	{r8}
-
-	ldmdb	r0!, {r7,r8,r10}
-	stmdb	r0!, {r7,r8,r10}
-
-	ldm	r0!, {r1, r2}
-	stm	r0!, {r1, r2}
-	ldm	r0, {r8, r9}
-	stm	r0, {r8, r9}
-	itttt eq
-	ldmeq	r0!, {r1, r2}
-	stmeq	r0!, {r1, r2}
-	ldmeq	r0, {r8, r9}
-	stmeq	r0, {r8, r9}
-	nop
-
-srs:
-	srsia sp, #16
-	srsdb sp, #16
-	srsia sp!, #21
-	srsia sp!, #10
-
-	movs pc, lr
-	subs pc, lr, #0
-	subs pc, lr, #4
-	subs pc, lr, #255
-
-	ldrd r2, r4, [r9, #48]!
-	ldrd r2, r4, [r9, #-48]!
-	strd r2, r4, [r9, #48]!
-	strd r2, r4, [r9, #-48]!
-	ldrd r2, r4, [r9], #48
-	ldrd r2, r4, [r9], #-48
-	strd r2, r4, [r9], #48
-	strd r2, r4, [r9], #-48
-
-	.macro ldaddr op
-	ldr\op	r1, [r5, #0x301]
-	ldr\op	r1, [r5, #0x30]!
-	ldr\op	r1, [r5, #-0x30]!
-	ldr\op	r1, [r5], #0x30
-	ldr\op	r1, [r5], #-0x30
-	ldr\op	r1, [r5, r9]
-	.endm
-	ldaddr
-	ldaddr b
-	ldaddr sb
-	ldaddr h
-	ldaddr sh
-	.macro movshift op s="s"
-	movs r1, r4, \op #2
-	movs r3, r9, \op #2
-	movs r1, r2, \op r3
-	movs r1, r1, \op r3
-	movs r1, r1, \op r9
-	mov r1, r2, \op r3
-	mov r1, r1, \op r3
-	.endm
-	movshift lsl
-	movshift lsr
-	movshift asr
-	movshift ror
-	nop

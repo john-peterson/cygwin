@@ -43,8 +43,3 @@ l:
 	bic	r0,r1
 	mul	r0,r1
 	nop
-
-	rrx	r0,r9
-	rrxs	r9,r0
-	nop
-	nop
