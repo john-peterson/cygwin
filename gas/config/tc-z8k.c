@@ -1,12 +1,12 @@
 /* tc-z8k.c -- Assemble code for the Zilog Z800n
    Copyright 1992, 1993, 1994, 1995, 1996, 1998, 2000, 2001, 2002, 2003,
-   2005, 2006, 2007, 2009  Free Software Foundation, Inc.
+   2005 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -16,14 +16,17 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to the Free
-   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
-   02110-1301, USA.  */
+   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
+   02111-1307, USA.  */
 
 /* Written By Steve Chamberlain <sac@cygnus.com>.  */
 
-#include "as.h"
-#include "safe-ctype.h"
 #define DEFINE_TABLE
+#include <stdio.h>
+
+#include "as.h"
+#include "bfd.h"
+#include "safe-ctype.h"
 #include "opcodes/z8k-opc.h"
 
 const char comment_chars[] = "!";
@@ -33,6 +36,7 @@ const char line_separator_chars[] = ";";
 extern int machine;
 extern int coff_flags;
 int segmented_mode;
+const int md_reloc_size;
 
 /* This is non-zero if target was set from the command line.  */
 static int z8k_target_from_cmdline;
@@ -43,12 +47,14 @@ s_segm (int segm)
   if (segm)
     {
       segmented_mode = 1;
-      bfd_set_arch_mach (stdoutput, TARGET_ARCH, bfd_mach_z8001);
+      machine = bfd_mach_z8001;
+      coff_flags = F_Z8001;
     }
   else
     {
       segmented_mode = 0;
-      bfd_set_arch_mach (stdoutput, TARGET_ARCH, bfd_mach_z8002);
+      machine = bfd_mach_z8002;
+      coff_flags = F_Z8002;
     }
 }
 
@@ -196,34 +202,19 @@ static int the_ctrl;
 static int the_flags;
 static int the_interrupt;
 
-/* Determine register number.  src points to the ascii number
-   (after "rl", "rh", "r", "rr", or "rq").  If a character
-   outside the set of {0,',',')','('} follows the number,
-   return NULL to indicate that it's not a valid register
-   number.  */
-
 static char *
-whatreg (unsigned int *preg, char *src)
+whatreg (unsigned int *reg, char *src)
 {
-  unsigned int new_reg;
-
-  /* src[0] is already known to be a digit.  */
   if (ISDIGIT (src[1]))
     {
-      new_reg = (src[0] - '0') * 10 + src[1] - '0';
-      src += 2;
+      *reg = (src[0] - '0') * 10 + src[1] - '0';
+      return src + 2;
     }
   else
     {
-      new_reg = (src[0] - '0');
-      src += 1;
+      *reg = (src[0] - '0');
+      return src + 1;
     }
-
-  if (src[0] != 0 && src[0] != ',' && src[0] != '(' && src[0] != ')')
-    return NULL;
-
-  *preg = new_reg;
-  return src;
 }
 
 /* Parse operands
@@ -244,9 +235,9 @@ whatreg (unsigned int *preg, char *src)
    in SRC after the reg name.  */
 
 static char *
-parse_reg (char *src, int *mode, unsigned int *preg)
+parse_reg (char *src, int *mode, unsigned int *reg)
 {
-  char *res = NULL;
+  char *res = 0;
   char regno;
 
   /* Check for stack pointer "sp" alias.  */
@@ -257,12 +248,12 @@ parse_reg (char *src, int *mode, unsigned int *preg)
       if (segmented_mode)
 	{
 	  *mode = CLASS_REG_LONG;
-	  *preg = 14;
+	  *reg = 14;
 	}
       else
 	{
 	  *mode = CLASS_REG_WORD;
-	  *preg = 15;
+	  *reg = 15;
 	}
       return src + 2;
     }
@@ -272,12 +263,10 @@ parse_reg (char *src, int *mode, unsigned int *preg)
       if (src[1] == 'r' || src[1] == 'R')
 	{
 	  if (src[2] < '0' || src[2] > '9')
-	    return NULL;	/* Assume no register name but a label starting with 'rr'.  */
+	    return res;	 /* Assume no register name but a label starting with 'rr'.  */
 	  *mode = CLASS_REG_LONG;
-	  res = whatreg (preg, src + 2);
-	  if (res == NULL)
-	    return NULL;	/* Not a valid register name.  */
-	  regno = *preg;
+	  res = whatreg (reg, src + 2);
+	  regno = *reg;
 	  if (regno > 14)
 	    as_bad (_("register rr%d out of range"), regno);
 	  if (regno & 1)
@@ -286,37 +275,31 @@ parse_reg (char *src, int *mode, unsigned int *preg)
       else if (src[1] == 'h' || src[1] == 'H')
 	{
 	  if (src[2] < '0' || src[2] > '9')
-	    return NULL;	/* Assume no register name but a label starting with 'rh'.  */
+	    return res;	 /* Assume no register name but a label starting with 'rh'.  */
 	  *mode = CLASS_REG_BYTE;
-	  res = whatreg (preg, src + 2);
-	  if (res == NULL)
-	    return NULL;	/* Not a valid register name.  */
-	  regno = *preg;
+	  res = whatreg (reg, src + 2);
+	  regno = *reg;
 	  if (regno > 7)
 	    as_bad (_("register rh%d out of range"), regno);
 	}
       else if (src[1] == 'l' || src[1] == 'L')
 	{
 	  if (src[2] < '0' || src[2] > '9')
-	    return NULL;	/* Assume no register name but a label starting with 'rl'.  */
+	    return res;	 /* Assume no register name but a label starting with 'rl'.  */
 	  *mode = CLASS_REG_BYTE;
-	  res = whatreg (preg, src + 2);
-	  if (res == NULL)
-	    return NULL;	/* Not a valid register name.  */
-	  regno = *preg;
+	  res = whatreg (reg, src + 2);
+	  regno = *reg;
 	  if (regno > 7)
 	    as_bad (_("register rl%d out of range"), regno);
-	  *preg += 8;
+	  *reg += 8;
 	}
       else if (src[1] == 'q' || src[1] == 'Q')
 	{
 	  if (src[2] < '0' || src[2] > '9')
-	    return NULL;	/* Assume no register name but a label starting with 'rq'.  */
+	    return res;	 /* Assume no register name but a label starting with 'rq'.  */
 	  *mode = CLASS_REG_QUAD;
-	  res = whatreg (preg, src + 2);
-	  if (res == NULL)
-	    return NULL;	/* Not a valid register name.  */
-	  regno = *preg;
+	  res = whatreg (reg, src + 2);
+	  regno = *reg;
 	  if (regno > 12)
 	    as_bad (_("register rq%d out of range"), regno);
 	  if (regno & 3)
@@ -325,12 +308,10 @@ parse_reg (char *src, int *mode, unsigned int *preg)
       else
 	{
 	  if (src[1] < '0' || src[1] > '9')
-	    return NULL;	/* Assume no register name but a label starting with 'r'.  */
+	    return res;	 /* Assume no register name but a label starting with 'r'.  */
 	  *mode = CLASS_REG_WORD;
-	  res = whatreg (preg, src + 1);
-	  if (res == NULL)
-	    return NULL;	/* Not a valid register name.  */
-	  regno = *preg;
+	  res = whatreg (reg, src + 1);
+	  regno = *reg;
 	  if (regno > 15)
 	    as_bad (_("register r%d out of range"), regno);
 	}
@@ -342,15 +323,15 @@ static char *
 parse_exp (char *s, expressionS *op)
 {
   char *save = input_line_pointer;
-  char *new_pointer;
+  char *new;
 
   input_line_pointer = s;
   expression (op);
   if (op->X_op == O_absent)
     as_bad (_("missing operand"));
-  new_pointer = input_line_pointer;
+  new = input_line_pointer;
   input_line_pointer = save;
-  return new_pointer;
+  return new;
 }
 
 /* The many forms of operand:
@@ -960,24 +941,26 @@ static void
 newfix (int ptr, int type, int size, expressionS *operand)
 {
   int is_pcrel = 0;
-  fixS *fixP;
 
-  /* Size is in nibbles.  */
+  /* size is in nibbles.  */
+
   if (operand->X_add_symbol
       || operand->X_op_symbol
       || operand->X_add_number)
     {
       switch(type)
         {
-        case BFD_RELOC_8_PCREL:
-        case BFD_RELOC_Z8K_CALLR:
-        case BFD_RELOC_Z8K_DISP7:
+        case R_JR:
+        case R_DISP7:
+        case R_CALLR:
           is_pcrel = 1;
         }
-      fixP = fix_new_exp (frag_now, ptr, size / 2,
-                          operand, is_pcrel, type);
-      if (is_pcrel)
-	fixP->fx_no_overflow = 1;
+      fix_new_exp (frag_now,
+		   ptr,
+		   size / 2,
+		   operand,
+		   is_pcrel,
+		   type);
     }
 }
 
@@ -1021,9 +1004,6 @@ build_bytes (opcode_entry_type *this_try, struct z8k_op *operand ATTRIBUTE_UNUSE
   frag_wane (frag_now);
   frag_new (0);
 
-  if (frag_room () < 8)
-    frag_grow (8);  /* Make room for maximum instruction size.  */
-
   memset (buffer, 0, sizeof (buffer));
   class_ptr = this_try->byte_info;
 
@@ -1040,31 +1020,31 @@ build_bytes (opcode_entry_type *this_try, struct z8k_op *operand ATTRIBUTE_UNUSE
 	  if (segmented_mode)
 	    {
 	      /* da_operand->X_add_number |= 0x80000000;  --  Now set at relocation time.  */
-	      output_ptr = apply_fix (output_ptr, BFD_RELOC_32, da_operand, 8);
+	      output_ptr = apply_fix (output_ptr, R_IMM32, da_operand, 8);
 	    }
 	  else
 	    {
-	      output_ptr = apply_fix (output_ptr, BFD_RELOC_16, da_operand, 4);
+	      output_ptr = apply_fix (output_ptr, R_IMM16, da_operand, 4);
 	    }
 	  da_operand = 0;
 	  break;
 	case CLASS_DISP8:
 	  /* pc rel 8 bit  */
-	  output_ptr = apply_fix (output_ptr, BFD_RELOC_8_PCREL, da_operand, 2);
+	  output_ptr = apply_fix (output_ptr, R_JR, da_operand, 2);
 	  da_operand = 0;
 	  break;
 
 	case CLASS_0DISP7:
 	  /* pc rel 7 bit  */
 	  *output_ptr = 0;
-	  output_ptr = apply_fix (output_ptr, BFD_RELOC_Z8K_DISP7, da_operand, 2);
+	  output_ptr = apply_fix (output_ptr, R_DISP7, da_operand, 2);
 	  da_operand = 0;
 	  break;
 
 	case CLASS_1DISP7:
 	  /* pc rel 7 bit  */
 	  *output_ptr = 0x80;
-	  output_ptr = apply_fix (output_ptr, BFD_RELOC_Z8K_DISP7, da_operand, 2);
+	  output_ptr = apply_fix (output_ptr, R_DISP7, da_operand, 2);
 	  output_ptr[-2] = 0x8;
 	  da_operand = 0;
 	  break;
@@ -1124,13 +1104,13 @@ build_bytes (opcode_entry_type *this_try, struct z8k_op *operand ATTRIBUTE_UNUSE
           switch (c & ARG_MASK)
             {
             case ARG_DISP12:
-              output_ptr = apply_fix (output_ptr, BFD_RELOC_Z8K_CALLR, da_operand, 4);
+              output_ptr = apply_fix (output_ptr, R_CALLR, da_operand, 4);
               break;
             case ARG_DISP16:
-	      output_ptr = apply_fix (output_ptr, BFD_RELOC_16_PCREL, da_operand, 4);
+	      output_ptr = apply_fix (output_ptr, R_REL16, da_operand, 4);
 	      break;
 	    default:
-	      output_ptr = apply_fix (output_ptr, BFD_RELOC_16, da_operand, 4);
+	      output_ptr = apply_fix (output_ptr, R_IMM16, da_operand, 4);
 	    }
 	  da_operand = 0;
 	  break;
@@ -1141,9 +1121,11 @@ build_bytes (opcode_entry_type *this_try, struct z8k_op *operand ATTRIBUTE_UNUSE
 	      {
 	      case ARG_NIM4:
                 if (imm_operand->X_add_number > 15)
-		  as_bad (_("immediate value out of range"));
+                  {
+                    as_bad (_("immediate value out of range"));
+                  }
 		imm_operand->X_add_number = -imm_operand->X_add_number;
-		output_ptr = apply_fix (output_ptr, BFD_RELOC_Z8K_IMM4L, imm_operand, 1);
+		output_ptr = apply_fix (output_ptr, R_IMM4L, imm_operand, 1);
 		break;
               /*case ARG_IMMNMINUS1: not used.  */
 	      case ARG_IMM4M1:
@@ -1151,20 +1133,22 @@ build_bytes (opcode_entry_type *this_try, struct z8k_op *operand ATTRIBUTE_UNUSE
                 /* Drop through.  */
 	      case ARG_IMM4:
                 if (imm_operand->X_add_number > 15)
-		  as_bad (_("immediate value out of range"));
-		output_ptr = apply_fix (output_ptr, BFD_RELOC_Z8K_IMM4L, imm_operand, 1);
+                  {
+                    as_bad (_("immediate value out of range"));
+                  }
+		output_ptr = apply_fix (output_ptr, R_IMM4L, imm_operand, 1);
 		break;
 	      case ARG_NIM8:
 		imm_operand->X_add_number = -imm_operand->X_add_number;
                 /* Drop through.  */
 	      case ARG_IMM8:
-		output_ptr = apply_fix (output_ptr, BFD_RELOC_8, imm_operand, 2);
+		output_ptr = apply_fix (output_ptr, R_IMM8, imm_operand, 2);
 		break;
 	      case ARG_IMM16:
-		output_ptr = apply_fix (output_ptr, BFD_RELOC_16, imm_operand, 4);
+		output_ptr = apply_fix (output_ptr, R_IMM16, imm_operand, 4);
 		break;
 	      case ARG_IMM32:
-		output_ptr = apply_fix (output_ptr, BFD_RELOC_32, imm_operand, 8);
+		output_ptr = apply_fix (output_ptr, R_IMM32, imm_operand, 8);
 		break;
 	      default:
 		abort ();
@@ -1276,6 +1260,12 @@ md_assemble (char *str)
     }
 }
 
+void
+tc_crawl_symbol_chain (object_headers *headers ATTRIBUTE_UNUSED)
+{
+  printf (_("call to tc_crawl_symbol_chain \n"));
+}
+
 /* We have no need to default values of symbols.  */
 
 symbolS *
@@ -1284,12 +1274,70 @@ md_undefined_symbol (char *name ATTRIBUTE_UNUSED)
   return 0;
 }
 
+void
+tc_headers_hook (object_headers *headers ATTRIBUTE_UNUSED)
+{
+  printf (_("call to tc_headers_hook \n"));
+}
+
 /* Various routines to kill one day.  */
+/* Equal to MAX_PRECISION in atof-ieee.c.  */
+#define MAX_LITTLENUMS 6
+
+/* Turn a string in input_line_pointer into a floating point constant
+   of type TYPE, and store the appropriate bytes in *LITP.  The number
+   of LITTLENUMS emitted is stored in *SIZEP.  An error message is
+   returned, or NULL on OK.  */
 
 char *
 md_atof (int type, char *litP, int *sizeP)
 {
-  return ieee_md_atof (type, litP, sizeP, TRUE);
+  int prec;
+  LITTLENUM_TYPE words[MAX_LITTLENUMS];
+  LITTLENUM_TYPE *wordP;
+  char *t;
+
+  switch (type)
+    {
+    case 'f':
+    case 'F':
+    case 's':
+    case 'S':
+      prec = 2;
+      break;
+
+    case 'd':
+    case 'D':
+    case 'r':
+    case 'R':
+      prec = 4;
+      break;
+
+    case 'x':
+    case 'X':
+      prec = 6;
+      break;
+
+    case 'p':
+    case 'P':
+      prec = 6;
+      break;
+
+    default:
+      *sizeP = 0;
+      return _("Bad call to MD_ATOF()");
+    }
+  t = atof_ieee (input_line_pointer, type, words);
+  if (t)
+    input_line_pointer = t;
+
+  *sizeP = prec * sizeof (LITTLENUM_TYPE);
+  for (wordP = words; prec--;)
+    {
+      md_number_to_chars (litP, (long) (*wordP++), sizeof (LITTLENUM_TYPE));
+      litP += sizeof (LITTLENUM_TYPE);
+    }
+  return 0;
 }
 
 const char *md_shortopts = "z:";
@@ -1343,108 +1391,37 @@ md_show_usage (FILE *stream)
 }
 
 void
-md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
-                 segT sec ATTRIBUTE_UNUSED,
+md_convert_frag (object_headers *headers ATTRIBUTE_UNUSED,
+                 segT seg ATTRIBUTE_UNUSED,
                  fragS *fragP ATTRIBUTE_UNUSED)
 {
   printf (_("call to md_convert_frag\n"));
   abort ();
 }
 
-/* Generate a machine dependent reloc from a fixup.  */
-
-arelent*
-tc_gen_reloc (asection *section ATTRIBUTE_UNUSED,
-	      fixS *fixp      ATTRIBUTE_UNUSED)
-{
-  arelent *reloc;
-
-  reloc = xmalloc (sizeof (*reloc));
-  reloc->sym_ptr_ptr = xmalloc (sizeof (asymbol *));
-  *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixp->fx_addsy);
-  reloc->address = fixp->fx_frag->fr_address + fixp->fx_where;
-  reloc->addend = fixp->fx_offset;
-  reloc->howto = bfd_reloc_type_lookup (stdoutput, fixp->fx_r_type);
-
-  if (! reloc->howto)
-    {
-      as_bad_where (fixp->fx_file, fixp->fx_line,
-                    _("Cannot represent %s relocation in object file"),
-                    bfd_get_reloc_code_name (fixp->fx_r_type));
-      abort ();
-    }
-  return reloc;
-}
-
 valueT
 md_section_align (segT seg, valueT size)
 {
-  int align = bfd_get_section_alignment (stdoutput, seg);
-  valueT mask = ((valueT) 1 << align) - 1;
-
-  return (size + mask) & ~mask;
+  return ((size + (1 << section_alignment[(int) seg]) - 1)
+	  & (-1 << section_alignment[(int) seg]));
 }
 
 /* Attempt to simplify or eliminate a fixup. To indicate that a fixup
    has been eliminated, set fix->fx_done. If fix->fx_addsy is non-NULL,
    we will have to generate a reloc entry.  */
 void
-md_apply_fix (fixS *fixP, valueT *valP, segT segment ATTRIBUTE_UNUSED)
+md_apply_fix3 (fixS *fixP, valueT *valP, segT segment ATTRIBUTE_UNUSED)
 {
   long val = * (long *) valP;
   char *buf = fixP->fx_where + fixP->fx_frag->fr_literal;
 
   switch (fixP->fx_r_type)
     {
-    case BFD_RELOC_Z8K_IMM4L:
-      if (fixP->fx_addsy)
-        {
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 0;
-        }
-      else
-	buf[0] = (buf[0] & 0xf0) | (val & 0xf);
+    case R_IMM4L:
+      buf[0] = (buf[0] & 0xf0) | (val & 0xf);
       break;
 
-    case BFD_RELOC_8:
-      if (fixP->fx_addsy)
-        {
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 0;
-        }
-      else
-	*buf++ = val;
-      break;
-
-    case BFD_RELOC_16:
-      if (fixP->fx_addsy)
-        {
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 0;
-        }
-      else
-        {
-          *buf++ = (val >> 8);
-          *buf++ = val;
-        }
-      break;
-
-    case BFD_RELOC_32:
-      if (fixP->fx_addsy)
-        {
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 0;
-        }
-      else
-        {
-          *buf++ = (val >> 24);
-          *buf++ = (val >> 16);
-          *buf++ = (val >> 8);
-          *buf++ = val;
-        }
-      break;
-
-    case BFD_RELOC_8_PCREL:
+    case R_JR:
       if (fixP->fx_addsy)
         {
           fixP->fx_no_overflow = 1;
@@ -1465,7 +1442,7 @@ md_apply_fix (fixS *fixP, valueT *valP, segT segment ATTRIBUTE_UNUSED)
         }
       break;
 
-    case BFD_RELOC_16_PCREL:
+    case R_DISP7:
       if (fixP->fx_addsy)
         {
           fixP->fx_no_overflow = 1;
@@ -1473,18 +1450,20 @@ md_apply_fix (fixS *fixP, valueT *valP, segT segment ATTRIBUTE_UNUSED)
         }
       else
         {
-          val = val - fixP->fx_frag->fr_address + fixP->fx_where - fixP->fx_size;
-          if (val > 32767 || val < -32768)
+          if (val & 1)
             as_bad_where (fixP->fx_file, fixP->fx_line,
-                          _("relative address out of range"));
-          *buf++ = (val >> 8);
-          *buf++ = val;
+                          _("cannot branch to odd address"));
+          val /= 2;
+          if (val > 0 || val < -127)
+            as_bad_where (fixP->fx_file, fixP->fx_line,
+                          _("relative jump out of range"));
+          *buf = (*buf & 0x80) | (-val & 0x7f);
           fixP->fx_no_overflow = 1;
           fixP->fx_done = 1;
         }
       break;
 
-    case BFD_RELOC_Z8K_CALLR:
+    case R_CALLR:
       if (fixP->fx_addsy)
         {
           fixP->fx_no_overflow = 1;
@@ -1507,29 +1486,38 @@ md_apply_fix (fixS *fixP, valueT *valP, segT segment ATTRIBUTE_UNUSED)
         }
       break;
 
-    case BFD_RELOC_Z8K_DISP7:
-      if (fixP->fx_addsy)
-        {
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 0;
-        }
-      else
-        {
-          if (val & 1)
-            as_bad_where (fixP->fx_file, fixP->fx_line,
-                          _("cannot branch to odd address"));
-          val /= 2;
-          if (val > 0 || val < -127)
-            as_bad_where (fixP->fx_file, fixP->fx_line,
-                          _("relative jump out of range"));
-          *buf = (*buf & 0x80) | (-val & 0x7f);
-          fixP->fx_no_overflow = 1;
-          fixP->fx_done = 1;
-        }
+    case R_IMM8:
+      *buf++ = val;
+      break;
+
+    case R_IMM16:
+      *buf++ = (val >> 8);
+      *buf++ = val;
+      break;
+
+    case R_IMM32:
+      *buf++ = (val >> 24);
+      *buf++ = (val >> 16);
+      *buf++ = (val >> 8);
+      *buf++ = val;
+      break;
+
+    case R_REL16:
+      val = val - fixP->fx_frag->fr_address + fixP->fx_where - fixP->fx_size;
+      if (val > 32767 || val < -32768)
+        as_bad_where (fixP->fx_file, fixP->fx_line,
+                      _("relative address out of range"));
+      *buf++ = (val >> 8);
+      *buf++ = val;
+      fixP->fx_no_overflow = 1;
+      break;
+
+    case 0:
+      md_number_to_chars (buf, val, fixP->fx_size);
       break;
 
     default:
-      printf(_("md_apply_fix: unknown r_type 0x%x\n"), fixP->fx_r_type);
+      printf(_("md_apply_fix3: unknown r_type 0x%x\n"), fixP->fx_r_type);
       abort ();
     }
 
@@ -1564,4 +1552,61 @@ md_pcrel_from (fixS *fixP)
 void
 tc_coff_symbol_emit_hook (symbolS *s ATTRIBUTE_UNUSED)
 {
+}
+
+void
+tc_reloc_mangle (fixS *fix_ptr, struct internal_reloc *intr, bfd_vma base)
+{
+  symbolS *symbol_ptr;
+
+  if (fix_ptr->fx_addsy
+      && fix_ptr->fx_subsy)
+    {
+      symbolS *add = fix_ptr->fx_addsy;
+      symbolS *sub = fix_ptr->fx_subsy;
+
+      if (S_GET_SEGMENT (add) != S_GET_SEGMENT (sub))
+	as_bad (_("Can't subtract symbols in different sections %s %s"),
+		S_GET_NAME (add), S_GET_NAME (sub));
+      else
+	{
+	  int diff = S_GET_VALUE (add) - S_GET_VALUE (sub);
+
+	  fix_ptr->fx_addsy = 0;
+	  fix_ptr->fx_subsy = 0;
+	  fix_ptr->fx_offset += diff;
+	}
+    }
+  symbol_ptr = fix_ptr->fx_addsy;
+
+  /* If this relocation is attached to a symbol then it's ok
+     to output it.  */
+  if (fix_ptr->fx_r_type == 0)
+    {
+      /* cons likes to create reloc32's whatever the size of the reloc.  */
+      switch (fix_ptr->fx_size)
+	{
+	case 2:
+	  intr->r_type = R_IMM16;
+	  break;
+	case 1:
+	  intr->r_type = R_IMM8;
+	  break;
+	case 4:
+	  intr->r_type = R_IMM32;
+	  break;
+	default:
+	  abort ();
+	}
+    }
+  else
+    intr->r_type = fix_ptr->fx_r_type;
+
+  intr->r_vaddr = fix_ptr->fx_frag->fr_address + fix_ptr->fx_where + base;
+  intr->r_offset = fix_ptr->fx_offset;
+
+  if (symbol_ptr)
+    intr->r_symndx = symbol_ptr->sy_number;
+  else
+    intr->r_symndx = -1;
 }
