@@ -1,12 +1,13 @@
 /* Remote target callback routines.
-   Copyright 1995-2013 Free Software Foundation, Inc.
+   Copyright 1995, 1996, 1997, 2000, 2002, 2003, 2004
+   Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,8 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with GAS; see the file COPYING.  If not, write to the Free Software
+   Foundation, 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 /* This file provides a standard way for targets to talk to the host OS
    level.  */
@@ -23,9 +25,12 @@
 #ifdef HAVE_CONFIG_H
 #include "cconfig.h"
 #endif
-#include "config.h"
 #include "ansidecl.h"
+#ifdef ANSI_PROTOTYPES
 #include <stdarg.h>
+#else
+#include <varargs.h>
+#endif
 #include <stdio.h>
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -91,18 +96,14 @@ static int os_get_errno PARAMS ((host_callback *));
 static int os_close PARAMS ((host_callback *, int));
 static void os_vprintf_filtered PARAMS ((host_callback *, const char *, va_list));
 static void os_evprintf_filtered PARAMS ((host_callback *, const char *, va_list));
-static void os_error PARAMS ((host_callback *, const char *, ...))
-#ifdef __GNUC__
-  __attribute__ ((__noreturn__))
-#endif
-  ;
+static void os_error PARAMS ((host_callback *, const char *, ...));
 static int fdmap PARAMS ((host_callback *, int));
 static int fdbad PARAMS ((host_callback *, int));
 static int wrap PARAMS ((host_callback *, int));
 
 /* Set the callback copy of errno from what we see now.  */
 
-static int
+static int 
 wrap (p, val)
      host_callback *p;
      int val;
@@ -114,20 +115,20 @@ wrap (p, val)
 /* Make sure the FD provided is ok.  If not, return non-zero
    and set errno. */
 
-static int
+static int 
 fdbad (p, fd)
      host_callback *p;
      int fd;
 {
   if (fd < 0 || fd > MAX_CALLBACK_FDS || p->fd_buddy[fd] < 0)
     {
-      p->last_errno = EBADF;
+      p->last_errno = EINVAL;
       return -1;
     }
   return 0;
 }
 
-static int
+static int 
 fdmap (p, fd)
      host_callback *p;
      int fd;
@@ -135,7 +136,7 @@ fdmap (p, fd)
   return p->fdmap[fd];
 }
 
-static int
+static int 
 os_close (p, fd)
      host_callback *p;
      int fd;
@@ -223,7 +224,7 @@ os_poll_quit (p)
 	{
 	  return 1;
 	}
-      else
+      else 
 	{
 	  sim_cb_eprintf (p, "CTRL-A to quit, CTRL-B to quit harder\n");
 	}
@@ -231,7 +232,7 @@ os_poll_quit (p)
 #endif
 #if defined (_MSC_VER)
   /* NB - this will not compile! */
-  int k = win32pollquit ();
+  int k = win32pollquit();
   if (k == 1)
     return 1;
   else if (k == 2)
@@ -243,7 +244,7 @@ os_poll_quit (p)
 #define os_poll_quit 0
 #endif /* defined(__GO32__) || defined(_MSC_VER) */
 
-static int
+static int 
 os_get_errno (p)
      host_callback *p;
 {
@@ -251,7 +252,7 @@ os_get_errno (p)
 }
 
 
-static int
+static int 
 os_isatty (p, fd)
      host_callback *p;
      int fd;
@@ -266,7 +267,7 @@ os_isatty (p, fd)
   return result;
 }
 
-static int
+static int 
 os_lseek (p, fd, off, way)
      host_callback *p;
      int fd;
@@ -278,11 +279,11 @@ os_lseek (p, fd, off, way)
   result = fdbad (p, fd);
   if (result)
     return result;
-  result = wrap (p, lseek (fdmap (p, fd), off, way));
+  result = lseek (fdmap (p, fd), off, way);
   return result;
 }
 
-static int
+static int 
 os_open (p, name, flags)
      host_callback *p;
      const char *name;
@@ -308,7 +309,7 @@ os_open (p, name, flags)
   return -1;
 }
 
-static int
+static int 
 os_read (p, fd, buf, len)
      host_callback *p;
      int fd;
@@ -365,7 +366,7 @@ os_read (p, fd, buf, len)
   return result;
 }
 
-static int
+static int 
 os_read_stdin (p, buf, len)
      host_callback *p;
      char *buf;
@@ -374,7 +375,7 @@ os_read_stdin (p, buf, len)
   return wrap (p, read (0, buf, len));
 }
 
-static int
+static int 
 os_write (p, fd, buf, len)
      host_callback *p;
      int fd;
@@ -446,7 +447,7 @@ os_write (p, fd, buf, len)
   return result;
 }
 
-static int
+static int 
 os_write_stdout (p, buf, len)
      host_callback *p ATTRIBUTE_UNUSED;
      const char *buf;
@@ -462,7 +463,7 @@ os_flush_stdout (p)
   fflush (stdout);
 }
 
-static int
+static int 
 os_write_stderr (p, buf, len)
      host_callback *p ATTRIBUTE_UNUSED;
      const char *buf;
@@ -478,7 +479,7 @@ os_flush_stderr (p)
   fflush (stderr);
 }
 
-static int
+static int 
 os_rename (p, f1, f2)
      host_callback *p;
      const char *f1;
@@ -496,7 +497,7 @@ os_system (p, s)
   return wrap (p, system (s));
 }
 
-static long
+static long 
 os_time (p, t)
      host_callback *p;
      long *t;
@@ -505,7 +506,7 @@ os_time (p, t)
 }
 
 
-static int
+static int 
 os_unlink (p, f1)
      host_callback *p;
      const char *f1;
@@ -587,7 +588,7 @@ os_lstat (p, file, buf)
 #endif
 }
 
-static int
+static int 
 os_ftruncate (p, fd, len)
      host_callback *p;
      int fd;
@@ -754,10 +755,23 @@ os_init (p)
 
 /* VARARGS */
 static void
+#ifdef ANSI_PROTOTYPES
 os_printf_filtered (host_callback *p ATTRIBUTE_UNUSED, const char *format, ...)
+#else
+os_printf_filtered (p, va_alist)
+     host_callback *p;
+     va_dcl
+#endif
 {
   va_list args;
+#ifdef ANSI_PROTOTYPES
   va_start (args, format);
+#else
+  char *format;
+
+  va_start (args);
+  format = va_arg (args, char *);
+#endif
 
   vfprintf (stdout, format, args);
   va_end (args);
@@ -765,24 +779,51 @@ os_printf_filtered (host_callback *p ATTRIBUTE_UNUSED, const char *format, ...)
 
 /* VARARGS */
 static void
+#ifdef ANSI_PROTOTYPES
 os_vprintf_filtered (host_callback *p ATTRIBUTE_UNUSED, const char *format, va_list args)
+#else
+os_vprintf_filtered (p, format, args)
+     host_callback *p;
+     const char *format;
+     va_list args;
+#endif
 {
   vprintf (format, args);
 }
 
 /* VARARGS */
 static void
+#ifdef ANSI_PROTOTYPES
 os_evprintf_filtered (host_callback *p ATTRIBUTE_UNUSED, const char *format, va_list args)
+#else
+os_evprintf_filtered (p, format, args)
+     host_callback *p;
+     const char *format;
+     va_list args;
+#endif
 {
   vfprintf (stderr, format, args);
 }
 
 /* VARARGS */
 static void
+#ifdef ANSI_PROTOTYPES
 os_error (host_callback *p ATTRIBUTE_UNUSED, const char *format, ...)
+#else
+os_error (p, va_alist)
+     host_callback *p;
+     va_dcl
+#endif
 {
   va_list args;
+#ifdef ANSI_PROTOTYPES
   va_start (args, format);
+#else
+  char *format;
+
+  va_start (args);
+  format = va_arg (args, char *);
+#endif
 
   vfprintf (stderr, format, args);
   fprintf (stderr, "\n");
@@ -844,7 +885,7 @@ host_callback default_callback =
   0, /* open_map */
   0, /* signal_map */
   0, /* stat_map */
-
+	
   /* Defaults expected to be overridden at initialization, where needed.  */
   BFD_ENDIAN_UNKNOWN, /* target_endian */
   4, /* target_sizeof_int */
@@ -1139,22 +1180,4 @@ sim_cb_eprintf (host_callback *p, const char *fmt, ...)
   va_start (ap, fmt);
   p->evprintf_filtered (p, fmt, ap);
   va_end (ap);
-}
-
-int
-cb_is_stdin (host_callback *cb, int fd)
-{
-  return fdbad (cb, fd) ? 0 : fdmap (cb, fd) == 0;
-}
-
-int
-cb_is_stdout (host_callback *cb, int fd)
-{
-  return fdbad (cb, fd) ? 0 : fdmap (cb, fd) == 1;
-}
-
-int
-cb_is_stderr (host_callback *cb, int fd)
-{
-  return fdbad (cb, fd) ? 0 : fdmap (cb, fd) == 2;
 }
