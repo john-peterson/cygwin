@@ -1,12 +1,12 @@
 /* tc-m32r.c -- Assembler for the Renesas M32R.
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-   2006, 2007, 2009, 2011, 2012 Free Software Foundation, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
+   Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -16,9 +16,10 @@
 
    You should have received a copy of the GNU General Public License
    along with GAS; see the file COPYING.  If not, write to
-   the Free Software Foundation, 51 Franklin Street - Fifth Floor,
-   Boston, MA 02110-1301, USA.  */
+   the Free Software Foundation, 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
+#include <stdio.h>
 #include "as.h"
 #include "safe-ctype.h"
 #include "subsegs.h"
@@ -165,8 +166,7 @@ struct m32r_hi_fixup
 
 static struct m32r_hi_fixup *m32r_hi_fixup_list;
 
-struct
-{
+struct {
   enum bfd_architecture bfd_mach;
   int mach_flags;
 } mach_table[] =
@@ -175,6 +175,8 @@ struct
   { bfd_mach_m32rx, (1<<MACH_M32RX) },
   { bfd_mach_m32r2, (1<<MACH_M32R2) }
 };
+
+static void allow_m32rx (int);
 
 static void
 allow_m32rx (int on)
@@ -192,29 +194,25 @@ allow_m32rx (int on)
 
 const char *md_shortopts = M32R_SHORTOPTS;
 
-enum md_option_enums
-{
-  OPTION_M32R = OPTION_MD_BASE,
-  OPTION_M32RX,
-  OPTION_M32R2,
-  OPTION_BIG,
-  OPTION_LITTLE,
-  OPTION_PARALLEL,
-  OPTION_NO_PARALLEL,
-  OPTION_WARN_PARALLEL,
-  OPTION_NO_WARN_PARALLEL,
-  OPTION_IGNORE_PARALLEL,
-  OPTION_NO_IGNORE_PARALLEL,
-  OPTION_SPECIAL,
-  OPTION_SPECIAL_M32R,
-  OPTION_NO_SPECIAL_M32R,
-  OPTION_SPECIAL_FLOAT,
-  OPTION_WARN_UNMATCHED,
-  OPTION_NO_WARN_UNMATCHED
-};
-
 struct option md_longopts[] =
 {
+#define OPTION_M32R		  (OPTION_MD_BASE)
+#define OPTION_M32RX		  (OPTION_M32R + 1)
+#define OPTION_M32R2		  (OPTION_M32RX + 1)
+#define OPTION_BIG                (OPTION_M32R2 + 1)
+#define OPTION_LITTLE             (OPTION_BIG + 1)
+#define OPTION_PARALLEL           (OPTION_LITTLE + 1)
+#define OPTION_NO_PARALLEL        (OPTION_PARALLEL + 1)
+#define OPTION_WARN_PARALLEL	  (OPTION_NO_PARALLEL + 1)
+#define OPTION_NO_WARN_PARALLEL	  (OPTION_WARN_PARALLEL + 1)
+#define OPTION_IGNORE_PARALLEL    (OPTION_NO_WARN_PARALLEL + 1)
+#define OPTION_NO_IGNORE_PARALLEL (OPTION_IGNORE_PARALLEL + 1)
+#define OPTION_SPECIAL		  (OPTION_NO_IGNORE_PARALLEL + 1)
+#define OPTION_SPECIAL_M32R       (OPTION_SPECIAL + 1)
+#define OPTION_NO_SPECIAL_M32R    (OPTION_SPECIAL_M32R + 1)
+#define OPTION_SPECIAL_FLOAT      (OPTION_NO_SPECIAL_M32R + 1)
+#define OPTION_WARN_UNMATCHED 	  (OPTION_SPECIAL_FLOAT + 1)
+#define OPTION_NO_WARN_UNMATCHED  (OPTION_WARN_UNMATCHED + 1)
   {"m32r",  no_argument, NULL, OPTION_M32R},
   {"m32rx", no_argument, NULL, OPTION_M32RX},
   {"m32r2", no_argument, NULL, OPTION_M32R2},
@@ -246,6 +244,9 @@ struct option md_longopts[] =
 
 size_t md_longopts_size = sizeof (md_longopts);
 
+static void little (int);
+static int parallel (void);
+
 static void
 little (int on)
 {
@@ -267,7 +268,9 @@ parallel (void)
 }
 
 int
-md_parse_option (int c, char *arg ATTRIBUTE_UNUSED)
+md_parse_option (c, arg)
+     int c;
+     char *arg ATTRIBUTE_UNUSED;
 {
   switch (c)
     {
@@ -368,7 +371,8 @@ md_parse_option (int c, char *arg ATTRIBUTE_UNUSED)
 }
 
 void
-md_show_usage (FILE *stream)
+md_show_usage (stream)
+     FILE *stream;
 {
   fprintf (stream, _(" M32R specific command line options:\n"));
 
@@ -406,11 +410,11 @@ md_show_usage (FILE *stream)
   fprintf (stream, _("\
   -ignore-parallel-conflicts            do not check parallel instructions\n"));
   fprintf (stream, _("\
-                                         for constraint violations\n"));
+                                         fo contraint violations\n"));
   fprintf (stream, _("\
   -no-ignore-parallel-conflicts         check parallel instructions for\n"));
   fprintf (stream, _("\
-                                         constraint violations\n"));
+                                         contraint violations\n"));
   fprintf (stream, _("\
   -Ip                     synonym for -ignore-parallel-conflicts\n"));
   fprintf (stream, _("\
@@ -429,9 +433,29 @@ md_show_usage (FILE *stream)
   -KPIC                   generate PIC\n"));
 }
 
+static void fill_insn PARAMS ((int));
+static void m32r_scomm PARAMS ((int));
+static void debug_sym PARAMS ((int));
+static void expand_debug_syms PARAMS ((sym_linkS *, int));
+
 /* Set by md_assemble for use by m32r_fill_insn.  */
 static subsegT prev_subseg;
 static segT prev_seg;
+
+/* The target specific pseudo-ops which we support.  */
+const pseudo_typeS md_pseudo_table[] =
+{
+  { "word",	cons,		4 },
+  { "fillinsn", fill_insn,	0 },
+  { "scomm",	m32r_scomm,	0 },
+  { "debugsym",	debug_sym,	0 },
+  { "m32r",	allow_m32rx,	0 },
+  { "m32rx",	allow_m32rx,	1 },
+  { "m32r2",	allow_m32rx,	2 },
+  { "little",   little,         1 },
+  { "big",      little,         0 },
+  { NULL, NULL, 0 }
+};
 
 #define GOT_NAME "_GLOBAL_OFFSET_TABLE_"
 symbolS * GOT_symbol;
@@ -478,7 +502,7 @@ m32r_check_fixup (expressionS *main_exp, bfd_reloc_code_real_type *r_type_p)
         return 0;
     }
 
-  if (exp->X_op == O_PIC_reloc)
+  if (exp->X_op == O_PIC_reloc || exp->X_md != BFD_RELOC_UNUSED)
     {
       *r_type_p = exp->X_md;
       if (exp == main_exp)
@@ -504,7 +528,8 @@ m32r_check_fixup (expressionS *main_exp, bfd_reloc_code_real_type *r_type_p)
    of an rs_align_code fragment.  */
 
 void
-m32r_handle_align (fragS *fragp)
+m32r_handle_align (fragp)
+     fragS *fragp;
 {
   static const unsigned char nop_pattern[] = { 0xf0, 0x00 };
   static const unsigned char multi_nop_pattern[] = { 0x70, 0x00, 0xf0, 0x00 };
@@ -550,7 +575,8 @@ m32r_handle_align (fragS *fragp)
    seen after an insn that is relaxable.  */
 
 static void
-fill_insn (int ignore ATTRIBUTE_UNUSED)
+fill_insn (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
   frag_align_code (2, 0);
   prev_insn.insn = NULL;
@@ -564,13 +590,14 @@ fill_insn (int ignore ATTRIBUTE_UNUSED)
    16 bit instruction.  */
 
 static void
-debug_sym (int ignore ATTRIBUTE_UNUSED)
+debug_sym (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
-  char *name;
-  char delim;
-  char *end_name;
-  symbolS *symbolP;
-  sym_linkS *lnk;
+  register char *name;
+  register char delim;
+  register char *end_name;
+  register symbolS *symbolP;
+  register sym_linkS *link;
 
   name = input_line_pointer;
   delim = get_symbol_end ();
@@ -578,7 +605,9 @@ debug_sym (int ignore ATTRIBUTE_UNUSED)
 
   if ((symbolP = symbol_find (name)) == NULL
       && (symbolP = md_undefined_symbol (name)) == NULL)
-    symbolP = symbol_new (name, undefined_section, 0, &zero_address_frag);
+    {
+      symbolP = symbol_new (name, undefined_section, 0, &zero_address_frag);
+    }
 
   symbol_table_insert (symbolP);
   if (S_IS_DEFINED (symbolP) && (S_GET_SEGMENT (symbolP) != reg_section
@@ -589,10 +618,10 @@ debug_sym (int ignore ATTRIBUTE_UNUSED)
 
   else
     {
-      lnk = (sym_linkS *) xmalloc (sizeof (sym_linkS));
-      lnk->symbol = symbolP;
-      lnk->next = debug_sym_link;
-      debug_sym_link = lnk;
+      link = (sym_linkS *) xmalloc (sizeof (sym_linkS));
+      link->symbol = symbolP;
+      link->next = debug_sym_link;
+      debug_sym_link = link;
       symbol_get_obj (symbolP)->local = 1;
     }
 
@@ -604,7 +633,9 @@ debug_sym (int ignore ATTRIBUTE_UNUSED)
    list of symbols and reassign the address.  */
 
 static void
-expand_debug_syms (sym_linkS *syms, int align)
+expand_debug_syms (syms, align)
+     sym_linkS *syms;
+     int align;
 {
   char *save_input_line = input_line_pointer;
   sym_linkS *next_syms;
@@ -626,7 +657,7 @@ expand_debug_syms (sym_linkS *syms, int align)
 }
 
 void
-m32r_flush_pending_output (void)
+m32r_flush_pending_output()
 {
   if (debug_sym_link)
     {
@@ -640,7 +671,8 @@ m32r_flush_pending_output (void)
    current line is a label.  */
 
 int
-m32r_fill_insn (int done)
+m32r_fill_insn (done)
+     int done;
 {
   if (prev_seg != NULL)
     {
@@ -666,7 +698,7 @@ m32r_fill_insn (int done)
 /* The default target format to use.  */
 
 const char *
-m32r_target_format (void)
+m32r_target_format ()
 {
 #ifdef TE_LINUX
   if (target_big_endian)
@@ -682,7 +714,7 @@ m32r_target_format (void)
 }
 
 void
-md_begin (void)
+md_begin ()
 {
   flagword applicable;
   segT seg;
@@ -713,7 +745,6 @@ md_begin (void)
 
   /* The sbss section is for local .scomm symbols.  */
   sbss_section = subseg_new (".sbss", 0);
-  seg_info (sbss_section)->bss = 1;
 
   /* This is copied from perform_an_assembly_pass.  */
   applicable = bfd_applicable_section_flags (stdoutput);
@@ -723,14 +754,14 @@ md_begin (void)
 
   /* We must construct a fake section similar to bfd_com_section
      but with the name .scommon.  */
-  scom_section                = *bfd_com_section_ptr;
+  scom_section                = bfd_com_section;
   scom_section.name           = ".scommon";
-  scom_section.output_section = & scom_section;
-  scom_section.symbol         = & scom_symbol;
-  scom_section.symbol_ptr_ptr = & scom_section.symbol;
-  scom_symbol                 = * bfd_com_section_ptr->symbol;
+  scom_section.output_section = &scom_section;
+  scom_section.symbol         = &scom_symbol;
+  scom_section.symbol_ptr_ptr = &scom_section.symbol;
+  scom_symbol                 = *bfd_com_section.symbol;
   scom_symbol.name            = ".scommon";
-  scom_symbol.section         = & scom_section;
+  scom_symbol.section         = &scom_section;
 
   allow_m32rx (enable_m32rx);
 
@@ -747,10 +778,14 @@ md_begin (void)
    of instruction 'b'.  If 'check_outputs' is true then b's outputs are
    checked, otherwise its inputs are examined.  */
 
+static int first_writes_to_seconds_operands
+  PARAMS ((m32r_insn *, m32r_insn *, const int));
+
 static int
-first_writes_to_seconds_operands (m32r_insn *a,
-				  m32r_insn *b,
-				  const int check_outputs)
+first_writes_to_seconds_operands (a, b, check_outputs)
+     m32r_insn *a;
+     m32r_insn *b;
+     const int check_outputs;
 {
   const CGEN_OPINST *a_operands = CGEN_INSN_OPERANDS (a->insn);
   const CGEN_OPINST *b_ops = CGEN_INSN_OPERANDS (b->insn);
@@ -823,8 +858,11 @@ first_writes_to_seconds_operands (m32r_insn *a,
 
 /* Returns true if the insn can (potentially) alter the program counter.  */
 
+static int writes_to_pc PARAMS ((m32r_insn *));
+
 static int
-writes_to_pc (m32r_insn *a)
+writes_to_pc (a)
+     m32r_insn *a;
 {
   if (CGEN_INSN_ATTR_VALUE (a->insn, CGEN_INSN_UNCOND_CTI)
       || CGEN_INSN_ATTR_VALUE (a->insn, CGEN_INSN_COND_CTI))
@@ -835,8 +873,12 @@ writes_to_pc (m32r_insn *a)
 /* Return NULL if the two 16 bit insns can be executed in parallel.
    Otherwise return a pointer to an error message explaining why not.  */
 
+static const char *can_make_parallel PARAMS ((m32r_insn *, m32r_insn *));
+
 static const char *
-can_make_parallel (m32r_insn *a, m32r_insn *b)
+can_make_parallel (a, b)
+     m32r_insn *a;
+     m32r_insn *b;
 {
   PIPE_ATTR a_pipe;
   PIPE_ATTR b_pipe;
@@ -870,8 +912,11 @@ can_make_parallel (m32r_insn *a, m32r_insn *b)
 
 /* Force the top bit of the second 16-bit insn to be set.  */
 
+static void make_parallel PARAMS ((CGEN_INSN_BYTES_PTR));
+
 static void
-make_parallel (CGEN_INSN_BYTES_PTR buffer)
+make_parallel (buffer)
+     CGEN_INSN_BYTES_PTR buffer;
 {
 #if CGEN_INT_INSN_P
   *buffer |= 0x8000;
@@ -883,8 +928,11 @@ make_parallel (CGEN_INSN_BYTES_PTR buffer)
 
 /* Same as make_parallel except buffer contains the bytes in target order.  */
 
+static void target_make_parallel PARAMS ((char *));
+
 static void
-target_make_parallel (char *buffer)
+target_make_parallel (buffer)
+     char *buffer;
 {
   buffer[CGEN_CPU_ENDIAN (gas_cgen_cpu_desc) == CGEN_ENDIAN_BIG ? 0 : 1]
     |= 0x80;
@@ -893,8 +941,13 @@ target_make_parallel (char *buffer)
 /* Assemble two instructions with an explicit parallel operation (||) or
    sequential operation (->).  */
 
+static void assemble_two_insns PARAMS ((char *, char *, int));
+
 static void
-assemble_two_insns (char *str1, char *str2, int parallel_p)
+assemble_two_insns (str, str2, parallel_p)
+     char *str;
+     char *str2;
+     int parallel_p;
 {
   char *str3;
   m32r_insn first;
@@ -918,9 +971,9 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 
   /* Parse the first instruction.  */
   if (! (first.insn = m32r_cgen_assemble_insn
-	 (gas_cgen_cpu_desc, str1, & first.fields, first.buffer, & errmsg)))
+	 (gas_cgen_cpu_desc, str, & first.fields, first.buffer, & errmsg)))
     {
-      as_bad ("%s", errmsg);
+      as_bad (errmsg);
       return;
     }
 
@@ -928,7 +981,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
   if (CGEN_FIELDS_BITSIZE (&first.fields) != 16)
     {
       /* xgettext:c-format  */
-      as_bad (_("not a 16 bit instruction '%s'"), str1);
+      as_bad (_("not a 16 bit instruction '%s'"), str);
       return;
     }
 #ifdef E_M32R2_ARCH
@@ -940,7 +993,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
                     & (1 << MACH_M32RX)))))
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' is for the M32R2 only"), str1);
+      as_bad (_("instruction '%s' is for the M32R2 only"), str);
       return;
     }
   else if ((! enable_special
@@ -953,7 +1006,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 #endif
     {
       /* xgettext:c-format  */
-      as_bad (_("unknown instruction '%s'"), str1);
+      as_bad (_("unknown instruction '%s'"), str);
       return;
     }
   else if (! enable_m32rx
@@ -962,7 +1015,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 	       == (1 << MACH_M32RX)))
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' is for the M32RX only"), str1);
+      as_bad (_("instruction '%s' is for the M32RX only"), str);
       return;
     }
 
@@ -971,7 +1024,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
       && CGEN_INSN_ATTR_VALUE (first.insn, CGEN_INSN_PIPE) == PIPE_NONE)
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' cannot be executed in parallel."), str1);
+      as_bad (_("instruction '%s' cannot be executed in parallel."), str);
       return;
     }
 
@@ -979,10 +1032,10 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
   *str2 = save_str2;
 
   /* Save the original string pointer.  */
-  str3 = str1;
+  str3 = str;
 
   /* Advanced past the parsed string.  */
-  str1 = str2 + 2;
+  str = str2 + 2;
 
   /* Remember the entire string in case it is needed for error
      messages.  */
@@ -990,7 +1043,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 
   /* Convert the opcode to lower case.  */
   {
-    char *s2 = str1;
+    char *s2 = str;
 
     while (ISSPACE (*s2++))
       continue;
@@ -1032,9 +1085,9 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 
   /* Parse the second instruction.  */
   if (! (second.insn = m32r_cgen_assemble_insn
-	 (gas_cgen_cpu_desc, str1, & second.fields, second.buffer, & errmsg)))
+	 (gas_cgen_cpu_desc, str, & second.fields, second.buffer, & errmsg)))
     {
-      as_bad ("%s", errmsg);
+      as_bad (errmsg);
       return;
     }
 
@@ -1042,7 +1095,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
   if (CGEN_FIELDS_BITSIZE (&second.fields) != 16)
     {
       /* xgettext:c-format  */
-      as_bad (_("not a 16 bit instruction '%s'"), str1);
+      as_bad (_("not a 16 bit instruction '%s'"), str);
       return;
     }
 #ifdef E_M32R2_ARCH
@@ -1054,7 +1107,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
                     & (1 << MACH_M32RX)))))
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' is for the M32R2 only"), str1);
+      as_bad (_("instruction '%s' is for the M32R2 only"), str);
       return;
     }
   else if ((! enable_special
@@ -1067,14 +1120,14 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 #endif
     {
       /* xgettext:c-format  */
-      as_bad (_("unknown instruction '%s'"), str1);
+      as_bad (_("unknown instruction '%s'"), str);
       return;
     }
   else if (! enable_m32rx
       && CGEN_INSN_ATTR_VALUE (second.insn, CGEN_INSN_MACH) == (1 << MACH_M32RX))
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' is for the M32RX only"), str1);
+      as_bad (_("instruction '%s' is for the M32RX only"), str);
       return;
     }
 
@@ -1083,7 +1136,7 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
       && CGEN_INSN_ATTR_VALUE (second.insn, CGEN_INSN_PIPE) == PIPE_NONE)
     {
       /* xgettext:c-format  */
-      as_bad (_("instruction '%s' cannot be executed in parallel."), str1);
+      as_bad (_("instruction '%s' cannot be executed in parallel."), str);
       return;
     }
 
@@ -1193,7 +1246,8 @@ assemble_two_insns (char *str1, char *str2, int parallel_p)
 }
 
 void
-md_assemble (char *str)
+md_assemble (str)
+     char *str;
 {
   m32r_insn insn;
   char *errmsg;
@@ -1225,7 +1279,7 @@ md_assemble (char *str)
 
   if (!insn.insn)
     {
-      as_bad ("%s", errmsg);
+      as_bad (errmsg);
       return;
     }
 
@@ -1440,7 +1494,8 @@ md_assemble (char *str)
    We just ignore it.  */
 
 void
-md_operand (expressionS *expressionP)
+md_operand (expressionP)
+     expressionS *expressionP;
 {
   if (*input_line_pointer == '#')
     {
@@ -1450,15 +1505,17 @@ md_operand (expressionS *expressionP)
 }
 
 valueT
-md_section_align (segT segment, valueT size)
+md_section_align (segment, size)
+     segT segment;
+     valueT size;
 {
   int align = bfd_get_section_alignment (stdoutput, segment);
-
   return ((size + (1 << align) - 1) & (-1 << align));
 }
 
 symbolS *
-md_undefined_symbol (char *name ATTRIBUTE_UNUSED)
+md_undefined_symbol (name)
+     char *name ATTRIBUTE_UNUSED;
 {
   return 0;
 }
@@ -1471,13 +1528,14 @@ md_undefined_symbol (char *name ATTRIBUTE_UNUSED)
    correctly link the object file.  */
 
 static void
-m32r_scomm (int ignore ATTRIBUTE_UNUSED)
+m32r_scomm (ignore)
+     int ignore ATTRIBUTE_UNUSED;
 {
-  char *name;
-  char c;
-  char *p;
+  register char *name;
+  register char c;
+  register char *p;
   offsetT size;
-  symbolS *symbolP;
+  register symbolS *symbolP;
   offsetT align;
   int align2;
 
@@ -1594,21 +1652,6 @@ m32r_scomm (int ignore ATTRIBUTE_UNUSED)
 
   demand_empty_rest_of_line ();
 }
-
-/* The target specific pseudo-ops which we support.  */
-const pseudo_typeS md_pseudo_table[] =
-{
-  { "word",	cons,		4 },
-  { "fillinsn", fill_insn,	0 },
-  { "scomm",	m32r_scomm,	0 },
-  { "debugsym",	debug_sym,	0 },
-  { "m32r",	allow_m32rx,	0 },
-  { "m32rx",	allow_m32rx,	1 },
-  { "m32r2",	allow_m32rx,	2 },
-  { "little",   little,         1 },
-  { "big",      little,         0 },
-  { NULL, NULL, 0 }
-};
 
 /* Interface to relax_segment.  */
 
@@ -1641,7 +1684,10 @@ const relax_typeS md_relax_table[] =
 };
 
 long
-m32r_relax_frag (segT segment, fragS *fragP, long stretch)
+m32r_relax_frag (segment, fragP, stretch)
+     segT segment;
+     fragS *fragP;
+     long stretch;
 {
   /* Address of branch insn.  */
   long address = fragP->fr_address + fragP->fr_fix - 2;
@@ -1691,13 +1737,16 @@ m32r_relax_frag (segT segment, fragS *fragP, long stretch)
    with a 0 value.  */
 
 int
-md_estimate_size_before_relax (fragS *fragP, segT segment)
+md_estimate_size_before_relax (fragP, segment)
+     fragS *fragP;
+     segT segment;
 {
   /* The only thing we have to handle here are symbols outside of the
      current segment.  They may be undefined or in a different segment in
      which case linker scripts may place them anywhere.
      However, we can't finish the fragment here and emit the reloc as insn
      alignment requirements may move the insn about.  */
+
   if (S_GET_SEGMENT (fragP->fr_symbol) != segment
       || S_IS_EXTERNAL (fragP->fr_symbol)
       || S_IS_WEAK (fragP->fr_symbol))
@@ -1742,9 +1791,10 @@ md_estimate_size_before_relax (fragS *fragP, segT segment)
    fragP->fr_subtype is the subtype of what the address relaxed to.  */
 
 void
-md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
-		 segT sec,
-		 fragS *fragP)
+md_convert_frag (abfd, sec, fragP)
+     bfd *abfd ATTRIBUTE_UNUSED;
+     segT sec;
+     fragS *fragP;
 {
   char *opcode;
   char *displacement;
@@ -1809,8 +1859,8 @@ md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
     {
       fixS *fixP;
 
-      gas_assert (fragP->fr_subtype != 1);
-      gas_assert (fragP->fr_cgen.insn != 0);
+      assert (fragP->fr_subtype != 1);
+      assert (fragP->fr_cgen.insn != 0);
 
       fixP = gas_cgen_record_fixup (fragP,
 				    /* Offset of branch insn in frag.  */
@@ -1840,7 +1890,9 @@ md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED,
    given a PC relative reloc.  */
 
 long
-md_pcrel_from_section (fixS *fixP, segT sec)
+md_pcrel_from_section (fixP, sec)
+     fixS *fixP;
+     segT sec;
 {
   if (fixP->fx_addsy != (symbolS *) NULL
       && (! S_IS_DEFINED (fixP->fx_addsy)
@@ -1867,9 +1919,10 @@ md_pcrel_from_section (fixS *fixP, segT sec)
    *FIXP may be modified if desired.  */
 
 bfd_reloc_code_real_type
-md_cgen_lookup_reloc (const CGEN_INSN *insn ATTRIBUTE_UNUSED,
-		      const CGEN_OPERAND *operand,
-		      fixS *fixP)
+md_cgen_lookup_reloc (insn, operand, fixP)
+     const CGEN_INSN *insn ATTRIBUTE_UNUSED;
+     const CGEN_OPERAND *operand;
+     fixS *fixP;
 {
   switch (operand->type)
     {
@@ -1893,17 +1946,21 @@ md_cgen_lookup_reloc (const CGEN_INSN *insn ATTRIBUTE_UNUSED,
 
 /* Record a HI16 reloc for later matching with its LO16 cousin.  */
 
+static void m32r_record_hi16 PARAMS ((int, fixS *, segT));
+
 static void
-m32r_record_hi16 (int reloc_type,
-		  fixS *fixP,
-		  segT seg ATTRIBUTE_UNUSED)
+m32r_record_hi16 (reloc_type, fixP, seg)
+     int reloc_type;
+     fixS *fixP;
+     segT seg ATTRIBUTE_UNUSED;
 {
   struct m32r_hi_fixup *hi_fixup;
 
-  gas_assert (reloc_type == BFD_RELOC_M32R_HI16_SLO
+  assert (reloc_type == BFD_RELOC_M32R_HI16_SLO
 	  || reloc_type == BFD_RELOC_M32R_HI16_ULO);
 
-  hi_fixup = xmalloc (sizeof (* hi_fixup));
+  hi_fixup = ((struct m32r_hi_fixup *)
+	      xmalloc (sizeof (struct m32r_hi_fixup)));
   hi_fixup->fixp = fixP;
   hi_fixup->seg  = now_seg;
   hi_fixup->next = m32r_hi_fixup_list;
@@ -1915,13 +1972,14 @@ m32r_record_hi16 (int reloc_type,
    We need to check for HI16 relocs and queue them up for later sorting.  */
 
 fixS *
-m32r_cgen_record_fixup_exp (fragS *frag,
-			    int where,
-			    const CGEN_INSN *insn,
-			    int length,
-			    const CGEN_OPERAND *operand,
-			    int opinfo,
-			    expressionS *exp)
+m32r_cgen_record_fixup_exp (frag, where, insn, length, operand, opinfo, exp)
+     fragS *frag;
+     int where;
+     const CGEN_INSN *insn;
+     int length;
+     const CGEN_OPERAND *operand;
+     int opinfo;
+     expressionS *exp;
 {
   fixS *fixP;
   bfd_reloc_code_real_type r_type = BFD_RELOC_UNUSED;
@@ -1960,7 +2018,6 @@ m32r_cgen_record_fixup_exp (fragS *frag,
       else if (fixP->fx_cgen.opinfo == BFD_RELOC_M32R_LO16)
         r_type = BFD_RELOC_M32R_GOTPC_LO;
       break;
-
     case BFD_RELOC_M32R_GOT24:
       if (fixP->fx_cgen.opinfo == BFD_RELOC_M32R_HI16_SLO)
         r_type = BFD_RELOC_M32R_GOT16_HI_SLO;
@@ -1969,7 +2026,6 @@ m32r_cgen_record_fixup_exp (fragS *frag,
       else if (fixP->fx_cgen.opinfo == BFD_RELOC_M32R_LO16)
         r_type = BFD_RELOC_M32R_GOT16_LO;
       break;
-
     case BFD_RELOC_M32R_GOTOFF:
       if (fixP->fx_cgen.opinfo == BFD_RELOC_M32R_HI16_SLO)
         r_type = BFD_RELOC_M32R_GOTOFF_HI_SLO;
@@ -1978,7 +2034,6 @@ m32r_cgen_record_fixup_exp (fragS *frag,
       else if (fixP->fx_cgen.opinfo == BFD_RELOC_M32R_LO16)
         r_type = BFD_RELOC_M32R_GOTOFF_LO;
       break;
-
     case BFD_RELOC_M32R_26_PLTREL:
       as_bad (_("Invalid PIC expression."));
       break;
@@ -1995,11 +2050,11 @@ m32r_cgen_record_fixup_exp (fragS *frag,
 #define FX_OPINFO_R_TYPE(f) ((f)->fx_cgen.opinfo)
 
 /* Sort any unmatched HI16 relocs so that they immediately precede
-   the corresponding LO16 reloc.  This is called before md_apply_fix and
+   the corresponding LO16 reloc.  This is called before md_apply_fix3 and
    tc_gen_reloc.  */
 
 void
-m32r_frob_file (void)
+m32r_frob_file ()
 {
   struct m32r_hi_fixup *l;
 
@@ -2008,7 +2063,7 @@ m32r_frob_file (void)
       segment_info_type *seginfo;
       int pass;
 
-      gas_assert (FX_OPINFO_R_TYPE (l->fixp) == BFD_RELOC_M32R_HI16_SLO
+      assert (FX_OPINFO_R_TYPE (l->fixp) == BFD_RELOC_M32R_HI16_SLO
 	      || FX_OPINFO_R_TYPE (l->fixp) == BFD_RELOC_M32R_HI16_ULO);
 
       /* Check quickly whether the next fixup happens to be a matching low.  */
@@ -2049,7 +2104,7 @@ m32r_frob_file (void)
 		  for (pf = &seginfo->fix_root;
 		       *pf != l->fixp;
 		       pf = & (*pf)->fx_next)
-		    gas_assert (*pf != NULL);
+		    assert (*pf != NULL);
 
 		  *pf = l->fixp->fx_next;
 
@@ -2081,7 +2136,8 @@ m32r_frob_file (void)
    relaxing.  */
 
 int
-m32r_force_relocation (fixS *fix)
+m32r_force_relocation (fix)
+     fixS *fix;
 {
   if (generic_force_reloc (fix))
     return 1;
@@ -2095,7 +2151,10 @@ m32r_force_relocation (fixS *fix)
 /* Write a value out to the object file, using the appropriate endianness.  */
 
 void
-md_number_to_chars (char *buf, valueT val, int n)
+md_number_to_chars (buf, val, n)
+     char *buf;
+     valueT val;
+     int n;
 {
   if (target_big_endian)
     number_to_chars_bigendian (buf, val, n);
@@ -2112,13 +2171,69 @@ md_number_to_chars (char *buf, valueT val, int n)
 #define MAX_LITTLENUMS 6
 
 char *
-md_atof (int type, char *litP, int *sizeP)
+md_atof (type, litP, sizeP)
+     char type;
+     char *litP;
+     int *sizeP;
 {
-  return ieee_md_atof (type, litP, sizeP, target_big_endian);
+  int i;
+  int prec;
+  LITTLENUM_TYPE words[MAX_LITTLENUMS];
+  char *t;
+
+  switch (type)
+    {
+    case 'f':
+    case 'F':
+    case 's':
+    case 'S':
+      prec = 2;
+      break;
+
+    case 'd':
+    case 'D':
+    case 'r':
+    case 'R':
+      prec = 4;
+      break;
+
+      /* FIXME: Some targets allow other format chars for bigger sizes
+         here.  */
+
+    default:
+      *sizeP = 0;
+      return _("Bad call to md_atof()");
+    }
+
+  t = atof_ieee (input_line_pointer, type, words);
+  if (t)
+    input_line_pointer = t;
+  *sizeP = prec * sizeof (LITTLENUM_TYPE);
+
+  if (target_big_endian)
+    {
+      for (i = 0; i < prec; i++)
+	{
+	  md_number_to_chars (litP, (valueT) words[i],
+			      sizeof (LITTLENUM_TYPE));
+	  litP += sizeof (LITTLENUM_TYPE);
+	}
+    }
+  else
+    {
+      for (i = prec - 1; i >= 0; i--)
+	{
+	  md_number_to_chars (litP, (valueT) words[i],
+			      sizeof (LITTLENUM_TYPE));
+	  litP += sizeof (LITTLENUM_TYPE);
+	}
+    }
+
+  return 0;
 }
 
 void
-m32r_elf_section_change_hook (void)
+m32r_elf_section_change_hook ()
 {
   /* If we have reached the end of a section and we have just emitted a
      16 bit insn, then emit a nop to make sure that the section ends on
@@ -2132,7 +2247,8 @@ m32r_elf_section_change_hook (void)
    (such as .data) instead of relative to some symbol.  */
 
 bfd_boolean
-m32r_fix_adjustable (fixS *fixP)
+m32r_fix_adjustable (fixP)
+   fixS *fixP;
 {
   bfd_reloc_code_real_type reloc_type;
 
@@ -2142,7 +2258,6 @@ m32r_fix_adjustable (fixS *fixP)
       int opindex = (int) fixP->fx_r_type - (int) BFD_RELOC_UNUSED;
       const CGEN_OPERAND *operand =
 	cgen_operand_lookup_by_num(gas_cgen_cpu_desc, opindex);
-
       reloc_type = md_cgen_lookup_reloc (insn, operand, fixP);
     }
   else
@@ -2152,7 +2267,7 @@ m32r_fix_adjustable (fixS *fixP)
     return 1;
 
   /* Prevent all adjustments to global symbols.  */
-  if (S_IS_EXTERNAL (fixP->fx_addsy))
+  if (S_IS_EXTERN (fixP->fx_addsy))
     return 0;
   if (S_IS_WEAK (fixP->fx_addsy))
     return 0;
@@ -2195,27 +2310,18 @@ m32r_elf_final_processing (void)
    format. */
 
 arelent *
-tc_gen_reloc (asection * section, fixS * fixP)
+tc_gen_reloc (section, fixP)
+     asection * section;
+     fixS *     fixP;
 {
   arelent * reloc;
   bfd_reloc_code_real_type code;
  
-  reloc = xmalloc (sizeof (* reloc));
+  reloc = (arelent *) xmalloc (sizeof (arelent));
  
-  reloc->sym_ptr_ptr = xmalloc (sizeof (asymbol *));
+  reloc->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
   *reloc->sym_ptr_ptr = symbol_get_bfdsym (fixP->fx_addsy);
   reloc->address = fixP->fx_frag->fr_address + fixP->fx_where;
-
-  if (fixP->fx_pcrel)
-    {
-      if (fixP->fx_r_type == BFD_RELOC_32)
-        fixP->fx_r_type = BFD_RELOC_32_PCREL;
-      else if (fixP->fx_r_type == BFD_RELOC_16)
-	{
-          fixP->fx_r_type = BFD_RELOC_16_PCREL;
-          bfd_set_error (bfd_error_bad_value);
-	}
-    }
  
   code = fixP->fx_r_type;
   if (pic_code)
@@ -2228,7 +2334,6 @@ printf("%s",bfd_get_reloc_code_name(code));
         case BFD_RELOC_M32R_26_PCREL:
             code = BFD_RELOC_M32R_26_PLTREL;
           break;
-
         case BFD_RELOC_M32R_24:
           if (fixP->fx_addsy != NULL
               && strcmp (S_GET_NAME (fixP->fx_addsy), GOT_NAME) == 0)
@@ -2236,7 +2341,6 @@ printf("%s",bfd_get_reloc_code_name(code));
           else
             code = BFD_RELOC_M32R_GOT24;
           break;
-
         case BFD_RELOC_M32R_HI16_ULO:
           if (fixP->fx_addsy != NULL
               && strcmp (S_GET_NAME (fixP->fx_addsy), GOT_NAME) == 0)
@@ -2244,7 +2348,6 @@ printf("%s",bfd_get_reloc_code_name(code));
           else
             code = BFD_RELOC_M32R_GOT16_HI_ULO;
           break;
-
         case BFD_RELOC_M32R_HI16_SLO:
           if (fixP->fx_addsy != NULL
               && strcmp (S_GET_NAME (fixP->fx_addsy), GOT_NAME) == 0)
@@ -2252,7 +2355,6 @@ printf("%s",bfd_get_reloc_code_name(code));
           else
             code = BFD_RELOC_M32R_GOT16_HI_SLO;
           break;
-
         case BFD_RELOC_M32R_LO16:
           if (fixP->fx_addsy != NULL
               && strcmp (S_GET_NAME (fixP->fx_addsy), GOT_NAME) == 0)
@@ -2260,7 +2362,6 @@ printf("%s",bfd_get_reloc_code_name(code));
           else
             code = BFD_RELOC_M32R_GOT16_LO;
           break;
-
         default:
           break;
         }
@@ -2270,12 +2371,10 @@ printf(" => %s",bfd_get_reloc_code_name(code));
     }
  
   reloc->howto = bfd_reloc_type_lookup (stdoutput, code);
-
 #ifdef DEBUG_PIC
 printf(" => %s\n",reloc->howto->name);
 #endif
-
- if (reloc->howto == (reloc_howto_type *) NULL)
+  if (reloc->howto == (reloc_howto_type *) NULL)
     {
       as_bad_where (fixP->fx_file, fixP->fx_line,
             _("internal error: can't export reloc type %d (`%s')"),
@@ -2285,8 +2384,7 @@ printf(" => %s\n",reloc->howto->name);
  
   /* Use fx_offset for these cases.  */
   if (   fixP->fx_r_type == BFD_RELOC_VTABLE_ENTRY
-      || fixP->fx_r_type == BFD_RELOC_VTABLE_INHERIT
-      || fixP->fx_r_type == BFD_RELOC_32_PCREL)
+      || fixP->fx_r_type == BFD_RELOC_VTABLE_INHERIT)
     reloc->addend  = fixP->fx_offset;
   else if ((!pic_code
             && code != BFD_RELOC_M32R_26_PLTREL)
@@ -2317,10 +2415,7 @@ m32r_end_of_match (char *cont, char *what)
 }
 
 int
-m32r_parse_name (char const *name,
-		 expressionS *exprP,
-		 enum expr_mode mode,
-		 char *nextcharP)
+m32r_parse_name (char const *name, expressionS *exprP, char *nextcharP)
 {
   char *next = input_line_pointer;
   char *next_end;
@@ -2341,13 +2436,13 @@ m32r_parse_name (char const *name,
       /* If we have an absolute symbol or a
 	 reg, then we know its value now.  */
       segment = S_GET_SEGMENT (exprP->X_add_symbol);
-      if (mode != expr_defer && segment == absolute_section)
+      if (segment == absolute_section)
 	{
 	  exprP->X_op = O_constant;
 	  exprP->X_add_number = S_GET_VALUE (exprP->X_add_symbol);
 	  exprP->X_add_symbol = NULL;
 	}
-      else if (mode != expr_defer && segment == reg_section)
+      else if (segment == reg_section)
 	{
 	  exprP->X_op = O_register;
 	  exprP->X_add_number = S_GET_VALUE (exprP->X_add_symbol);
