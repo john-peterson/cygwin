@@ -1,26 +1,25 @@
 /* BFD library -- caching of file descriptors.
 
    Copyright 1990, 1991, 1992, 1993, 1994, 1996, 2000, 2001, 2002,
-   2003, 2004, 2005, 2007, 2008, 2009 Free Software Foundation, Inc.
+   2003, 2004, 2005 Free Software Foundation, Inc.
 
    Hacked by Steve Chamberlain of Cygnus Support (steve@cygnus.com).
 
-   This file is part of BFD, the Binary File Descriptor library.
+This file is part of BFD, the Binary File Descriptor library.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /*
 SECTION
@@ -41,15 +40,10 @@ SUBSECTION
 	Caching functions
 */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "libiberty.h"
-#include "bfd_stdint.h"
-
-#ifdef HAVE_MMAP
-#include <sys/mman.h>
-#endif
 
 /* In some cases we can optimize cache operation when reopening files.
    For instance, a flush is entirely unnecessary if the file is already
@@ -145,33 +139,49 @@ bfd_cache_delete (bfd *abfd)
 static bfd_boolean
 close_one (void)
 {
-  register bfd *to_kill;
+  register bfd *kill;
 
   if (bfd_last_cache == NULL)
-    to_kill = NULL;
+    kill = NULL;
   else
     {
-      for (to_kill = bfd_last_cache->lru_prev;
-	   ! to_kill->cacheable;
-	   to_kill = to_kill->lru_prev)
+      for (kill = bfd_last_cache->lru_prev;
+	   ! kill->cacheable;
+	   kill = kill->lru_prev)
 	{
-	  if (to_kill == bfd_last_cache)
+	  if (kill == bfd_last_cache)
 	    {
-	      to_kill = NULL;
+	      kill = NULL;
 	      break;
 	    }
 	}
     }
 
-  if (to_kill == NULL)
+  if (kill == NULL)
     {
       /* There are no open cacheable BFD's.  */
       return TRUE;
     }
 
-  to_kill->where = real_ftell ((FILE *) to_kill->iostream);
+  kill->where = real_ftell ((FILE *) kill->iostream);
 
-  return bfd_cache_delete (to_kill);
+  /* Save the file st_mtime.  This is a hack so that gdb can detect when
+     an executable has been deleted and recreated.  The only thing that
+     makes this reasonable is that st_mtime doesn't change when a file
+     is unlinked, so saving st_mtime makes BFD's file cache operation
+     a little more transparent for this particular usage pattern.  If we
+     hadn't closed the file then we would not have lost the original
+     contents, st_mtime etc.  Of course, if something is writing to an
+     existing file, then this is the wrong thing to do.
+     FIXME: gdb should save these times itself on first opening a file,
+     and this hack be removed.  */
+  if (kill->direction == no_direction || kill->direction == read_direction)
+    {
+      bfd_get_mtime (kill);
+      kill->mtime_set = TRUE;
+    }
+
+  return bfd_cache_delete (kill);
 }
 
 /* Check to see if the required BFD is the same as the last one
@@ -198,7 +208,7 @@ bfd_cache_lookup_worker (bfd *abfd, enum cache_flag flag)
   if ((abfd->flags & BFD_IN_MEMORY) != 0)
     abort ();
 
-  while (abfd->my_archive)
+  if (abfd->my_archive)
     abfd = abfd->my_archive;
 
   if (abfd->iostream != NULL)
@@ -241,7 +251,7 @@ cache_btell (struct bfd *abfd)
 static int
 cache_bseek (struct bfd *abfd, file_ptr offset, int whence)
 {
-  FILE *f = bfd_cache_lookup (abfd, whence != SEEK_CUR ? CACHE_NO_SEEK : CACHE_NORMAL);
+  FILE *f = bfd_cache_lookup (abfd, whence != SEEK_CUR ? CACHE_NO_SEEK : 0);
   if (f == NULL)
     return -1;
   return real_fseek (f, offset, whence);
@@ -255,7 +265,7 @@ cache_bseek (struct bfd *abfd, file_ptr offset, int whence)
    first octet in the file, NOT the beginning of the archive header.  */
 
 static file_ptr
-cache_bread_1 (struct bfd *abfd, void *buf, file_ptr nbytes)
+cache_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
 {
   FILE *f;
   file_ptr nread;
@@ -271,7 +281,7 @@ cache_bread_1 (struct bfd *abfd, void *buf, file_ptr nbytes)
   if (nbytes == 0)
     return 0;
 
-  f = bfd_cache_lookup (abfd, CACHE_NORMAL);
+  f = bfd_cache_lookup (abfd, 0);
   if (f == NULL)
     return 0;
 
@@ -298,47 +308,6 @@ cache_bread_1 (struct bfd *abfd, void *buf, file_ptr nbytes)
       return -1;
     }
 #endif
-  if (nread < nbytes)
-    /* This may or may not be an error, but in case the calling code
-       bails out because of it, set the right error code.  */
-    bfd_set_error (bfd_error_file_truncated);
-  return nread;
-}
-
-static file_ptr
-cache_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
-{
-  file_ptr nread = 0;
-
-  /* Some filesystems are unable to handle reads that are too large
-     (for instance, NetApp shares with oplocks turned off).  To avoid
-     hitting this limitation, we read the buffer in chunks of 8MB max.  */
-  while (nread < nbytes)
-    {
-      const file_ptr max_chunk_size = 0x800000;
-      file_ptr chunk_size = nbytes - nread;
-      file_ptr chunk_nread;
-
-      if (chunk_size > max_chunk_size)
-        chunk_size = max_chunk_size;
-
-      chunk_nread = cache_bread_1 (abfd, (char *) buf + nread, chunk_size);
-
-      /* Update the nread count.
-
-         We just have to be careful of the case when cache_bread_1 returns
-         a negative count:  If this is our first read, then set nread to
-         that negative count in order to return that negative value to the
-         caller.  Otherwise, don't add it to our total count, or we would
-         end up returning a smaller number of bytes read than we actually
-         did.  */
-      if (nread == 0 || chunk_nread > 0)
-        nread += chunk_nread;
-
-      if (chunk_nread < chunk_size)
-        break;
-    }
-
   return nread;
 }
 
@@ -346,8 +315,7 @@ static file_ptr
 cache_bwrite (struct bfd *abfd, const void *where, file_ptr nbytes)
 {
   file_ptr nwrite;
-  FILE *f = bfd_cache_lookup (abfd, CACHE_NORMAL);
-
+  FILE *f = bfd_cache_lookup (abfd, 0);
   if (f == NULL)
     return 0;
   nwrite = fwrite (where, 1, nbytes, f);
@@ -362,7 +330,7 @@ cache_bwrite (struct bfd *abfd, const void *where, file_ptr nbytes)
 static int
 cache_bclose (struct bfd *abfd)
 {
-  return bfd_cache_close (abfd) - 1;
+  return bfd_cache_close (abfd);
 }
 
 static int
@@ -370,7 +338,6 @@ cache_bflush (struct bfd *abfd)
 {
   int sts;
   FILE *f = bfd_cache_lookup (abfd, CACHE_NO_OPEN);
-
   if (f == NULL)
     return 0;
   sts = fflush (f);
@@ -384,7 +351,6 @@ cache_bstat (struct bfd *abfd, struct stat *sb)
 {
   int sts;
   FILE *f = bfd_cache_lookup (abfd, CACHE_NO_SEEK_ERROR);
-
   if (f == NULL)
     return -1;
   sts = fstat (fileno (f), sb);
@@ -393,62 +359,9 @@ cache_bstat (struct bfd *abfd, struct stat *sb)
   return sts;
 }
 
-static void *
-cache_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
-	     void *addr ATTRIBUTE_UNUSED,
-	     bfd_size_type len ATTRIBUTE_UNUSED,
-	     int prot ATTRIBUTE_UNUSED,
-	     int flags ATTRIBUTE_UNUSED,
-	     file_ptr offset ATTRIBUTE_UNUSED,
-             void **map_addr ATTRIBUTE_UNUSED,
-             bfd_size_type *map_len ATTRIBUTE_UNUSED)
-{
-  void *ret = (void *) -1;
-
-  if ((abfd->flags & BFD_IN_MEMORY) != 0)
-    abort ();
-#ifdef HAVE_MMAP
-  else
-    {
-      static uintptr_t pagesize_m1;
-      FILE *f;
-      file_ptr pg_offset;
-      bfd_size_type pg_len;
-
-      f = bfd_cache_lookup (abfd, CACHE_NO_SEEK_ERROR);
-      if (f == NULL)
-	return ret;
-
-      if (pagesize_m1 == 0)
-        pagesize_m1 = getpagesize () - 1;
-
-      /* Handle archive members.  */
-      if (abfd->my_archive != NULL)
-        offset += abfd->origin;
-
-      /* Align.  */
-      pg_offset = offset & ~pagesize_m1;
-      pg_len = (len + (offset - pg_offset) + pagesize_m1) & ~pagesize_m1;
-
-      ret = mmap (addr, pg_len, prot, flags, fileno (f), pg_offset);
-      if (ret == (void *) -1)
-	bfd_set_error (bfd_error_system_call);
-      else
-        {
-          *map_addr = ret;
-          *map_len = pg_len;
-          ret = (char *) ret + (offset & pagesize_m1);
-        }
-    }
-#endif
-
-  return ret;
-}
-
-static const struct bfd_iovec cache_iovec =
-{
+static const struct bfd_iovec cache_iovec = {
   &cache_bread, &cache_bwrite, &cache_btell, &cache_bseek,
-  &cache_bclose, &cache_bflush, &cache_bstat, &cache_bmmap
+  &cache_bclose, &cache_bflush, &cache_bstat
 };
 
 /*
@@ -563,15 +476,15 @@ bfd_open_file (bfd *abfd)
     {
     case read_direction:
     case no_direction:
-      abfd->iostream = real_fopen (abfd->filename, FOPEN_RB);
+      abfd->iostream = (PTR) real_fopen (abfd->filename, FOPEN_RB);
       break;
     case both_direction:
     case write_direction:
       if (abfd->opened_once)
 	{
-	  abfd->iostream = real_fopen (abfd->filename, FOPEN_RUB);
+	  abfd->iostream = (PTR) real_fopen (abfd->filename, FOPEN_RUB);
 	  if (abfd->iostream == NULL)
-	    abfd->iostream = real_fopen (abfd->filename, FOPEN_WUB);
+	    abfd->iostream = (PTR) real_fopen (abfd->filename, FOPEN_WUB);
 	}
       else
 	{
@@ -601,7 +514,7 @@ bfd_open_file (bfd *abfd)
 	  if (stat (abfd->filename, &s) == 0 && s.st_size != 0)
 	    unlink_if_ordinary (abfd->filename);
 #endif
-	  abfd->iostream = real_fopen (abfd->filename, FOPEN_WUB);
+	  abfd->iostream = (PTR) real_fopen (abfd->filename, FOPEN_WUB);
 	  abfd->opened_once = TRUE;
 	}
       break;
