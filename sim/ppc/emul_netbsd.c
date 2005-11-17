@@ -4,7 +4,7 @@
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
+    the Free Software Foundation; either version 2 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with this program; if not, see <http://www.gnu.org/licenses/>.
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
     */
 
@@ -42,6 +43,9 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <errno.h>
+#ifdef HAVE_SYS_ERRNO_H
+#include <sys/errno.h>
+#endif
 #include <sys/param.h>
 #include <sys/time.h>
 
@@ -235,6 +239,7 @@ write_timezone(unsigned_word addr,
 }
 #endif
 
+
 #ifdef HAVE_GETDIRENTRIES
 STATIC_INLINE_EMUL_NETBSD void
 write_direntries(unsigned_word addr,
@@ -257,7 +262,7 @@ write_direntries(unsigned_word addr,
     nbytes -= in->d_reclen;
     addr += in->d_reclen;
     buf += in->d_reclen;
-    free(out);
+    zfree(out);
   }
 }
 #endif
@@ -345,7 +350,7 @@ do_read(os_emul_data *emul,
   if (status > 0)
     emul_write_buffer(scratch_buffer, buf, status, processor, cia);
 
-  free(scratch_buffer);
+  zfree(scratch_buffer);
 }
 
 
@@ -376,7 +381,7 @@ do_write(os_emul_data *emul,
   /* write */
   status = write(d, scratch_buffer, nbytes);
   emul_write_status(processor, status, errno);
-  free(scratch_buffer);
+  zfree(scratch_buffer);
 
   flush_stdoutput();
 }
@@ -915,7 +920,7 @@ do_getdirentries(os_emul_data *emul,
   if (status > 0)
     write_direntries(buf_addr, buf, status, processor, cia);
   if (buf != NULL)
-    free(buf);
+    zfree(buf);
 }
 #endif
 
@@ -1382,7 +1387,6 @@ emul_netbsd_create(device *root,
   int elf_binary;
   os_emul_data *bsd_data;
   device *vm;
-  char *filename;
 
   /* check that this emulation is really for us */
   if (name != NULL && strcmp(name, "netbsd") != 0)
@@ -1417,10 +1421,8 @@ emul_netbsd_create(device *root,
 	     (unsigned long)(top_of_stack - stack_size));
   tree_parse(vm, "./nr-bytes 0x%x", stack_size);
 
-  filename = tree_quote_property (bfd_get_filename(image));
   tree_parse(root, "/openprom/vm/map-binary/file-name %s",
-	     filename);
-  free (filename);
+	     bfd_get_filename(image));
 
   /* finish the init */
   tree_parse(root, "/openprom/init/register/pc 0x%lx",
