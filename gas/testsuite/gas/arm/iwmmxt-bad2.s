@@ -1,6 +1,2 @@
 	wldrd   wr1, [r0, #3]
         wstrd   wr1, [r0, #0x400]
-        wstrb   wr1, [r0, #0x100]
-        wstrh   wr1, [r0, #0x100]
-        wldrb   wr1, [r0, #-0x100]
-        wldrh   wr1, [r0, #-0x100]
