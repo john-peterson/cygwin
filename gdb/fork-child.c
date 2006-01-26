@@ -1,6 +1,7 @@
 /* Fork a Unix child process, and set up to debug it, for GDB.
 
-   Copyright (C) 1990-2013 Free Software Foundation, Inc.
+   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1998, 1999,
+   2000, 2001, 2004 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
 
@@ -8,7 +9,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,12 +18,14 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330,
+   Boston, MA 02111-1307, USA.  */
 
 #include "defs.h"
 #include "gdb_string.h"
+#include "frame.h"		/* required by inferior.h */
 #include "inferior.h"
-#include "terminal.h"
 #include "target.h"
 #include "gdb_wait.h"
 #include "gdb_vfork.h"
@@ -30,17 +33,16 @@
 #include "terminal.h"
 #include "gdbthread.h"
 #include "command.h" /* for dont_repeat () */
-#include "gdbcmd.h"
 #include "solib.h"
 
 #include <signal.h>
 
 /* This just gets used as a default if we can't find SHELL.  */
+#ifndef SHELL_FILE
 #define SHELL_FILE "/bin/sh"
+#endif
 
 extern char **environ;
-
-static char *exec_wrapper;
 
 /* Break up SCRATCH into an argument vector suitable for passing to
    execvp and store it in ARGV.  E.g., on "run a b c d" this routine
@@ -50,7 +52,7 @@ static char *exec_wrapper;
 static void
 breakup_args (char *scratch, char **argv)
 {
-  char *cp = scratch, *tmp;
+  char *cp = scratch;
 
   for (;;)
     {
@@ -66,16 +68,15 @@ breakup_args (char *scratch, char **argv)
       *argv++ = cp;
 
       /* Scan for next arg separator.  */
-      tmp = strchr (cp, ' ');
-      if (tmp == NULL)
-	tmp = strchr (cp, '\t');
-      if (tmp == NULL)
-	tmp = strchr (cp, '\n');
+      cp = strchr (cp, ' ');
+      if (cp == NULL)
+	cp = strchr (cp, '\t');
+      if (cp == NULL)
+	cp = strchr (cp, '\n');
 
       /* No separators => end of string => break.  */
-      if (tmp == NULL)
+      if (cp == NULL)
 	break;
-      cp = tmp;
 
       /* Replace the separator with a terminator.  */
       *cp++ = '\0';
@@ -113,22 +114,21 @@ escape_bang_in_quoted_argument (const char *shell_file)
    pid.  EXEC_FILE is the file to run.  ALLARGS is a string containing
    the arguments to the program.  ENV is the environment vector to
    pass.  SHELL_FILE is the shell file, or NULL if we should pick
-   one.  EXEC_FUN is the exec(2) function to use, or NULL for the default
    one.  */
 
 /* This function is NOT reentrant.  Some of the variables have been
    made static to ensure that they survive the vfork call.  */
 
-int
+void
 fork_inferior (char *exec_file_arg, char *allargs, char **env,
 	       void (*traceme_fun) (void), void (*init_trace_fun) (int),
-	       void (*pre_trace_fun) (void), char *shell_file_arg,
-               void (*exec_fun)(const char *file, char * const *argv,
-                                char * const *env))
+	       void (*pre_trace_fun) (void), char *shell_file_arg)
 {
   int pid;
+  char *shell_command;
   static char default_shell_file[] = SHELL_FILE;
-  /* Set debug_fork then attach to the child while it sleeps, to debug.  */
+  int len;
+  /* Set debug_fork then attach to the child while it sleeps, to debug. */
   static int debug_fork = 0;
   /* This is set to the result of setpgrp, which if vforked, will be visible
      to you in the parent process.  It's only used by humans for debugging.  */
@@ -139,9 +139,6 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
   int shell = 0;
   static char **argv;
   const char *inferior_io_terminal = get_inferior_io_terminal ();
-  struct inferior *inf;
-  int i;
-  int save_errno;
 
   /* If no exec file handed to us, get it from the exec-file command
      -- with a good, common error message if none is specified.  */
@@ -163,6 +160,20 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
       shell = 1;
     }
 
+  /* Multiplying the length of exec_file by 4 is to account for the
+     fact that it may expand when quoted; it is a worst-case number
+     based on every character being '.  */
+  len = 5 + 4 * strlen (exec_file) + 1 + strlen (allargs) + 1 + /*slop */ 12;
+  /* If desired, concat something onto the front of ALLARGS.
+     SHELL_COMMAND is the result.  */
+#ifdef SHELL_COMMAND_CONCAT
+  shell_command = (char *) alloca (strlen (SHELL_COMMAND_CONCAT) + len);
+  strcpy (shell_command, SHELL_COMMAND_CONCAT);
+#else
+  shell_command = (char *) alloca (len);
+  shell_command[0] = '\0';
+#endif
+
   if (!shell)
     {
       /* We're going to call execvp.  Create argument vector.
@@ -170,41 +181,21 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
 	 assuming that every other character is a separate
 	 argument.  */
       int argc = (strlen (allargs) + 1) / 2 + 2;
-
-      argv = (char **) alloca (argc * sizeof (*argv));
+      argv = (char **) xmalloc (argc * sizeof (*argv));
       argv[0] = exec_file;
       breakup_args (allargs, &argv[1]);
     }
   else
     {
       /* We're going to call a shell.  */
-      char *shell_command;
-      int len;
+
+      /* Now add exec_file, quoting as necessary.  */
+
       char *p;
       int need_to_quote;
       const int escape_bang = escape_bang_in_quoted_argument (shell_file);
 
-      /* Multiplying the length of exec_file by 4 is to account for the
-         fact that it may expand when quoted; it is a worst-case number
-         based on every character being '.  */
-      len = 5 + 4 * strlen (exec_file) + 1 + strlen (allargs) + 1 + /*slop */ 12;
-      if (exec_wrapper)
-        len += strlen (exec_wrapper) + 1;
-
-      shell_command = (char *) alloca (len);
-      shell_command[0] = '\0';
-
       strcat (shell_command, "exec ");
-
-      /* Add any exec wrapper.  That may be a program name with arguments, so
-	 the user must handle quoting.  */
-      if (exec_wrapper)
-	{
-	  strcat (shell_command, exec_wrapper);
-	  strcat (shell_command, " ");
-	}
-
-      /* Now add exec_file, quoting as necessary.  */
 
       /* Quoting in this style is said to work with all shells.  But
          csh on IRIX 4.0.1 can't deal with it.  So we only quote it if
@@ -259,17 +250,10 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
 
       strcat (shell_command, " ");
       strcat (shell_command, allargs);
-
-      /* If we decided above to start up with a shell, we exec the
-	 shell, "-c" says to interpret the next arg as a shell command
-	 to execute, and this command is "exec <target-program>
-	 <args>".  */
-      argv = (char **) alloca (4 * sizeof (char *));
-      argv[0] = shell_file;
-      argv[1] = "-c";
-      argv[2] = shell_command;
-      argv[3] = (char *) 0;
     }
+
+  /* On some systems an exec will fail if the executable is open.  */
+  close_exec_file ();
 
   /* Retain a copy of our environment variables, since the child will
      replace the value of environ and if we're vforked, we have to
@@ -282,7 +266,7 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
 
   /* It is generally good practice to flush any possible pending stdio
      output prior to doing a fork, to avoid the possibility of both
-     the parent and child flushing the same data after the fork.  */
+     the parent and child flushing the same data after the fork. */
   gdb_flush (gdb_stdout);
   gdb_flush (gdb_stderr);
 
@@ -293,7 +277,7 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
     (*pre_trace_fun) ();
 
   /* Create the child process.  Since the child process is going to
-     exec(3) shortly afterwards, try to reduce the overhead by
+     exec(3) shortlty afterwards, try to reduce the overhead by
      calling vfork(2).  However, if PRE_TRACE_FUN is non-null, it's
      likely that this optimization won't work since there's too much
      work to do between the vfork(2) and the exec(3).  This is known
@@ -316,16 +300,10 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
       if (debug_fork)
 	sleep (debug_fork);
 
-      /* Create a new session for the inferior process, if necessary.
-         It will also place the inferior in a separate process group.  */
-      if (create_tty_session () <= 0)
-	{
-	  /* No session was created, but we still want to run the inferior
-	     in a separate process group.  */
-	  debug_setpgrp = gdb_setpgid ();
-	  if (debug_setpgrp == -1)
-	    perror (_("setpgrp failed in child"));
-	}
+      /* Run inferior in a separate process group.  */
+      debug_setpgrp = gdb_setpgid ();
+      if (debug_setpgrp == -1)
+	perror ("setpgrp failed in child");
 
       /* Ask the tty subsystem to switch to the one we specified
          earlier (or to share the current terminal, if none was
@@ -338,7 +316,7 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
          initialize_signals for how we get the right signal handlers
          for the inferior.  */
 
-      /* "Trace me, Dr. Memory!"  */
+      /* "Trace me, Dr. Memory!" */
       (*traceme_fun) ();
 
       /* The call above set this process (the "child") as debuggable
@@ -357,54 +335,74 @@ fork_inferior (char *exec_file_arg, char *allargs, char **env,
          path to find $SHELL.  Rich Pixley says so, and I agree.  */
       environ = env;
 
-      if (exec_fun != NULL)
-        (*exec_fun) (argv[0], argv, env);
-      else
-        execvp (argv[0], argv);
+      /* If we decided above to start up with a shell, we exec the
+        shell, "-c" says to interpret the next arg as a shell command
+        to execute, and this command is "exec <target-program>
+        <args>".  "-f" means "fast startup" to the c-shell, which
+        means don't do .cshrc file. Doing .cshrc may cause fork/exec
+        events which will confuse debugger start-up code.  */
+      if (shell)
+	{
+	  execlp (shell_file, shell_file, "-c", shell_command, (char *) 0);
 
-      /* If we get here, it's an error.  */
-      save_errno = errno;
-      fprintf_unfiltered (gdb_stderr, "Cannot exec %s", exec_file);
-      for (i = 1; argv[i] != NULL; i++)
-	fprintf_unfiltered (gdb_stderr, " %s", argv[i]);
-      fprintf_unfiltered (gdb_stderr, ".\n");
-      fprintf_unfiltered (gdb_stderr, "Error: %s\n",
-			  safe_strerror (save_errno));
-      gdb_flush (gdb_stderr);
-      _exit (0177);
+	  /* If we get here, it's an error.  */
+	  fprintf_unfiltered (gdb_stderr, "Cannot exec %s: %s.\n", shell_file,
+			      safe_strerror (errno));
+	  gdb_flush (gdb_stderr);
+	  _exit (0177);
+	}
+      else
+	{
+	  /* Otherwise, we directly exec the target program with
+	     execvp.  */
+	  int i;
+	  char *errstring;
+
+	  execvp (exec_file, argv);
+
+	  /* If we get here, it's an error.  */
+	  errstring = safe_strerror (errno);
+	  fprintf_unfiltered (gdb_stderr, "Cannot exec %s ", exec_file);
+
+	  i = 1;
+	  while (argv[i] != NULL)
+	    {
+	      if (i != 1)
+		fprintf_unfiltered (gdb_stderr, " ");
+	      fprintf_unfiltered (gdb_stderr, "%s", argv[i]);
+	      i++;
+	    }
+	  fprintf_unfiltered (gdb_stderr, ".\n");
+#if 0
+	  /* This extra info seems to be useless.  */
+	  fprintf_unfiltered (gdb_stderr, "Got error %s.\n", errstring);
+#endif
+	  gdb_flush (gdb_stderr);
+	  _exit (0177);
+	}
     }
 
   /* Restore our environment in case a vforked child clob'd it.  */
   environ = save_our_env;
 
-  if (!have_inferiors ())
-    init_thread_list ();
-
-  inf = current_inferior ();
-
-  inferior_appeared (inf, pid);
+  init_thread_list ();
 
   /* Needed for wait_for_inferior stuff below.  */
   inferior_ptid = pid_to_ptid (pid);
 
-  new_tty_postfork ();
-
-  /* We have something that executes now.  We'll be running through
-     the shell at this point, but the pid shouldn't change.  Targets
-     supporting MT should fill this task's ptid with more data as soon
-     as they can.  */
-  add_thread_silent (inferior_ptid);
-
   /* Now that we have a child process, make it our target, and
      initialize anything target-vector-specific that needs
      initializing.  */
-  if (init_trace_fun)
-    (*init_trace_fun) (pid);
+  (*init_trace_fun) (pid);
 
   /* We are now in the child process of interest, having exec'd the
      correct program, and are poised at the first instruction of the
      new program.  */
-  return pid;
+
+  /* Allow target dependent code to play with the new process.  This
+     might be used to have target-specific code initialize a variable
+     in the new process prior to executing the first instruction.  */
+  TARGET_CREATE_INFERIOR_HOOK (pid);
 }
 
 /* Accept NTRAPS traps from the inferior.  */
@@ -414,80 +412,33 @@ startup_inferior (int ntraps)
 {
   int pending_execs = ntraps;
   int terminal_initted = 0;
-  ptid_t resume_ptid;
-
-  if (target_supports_multi_process ())
-    resume_ptid = pid_to_ptid (ptid_get_pid (inferior_ptid));
-  else
-    resume_ptid = minus_one_ptid;
 
   /* The process was started by the fork that created it, but it will
      have stopped one instruction after execing the shell.  Here we
      must get it up to actual execution of the real program.  */
 
-  if (exec_wrapper)
-    pending_execs++;
+  clear_proceed_status ();
+
+  init_wait_for_inferior ();
+
+  if (STARTUP_WITH_SHELL)
+    inferior_ignoring_startup_exec_events = ntraps;
+  else
+    inferior_ignoring_startup_exec_events = 0;
+  inferior_ignoring_leading_exec_events =
+    target_reported_exec_events_per_exec_call () - 1;
 
   while (1)
     {
-      enum gdb_signal resume_signal = GDB_SIGNAL_0;
-      ptid_t event_ptid;
-
-      struct target_waitstatus ws;
-      memset (&ws, 0, sizeof (ws));
-      event_ptid = target_wait (resume_ptid, &ws, 0);
-
-      if (ws.kind == TARGET_WAITKIND_IGNORE)
-	/* The inferior didn't really stop, keep waiting.  */
-	continue;
-
-      switch (ws.kind)
+      /* Make wait_for_inferior be quiet. */
+      stop_soon = STOP_QUIETLY;
+      wait_for_inferior ();
+      if (stop_signal != TARGET_SIGNAL_TRAP)
 	{
-	  case TARGET_WAITKIND_SPURIOUS:
-	  case TARGET_WAITKIND_LOADED:
-	  case TARGET_WAITKIND_FORKED:
-	  case TARGET_WAITKIND_VFORKED:
-	  case TARGET_WAITKIND_SYSCALL_ENTRY:
-	  case TARGET_WAITKIND_SYSCALL_RETURN:
-	    /* Ignore gracefully during startup of the inferior.  */
-	    switch_to_thread (event_ptid);
-	    break;
-
-	  case TARGET_WAITKIND_SIGNALLED:
-	    target_terminal_ours ();
-	    target_mourn_inferior ();
-	    error (_("During startup program terminated with signal %s, %s."),
-		   gdb_signal_to_name (ws.value.sig),
-		   gdb_signal_to_string (ws.value.sig));
-	    return;
-
-	  case TARGET_WAITKIND_EXITED:
-	    target_terminal_ours ();
-	    target_mourn_inferior ();
-	    if (ws.value.integer)
-	      error (_("During startup program exited with code %d."),
-		     ws.value.integer);
-	    else
-	      error (_("During startup program exited normally."));
-	    return;
-
-	  case TARGET_WAITKIND_EXECD:
-	    /* Handle EXEC signals as if they were SIGTRAP signals.  */
-	    xfree (ws.value.execd_pathname);
-	    resume_signal = GDB_SIGNAL_TRAP;
-	    switch_to_thread (event_ptid);
-	    break;
-
-	  case TARGET_WAITKIND_STOPPED:
-	    resume_signal = ws.value.sig;
-	    switch_to_thread (event_ptid);
-	    break;
-	}
-
-      if (resume_signal != GDB_SIGNAL_TRAP)
-	{
-	  /* Let shell child handle its own signals in its own way.  */
-	  target_resume (resume_ptid, 0, resume_signal);
+	  /* Let shell child handle its own signals in its own way.
+	     FIXME: what if child has exited?  Must exit loop
+	     somehow.  */
+	  resume (0, stop_signal);
 	}
       else
 	{
@@ -512,39 +463,8 @@ startup_inferior (int ntraps)
 	  if (--pending_execs == 0)
 	    break;
 
-	  /* Just make it go on.  */
-	  target_resume (resume_ptid, 0, GDB_SIGNAL_0);
+	  resume (0, TARGET_SIGNAL_0);	/* Just make it go on.  */
 	}
     }
-
-  /* Mark all threads non-executing.  */
-  set_executing (resume_ptid, 0);
-}
-
-/* Implement the "unset exec-wrapper" command.  */
-
-static void
-unset_exec_wrapper_command (char *args, int from_tty)
-{
-  xfree (exec_wrapper);
-  exec_wrapper = NULL;
-}
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_fork_child;
-
-void
-_initialize_fork_child (void)
-{
-  add_setshow_filename_cmd ("exec-wrapper", class_run, &exec_wrapper, _("\
-Set a wrapper for running programs.\n\
-The wrapper prepares the system and environment for the new program."),
-			    _("\
-Show the wrapper for running programs."), NULL,
-			    NULL, NULL,
-			    &setlist, &showlist);
-
-  add_cmd ("exec-wrapper", class_run, unset_exec_wrapper_command,
-           _("Disable use of an execution wrapper."),
-           &unsetlist);
+  stop_soon = NO_STOP_QUIETLY;
 }
