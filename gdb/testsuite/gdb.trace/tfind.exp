@@ -1,69 +1,74 @@
-#   Copyright 1998-2013 Free Software Foundation, Inc.
+#   Copyright 1998, 2002, 2005 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 
 # This file was written by Michael Snyder (msnyder@cygnus.com)
 
 load_lib "trace-support.exp";
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 gdb_exit
 gdb_start
 
-standard_testfile actions.c
+if [istarget "m68k-*-elf"] then {
+    load_lib "emc-support.exp";
+    set srcfile gdb_c_test.c
+    set binfile [board_info target d490_binfile];
+    gdb_test "set remotetimeout 6" "" ""
+    set timeout 500
+    gdb_target_monitor $binfile
+    # Give a TSTOP and ignore errors, to make sure any previous trace is off
+    gdb_test "tstop" "" ""
+    gdb_test "tfind none" "" ""
+    send_gdb "compare-sections CS\n"
+    gdb_expect {
+	-re "MIS-MATCHED.*$gdb_prompt $" {
+	    gdb_suppress_entire_file "Symbol file does not match target!
+	    all tests in this module will fail.";
+	}
+	-re ".*$gdb_prompt $" { }
+    }
+} else {
+    set testfile "actions"
+    set srcfile ${testfile}.c
+    set binfile $objdir/$subdir/$testfile
 
-if { [gdb_compile "$srcdir/$subdir/$srcfile" "$binfile" \
-	  executable {debug nowarnings}] != "" } {
-    untested tfind.exp
-    return -1
+    if { [gdb_compile "$srcdir/$subdir/$srcfile" "$binfile" \
+	    executable {debug nowarnings}] != "" } {
+	gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
+    }
+    gdb_load $binfile
+    gdb_test "tstop"       "" ""
+    gdb_test "tfind none"  "" ""
+    runto_main
 }
-gdb_load $binfile
-gdb_test "tstop"       ".*" ""
-gdb_test "tfind none"  ".*" ""
-
-# 6.2 test help tstart
-gdb_test "help tstart" \
-    "Start trace data collection\.\[\r\n\]+Usage: tstart \\\[ <notes> \.\.\. \\\]\[\r\n\]+Any arguments supplied are recorded with the trace as a note and\[\r\n\]+reported by tstatus \\(if the target supports trace notes\\)\." \
-    "6.2: help tstart"
-# 7.2 test help tstop
-gdb_test "help tstop" \
-    "Stop trace data collection\.\[\r\n\]+Usage: tstop \\\[ <notes> \.\.\. \\\]\[\r\n\]+Any arguments supplied are recorded with the trace as a stop reason and\[\r\n\]+reported by tstatus \\(if the target supports trace notes\\)\." \
-    "7.2: help tstop"
-
-# 8.38 test help tfind
-gdb_test "help tfind"       "Select a trace frame.*"      \
-	"8.38: help tfind"
-gdb_test "help tfind pc"    "Select a trace frame by PC.*" \
-	"8.38: help tfind PC"
-gdb_test "help tfind end"   "De-select any trace frame.*" \
-	"8.38: help tfind end"
-gdb_test "help tfind none"  "De-select any trace frame.*" \
-	"8.38: help tfind none"
-gdb_test "help tfind line"  "Select a trace frame by source line.*" \
-	"8.38: help tfind line"
-gdb_test "help tfind start" "Select the first trace frame.*" \
-	"8.38: help tfind start"
-gdb_test "help tfind range" "Select a trace frame whose PC is in.*" \
-	"8.38: help tfind range"
-gdb_test "help tfind trace" "Select a trace frame by tracepoint number.*" \
-	"8.38: help tfind tracepoint"
-
-runto_main
 gdb_reinitialize_dir $srcdir/$subdir
 
+# We generously give ourselves one "pass" if we successfully 
+# detect that this test cannot be run on this target!
 if { ![gdb_target_supports_trace] } then {
-    unsupported "Current target does not support trace"
+    pass "Current target does not supporst trace"
     return 1;
 
 }
@@ -102,62 +107,77 @@ if { $tdp1 <= 0 || $tdp2 <= 0 || $tdp3 <= 0 || \
 }
 
 # 6.1 test tstart command
-
-set return_me 1
-gdb_test_multiple "tstart" "6.1: tstart" {
+send_gdb "tstart\n"
+gdb_expect {
     -re "Trace can only be run on remote targets.*$gdb_prompt $" {
 	fail "6.1: tstart (not connected to remote?)"
+	return;
     }
     -re "Target does not support this command.*$gdb_prompt $" {
 	fail "6.1: tstart (connected to wrong target?)"
+	return;
     }
     -re "Target returns error code.*$gdb_prompt $" {
 	fail "6.1: tstart (connected to wrong target?)"
+	return;
     }
     -re "$gdb_prompt $" {
 	pass "6.1: tstart"
-	set return_me 0
     }
-}
-
-if { $return_me == 1 } then {
-    return -1;
+    default {
+	fail "6.1: tstart (default)"
+	return;
+    }
 }
 
 # test tstatus (when trace on)
 gdb_test "tstatus" "\[Tt\]race is running.*" "test tstatus on"
 
-gdb_test "break end" ".*" ""
-gdb_test "continue" \
-    "Continuing.*Breakpoint $decimal, end.*" \
-    "run trace experiment"
+# 6.2 test help tstart
+gdb_test "help tstart" "Start trace data collection." "6.2: help tstart"
+
+if [istarget "m68k-*-elf"] then {
+    gdb_emclaptop_command "85,1,2,3,4,5,6"
+    sleep 5
+    
+    gdb_emclaptop_command "85,7,8,9,A,B,C"
+    sleep 5
+} else {
+    gdb_test "break end" "" ""
+    gdb_test "continue" \
+	    "Continuing.*Breakpoint $decimal, end.*" \
+	    "run trace experiment"
+}
 
 # 7.1 test tstop command
-
-set return_me 1
-gdb_test_multiple "tstop" "7.1: tstop" {
+send_gdb "tstop\n"
+gdb_expect {
     -re "Trace can only be run on remote targets.*$gdb_prompt $" {
 	fail "7.1: tstop (not connected to remote?)"
+	return;
     }
     -re "Target does not support this command.*$gdb_prompt $" {
 	fail "7.1: tstop (connected to wrong target?)"
+	return;
     }
     -re "Target returns error code.*$gdb_prompt $" {
 	fail "7.1: tstop (connected to wrong target?)"
+	return;
     }
     -re "$gdb_prompt $" {
 	pass "7.1: tstop"
-	set return_me 0
+    }
+    default {
+	fail "7.1: tstop (default)"
+	return;
     }
 }
 
-if { $return_me == 1 } then {
-    return -1;
-}
+# 7.2 test help tstop
+gdb_test "help tstop" "Stop trace data collection." "7.2: help tstop"
 
 # test tstatus (when trace off)
-gdb_test "tstatus" "Trace stopped by a tstop command.*" \
-    "test tstatus off after tstop"
+gdb_test "tstatus" "\[Tt\]race.* not running.*" "test tstatus off"
 
 ## record starting PC
 set save_pc [gdb_readexpr "(unsigned long) \$pc"];
@@ -258,7 +278,7 @@ gdb_test "tfind tracepoint -1" "failed to find.*" \
 	"8.25: tfind tracepoint rejects nonexistant tracepoint (-1)"
 
 # 8.37 tfind tracepoint n where n no longer exists (but used to)
-gdb_test_no_output "delete trace $tdp2" ""
+gdb_test "delete trace $tdp2" "" ""
 gdb_tfind_test "8.37: tfind none" "none" "-1";
 gdb_tfind_test "8.37: tfind deleted tracepoint" \
 	"tracepoint $tdp2" \
@@ -274,7 +294,7 @@ gdb_tfind_test "8.13: tracepoint $tdp1" "tracepoint $tdp1" \
 	"\$tracepoint" "$tdp1";
 gdb_test "print \$trace_line" "$baseline" \
 	"8.13: tfind tracepoint $tdp1 (line $baseline)"
-gdb_test_no_output "set \$save_frame = \$trace_frame" ""
+gdb_test "set \$save_frame = \$trace_frame" "" ""
 gdb_tfind_test "8.13: tracepoint <no arg>" "tracepoint" \
 	"\$tracepoint" "$tdp1";
 gdb_test "printf \"x \%d x\\n\", \$trace_frame == \$save_frame" \
@@ -297,7 +317,7 @@ gdb_tfind_test "8.14: tfind 3" "3" "3"
 gdb_test "print \$trace_line" "$testline4" \
 	"8.14: tfind 3 (line $testline4)"
 
-gdb_test_no_output "set \$test_pc = \$pc" ""
+gdb_test "set \$test_pc = \$pc" "" ""
 gdb_tfind_test "8.14: tfind none" "none" "-1"
 gdb_tfind_test "8.14: tfind pc" "pc \$test_pc" "\$trace_frame != -1" "1";
 gdb_test "print \$trace_line" "$testline4" \
@@ -311,7 +331,7 @@ gdb_test "printf \"x \%d x\\n\", \$pc == \$test_pc" \
 gdb_tfind_test "8.15: tfind 3" "3" "3"
 gdb_test "print \$trace_line" "$testline4" \
 	"8.15: tfind 3 (line $testline4)"
-gdb_test_no_output "set \$test_pc = \$pc" ""
+gdb_test "set \$test_pc = \$pc" "" ""
 gdb_tfind_test "8.15: tfind pc" "pc" "\$pc == \$test_pc" "1"
 gdb_test "print \$trace_line" "$testline4" \
 	"8.15: tfind pc (line $testline4)"
@@ -340,16 +360,19 @@ gdb_tfind_test "8.17: tfind line <no arg>" "line" "\$trace_line != $testline3" "
 # 8.36 tfind and disassembly
 gdb_tfind_test "8.36: tfind start" "start" "0"
 set timeout 60
+send_gdb "disassemble gdb_c_test\n"
 # look for disassembly of function label
-gdb_test "disassemble gdb_c_test" \
-    "<(\.\[0-9\]+|)>:.*End of assembler dump.*" \
-    "8.36: trace disassembly"
+gdb_expect {
+    -re "<gdb_c_test>:.*$gdb_prompt $"      { pass "8.36: trace disassembly" }
+    -re ".*$gdb_prompt $"                   { fail "8.36: trace disassembly" }
+    timeout                       { fail "8.36: trace disassembly (timeout)" }
+}
 
 gdb_test "tfind line 0" \
-	"out of range.*|failed to find.*|No line 0 in .*" \
+	"out of range.*|failed to find.*" \
 	"8.18: tfind line 0";
 gdb_test "tfind line 32767" \
-	"out of range.*|failed to find.*|No line 32767 in .*" \
+	"out of range.*|failed to find.*" \
 	"8.27: tfind line 32767";
 gdb_test "tfind line NoSuChFiLe.c:$baseline" \
 	"No source file named.*" \
@@ -360,6 +383,24 @@ gdb_test "tfind line NoSuChFiLe.c:$baseline" \
 gdb_test "tfind NoSuChOpTiOn 21" \
 	"No symbol.*|\[Ww\]arning.*|\[Ee\]rror.*" \
 	"8.32: tfind with bad subcommand"
+
+# 8.38 test help tfind
+gdb_test "help tfind"       "Select a trace frame.*"      \
+	"8.38: help tfind"
+gdb_test "help tfind pc"    "Select a trace frame by PC.*" \
+	"8.38: help tfind PC"
+gdb_test "help tfind end"   "Synonym for 'none'.*"        \
+	"8.38: help tfind end"
+gdb_test "help tfind none"  "De-select any trace frame.*" \
+	"8.38: help tfind none"
+gdb_test "help tfind line"  "Select a trace frame by source line.*" \
+	"8.38: help tfind line"
+gdb_test "help tfind start" "Select the first trace frame.*" \
+	"8.38: help tfind start"
+gdb_test "help tfind range" "Select a trace frame whose PC is in.*" \
+	"8.38: help tfind range"
+gdb_test "help tfind trace" "Select a trace frame by tracepoint number.*" \
+	"8.38: help tfind tracepoint"
 
 # Finished!
 gdb_tfind_test "8.17: tfind none" "none" "-1"

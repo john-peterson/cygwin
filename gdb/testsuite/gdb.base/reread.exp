@@ -1,17 +1,28 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998, 2000, 2001 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 set prototypes 1
 
@@ -23,8 +34,7 @@ set srcfile1 ${testfile1}.c
 set binfile1 ${objdir}/${subdir}/${testfile1}$EXEEXT
 
 if  { [gdb_compile "${srcdir}/${subdir}/${srcfile1}" "${binfile1}" executable {debug nowarnings}] != "" } {
-    untested reread.exp
-    return -1
+    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
 }
 
 # build the second test case
@@ -33,10 +43,8 @@ set testfile2 "reread2"
 set srcfile2 ${testfile2}.c
 set binfile2 ${objdir}/${subdir}/${testfile2}$EXEEXT
 
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile2}" "${binfile2}" executable {debug nowarnings}] != ""
-      && [gdb_compile "${srcdir}/${subdir}/${srcfile2}" "${binfile2}" executable {debug nowarnings additional_flags=-DNO_SECTIONS}] != ""} {
-    untested reread.exp
-    return -1
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile2}" "${binfile2}" executable {debug nowarnings}] != "" } {
+    gdb_suppress_entire_file "Testcase compile failed, so all tests in this file will automatically fail."
 }
 
 # Start with a fresh gdb.
@@ -47,9 +55,12 @@ set binfile ${objdir}/${subdir}/${testfile}$EXEEXT
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 
+set prms_id 13484
+set bug_id 0
+
 # Load the first executable.
 
-gdb_rename_execfile ${binfile1} ${binfile}
+gdb_test "shell mv ${binfile1} ${binfile}" "" ""
 gdb_load ${binfile}
 
 # Set a breakpoint at foo
@@ -78,14 +89,16 @@ gdb_expect {
 # second executable into its place.  Ensure that the new
 # executable is at least a second newer than the old.
 
-gdb_rename_execfile ${binfile} ${binfile1}
-gdb_rename_execfile ${binfile2} ${binfile}
-gdb_test "shell sleep 1" ".*" ""
-gdb_touch_execfile ${binfile}
+gdb_test "shell mv ${binfile} ${binfile1}" "" ""
+gdb_test "shell mv ${binfile2} ${binfile}" "" ""
+gdb_test "shell sleep 1" "" ""
+gdb_test "shell touch ${binfile}" "" ""
 
 # Run a second time; GDB should detect that the executable has changed
 # and reset the breakpoints correctly.
 # Should see "Breakpoint 1, foo () at reread2.c:9"
+
+set prms_id 0
 
 if [is_remote target] {
     unsupported "run to foo() second time ";
@@ -116,8 +129,8 @@ if [is_remote target] {
 } else {
 
     # Put the older executable back in place.
-    gdb_rename_execfile ${binfile} ${binfile2}
-    gdb_rename_execfile ${binfile1} ${binfile}
+    gdb_test "shell mv ${binfile} ${binfile2}" "" ""
+    gdb_test "shell mv ${binfile1} ${binfile}" "" ""
 
     # Restart GDB entirely.
     gdb_start
@@ -145,13 +158,14 @@ if [is_remote target] {
 
     # This time, let the program run to completion.  If GDB checks the
     # executable file's timestamp now, it won't notice any change.
-    gdb_continue_to_end "second pass"
+    gdb_test "continue" ".*Program exited.*" \
+            "second pass: continue to completion"
     
     # Now move the newer executable into place, and re-run.  GDB
     # should still notice that the executable file has changed,
     # and still re-set the breakpoint appropriately.
-    gdb_rename_execfile ${binfile} ${binfile1}
-    gdb_rename_execfile ${binfile2} ${binfile}
+    gdb_test "shell mv ${binfile} ${binfile1}" "" ""
+    gdb_test "shell mv ${binfile2} ${binfile}" "" ""
     gdb_run_cmd
     gdb_expect {
 	-re ".*Breakpoint.* foo .* at .*:9.*$gdb_prompt $" {
