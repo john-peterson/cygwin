@@ -1,11 +1,11 @@
 /* <proc_service.h> replacement for systems that don't have it.
-   Copyright (C) 2000-2013 Free Software Foundation, Inc.
+   Copyright (C) 2000, 2006 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,7 +14,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #ifndef GDB_PROC_SERVICE_H
 #define GDB_PROC_SERVICE_H
@@ -54,7 +56,7 @@ typedef unsigned int lwpid_t;
 #endif
 
 #ifndef HAVE_PSADDR_T
-typedef void *psaddr_t;
+typedef unsigned long psaddr_t;
 #endif
 
 #ifndef HAVE_PRGREGSET_T
@@ -66,8 +68,8 @@ typedef elf_gregset_t prgregset_t;
 /* Structure that identifies the target process.  */
 struct ps_prochandle
 {
-  /* We don't need to track anything.  All context is served from the
-     current inferior.  */
+  /* The process id is all we need.  */
+  pid_t pid;
 };
 
 #endif /* gdb_proc_service.h */

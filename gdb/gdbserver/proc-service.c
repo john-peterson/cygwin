@@ -1,5 +1,6 @@
 /* libthread_db helper functions for the remote server for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2005, 2006
+   Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -7,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "server.h"
 
@@ -64,7 +67,7 @@ ps_pglobal_lookup (gdb_ps_prochandle_t ph, const char *obj,
 {
   CORE_ADDR addr;
 
-  if (thread_db_look_up_one_symbol (name, &addr) == 0)
+  if (look_up_one_symbol (name, &addr) == 0)
     return PS_NOSYM;
 
   *sym_addr = (psaddr_t) (unsigned long) addr;
@@ -98,19 +101,20 @@ ps_err_e
 ps_lgetregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, prgregset_t gregset)
 {
 #ifdef HAVE_REGSETS
-  struct lwp_info *lwp;
+  struct process_info *process;
   struct thread_info *reg_inferior, *save_inferior;
-  struct regcache *regcache;
 
-  lwp = find_lwp_pid (pid_to_ptid (lwpid));
-  if (lwp == NULL)
+  process = (struct process_info *) find_inferior_id (&all_processes,
+						      lwpid);
+  if (process == NULL)
     return PS_ERR;
 
-  reg_inferior = get_lwp_thread (lwp);
+  reg_inferior = get_process_thread (process);
   save_inferior = current_inferior;
   current_inferior = reg_inferior;
-  regcache = get_thread_regcache (current_inferior, 1);
-  gregset_info ()->fill_function (regcache, gregset);
+
+  the_target->fetch_registers (0);
+  gregset_info()->fill_function (gregset);
 
   current_inferior = save_inferior;
   return PS_OK;
@@ -155,5 +159,7 @@ ps_lsetfpregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, void *fpregset)
 pid_t
 ps_getpid (gdb_ps_prochandle_t ph)
 {
-  return pid_of (get_thread_lwp (current_inferior));
+  return ph->pid;
 }
+
+
