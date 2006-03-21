@@ -1,13 +1,13 @@
 /* Opcode table header for m680[01234]0/m6888[12]/m68851.
    Copyright 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1999, 2001,
-   2003, 2004, 2006, 2010 Free Software Foundation, Inc.
+   2003, 2004, 2006 Free Software Foundation, Inc.
 
    This file is part of GDB, GAS, and the GNU binutils.
 
    GDB, GAS, and the GNU binutils are free software; you can redistribute
    them and/or modify them under the terms of the GNU General Public
-   License as published by the Free Software Foundation; either version 3,
-   or (at your option) any later version.
+   License as published by the Free Software Foundation; either version
+   1, or (at your option) any later version.
 
    GDB, GAS, and the GNU binutils are distributed in the hope that they
    will be useful, but WITHOUT ANY WARRANTY; without even the implied
@@ -15,7 +15,7 @@
    the GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING3.  If not, write to the Free
+   along with this file; see the file COPYING.  If not, write to the Free
    Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
    02110-1301, USA.  */
 
@@ -31,26 +31,23 @@
 #define	m68881   0x040
 #define	m68851   0x080
 #define cpu32	 0x100		/* e.g., 68332 */
-#define fido_a   0x200
-#define m68k_mask  0x3ff
+#define m68k_mask  0x1ff
 
-#define mcfmac   0x400		/* ColdFire MAC. */
-#define mcfemac  0x800		/* ColdFire EMAC. */
-#define cfloat   0x1000		/* ColdFire FPU.  */
-#define mcfhwdiv 0x2000		/* ColdFire hardware divide.  */
+#define mcfmac   0x200		/* ColdFire MAC. */
+#define mcfemac  0x400		/* ColdFire EMAC. */
+#define cfloat   0x800		/* ColdFire FPU.  */
+#define mcfhwdiv 0x1000		/* ColdFire hardware divide.  */
 
-#define mcfisa_a 0x4000		/* ColdFire ISA_A.  */
-#define mcfisa_aa 0x8000	/* ColdFire ISA_A+.  */
-#define mcfisa_b 0x10000	/* ColdFire ISA_B.  */
-#define mcfisa_c 0x20000	/* ColdFire ISA_C.  */
-#define mcfusp   0x40000	/* ColdFire USP instructions.  */
-#define mcf_mask 0x7e400
+#define mcfisa_a 0x2000		/* ColdFire ISA_A.  */
+#define mcfisa_aa 0x4000	/* ColdFire ISA_A+.  */
+#define mcfisa_b 0x8000		/* ColdFire ISA_B.  */
+#define mcfusp   0x10000	/* ColdFire USP instructions.  */
 
 /* Handy aliases.  */
 #define	m68040up   (m68040 | m68060)
 #define	m68030up   (m68030 | m68040up)
 #define	m68020up   (m68020 | m68030up)
-#define	m68010up   (m68010 | cpu32 | fido_a | m68020up)
+#define	m68010up   (m68010 | cpu32 | m68020up)
 #define	m68000up   (m68000 | m68010up)
 
 #define	mfloat  (m68881 | m68040 | m68060)
@@ -96,15 +93,10 @@ struct m68k_opcode_alias
 
    The args field is a string containing two characters for each
    operand of the instruction.  The first specifies the kind of
-   operand; the second, the place it is stored.
-
-   If the first char of args is '.', it indicates that the opcode is
-   two words.  This is only necessary when the match field does not
-   have any bits set in the second opcode word.  Such a '.' is skipped
-   for operand processing.  */
+   operand; the second, the place it is stored.  */
 
 /* Kinds of operands:
-   Characters used: AaBbCcDdEeFfGgHIiJjKkLlMmnOopQqRrSsTtUuVvWwXxYyZz01234|*~%;@!&$?/<>#^+-
+   Characters used: AaBbCcDdEeFfGgHIiJkLlMmnOopQqRrSsTtU VvWwXxYyZz01234|*~%;@!&$?/<>#^+-
 
    D  data register only.  Stored as 3 bits.
    A  address register only.  Stored as 3 bits.
@@ -239,8 +231,6 @@ struct m68k_opcode_alias
    y						(modes 2,5)
    z						(modes 2,5,7.2)
    x  mov3q immediate operand.
-   j  coprocessor ET operand.
-   K  coprocessor command number.
    4						(modes 2,3,4,5)
   */
 
@@ -308,7 +298,6 @@ struct m68k_opcode_alias
    7  second word, shifted 7
    8  second word, shifted 10
    9  second word, shifted 5
-   E  second word, shifted 9
    D  store in both place 1 and place 3; for divul and divsl.
    B  first word, low byte, for branch displacements
    W  second word (entire), for branch displacements
