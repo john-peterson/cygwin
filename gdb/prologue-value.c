@@ -1,11 +1,11 @@
 /* Prologue value handling for GDB.
-   Copyright 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003, 2004, 2005 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,7 +14,12 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to:
+
+        Free Software Foundation, Inc.
+        51 Franklin St - Fifth Floor
+        Boston, MA 02110-1301
+        USA */
 
 #include "defs.h"
 #include "gdb_string.h"
@@ -165,7 +170,7 @@ pv_logical_and (pv_t a, pv_t b)
   else if (b.kind == pvk_constant
            && b.k == 0)
     return pv_constant (0);
-
+  
   /* We can 'and' anything with ~0.  */
   else if (b.kind == pvk_constant
            && b.k == ~ (CORE_ADDR) 0)
@@ -202,7 +207,7 @@ pv_is_identical (pv_t a, pv_t b)
     case pvk_register:
       return (a.reg == b.reg && a.k == b.k);
     default:
-      gdb_assert_not_reached ("unexpected prologue value kind");
+      gdb_assert (0);
     }
 }
 
@@ -233,7 +238,7 @@ pv_is_register_k (pv_t a, int r, CORE_ADDR k)
 
 enum pv_boolean
 pv_is_array_ref (pv_t addr, CORE_ADDR size,
-                 pv_t array_addr, CORE_ADDR array_len,
+                 pv_t array_addr, CORE_ADDR array_len, 
                  CORE_ADDR elt_size,
                  int *i)
 {
@@ -314,7 +319,7 @@ struct pv_area
 
 
 struct pv_area *
-make_pv_area (int base_reg, int addr_bit)
+make_pv_area (int base_reg)
 {
   struct pv_area *a = (struct pv_area *) xmalloc (sizeof (*a));
 
@@ -325,7 +330,7 @@ make_pv_area (int base_reg, int addr_bit)
 
   /* Remember that shift amounts equal to the type's width are
      undefined.  */
-  a->addr_mask = ((((CORE_ADDR) 1 << (addr_bit - 1)) - 1) << 1) | 1;
+  a->addr_mask = ((((CORE_ADDR) 1 << (TARGET_ADDR_BIT - 1)) - 1) << 1) | 1;
 
   return a;
 }
@@ -345,9 +350,7 @@ clear_entries (struct pv_area *area)
       do
         {
           struct area_entry *next = e->next;
-
           xfree (e);
-          e = next;
         }
       while (e != area->entry);
 
@@ -398,7 +401,7 @@ pv_area_store_would_trash (struct pv_area *area, pv_t addr)
    This may return zero, if AREA has no entries.
 
    And since the entries are a ring, this may return an entry that
-   entirely precedes OFFSET.  This is the correct behavior: depending
+   entirely preceeds OFFSET.  This is the correct behavior: depending
    on the sizes involved, we could still overlap such an area, with
    wrap-around.  */
 static struct area_entry *
@@ -411,7 +414,7 @@ find_entry (struct pv_area *area, CORE_ADDR offset)
 
   /* If the next entry would be better than the current one, then scan
      forward.  Since we use '<' in this loop, it always terminates.
-
+     
      Note that, even setting aside the addr_mask stuff, we must not
      simplify this, in high school algebra fashion, to
      (e->next->offset < e->offset), because of the way < interacts
@@ -468,7 +471,6 @@ pv_area_store (struct pv_area *area,
       while (e && overlaps (area, e, offset, size))
         {
           struct area_entry *next = (e->next == e) ? 0 : e->next;
-
           e->prev->next = e->next;
           e->next->prev = e->prev;
 
@@ -493,7 +495,6 @@ pv_area_store (struct pv_area *area,
     {
       CORE_ADDR offset = addr.k;
       struct area_entry *e = (struct area_entry *) xmalloc (sizeof (*e));
-
       e->offset = offset;
       e->size = size;
       e->value = value;

@@ -1,11 +1,11 @@
 /* Interface to prologue value handling for GDB.
-   Copyright 2003-2013 Free Software Foundation, Inc.
+   Copyright 2003, 2004, 2005 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,7 +14,12 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to:
+
+        Free Software Foundation, Inc.
+        51 Franklin St - Fifth Floor
+        Boston, MA 02110-1301
+        USA */
 
 #ifndef PROLOGUE_VALUE_H
 #define PROLOGUE_VALUE_H
@@ -51,7 +56,7 @@
 
       mov (fp+4), r2
 
-   then we'd know that the stack slot four bytes above the frame
+   Then we'd know that the stack slot four bytes above the frame
    pointer holds the original value of r1 plus 64.
 
    And so on.
@@ -71,7 +76,7 @@
    So when I say "conservative approximation" here, what I mean is an
    approximation that is either accurate, or marked "unknown", but
    never inaccurate.
-
+   
    Once you've reached the current PC, or an instruction that you
    don't know how to simulate, you stop.  Now you can examine the
    state of the registers and stack slots you've kept track of.
@@ -213,7 +218,7 @@ enum pv_boolean {
    an element boundary, or doesn't refer to the whole element, return
    pv_maybe.  */
 enum pv_boolean pv_is_array_ref (pv_t addr, CORE_ADDR size,
-                                 pv_t array_addr, CORE_ADDR array_len,
+                                 pv_t array_addr, CORE_ADDR array_len, 
                                  CORE_ADDR elt_size,
                                  int *i);
 
@@ -222,18 +227,11 @@ enum pv_boolean pv_is_array_ref (pv_t addr, CORE_ADDR size,
    region of memory.  */
 struct pv_area;
 
-/* Create a new area, tracking stores relative to the original value
-   of BASE_REG.  If BASE_REG is SP, then this effectively records the
-   contents of the stack frame: the original value of the SP is the
-   frame's CFA, or some constant offset from it.
-
-   Stores to constant addresses, unknown addresses, or to addresses
-   relative to registers other than BASE_REG will trash this area; see
-   pv_area_store_would_trash.
-
-   To check whether a pointer refers to this area, only the low
-   ADDR_BIT bits will be compared.  */
-struct pv_area *make_pv_area (int base_reg, int addr_bit);
+/* Create a new area, tracking stores relative to BASE_REG.  Stores to
+   constant addresses, unknown addresses, or to addresses relative to
+   registers other than BASE_REG will trash this area; see
+   pv_area_store_would_trash.  */
+struct pv_area *make_pv_area (int base_reg);
 
 /* Free AREA.  */
 void free_pv_area (struct pv_area *area);
@@ -275,15 +273,10 @@ int pv_area_store_would_trash (struct pv_area *area, pv_t addr);
 /* Search AREA for the original value of REGISTER.  If we can't find
    it, return zero; if we can find it, return a non-zero value, and if
    OFFSET_P is non-zero, set *OFFSET_P to the register's offset within
-   AREA.  GDBARCH is the architecture of which REGISTER is a member.
-
-   In the worst case, this takes time proportional to the number of
-   items stored in AREA.  If you plan to gather a lot of information
-   about registers saved in AREA, consider calling pv_area_scan
-   instead, and collecting all your information in one pass.  */
+   AREA.  GDBARCH is the architecture of which REGISTER is a member.  */
 int pv_area_find_reg (struct pv_area *area,
                       struct gdbarch *gdbarch,
-                      int reg,
+                      int register,
                       CORE_ADDR *offset_p);
 
 
