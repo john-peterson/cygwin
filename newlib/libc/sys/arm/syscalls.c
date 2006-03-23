@@ -12,26 +12,23 @@
 #include <sys/times.h>
 #include <errno.h>
 #include <reent.h>
-#include <signal.h>
 #include <unistd.h>
-#include <sys/wait.h>
 #include "swi.h"
 
 /* Forward prototypes.  */
 int     _system     _PARAMS ((const char *));
 int     _rename     _PARAMS ((const char *, const char *));
-int     _isatty		_PARAMS ((int));
+int     isatty		_PARAMS ((int));
 clock_t _times		_PARAMS ((struct tms *));
-int     _gettimeofday	_PARAMS ((struct timeval *, void *));
+int     _gettimeofday	_PARAMS ((struct timeval *, struct timezone *));
 void    _raise 		_PARAMS ((void));
-int     _unlink		_PARAMS ((const char *));
+int     _unlink		_PARAMS ((void));
 int     _link 		_PARAMS ((void));
 int     _stat 		_PARAMS ((const char *, struct stat *));
 int     _fstat 		_PARAMS ((int, struct stat *));
 caddr_t _sbrk		_PARAMS ((int));
 int     _getpid		_PARAMS ((int));
 int     _kill		_PARAMS ((int, int));
-void    _exit		_PARAMS ((int));
 int     _close		_PARAMS ((int));
 int     _swiclose	_PARAMS ((int));
 int     _open		_PARAMS ((const char *, int, ...));
@@ -42,28 +39,16 @@ int     _lseek		_PARAMS ((int, int, int));
 int     _swilseek	_PARAMS ((int, int, int));
 int     _read		_PARAMS ((int, char *, int));
 int     _swiread	_PARAMS ((int, char *, int));
-void    initialise_monitor_handles _PARAMS ((void));
 
+static void    initialise_monitor_handles _PARAMS ((void));
 static int	wrap		_PARAMS ((int));
 static int	error		_PARAMS ((int));
 static int	get_errno	_PARAMS ((void));
 static int	remap_handle	_PARAMS ((int));
-static int	do_AngelSWI	_PARAMS ((int, void *));
 static int 	findslot	_PARAMS ((int));
 
 /* Register name faking - works in collusion with the linker.  */
 register char * stack_ptr asm ("sp");
-
-
-/* following is copied from libc/stdio/local.h to check std streams */
-extern void   _EXFUN(__sinit,(struct _reent *));
-#define CHECK_INIT(ptr) \
-  do						\
-    {						\
-      if ((ptr) && !(ptr)->__sdidinit)		\
-	__sinit (ptr);				\
-    }						\
-  while (0)
 
 /* Adjust our internal handles to stay away from std* handles.  */
 #define FILE_HANDLE_OFFSET (0x20)
@@ -94,31 +79,11 @@ findslot (int fh)
   return i;
 }
 
-#ifdef ARM_RDI_MONITOR
-
-static inline int
-do_AngelSWI (int reason, void * arg)
-{
-  int value;
-  asm volatile ("mov r0, %1; mov r1, %2; " AngelSWIInsn " %a3; mov %0, r0"
-       : "=r" (value) /* Outputs */
-       : "r" (reason), "r" (arg), "i" (AngelSWI) /* Inputs */
-       : "r0", "r1", "r2", "r3", "ip", "lr", "memory", "cc"
-		/* Clobbers r0 and r1, and lr if in supervisor mode */);
-                /* Accordingly to page 13-77 of ARM DUI 0040D other registers
-                   can also be clobbered.  Some memory positions may also be
-                   changed by a system call, so they should not be kept in
-                   registers. Note: we are assuming the manual is right and
-                   Angel is respecting the APCS.  */
-  return value;
-}
-#endif /* ARM_RDI_MONITOR */
-
 /* Function to convert std(in|out|err) handles to internal versions.  */
 static int
 remap_handle (int fh)
 {
-  CHECK_INIT(_REENT);
+  initialise_monitor_handles ();
 
   if (fh == STDIN_FILENO)
     return monitor_stdin;
@@ -130,11 +95,28 @@ remap_handle (int fh)
   return fh - FILE_HANDLE_OFFSET;
 }
 
+#ifndef __SINGLE_THREAD__
+__LOCK_INIT_RECURSIVE (static, __arm_monitor_handles_lock);
+#endif
+
 void
 initialise_monitor_handles (void)
 {
   int i;
-  
+  static int initialized;
+
+  /* We need do this only once.  */
+  if (initialized)
+    return;
+
+#ifndef __SINGLE_THREAD__
+  __lock_acquire_recursive (__arm_monitor_handles_lock);
+#endif
+  initialized = 1;
+#ifndef __SINGLE_THREAD__
+  __lock_release_recursive (__arm_monitor_handles_lock);
+#endif
+
 #ifdef ARM_RDI_MONITOR
   int volatile block[3];
   
@@ -436,33 +418,15 @@ _close (int file)
 }
 
 int
-_kill (int pid, int sig)
+_kill (int n, int m)
 {
-  (void)pid; (void)sig;
 #ifdef ARM_RDI_MONITOR
-  /* Note: The pid argument is thrown away.  */
-  switch (sig) {
-	  case SIGABRT:
-		  return do_AngelSWI (AngelSWI_Reason_ReportException,
-				  (void *) ADP_Stopped_RunTimeError);
-	  default:
-		  return do_AngelSWI (AngelSWI_Reason_ReportException,
-				  (void *) ADP_Stopped_ApplicationExit);
-  }
+  return do_AngelSWI (AngelSWI_Reason_ReportException,
+		      (void *) ADP_Stopped_ApplicationExit);
 #else
   asm ("swi %a0" :: "i" (SWI_Exit));
 #endif
-}
-
-void
-_exit (int status)
-{
-  /* There is only one SWI for both _exit and _kill. For _exit, call
-     the SWI with the second argument set to -1, an invalid value for
-     signum, so that the SWI handler can distinguish the two calls.
-     Note: The RDI implementation of _kill throws away both its
-     arguments.  */
-  _kill(status, -1);
+  n = n; m = m;
 }
 
 int
@@ -540,16 +504,9 @@ _link (void)
 }
 
 int
-_unlink (const char *path)
+_unlink (void)
 {
-#ifdef ARM_RDI_MONITOR
-  int block[2];
-  block[0] = path;
-  block[1] = strlen(path);
-  return wrap (do_AngelSWI (AngelSWI_Reason_Remove, block)) ? -1 : 0;
-#else  
   return -1;
-#endif
 }
 
 void
@@ -559,9 +516,9 @@ _raise (void)
 }
 
 int
-_gettimeofday (struct timeval * tp, void * tzvp)
+_gettimeofday (struct timeval * tp, struct timezone * tzp)
 {
-  struct timezone *tzp = tzvp;
+
   if (tp)
     {
     /* Ask the host for the seconds since the Unix epoch.  */
@@ -612,62 +569,24 @@ _times (struct tms * tp)
 
 
 int
-_isatty (int fd)
+isatty (int fd)
 {
-#ifdef ARM_RDI_MONITOR
-  int fh = remap_handle (fd);
-  return wrap (do_AngelSWI (AngelSWI_Reason_IsTTY, &fh));
-#else
-  return (fd <= 2) ? 1 : 0;  /* one of stdin, stdout, stderr */
-#endif
+  return 1;
+  fd = fd;
 }
 
 int
 _system (const char *s)
 {
-#ifdef ARM_RDI_MONITOR
-  int block[2];
-  int e;
-
-  /* Hmmm.  The ARM debug interface specification doesn't say whether
-     SYS_SYSTEM does the right thing with a null argument, or assign any
-     meaning to its return value.  Try to do something reasonable....  */
-  if (!s)
-    return 1;  /* maybe there is a shell available? we can hope. :-P */
-  block[0] = s;
-  block[1] = strlen (s);
-  e = wrap (do_AngelSWI (AngelSWI_Reason_System, block));
-  if ((e >= 0) && (e < 256))
-    {
-      /* We have to convert e, an exit status to the encoded status of
-         the command.  To avoid hard coding the exit status, we simply
-	 loop until we find the right position.  */
-      int exit_code;
-
-      for (exit_code = e; e && WEXITSTATUS (e) != exit_code; e <<= 1)
-	continue;
-    }
-  return e;
-#else
   if (s == NULL)
     return 0;
   errno = ENOSYS;
   return -1;
-#endif
 }
 
 int
 _rename (const char * oldpath, const char * newpath)
 {
-#ifdef ARM_RDI_MONITOR
-  int block[4];
-  block[0] = oldpath;
-  block[1] = strlen(oldpath);
-  block[2] = newpath;
-  block[3] = strlen(newpath);
-  return wrap (do_AngelSWI (AngelSWI_Reason_Rename, block)) ? -1 : 0;
-#else  
   errno = ENOSYS;
   return -1;
-#endif
 }
