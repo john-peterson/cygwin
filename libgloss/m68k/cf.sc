@@ -1,58 +1,58 @@
 # a linker script template.
-# RAM - start of board's ram
-# RAM_SIZE - size of board's ram
-# ROM - start of board's rom
-# ROM_SIZE - size of board's rom
-# IO - io library name
-
-test -z "${ROM:+1}" && NOROM=1
+# RAMSTART - start of board's ram
+# RAMSIZE - size of board's ram
+# RAMDBUG - bytes at start of RAM for DBUG use
+# ISV - nonnull if interrupt service vector should be provided.
 
 cat <<EOF
-STARTUP(cf-${IO}-crt0.o)
+STARTUP(crt0.o)
 OUTPUT_ARCH(m68k)
-ENTRY(__start)
+ENTRY(start)
 SEARCH_DIR(.)
-GROUP(-lc -l${IO} -lcf)
 __DYNAMIC  =  0;
 
 MEMORY
 {
-  ${ROM:+rom (rx) : ORIGIN = ${ROM}, LENGTH = ${ROM_SIZE}}
-  ram (rwx) : ORIGIN = ${RAM}, LENGTH = ${RAM_SIZE}
+  ram (rwx) : ORIGIN = ${RAMSTART} + ${RAMDBUG:-0},
+		 LENGTH = ${RAMSIZE} - ${RAMDBUG:-0}
 }
 
 /* Place the stack at the end of memory, unless specified otherwise. */
-PROVIDE (__stack = ${RAM} + ${RAM_SIZE});
+PROVIDE (__stack = ${RAMSTART} + ${RAMSIZE});
 
+/* Inhibit an interrupt vector, if one is not specified.  */
+PROVIDE (__interrupt_vector = -1);
+
+/*
+ * Initalize some symbols to be zero so we can reference them in the
+ * crt0 without core dumping. These functions are all optional, but
+ * we do this so we can have our crt0 always use them if they exist. 
+ */
+PROVIDE (hardware_init_hook = 0);
+PROVIDE (software_init_hook = 0);
+/*
+ * stick everything in ram (of course)
+ */
 SECTIONS
 {
   .text :
   {
     CREATE_OBJECT_SYMBOLS
-    *(.interrupt_vector)
-    
-    cf-${IO}-crt0.o(.text)
+    ${ISV+__interrupt_vector = .; . += 256 * 4;}
     *(.text .text.*)
-    *(.gnu.linkonce.t.*)
 
     . = ALIGN(0x4);
     /* These are for running static constructors and destructors under ELF.  */
     KEEP (*crtbegin.o(.ctors))
     KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
     KEEP (*(SORT(.ctors.*)))
-    KEEP (*crtend.o(.ctors))
+    KEEP (*(.ctors))
     KEEP (*crtbegin.o(.dtors))
     KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
     KEEP (*(SORT(.dtors.*)))
-    KEEP (*crtend.o(.dtors))
-
-    . = ALIGN(0x4);
-    KEEP (*crtbegin.o(.jcr))
-    KEEP (*(EXCLUDE_FILE (*crtend.o) .jcr))
-    KEEP (*crtend.o(.jcr))
+    KEEP (*(.dtors))
 
     *(.rodata .rodata.*)
-    *(.gnu.linkonce.r.*)
 
     . = ALIGN(0x4);
     *(.gcc_except_table) 
@@ -61,48 +61,41 @@ SECTIONS
     *(.eh_frame)
 
     . = ALIGN(0x4);
-    _init = . ;
+    __INIT_SECTION__ = . ;
     LONG (0x4e560000)	/* linkw %fp,#0 */
     *(.init)
     SHORT (0x4e5e)	/* unlk %fp */
     SHORT (0x4e75)	/* rts */
 
     . = ALIGN(0x4);
-    _fini = . ;
+    __FINI_SECTION__ = . ;
     LONG (0x4e560000)	/* linkw %fp,#0 */
     *(.fini)
     SHORT (0x4e5e)	/* unlk %fp */
     SHORT (0x4e75)	/* rts */
 
-    *(.lit)
-
-    . = ALIGN(4);
     _etext = .;
-  } >${ROM:+rom}${NOROM:+ram}
+    *(.lit)
+  } > ram
 
   .data :
   {
-    __data_load = LOADADDR (.data);
-    __data_start = .;
     *(.got.plt) *(.got)
     *(.shdata)
     *(.data .data.*)
-    *(.gnu.linkonce.d.*)
-    . = ALIGN (4);
     _edata = .;
-  } >ram ${ROM:+AT>rom}
+  } > ram
 
   .bss :
   {
+    . = ALIGN(0x4);
     __bss_start = . ;
     *(.shbss)
     *(.bss .bss.*)
-    *(.gnu.linkonce.b.*)
     *(COMMON)
-    . = ALIGN (8);
-    _end = .;
+    _end =  ALIGN (0x8);
     __end = _end;
-  } >ram ${ROM:+AT>rom}
+  } > ram
 
   .stab 0 (NOLOAD) :
   {
@@ -113,27 +106,5 @@ SECTIONS
   {
     *(.stabstr)
   }
-
-  /* DWARF debug sections.
-     Symbols in the DWARF debugging sections are relative to the beginning
-     of the section so we begin them at 0.  */
-  /* DWARF 1 */
-  .debug          0 : { *(.debug) }
-  .line           0 : { *(.line) }
-  /* GNU DWARF 1 extensions */
-  .debug_srcinfo  0 : { *(.debug_srcinfo) }
-  .debug_sfnames  0 : { *(.debug_sfnames) }
-  /* DWARF 1.1 and DWARF 2 */
-  .debug_aranges  0 : { *(.debug_aranges) }
-  .debug_pubnames 0 : { *(.debug_pubnames) }
-  /* DWARF 2 */
-  .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
-  .debug_abbrev   0 : { *(.debug_abbrev) }
-  .debug_line     0 : { *(.debug_line) }
-  .debug_frame    0 : { *(.debug_frame) }
-  .debug_str      0 : { *(.debug_str) }
-  .debug_loc      0 : { *(.debug_loc) }
-  .debug_macinfo  0 : { *(.debug_macinfo) }
-
 }
 EOF
