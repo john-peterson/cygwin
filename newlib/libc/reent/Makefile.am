@@ -5,29 +5,27 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
 if HAVE_STDIO64_DIR
-STDIO64_SOURCES = \
-	fstat64r.c \
-	lseek64r.c \
-	stat64r.c \
-	open64r.c
+STDIO64_OBJECTS = \
+	fstat64r.$(oext) \
+	lseek64r.$(oext) \
+	open64r.$(oext)
 
 STDIO64_DEFS = \
 	fstat64r.def \
 	lseek64r.def \
-	stat64r.def \
 	open64r.def
 endif
 
-ELIX_2_SOURCES = $(STDIO64_SOURCES)
-ELIX_3_SOURCES = execr.c
+ELIX_2_OBJS = $(STDIO64_OBJECTS)
+ELIX_3_OBJS = execr.$(oext)
 
 if ELIX_LEVEL_1
-ELIX_SOURCES =
+LIB_OBJS =
 else
 if ELIX_LEVEL_2
-ELIX_SOURCES = $(ELIX_2_SOURCES)
+LIB_OBJS = $(ELIX_2_OBJS)
 else
-ELIX_SOURCES = $(ELIX_2_SOURCES) $(ELIX_3_SOURCES)
+LIB_OBJS = $(ELIX_2_OBJS) $(ELIX_3_OBJS)
 endif
 endif
 
@@ -38,19 +36,15 @@ GENERAL_SOURCES = \
 	fcntlr.c \
 	fstatr.c \
 	getreent.c \
-	gettimeofdayr.c \
-	isattyr.c \
 	linkr.c \
 	lseekr.c \
-	mkdirr.c \
 	openr.c \
 	readr.c \
-	renamer.c \
 	signalr.c \
 	signgam.c \
 	sbrkr.c \
 	statr.c \
-	timesr.c \
+	timer.c \
 	unlinkr.c \
 	writer.c
 
@@ -58,12 +52,16 @@ libreent_la_LDFLAGS = -Xcompiler -nostdlib
 
 if USE_LIBTOOL
 noinst_LTLIBRARIES = libreent.la
-libreent_la_SOURCES = $(GENERAL_SOURCES) $(ELIX_SOURCES)
+libreent_la_SOURCES = $(GENERAL_SOURCES)
+libreent_la_LIBADD = $(LIB_OBJS)
+libreent_la_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA = objectlist.awk.in
 else
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = $(GENERAL_SOURCES) $(ELIX_SOURCES)
+lib_a_SOURCES = $(GENERAL_SOURCES)
+lib_a_LIBADD = $(LIB_OBJS)
 lib_a_CFLAGS = $(AM_CFLAGS)
+lib_a_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA =
 endif # USE_LIBTOOL
 
@@ -75,17 +73,14 @@ CHEWOUT_FILES = \
 	execr.def \
 	fcntlr.def \
 	fstatr.def \
-	gettimeofdayr.def \
 	linkr.def \
 	lseekr.def \
-	mkdirr.def \
 	openr.def \
 	readr.def \
-	renamer.def \
 	signalr.def \
 	sbrkr.def \
 	statr.def \
-	timesr.def \
+	timer.def \
 	unlinkr.def \
 	$(STDIO64_DEFS) \
 	writer.def
@@ -103,6 +98,6 @@ TARGETDOC = ../tmp.texi
 doc: $(CHEWOUT_FILES)
 	cat $(srcdir)/reent.tex >> $(TARGETDOC)
 
-$(lpfx)impure.$(oext): $(srcdir)/impure.c $(srcdir)/../include/sys/reent.h
+impure.$(oext): $(srcdir)/impure.c $(srcdir)/../include/sys/reent.h
 
 CLEANFILES = $(CHEWOUT_FILES) *.ref

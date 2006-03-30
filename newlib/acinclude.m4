@@ -1,16 +1,13 @@
 dnl This provides configure definitions used by all the newlib
 dnl configure.in files.
 
-AC_DEFUN([DEF_NEWLIB_VERSION],
-m4_define([NEWLIB_VERSION],[2.0.0]))
-
 dnl Basic newlib configury.  This calls basic introductory stuff,
 dnl including AM_INIT_AUTOMAKE and AC_CANONICAL_HOST.  It also runs
 dnl configure.host.  The only argument is the relative path to the top
 dnl newlib directory.
 
 AC_DEFUN([NEWLIB_CONFIGURE],
-[AC_REQUIRE([DEF_NEWLIB_VERSION])
+[
 dnl Default to --enable-multilib
 AC_ARG_ENABLE(multilib,
 [  --enable-multilib         build many library versions (default)],
@@ -106,9 +103,9 @@ else
 fi
 AC_SUBST(newlib_basedir)
 
-AC_CANONICAL_HOST
+AC_CANONICAL_SYSTEM
 
-AM_INIT_AUTOMAKE([cygnus no-define 1.9.5])
+AM_INIT_AUTOMAKE(newlib, 1.14.0, nodefine)
 
 # FIXME: We temporarily define our own version of AC_PROG_CC.  This is
 # copied from autoconf 2.12, but does not call AC_PROG_CC_WORKS.  We
@@ -157,6 +154,7 @@ dnl plays around with CFLAGS (such as to build both debugging and
 dnl normal versions of a library), tasteless as that idea is.
   ac_test_CFLAGS="${CFLAGS+set}"
   ac_save_CFLAGS="$CFLAGS"
+  CFLAGS=
   _AC_PROG_CC_G
   if test "$ac_test_CFLAGS" = set; then
     CFLAGS="$ac_save_CFLAGS"
@@ -176,7 +174,6 @@ LIB_AC_PROG_CC
 AC_CHECK_TOOL(AS, as)
 AC_CHECK_TOOL(AR, ar)
 AC_CHECK_TOOL(RANLIB, ranlib, :)
-AC_CHECK_TOOL(READELF, readelf, :)
 
 AC_PROG_INSTALL
 
@@ -204,9 +201,6 @@ newlib_cflags="[$]{newlib_cflags} -fno-builtin"
 
 NEWLIB_CFLAGS=${newlib_cflags}
 AC_SUBST(NEWLIB_CFLAGS)
-
-NO_INCLUDE_LIST=${noinclude}
-AC_SUBST(NO_INCLUDE_LIST)
 
 LDFLAGS=${ldflags}
 AC_SUBST(LDFLAGS)

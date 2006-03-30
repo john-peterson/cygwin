@@ -37,7 +37,6 @@ GENERAL_SOURCES = \
 	strpbrk.c \
 	strrchr.c \
 	strsep.c \
-	strsignal.c \
 	strspn.c \
 	strtok.c \
 	strtok_r.c \
@@ -63,63 +62,39 @@ GENERAL_SOURCES = \
 	wcsrchr.c \
 	wcsspn.c \
 	wcsstr.c \
-	wcstok.c \
 	wcswidth.c \
-	wcsxfrm.c \
 	wcwidth.c \
 	wmemchr.c \
 	wmemcmp.c \
 	wmemcpy.c \
 	wmemmove.c \
-	wmemset.c \
-	xpg_strerror_r.c
+	wmemset.c
 
 if ELIX_LEVEL_1
-ELIX_2_SOURCES =
+LIB_OBJS =
 else
-ELIX_2_SOURCES = \
-	bcmp.c \
-	memccpy.c \
-	mempcpy.c \
-	stpcpy.c \
-	stpncpy.c \
-	strndup.c \
-	strcasestr.c \
-	strchrnul.c \
-	strndup_r.c \
-	wcpcpy.c \
-	wcpncpy.c \
-	wcsdup.c
-endif !ELIX_LEVEL_1
-
-if ELIX_LEVEL_1
-ELIX_4_SOURCES =
-else
-if ELIX_LEVEL_2
-ELIX_4_SOURCES =
-else
-if ELIX_LEVEL_3
-ELIX_4_SOURCES =
-else
-ELIX_4_SOURCES = \
-	memmem.c \
-	memrchr.c \
-	wcscasecmp.c \
-	wcsncasecmp.c
-endif !ELIX_LEVEL_3
-endif !ELIX_LEVEL_2
-endif !ELIX_LEVEL_1
+LIB_OBJS = \
+	bcmp.$(oext) \
+	memccpy.$(oext) \
+	mempcpy.$(oext) \
+	strndup.$(oext) \
+	strndup_r.$(oext)
+endif
 
 libstring_la_LDFLAGS = -Xcompiler -nostdlib
 
 if USE_LIBTOOL
 noinst_LTLIBRARIES = libstring.la
-libstring_la_SOURCES = $(GENERAL_SOURCES) $(ELIX_2_SOURCES) $(ELIX_4_SOURCES)
+libstring_la_SOURCES = $(GENERAL_SOURCES)
+libstring_la_LIBADD = $(LIB_OBJS)
+libstring_la_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA = objectlist.awk.in
 else
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = $(GENERAL_SOURCES) $(ELIX_2_SOURCES) $(ELIX_4_SOURCES)
+lib_a_SOURCES = $(GENERAL_SOURCES)
+lib_a_LIBADD = $(LIB_OBJS)
 lib_a_CFLAGS = $(AM_CFLAGS)
+lib_a_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA =
 endif # USE_LIBTOOL
 
@@ -132,16 +107,15 @@ bzero.def	memset.def	strcpy.def	strncpy.def strxfrm.def \
 index.def	rindex.def	strcspn.def	strpbrk.def swab.def \
 memchr.def	strcat.def	strerror.def	strerror_r.def strrchr.def \
 memcmp.def	strchr.def	strlen.def	strnlen.def strspn.def \
-strcasecmp.def	strncasecmp.def strcasestr.def	strlwr.def  strupr.def \
-memccpy.def 	mempcpy.def	stpcpy.def	stpncpy.def strsignal.def \
-wcscasecmp.def	wcscat.def	wcschr.def	wcscmp.def wcscoll.def \
-wcscpy.def	wcscspn.def	wcpcpy.def	wcpncpy.def wcsdup.def \
-wcslcat.def	wcslcpy.def	wcslen.def	wcsncasecmp.def wcsncat.def \
+strcasecmp.def	strncasecmp.def strlwr.def	strupr.def  memccpy.def \
+mempcpy.def \
+wcscat.def	wcschr.def	wcscmp.def	wcscoll.def \
+wcscpy.def	wcscspn.def \
+wcslcat.def	wcslcpy.def	wcslen.def	wcsncat.def \
 wcsncmp.def	wcsncpy.def	wcsnlen.def	wcspbrk.def \
-wcsrchr.def	wcsspn.def	wcsstr.def 	wcstok.def  \
-wcswidth.def	wcsxfrm.def	wcwidth.def	wmemchr.def \
-wmemcmp.def	wmemcpy.def	wmemmove.def	wmemset.def \
-memmem.def	memrchr.def
+wcsrchr.def	wcsspn.def	wcsstr.def \
+wcswidth.def	wcwidth.def	wmemchr.def \
+wmemcmp.def	wmemcpy.def	wmemmove.def	wmemset.def
 
 SUFFIXES = .def
 

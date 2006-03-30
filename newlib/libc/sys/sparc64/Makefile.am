@@ -4,7 +4,7 @@ AUTOMAKE_OPTIONS = cygnus
 
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
-AM_CCASFLAGS = $(INCLUDES)
+AM_CCASFLAGS = $(AM_CCASFLAGS) $(INCLUDES)
 
 noinst_LIBRARIES = lib.a
 
@@ -97,7 +97,7 @@ stamp-srcs: Makefile template.S template_r.S
 
 $(TEMPLATE_SFILES:_=.S) $(TEMPLATE_SFILES_R:_=.S): stamp-srcs
 
-all-local: crt0.o
+all: crt0.o
 
 close_r.o: close.S
 fork_r.o: fork.S
@@ -117,5 +117,5 @@ wait_r.o: wait.S
 wait4_r.o: wait4.S
 write_r.o: write.S
 
-ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
+ACLOCAL_AMFLAGS = -I ../../..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host

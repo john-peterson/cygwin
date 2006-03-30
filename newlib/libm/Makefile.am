@@ -8,17 +8,21 @@ else
 MATHDIR = math
 endif
 
-SUBDIRS = $(MATHDIR) common complex machine 
+if HAVE_LIBM_MACHINE_DIR
+SUBDIRS = $(MATHDIR) common machine
+else
+SUBDIRS = $(MATHDIR) common
+endif
 
 libm_la_LDFLAGS = -Xcompiler -nostdlib
 
 if USE_LIBTOOL
-SUBLIBS = $(MATHDIR)/lib$(MATHDIR).$(aext) common/libcommon.$(aext) complex/libcomplex.$(aext)  $(LIBM_MACHINE_LIB)
+SUBLIBS = $(MATHDIR)/lib$(MATHDIR).$(aext) common/libcommon.$(aext) $(LIBM_MACHINE_LIB)
 noinst_LTLIBRARIES = libm.la
 libm_la_SOURCES =
 libm_la_LIBADD = $(SUBLIBS)
 else
-SUBLIBS = $(MATHDIR)/lib.$(aext) common/lib.$(aext) complex/lib.$(aext) $(LIBM_MACHINE_LIB)
+SUBLIBS = $(MATHDIR)/lib.$(aext) common/lib.$(aext) $(LIBM_MACHINE_LIB)
 noinst_LIBRARIES = libm.a
 libm.a: $(SUBLIBS)
 	rm -f $@
@@ -37,9 +41,9 @@ $(SUBLIBS):
 
 info_TEXINFOS = libm.texinfo
 
-libm_TEXINFOS = targetdep.tex
+libm.info: targetdep.tex math/stmp-def
 
-libm.dvi: targetdep.tex math/stmp-def complex/stmp-def
+libm.dvi: targetdep.tex math/stmp-def
 
 stmp-targetdep: force
 	rm -f tmp.texi
@@ -56,12 +60,10 @@ targetdep.tex: stmp-targetdep ; @true
 
 math/stmp-def: stmp-targetdep ; @true
 
-complex/stmp-def: stmp-targetdep ; @true
-
 .PHONY: force
 force:
 
 CLEANFILES = tmp.texi targetdep.tex stmp-targetdep
 
-ACLOCAL_AMFLAGS = -I .. -I ../..
+ACLOCAL_AMFLAGS = -I ..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host

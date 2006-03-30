@@ -5,33 +5,30 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
 GENERAL_SOURCES = \
-	closedir.c collate.c collcmp.c creat.c \
-	fnmatch.c glob.c _isatty.c isatty.c \
-	opendir.c readdir.c readdir_r.c \
-	regcomp.c regerror.c regexec.c regfree.c \
-	rewinddir.c sleep.c usleep.c \
-	telldir.c
+	closedir.c creat.c isatty.c \
+	opendir.c readdir.c \
+	readdir_r.c rewinddir.c telldir.c
 
-ELIX_2_SOURCES = \
-        scandir.c seekdir.c
+ELIX_2_OBJS = \
+        scandir.$(oext) seekdir.$(oext)
 
-ELIX_3_SOURCES = \
-	execl.c execle.c execlp.c execv.c \
-	execve.c execvp.c wordexp.c wordfree.c
+ELIX_3_OBJS = \
+	execl.$(oext) execle.$(oext) execlp.$(oext) execv.$(oext) \
+	execve.$(oext) execvp.$(oext)
 
-ELIX_4_SOURCES = \
-	popen.c 
+ELIX_4_OBJS = \
+	popen.$(oext) 
 
 if ELIX_LEVEL_1
-ELIX_SOURCES =
+LIB_OBJS =
 else 
 if ELIX_LEVEL_2
-ELIX_SOURCES = $(ELIX_2_SOURCES)
+LIB_OBJS = $(ELIX_2_OBJS)
 else 
 if ELIX_LEVEL_3
-ELIX_SOURCES = $(ELIX_2_SOURCES) $(ELIX_3_SOURCES)
+LIB_OBJS = $(ELIX_2_OBJS) $(ELIX_3_OBJS)
 else
-ELIX_SOURCES = $(ELIX_2_SOURCES) $(ELIX_3_SOURCES) $(ELIX_4_SOURCES)
+LIB_OBJS = $(ELIX_2_OBJS) $(ELIX_3_OBJS) $(ELIX_4_OBJS)
 endif
 endif
 endif
@@ -40,19 +37,22 @@ libposix_la_LDFLAGS = -Xcompiler -nostdlib
 
 if USE_LIBTOOL
 noinst_LTLIBRARIES = libposix.la
-libposix_la_SOURCES = $(GENERAL_SOURCES) $(ELIX_SOURCES)
+libposix_la_SOURCES = $(GENERAL_SOURCES)
+libposix_la_LIBADD = $(LIB_OBJS)
+libposix_la_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA = objectlist.awk.in
 else
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = $(GENERAL_SOURCES) $(ELIX_SOURCES)
+lib_a_SOURCES = $(GENERAL_SOURCES)
+lib_a_LIBADD = $(LIB_OBJS)
 lib_a_CFLAGS = $(AM_CFLAGS)
+lib_a_DEPENDENCIES = $(LIB_OBJS)
 noinst_DATA =
 endif # USE_LIBTOOL
 
 include $(srcdir)/../../Makefile.shared	
 
-CHEWOUT_FILES = \
-	popen.def
+CHEWOUT_FILES =
 
 SUFFIXES = .def
 
@@ -64,9 +64,7 @@ CHEW = ../../doc/makedoc -f $(srcdir)/../../doc/doc.str
 
 TARGETDOC = ../tmp.texi
 
-doc: $(CHEWOUT_FILES)
-	cat $(srcdir)/posix.tex >> $(TARGETDOC)
-
-AM_CFLAGS = -D_GNU_SOURCE
+# No doc for posix.
+doc:
 
 CLEANFILES = $(CHEWOUT_FILES) *.ref

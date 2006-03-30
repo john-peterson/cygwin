@@ -4,13 +4,11 @@ AUTOMAKE_OPTIONS = cygnus
 
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 
-AM_CCASFLAGS = $(INCLUDES)
+AM_CCASFLAGS = $(AM_CCASFLAGS) $(INCLUDES)
 
 noinst_LIBRARIES = lib.a
 
-lib_a_SOURCES = setjmp.S strlen.c strcmp.c strncpy.c memset.c memcpy.S
-lib_a_CCASFLAGS=$(AM_CCASFLAGS) -D_COMPILING_NEWLIB
-lib_a_CFLAGS=$(AM_CFLAGS) -D_COMPILING_NEWLIB
+lib_a_SOURCES = setjmp.S strlen.c strcmp.c strncpy.c memset.c memcpy.c
 
-ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
+ACLOCAL_AMFLAGS = -I ../../..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host

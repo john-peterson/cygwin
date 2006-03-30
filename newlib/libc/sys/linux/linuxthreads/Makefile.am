@@ -32,20 +32,19 @@ LIB_DB_SOURCES = td_init.c td_log.c td_ta_delete.c td_ta_get_nthreads.c      \
 	td_ta_clear_event.c td_symbol_list.c
 
 # Because of how libtool moves objects around, these files must be built last.
-LIBADD_OBJS = \
-	$(lpfx)mutex.$(oext) $(lpfx)specific.$(oext) \
-	$(lpfx)pthread.$(oext) $(lpfx)cancel.$(oext) 
+LIBADD_OBJS = mutex.$(oext) specific.$(oext) pthread.$(oext) \
+	cancel.$(oext) 
 
-ELIX_3_SOURCES = \
-	ptfork.c
+ELIX_3_OBJS = \
+	ptfork.$(oext)
 
 if ELIX_LEVEL_1
-ELIX_SOURCES = reqsyscalls.c
+EXTRA_OBJS = reqsyscalls.$(oext)
 else
 if ELIX_LEVEL_2
-ELIX_SOURCES = reqsyscalls.c
+EXTRA_OBJS = reqsyscalls.$(oext)
 else
-ELIX_SOURCES = $(ELIX_3_SOURCES)
+EXTRA_OBJS = $(ELIX_3_OBJS)
 endif
 endif
 
@@ -64,10 +63,10 @@ extra-libtool-objlist: $(MACHINE_OBJLIST)
 	cat $(MACHINE_OBJLIST) | $(AWK) '{ libpthread[$$1] = $$2 }; END { for (x in libpthread) printf ("%s\n", libpthread[x]) }' > $@
 
 toollib_LTLIBRARIES = libpthread.la libthread_db.la
-libpthread_la_SOURCES = $(LIB_SOURCES) $(ELIX_SOURCES)
-libpthread_la_LIBADD = $(LIBADD_OBJS)
+libpthread_la_SOURCES = $(LIB_SOURCES)
+libpthread_la_LIBADD = $(LIBADD_OBJS) $(EXTRA_OBJS)
 ## libpthread_la_DEPENDENCIES = defs.h crti.S
-libpthread_la_DEPENDENCIES = $(LIBADD_OBJS) extra-libtool-objlist
+libpthread_la_DEPENDENCIES = $(LIBADD_OBJS) $(EXTRA_OBJS) extra-libtool-objlist
 noinst_DATA=objectlist.awk.in
 LIB_COMPILE = $(LTCOMPILE)
 
@@ -76,11 +75,11 @@ libthread_db_la_SOURCES = $(LIB_DB_SOURCES)
 else
 
 toollib_LIBRARIES = libpthread.a libthread_db.a
-libpthread_a_SOURCES = $(LIB_SOURCES) $(ELIX_SOURCES)
-libpthread_a_LIBADD = $(LIBADD_OBJS) $(MACHINE_LIB)
+libpthread_a_SOURCES = $(LIB_SOURCES)
+libpthread_a_LIBADD = $(LIBADD_OBJS) $(EXTRA_OBJS) $(MACHINE_LIB)
 libpthread_a_CFLAGS = $(AM_CFLAGS)
 ## libpthread_a_DEPENDENCIES = defs.h crti.S
-libpthread_a_DEPENDENCIES = $(LIBADD_OBJS) $(MACHINE_LIB)
+libpthread_a_DEPENDENCIES = $(LIBADD_OBJS) $(EXTRA_OBJS) $(MACHINE_LIB)
 LIB_COMPILE = $(COMPILE)
 
 libthread_db_a_SOURCES = $(LIB_DB_SOURCES)
@@ -100,7 +99,7 @@ install-data-local: install-toollibLIBRARIES
 	  $(DESTDIR)$(toollibdir)/libthread_db.so.1 
 
 AM_CFLAGS = -D_XOPEN_SOURCE=600 -D_GNU_SOURCE=1
-ACLOCAL_AMFLAGS = -I ../../../.. -I ../../../../..
+ACLOCAL_AMFLAGS = -I ../../../..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host
 
 ## PTHREAD_HEADERS=pthread.h semaphore.h
@@ -128,18 +127,18 @@ defs.h: pt-initfini.s
 crti.o: crti.S defs.h
 	$(CC) -g0 $(ASFLAGS) -o $@
 
-$(lpfx)mutex.$(oext): $(srcdir)/mutex.c
+mutex.$(oext): $(srcdir)/mutex.c
 	$(LIB_COMPILE) $(CFLAGS_noweak) -c $< -o $@
 
-$(lpfx)specific.$(oext): $(srcdir)/specific.c
+specific.$(oext): $(srcdir)/specific.c
 	$(LIB_COMPILE) $(CFLAGS_noweak) -c $< -o $@
 
-$(lpfx)pthread.$(oext): $(srcdir)/pthread.c
+pthread.$(oext): $(srcdir)/pthread.c
 	$(LIB_COMPILE) $(CFLAGS_pthread) -c $< -o $@
 
-$(lpfx)ptfork.$(oext): $(srcdir)/ptfork.c
+ptfork.$(oext): $(srcdir)/ptfork.c
 	$(LIB_COMPILE) $(CFLAGS_noweak) -c $< -o $@
 
-$(lpfx)cancel.$(oext): $(srcdir)/cancel.c
+cancel.$(oext): $(srcdir)/cancel.c
 	$(LIB_COMPILE) $(CFLAGS_cancel) -c $< -o $@
 

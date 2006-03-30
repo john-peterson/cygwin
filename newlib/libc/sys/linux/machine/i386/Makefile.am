@@ -19,13 +19,13 @@ else
 noinst_LIBRARIES = lib.a
 lib_a_SOURCES = $(LIB_SOURCES)
 lib_a_CFLAGS = $(AM_CFLAGS)
-lib_a_CCASFLAGS = $(AM_CCASFLAGS)
+lib_a_CCASFLAGS = $(AM_CCASFLAGS) $(AM_CFLAGS)
 noinst_DATA =
 endif # USE_LIBTOOL
 
 include $(srcdir)/../../../../../Makefile.shared
 
-all-local: crt0.o
+all: crt0.o
 
-ACLOCAL_AMFLAGS = -I ../../../../.. -I ../../../../../..
+ACLOCAL_AMFLAGS = -I ../../../../..
 CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host

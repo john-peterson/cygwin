@@ -24,8 +24,7 @@ LIB_SOURCES = \
 	tzlock.c	\
 	tzset.c		\
 	tzset_r.c	\
-	tzvars.c	\
-	wcsftime.c
+	tzvars.c
 
 libtime_la_LDFLAGS = -Xcompiler -nostdlib
 
@@ -40,10 +39,7 @@ lib_a_CFLAGS = $(AM_CFLAGS)
 noinst_DATA =
 endif # USE_LIBTOOL
 
-# This rule is needed so that wcsftime.o is rebuilt when strftime.c changes.
 include $(srcdir)/../../Makefile.shared
-
-$(lpfx)wcsftime.$(oext): strftime.c
 
 CHEWOUT_FILES = \
 	asctime.def	\
@@ -56,8 +52,7 @@ CHEWOUT_FILES = \
 	strftime.def	\
 	time.def	\
 	tzlock.def	\
-	tzset.def	\
-	wcsftime.def
+	tzset.def
 
 SUFFIXES = .def
 
