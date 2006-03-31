@@ -54,12 +54,11 @@ struct pex_msdos
 static int pex_msdos_open (struct pex_obj *, const char *, int);
 static int pex_msdos_open (struct pex_obj *, const char *, int);
 static int pex_msdos_fdindex (struct pex_msdos *, int);
-static pid_t pex_msdos_exec_child (struct pex_obj *, int, const char *,
-				  char * const *, char * const *,
-				  int, int, int, int,
-				  int, const char **, int *);
+static long pex_msdos_exec_child (struct pex_obj *, int, const char *,
+				  char * const *, int, int, int,
+				  const char **, int *);
 static int pex_msdos_close (struct pex_obj *, int);
-static pid_t pex_msdos_wait (struct pex_obj *, pid_t, int *, struct pex_time *,
+static int pex_msdos_wait (struct pex_obj *, long, int *, struct pex_time *,
 			   int, const char **, int *);
 static void pex_msdos_cleanup (struct pex_obj *);
 
@@ -152,10 +151,9 @@ pex_msdos_close (struct pex_obj *obj, int fd)
 
 /* Execute a child.  */
 
-static pid_t
+static long
 pex_msdos_exec_child (struct pex_obj *obj, int flags, const char *executable,
-		      char * const * argv, char * const * env, int in, int out,
-		      int toclose ATTRIBUTE_UNUSED,
+		      char * const * argv, int in, int out,
 		      int errdes ATTRIBUTE_UNUSED, const char **errmsg,
 		      int *err)
 {
@@ -235,7 +233,7 @@ pex_msdos_exec_child (struct pex_obj *obj, int flags, const char *executable,
       free (scmd);
       free (rf);
       *errmsg = "cannot open temporary command file";
-      return (pid_t) -1;
+      return -1;
     }
 
   for (i = 1; argv[i] != NULL; ++i)
@@ -262,7 +260,7 @@ pex_msdos_exec_child (struct pex_obj *obj, int flags, const char *executable,
       free (scmd);
       free (rf);
       *errmsg = "system";
-      return (pid_t) -1;
+      return -1;
     }
 
   remove (rf);
@@ -275,15 +273,15 @@ pex_msdos_exec_child (struct pex_obj *obj, int flags, const char *executable,
   ms->statuses = XRESIZEVEC(int, ms->statuses, obj->count + 1);
   ms->statuses[obj->count] = status;
 
-  return (pid_t) obj->count;
+  return obj->count;
 }
 
 /* Wait for a child process to complete.  Actually the child process
    has already completed, and we just need to return the exit
    status.  */
 
-static pid_t
-pex_msdos_wait (struct pex_obj *obj, pid_t pid, int *status,
+static int
+pex_msdos_wait (struct pex_obj *obj, long pid, int *status,
 		struct pex_time *time, int done ATTRIBUTE_UNUSED,
 		const char **errmsg ATTRIBUTE_UNUSED,
 		int *err ATTRIBUTE_UNUSED)
@@ -310,8 +308,10 @@ pex_msdos_cleanup (struct pex_obj  *obj)
 
   ms = (struct pex_msdos *) obj->sysdep;
   for (i = 0; i < PEX_MSDOS_FILE_COUNT; ++i)
-    free (msdos->files[i]);
-  free (msdos->statuses);
+    if (msdos->files[i] != NULL)
+      free (msdos->files[i]);
+  if (msdos->statuses != NULL)
+    free (msdos->statuses);
   free (msdos);
   obj->sysdep = NULL;
 }
