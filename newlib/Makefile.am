@@ -1,7 +1,7 @@
 ## Process this file with automake to generate Makefile.in
 
 AUTOMAKE_OPTIONS = cygnus dejagnu
-ACLOCAL_AMFLAGS = -I . -I ..
+ACLOCAL_AMFLAGS = -I .
 
 # Multilib support variables.
 MULTISRCTOP =
@@ -13,10 +13,6 @@ MULTICLEAN = true
 
 LIBTOOL_VERSION_INFO = 0:0:0
 
-# The newlib hardware floating-point routines have been disabled due to
-# inaccuracy.  If you wish to work on them, you will need to edit the
-# configure.in file to re-enable the configuration option.  By default,
-# the NEWLIB_HW_FP variable will always be false.
 if NEWLIB_HW_FP
 MATHDIR = mathfp
 else
@@ -30,7 +26,6 @@ AM_MAKEFLAGS = \
 	"AR_FLAGS=$(AR_FLAGS)" \
 	"CC_FOR_BUILD=$(CC_FOR_BUILD)" \
 	"CFLAGS=$(CFLAGS)" \
-	"CCASFLAGS=$(CCASFLAGS)" \
 	"CFLAGS_FOR_BUILD=$(CFLAGS_FOR_BUILD)" \
 	"CFLAGS_FOR_TARGET=$(CFLAGS_FOR_TARGET)" \
 	"INSTALL=$(INSTALL)" \
@@ -94,7 +89,6 @@ toollib_DATA = $(CRT0) $(CRT1)
 # both libc.a and libm.a.  We build them in libm.a and copy them over,
 # along with some required supporting routines.
 MATHOBJS_IN_LIBC = \
-	$(lpfx)s_fpclassify.$(oext) $(lpfx)sf_fpclassify.$(oext) \
 	$(lpfx)s_isinf.$(oext) $(lpfx)sf_isinf.$(oext) \
 	$(lpfx)s_isnan.$(oext) $(lpfx)sf_isnan.$(oext) \
 	$(lpfx)s_isinfd.$(oext) $(lpfx)sf_isinff.$(oext) \
@@ -186,12 +180,11 @@ $(CRT0_DIR)$(CRT0): ; @true
 
 crt1.o: $(CRT1_DIR)$(CRT1)
 	rm -f $@
-	ln $< $@ >/dev/null 2>/dev/null \
-	 || cp $< $@
+	ln $(CRT0_DIR)$(CRT0) $@ >/dev/null 2>/dev/null \
+	 || cp $(CRT0_DIR)$(CRT0) $@
 
 $(CRT1_DIR)$(CRT1): ; @true
 
-$(srcdir)/newlib.hin:
 
 all-recursive: stmp-targ-include
 
@@ -222,16 +215,6 @@ stmp-targ-include: config.status
 	      cp $$i targ-include/`basename $$i`; \
 	    else true; fi ; \
 	  done
-	-for i in $(srcdir)/libc/sys/$(sys_dir)/include/*; do \
-	    if [ -d $$i ]; then \
-		for j in $$i/*.h; do \
-		    if [ ! -d targ-include/`basename $$i` ]; then \
-		    	mkdir targ-include/`basename $$i`; \
-		    fi; \
-	      	    cp $$j targ-include/`basename $$i`/`basename $$j`; \
-		done \
-	    else true; fi ; \
-	  done
 	-for i in $(srcdir)/libc/sys/$(sys_dir)/sys/*.h; do \
 	    if [ -f $$i ]; then \
 	      cp $$i targ-include/sys/`basename $$i`; \
@@ -259,7 +242,7 @@ stmp-targ-include: config.status
 	  done
 	touch $@
 
-CLEANFILES = stmp-targ-include
+CLEANFILES = targ-include stmp-targ-include
 
 install-data-local:	install-toollibLIBRARIES
 if USE_LIBTOOL
@@ -282,10 +265,6 @@ endif
 	    if [ -f $$i ]; then \
 	     $(INSTALL_DATA) $$i $(DESTDIR)$(tooldir)/include/machine/`basename $$i`; \
 	    else true; fi ; \
-	  done; \
-	  $(mkinstalldirs) $(DESTDIR)$(tooldir)/include/rpc; \
-	  for i in $(srcdir)/libc/include/rpc/*.h; do \
-	   $(INSTALL_DATA) $$i $(DESTDIR)$(tooldir)/include/rpc/`basename $$i`; \
 	  done; \
 	  $(mkinstalldirs) $(DESTDIR)$(tooldir)/include/sys; \
 	  for i in $(srcdir)/libc/include/sys/*.h; do \
@@ -322,21 +301,9 @@ endif
 	     $(INSTALL_DATA) $$i $(DESTDIR)$(tooldir)/include/`basename $$i`; \
 	    else true; fi ; \
 	  done ; \
-	  for i in $(srcdir)/libc/sys/$(sys_dir)/include/*; do \
-	    if [ -d $$i ]; then \
-		for j in $$i/*.h; do \
-	            $(INSTALL_DATA) $$j $(DESTDIR)$(tooldir)/include/`basename $$i`/`basename $$j`; \
-		done ; \
-	    else true; fi ; \
-	  done ; \
 	  for i in $(srcdir)/libc/sys/$(sys_dir)/machine/$(machine_dir)/include/*.h; do \
 	    if [ -f $$i ]; then \
 	     $(INSTALL_DATA) $$i $(DESTDIR)$(tooldir)/include/machine/`basename $$i`; \
-	    else true; fi ; \
-	  done ; \
-	  for i in $(NO_INCLUDE_LIST); do \
-	    if [ -f $(DESTDIR)$(tooldir)/include/$$i ]; then \
-		rm $(DESTDIR)$(tooldir)/include/$$i; \
 	    else true; fi ; \
 	  done ; \
 	else true; fi
@@ -439,6 +406,3 @@ check-DEJAGNU: site.exp
 	else \
 	   echo "WARNING: could not find \`runtest'" 1>&2 ; \
 	fi
-
-clean-local:
-	-rm -rf targ-include
