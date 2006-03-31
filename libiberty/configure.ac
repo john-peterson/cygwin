@@ -1,6 +1,6 @@
 dnl Process this file with autoconf to produce a configure script
 
-AC_PREREQ(2.64)
+AC_PREREQ(2.59)
 AC_INIT
 AC_CONFIG_SRCDIR([xmalloc.c])
 
@@ -109,33 +109,30 @@ dnl to call AC_CHECK_PROG.
 AC_CHECK_TOOL(AR, ar)
 AC_CHECK_TOOL(RANLIB, ranlib, :)
 
-dnl When switching to automake, replace the following with AM_ENABLE_MULTILIB.
-# Add --enable-multilib to configure.
-# Default to --enable-multilib
-AC_ARG_ENABLE(multilib,
-[  --enable-multilib       build many library versions (default)],
-[case "$enableval" in
-  yes) multilib=yes ;;
-  no)  multilib=no ;;
-  *)   AC_MSG_ERROR([bad value $enableval for multilib option]) ;;
- esac],
-	      [multilib=yes])
-
-# Even if the default multilib is not a cross compilation,
-# it may be that some of the other multilibs are.
-if test $cross_compiling = no && test $multilib = yes \
-   && test "x${with_multisubdir}" != x ; then
-   cross_compiling=maybe
-fi
-
 GCC_NO_EXECUTABLES
 AC_PROG_CC
-AC_SYS_LARGEFILE
 AC_PROG_CPP_WERROR
 
-ACX_PROG_CC_WARNING_OPTS([-W -Wall -Wwrite-strings -Wc++-compat \
-			  -Wstrict-prototypes], [ac_libiberty_warn_cflags])
-ACX_PROG_CC_WARNING_ALMOST_PEDANTIC([], [ac_libiberty_warn_cflags])
+# Warn C++ incompatibilities if supported.
+AC_CACHE_CHECK(
+  [whether ${CC} accepts -Wc++-compat],
+  [ac_cv_prog_cc_w_cxx_compat],
+  [save_CFLAGS="$CFLAGS"
+  CFLAGS="-Wc++-compat"
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[]])],
+                    [ac_cv_prog_cc_w_cxx_compat=yes],
+                    [ac_cv_prog_cc_w_cxx_compat=no])
+  CFLAGS="$save_CFLAGS"
+  ])
+
+
+if test x$GCC = xyes; then
+  ac_libiberty_warn_cflags='-W -Wall -pedantic -Wwrite-strings -Wstrict-prototypes'
+fi
+if test $ac_cv_prog_cc_w_cxx_compat = yes ; then
+  ac_libiberty_warn_cflags="${ac_libiberty_warn_cflags} -Wc++-compat"
+fi
+AC_SUBST(ac_libiberty_warn_cflags)
 
 AC_PROG_CC_C_O
 # autoconf is lame and doesn't give us any substitution variable for this.
@@ -188,10 +185,10 @@ case "${host}" in
 esac
 
 if [[ -n "${frag}" ]]; then
-  frag=${libiberty_topdir}/libiberty/config/$frag
+  frags=${libiberty_topdir}/libiberty/config/$frag
+else
+  frags=
 fi
-
-GCC_PICFLAG
 
 # If they didn't specify --enable-shared, don't generate shared libs.
 case "${enable_shared}" in
@@ -200,18 +197,35 @@ case "${enable_shared}" in
   "") shared=no ;;
   *) shared=yes ;;
 esac
-if [[ "${shared}" != "yes" ]]; then
-  PICFLAG=
+if [[ "${shared}" = "yes" ]]; then
+  frag=
+  case "${host}" in
+    *-*-cygwin*)	;;
+    alpha*-*-linux*)	frag=mh-elfalphapic ;;
+    arm*-*-*)		frag=mh-armpic ;;
+    hppa*-*-*)		frag=mh-papic ;;
+    i[[34567]]86-*-* | x86_64-*-*)
+			frag=mh-x86pic ;;
+    powerpc*-*-aix*)	;;
+    powerpc*-*-*)	frag=mh-ppcpic ;;
+    sparc*-*-*)		frag=mh-sparcpic ;;
+    s390*-*-*)		frag=mh-s390pic ;;
+    *)			frag=mh-${host_cpu}pic ;;
+  esac
+  if [[ -n "${frag}" ]]; then
+    frags="${frags} ${libiberty_topdir}/config/${frag}"
+  fi
 fi
-AC_SUBST(PICFLAG)
 
 echo "# Warning: this fragment is automatically generated" > temp-frag
 
-if [[ -n "${frag}" ]] && [[ -f "${frag}" ]]; then
-  echo "Appending ${frag} to xhost-mkfrag"
-  echo "# Following fragment copied from ${frag}" >> temp-frag
-  cat ${frag} >> temp-frag
-fi
+for frag in ${frags}; do
+  if [[ -f ${frag} ]]; then
+    echo "Appending ${frag} to xhost-mkfrag"
+    echo "# Following fragment copied from ${frag}" >> temp-frag
+    cat ${frag} >> temp-frag
+  fi
+done
 
 # record if we want to build shared libs.
 if [[ "${shared}" = "yes" ]]; then
@@ -229,7 +243,7 @@ AC_SUBST_FILE(host_makefile_frag)
 # It's OK to check for header files.  Although the compiler may not be
 # able to link anything, it had better be able to at least compile
 # something.
-AC_CHECK_HEADERS(sys/file.h sys/param.h limits.h stdlib.h malloc.h string.h unistd.h strings.h sys/time.h time.h sys/resource.h sys/stat.h sys/mman.h fcntl.h alloca.h sys/pstat.h sys/sysmp.h sys/sysinfo.h machine/hal_sysinfo.h sys/table.h sys/sysctl.h sys/systemcfg.h stdint.h stdio_ext.h process.h sys/prctl.h)
+AC_CHECK_HEADERS(sys/file.h sys/param.h limits.h stdlib.h malloc.h string.h unistd.h strings.h sys/time.h time.h sys/resource.h sys/stat.h sys/mman.h fcntl.h alloca.h sys/pstat.h sys/sysmp.h sys/sysinfo.h machine/hal_sysinfo.h sys/table.h sys/sysctl.h sys/systemcfg.h stdint.h stdio_ext.h)
 AC_HEADER_SYS_WAIT
 AC_HEADER_TIME
 
@@ -237,6 +251,8 @@ libiberty_AC_DECLARE_ERRNO
 
 # Determine the size of an int for struct fibnode.
 AC_CHECK_SIZEOF([int])
+
+AC_CHECK_TYPE(uintptr_t, unsigned long)
 
 # Look for a 64-bit type.
 AC_MSG_CHECKING([for a 64-bit type])
@@ -271,10 +287,6 @@ if test "$liberty_cv_uint64" != none; then
                      [Define to an unsigned 64-bit type available in the compiler.])
 fi
 
-AC_TYPE_INTPTR_T
-AC_TYPE_UINTPTR_T
-AC_TYPE_SSIZE_T
-
 # Given the above check, we always have uintptr_t or a fallback
 # definition.  So define HAVE_UINTPTR_T in case any imported code
 # relies on it.
@@ -303,7 +315,6 @@ funcs="$funcs insque"
 funcs="$funcs memchr"
 funcs="$funcs memcmp"
 funcs="$funcs memcpy"
-funcs="$funcs memmem"
 funcs="$funcs memmove"
 funcs="$funcs mempcpy"
 funcs="$funcs memset"
@@ -322,7 +333,6 @@ funcs="$funcs strchr"
 funcs="$funcs strdup"
 funcs="$funcs strncasecmp"
 funcs="$funcs strndup"
-funcs="$funcs strnlen"
 funcs="$funcs strrchr"
 funcs="$funcs strstr"
 funcs="$funcs strtod"
@@ -336,39 +346,28 @@ funcs="$funcs vprintf"
 funcs="$funcs vsnprintf"
 funcs="$funcs vsprintf"
 funcs="$funcs waitpid"
-funcs="$funcs setproctitle"
 
 # Also in the old function.def file: alloca, vfork, getopt.
 
 vars="sys_errlist sys_nerr sys_siglist"
 
-checkfuncs="__fsetlocking canonicalize_file_name dup3 getrlimit getrusage \
- getsysinfo gettimeofday on_exit psignal pstat_getdynamic pstat_getstatic \
- realpath setrlimit sbrk spawnve spawnvpe strerror strsignal sysconf sysctl \
- sysmp table times wait3 wait4"
+checkfuncs="getrusage on_exit psignal strerror strsignal sysconf times sbrk gettimeofday"
+checkfuncs="$checkfuncs realpath canonicalize_file_name pstat_getstatic pstat_getdynamic sysmp"
+checkfuncs="$checkfuncs getsysinfo table sysctl wait3 wait4 __fsetlocking"
 
 # These are neither executed nor required, but they help keep
 # autoheader happy without adding a bunch of text to acconfig.h.
 if test "x" = "y"; then
-  AC_CHECK_FUNCS(asprintf atexit \
-    basename bcmp bcopy bsearch bzero \
-    calloc canonicalize_file_name clock \
-    dup3 \
-    ffs __fsetlocking \
-    getcwd getpagesize getrlimit getrusage getsysinfo gettimeofday \
-    index insque \
-    memchr memcmp memcpy memmem memmove memset mkstemps \
-    on_exit \
-    psignal pstat_getdynamic pstat_getstatic putenv \
-    random realpath rename rindex \
-    sbrk setenv setproctitle setrlimit sigsetmask snprintf spawnve spawnvpe \
-     stpcpy stpncpy strcasecmp strchr strdup \
-     strerror strncasecmp strndup strnlen strrchr strsignal strstr strtod \
-     strtol strtoul strverscmp sysconf sysctl sysmp \
-    table times tmpnam \
-    vasprintf vfprintf vprintf vsprintf \
-    wait3 wait4 waitpid)
-  AC_CHECK_DECLS([basename(char *), ffs, asprintf, vasprintf, snprintf, vsnprintf])
+  AC_CHECK_FUNCS(asprintf atexit basename bcmp bcopy bsearch bzero calloc clock \
+  getcwd getpagesize gettimeofday index insque mkstemps memchr memcmp memcpy \
+  memmove mempcpy memset putenv random rename rindex sigsetmask \
+  strcasecmp setenv stpcpy stpncpy strchr strdup strncasecmp strndup strrchr strstr \
+  strtod strtol strtoul strverscmp tmpnam vasprintf vfprintf vprintf \
+  vsprintf waitpid getrusage on_exit psignal strerror strsignal \
+  sysconf times sbrk gettimeofday ffs snprintf vsnprintf \
+  pstat_getstatic pstat_getdynamic sysmp getsysinfo table sysctl wait3 wait4 \
+  realpath canonicalize_file_name __fsetlocking)
+  AC_CHECK_DECLS([basename, ffs, asprintf, vasprintf, snprintf, vsnprintf])
   AC_DEFINE(HAVE_SYS_ERRLIST, 1, [Define if you have the sys_errlist variable.])
   AC_DEFINE(HAVE_SYS_NERR,    1, [Define if you have the sys_nerr variable.])
   AC_DEFINE(HAVE_SYS_SIGLIST, 1, [Define if you have the sys_siglist variable.])
@@ -419,78 +418,6 @@ if test -n "${with_target_subdir}"; then
     setobjs=yes
 
   fi
-
-  # If we are being configured for Mingw, we know which functions
-  # Mingw provides and which ones we will be expected to provide.
-
-  case "${host}" in
-  *-*-mingw*)
-    AC_LIBOBJ([asprintf])
-    AC_LIBOBJ([basename])
-    AC_LIBOBJ([bcmp])
-    AC_LIBOBJ([bcopy])
-    AC_LIBOBJ([bzero])
-    AC_LIBOBJ([clock])
-    AC_LIBOBJ([ffs])
-    AC_LIBOBJ([getpagesize])
-    AC_LIBOBJ([index])
-    AC_LIBOBJ([insque])
-    AC_LIBOBJ([mempcpy])
-    AC_LIBOBJ([mkstemps])
-    AC_LIBOBJ([random])
-    AC_LIBOBJ([rindex])
-    AC_LIBOBJ([sigsetmask])
-    AC_LIBOBJ([stpcpy])
-    AC_LIBOBJ([stpncpy])
-    AC_LIBOBJ([strndup])
-    AC_LIBOBJ([strnlen])
-    AC_LIBOBJ([strverscmp])
-    AC_LIBOBJ([vasprintf])
-    AC_LIBOBJ([waitpid])
-
-    for f in $funcs; do
-      case "$f" in
-	asprintf | basename | bcmp | bcopy | bzero | clock | ffs | getpagesize | index | insque | mempcpy | mkstemps | random | rindex | sigsetmask | stpcpy | stpncpy | strdup | strndup | strnlen | strverscmp | vasprintf | waitpid)
-	  ;;
-	*)
-	  n=HAVE_`echo $f | tr 'abcdefghijklmnopqrstuvwxyz' 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'`
-	  AC_DEFINE_UNQUOTED($n)
-	  ;;
-      esac
-    done
-
-    # Mingw doesnt provide any of the variables in $vars, so we
-    # dont have to check them here.
-
-    # Of the functions in $checkfuncs, Mingw only has strerror.
-    AC_DEFINE(HAVE_STRERROR)
-
-    setobjs=yes
-    ;;
-
-  *-*-msdosdjgpp)
-    AC_LIBOBJ([vasprintf])
-    AC_LIBOBJ([vsnprintf])
-    AC_LIBOBJ([snprintf])
-    AC_LIBOBJ([asprintf])
-
-    for f in atexit basename bcmp bcopy bsearch bzero calloc clock ffs \
-             getcwd getpagesize getrusage gettimeofday \
-             index insque memchr memcmp memcpy memmove memset psignal \
-             putenv random rename rindex sbrk setenv stpcpy strcasecmp \
-             strchr strdup strerror strncasecmp strrchr strstr strtod \
-             strtol strtoul sysconf times tmpnam vfprintf vprintf \
-             vsprintf waitpid
-    do
-      n=HAVE_`echo $f | tr 'abcdefghijklmnopqrstuvwxyz' 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'`
-      AC_DEFINE_UNQUOTED($n)
-    done
-
-
-    setobjs=yes
-    ;;
-
-  esac
 
   # We may wish to install the target headers somewhere.
   AC_ARG_ENABLE(install-libiberty,
@@ -576,6 +503,29 @@ if test -z "${setobjs}"; then
 
   case "${host}" in
 
+  *-*-cygwin*)
+    # The Cygwin library actually uses a couple of files from
+    # libiberty when it is built.  If we are building a native
+    # Cygwin, and we run the tests, we will appear to have these
+    # files.  However, when we go on to build winsup, we will wind up
+    # with a library which does not have the files, since they should
+    # have come from libiberty.
+
+    # We handle this by removing the functions the winsup library
+    # provides from our shell variables, so that they appear to be
+    # missing.
+
+    # DJ - only if we're *building* cygwin, not just building *with* cygwin
+  
+    if test -n "${with_target_subdir}"
+    then
+      funcs="`echo $funcs | sed -e 's/random//'`"
+      AC_LIBOBJ([random])
+      vars="`echo $vars | sed -e 's/sys_siglist//'`"
+      checkfuncs="`echo $checkfuncs | sed -e 's/strsignal//' -e 's/psignal//'`"
+    fi
+    ;;
+
   *-*-mingw32*)
     # Under mingw32, sys_nerr and sys_errlist exist, but they are
     # macros, so the test below won't find them.
@@ -653,7 +603,7 @@ if test -z "${setobjs}"; then
     [AC_MSG_RESULT([no])])
 
   AC_CHECK_FUNCS($checkfuncs)
-  AC_CHECK_DECLS([basename(char *), ffs, asprintf, vasprintf, snprintf, vsnprintf])
+  AC_CHECK_DECLS([basename, ffs, asprintf, vasprintf, snprintf, vsnprintf])
   AC_CHECK_DECLS([calloc, getenv, getopt, malloc, realloc, sbrk])
   AC_CHECK_DECLS([strverscmp])
   libiberty_NEED_DECLARATION(canonicalize_file_name)
@@ -661,12 +611,19 @@ fi
 
 # Figure out which version of pexecute to use.
 case "${host}" in
-     *-*-mingw* | *-*-winnt*)	pexecute=pex-win32  ;;
-     *-*-msdosdjgpp*)		pexecute=pex-djgpp  ;;
-     *-*-msdos*)		pexecute=pex-msdos  ;;
-     *)				pexecute=pex-unix   ;;
+     *-*-mingw* | *-*-winnt*)	pexecute=./pex-win32.o  ;;
+     *-*-msdosdjgpp*)		pexecute=./pex-djgpp.o  ;;
+     *-*-msdos*)		pexecute=./pex-msdos.o  ;;
+     *)				pexecute=./pex-unix.o   ;;
 esac
 AC_SUBST(pexecute)
+
+# On MinGW, add support for Cygwin paths.
+case "${host}" in
+     *-*-mingw*)
+	AC_LIBOBJ([cygpath])
+	;;
+esac
 
 libiberty_AC_FUNC_STRNCMP
 
@@ -688,11 +645,6 @@ for l in x $LIBOBJS; do
   esac
 done
 LIBOBJS="$L"
-
-dnl Required by html and install-html
-AC_SUBST(datarootdir)
-AC_SUBST(docdir)
-AC_SUBST(htmldir)
 
 # We need multilib support, but only if configuring for the target.
 AC_CONFIG_FILES([Makefile testsuite/Makefile])
