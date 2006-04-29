@@ -1,8 +1,6 @@
-	.arch armv7
-	.syntax unified
-	.thumb
+.thumb
 foo:
-	bl	1f
-1:	it	cc
-	bcc.w	.+0xe0c
-	bx	lr
+.short 0xf000, 0xf800
+.short 0xbf38
+.short 0xf000, 0xbf04
+bx lr
