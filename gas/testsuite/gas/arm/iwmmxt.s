@@ -203,8 +203,7 @@ iwmmxt:
 
 	wzeroge		wr7
 
-	tmcr		wcgr0, r0
-	tmrc		r1, wcgr2
-
 	@ a.out-required section size padding
+	nop
+	nop
 	nop
