@@ -1,6 +1,5 @@
 @ VFP with Neon-style syntax
 	.syntax unified
-	.arch armv7-a
 
 	.include "itblock.s"
 
@@ -10,7 +9,7 @@ func:
         vmov\cond\f32 s0,s1
         vmov\cond\f64 d0,d1
         vmov\cond\f32 s0,#0.25
-        vmov\cond\f64 d0,#1.0
+        vmov\cond\f64 d0,#1
 	itblock 4 \cond
         vmov\cond r0,s1
         vmov\cond s0,r1
