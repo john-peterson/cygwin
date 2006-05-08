@@ -1,13 +1,13 @@
 /* Opcode table header for m680[01234]0/m6888[12]/m68851.
    Copyright 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1999, 2001,
-   2003, 2004, 2006, 2010 Free Software Foundation, Inc.
+   2003, 2004, 2006 Free Software Foundation, Inc.
 
    This file is part of GDB, GAS, and the GNU binutils.
 
    GDB, GAS, and the GNU binutils are free software; you can redistribute
    them and/or modify them under the terms of the GNU General Public
-   License as published by the Free Software Foundation; either version 3,
-   or (at your option) any later version.
+   License as published by the Free Software Foundation; either version
+   1, or (at your option) any later version.
 
    GDB, GAS, and the GNU binutils are distributed in the hope that they
    will be useful, but WITHOUT ANY WARRANTY; without even the implied
@@ -15,7 +15,7 @@
    the GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING3.  If not, write to the Free
+   along with this file; see the file COPYING.  If not, write to the Free
    Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
    02110-1301, USA.  */
 
@@ -31,30 +31,66 @@
 #define	m68881   0x040
 #define	m68851   0x080
 #define cpu32	 0x100		/* e.g., 68332 */
-#define fido_a   0x200
-#define m68k_mask  0x3ff
+#define m68k_mask  0x1ff
 
-#define mcfmac   0x400		/* ColdFire MAC. */
-#define mcfemac  0x800		/* ColdFire EMAC. */
-#define cfloat   0x1000		/* ColdFire FPU.  */
-#define mcfhwdiv 0x2000		/* ColdFire hardware divide.  */
+#define mcfmac   0x200		/* ColdFire MAC. */
+#define mcfemac  0x400		/* ColdFire EMAC. */
+#define cfloat   0x800		/* ColdFire FPU.  */
+#define mcfhwdiv 0x1000		/* ColdFire hardware divide.  */
 
-#define mcfisa_a 0x4000		/* ColdFire ISA_A.  */
-#define mcfisa_aa 0x8000	/* ColdFire ISA_A+.  */
-#define mcfisa_b 0x10000	/* ColdFire ISA_B.  */
-#define mcfisa_c 0x20000	/* ColdFire ISA_C.  */
-#define mcfusp   0x40000	/* ColdFire USP instructions.  */
-#define mcf_mask 0x7e400
+#define mcfisa_a 0x2000		/* ColdFire ISA_A.  */
+#define mcfisa_aa 0x4000	/* ColdFire ISA_A+.  */
+#define mcfisa_b 0x8000		/* ColdFire ISA_B.  */
+#define mcfusp   0x10000	/* ColdFire USP instructions.  */
+#define mcf_mask 0x1f200
 
 /* Handy aliases.  */
 #define	m68040up   (m68040 | m68060)
 #define	m68030up   (m68030 | m68040up)
 #define	m68020up   (m68020 | m68030up)
-#define	m68010up   (m68010 | cpu32 | fido_a | m68020up)
+#define	m68010up   (m68010 | cpu32 | m68020up)
 #define	m68000up   (m68000 | m68010up)
 
 #define	mfloat  (m68881 | m68040 | m68060)
 #define	mmmu    (m68851 | m68030 | m68040 | m68060)
+
+/* CPU numbering.  There are too many of these to use a bit vector.
+   These are a one-of-many selection.  Choose a numbering scheme that
+   simply maps onto manufacturer's part numbers. */
+
+/* All m68k cpus */
+#define cpu_m68k 0
+/* All coldfire cpus */
+#define cpu_cf  1000000
+
+#define cpu_m68000  (cpu_m68k + 68000)
+#define	cpu_m68008  cpu_m68000 /* Synonym for -m68000.  otherwise unused.  */
+#define	cpu_m68010  (cpu_m68k + 68010)
+#define	cpu_m68020  (cpu_m68k + 68020)
+#define	cpu_m68030  (cpu_m68k + 68030)
+#define cpu_m68ec030 cpu_m68030 /* Similar enough to -m68030 to ignore
+			   differences; gas will deal with the few
+			   differences.  */
+#define	cpu_m68040  (cpu_m68k + 68040)
+/* There is no 68050.  */
+#define cpu_m68060  (cpu_m68k + 68060)
+#define	cpu_m68851  (cpu_m68k + 68851)
+#define	cpu_m68881  (cpu_m68k + 68881)
+#define	cpu_m68882   cpu_m68881 /* Synonym for -m68881.  otherwise unused.  */
+#define cpu_cpu32   (cpu_m68k + 32)
+
+#define cpu_cf5200  (cpu_cf + 5200)
+#define cpu_cf5206e (cpu_cf + 5206)
+#define cpu_cf5208  (cpu_cf + 5208)
+#define cpu_cf521x  (cpu_cf + 5210)
+#define cpu_cf5213  (cpu_cf + 5213)
+#define cpu_cf5249  (cpu_cf + 5249)
+#define cpu_cf528x  (cpu_cf + 5280)
+#define cpu_cf5307  (cpu_cf + 5307)
+#define cpu_cf5329  (cpu_cf + 5329)
+#define cpu_cf5407  (cpu_cf + 5407)
+#define cpu_cf547x  (cpu_cf + 5470)
+#define cpu_cf548x  (cpu_cf + 5480)
 
 /* The structure used to hold information for an opcode.  */
 
@@ -96,15 +132,10 @@ struct m68k_opcode_alias
 
    The args field is a string containing two characters for each
    operand of the instruction.  The first specifies the kind of
-   operand; the second, the place it is stored.
-
-   If the first char of args is '.', it indicates that the opcode is
-   two words.  This is only necessary when the match field does not
-   have any bits set in the second opcode word.  Such a '.' is skipped
-   for operand processing.  */
+   operand; the second, the place it is stored.  */
 
 /* Kinds of operands:
-   Characters used: AaBbCcDdEeFfGgHIiJjKkLlMmnOopQqRrSsTtUuVvWwXxYyZz01234|*~%;@!&$?/<>#^+-
+   Characters used: AaBbCcDdEeFfGgHIiJkLlMmnOopQqRrSsTtU VvWwXxYyZz01234|*~%;@!&$?/<>#^+-
 
    D  data register only.  Stored as 3 bits.
    A  address register only.  Stored as 3 bits.
@@ -239,8 +270,6 @@ struct m68k_opcode_alias
    y						(modes 2,5)
    z						(modes 2,5,7.2)
    x  mov3q immediate operand.
-   j  coprocessor ET operand.
-   K  coprocessor command number.
    4						(modes 2,3,4,5)
   */
 
@@ -308,7 +337,6 @@ struct m68k_opcode_alias
    7  second word, shifted 7
    8  second word, shifted 10
    9  second word, shifted 5
-   E  second word, shifted 9
    D  store in both place 1 and place 3; for divul and divsl.
    B  first word, low byte, for branch displacements
    W  second word (entire), for branch displacements
