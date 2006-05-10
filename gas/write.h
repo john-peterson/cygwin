@@ -1,13 +1,12 @@
 /* write.h
    Copyright 1987, 1992, 1993, 1994, 1995, 1996, 1997, 1999, 2000, 2001,
-   2002, 2003, 2005, 2006, 2007
-   Free Software Foundation, Inc.
+   2002, 2003, 2005, 2006 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -22,6 +21,12 @@
 
 #ifndef __write_h__
 #define __write_h__
+
+#ifndef TC_I960
+#ifdef hpux
+#define EXEC_MACHINE_TYPE HP9000S200_ID
+#endif
+#endif /* TC_I960 */
 
 /* This is the name of a fake symbol which will never appear in the
    assembler output.  S_IS_LOCAL detects it because of the \001.  */
@@ -40,16 +45,29 @@ struct fix
   /* These small fields are grouped together for compactness of
      this structure, and efficiency of access on some architectures.  */
 
+  /* pc-relative offset adjust (only used by m68k) */
+  char fx_pcrel_adjust;
+
+  /* How many bytes are involved? */
+  unsigned char fx_size;
+
   /* Is this a pc-relative relocation?  */
   unsigned fx_pcrel : 1;
 
+  /* Is this a relocation to a procedure linkage table entry?  If so,
+     some of the reductions we try to apply are invalid.  A better way
+     might be to represent PLT entries with different kinds of
+     symbols, and use normal relocations (with undefined symbols);
+     look into it for version 2.6.  */
+  unsigned fx_plt : 1;
+
   /* Is this value an immediate displacement?  */
-  /* Only used on ns32k; merge it into TC_FIX_TYPE sometime.  */
+  /* Only used on i960 and ns32k; merge it into TC_FIX_TYPE sometime.  */
   unsigned fx_im_disp : 2;
 
-  /* Some bits for the CPU specific code.  */
+  /* A bit for the CPU specific code.
+     This probably can be folded into tc_fix_data, below.  */
   unsigned fx_tcbit : 1;
-  unsigned fx_tcbit2 : 1;
 
   /* Has this relocation already been applied?  */
   unsigned fx_done : 1;
@@ -63,12 +81,6 @@ struct fix
 
   /* The value is signed when checking for overflow.  */
   unsigned fx_signed : 1;
-
-  /* pc-relative offset adjust (only used by some CPU specific code) */
-  signed char fx_pcrel_adjust;
-
-  /* How many bytes are involved? */
-  unsigned char fx_size;
 
   /* Which frag does this fix apply to?  */
   fragS *fx_frag;
@@ -120,10 +132,6 @@ struct fix
     const struct cgen_insn *insn;
     /* Target specific data, usually reloc number.  */
     int opinfo;
-    /* Which ifield this fixup applies to. */
-    struct cgen_maybe_multi_ifield * field;
-    /* is this field is the MSB field in a set? */
-    int msb_field_p;
   } fx_cgen;
 #endif
 
@@ -136,33 +144,11 @@ struct fix
 
 typedef struct fix fixS;
 
-struct reloc_list
-{
-  struct reloc_list *next;
-  union
-  {
-    struct
-    {
-      symbolS *offset_sym;
-      reloc_howto_type *howto;
-      symbolS *sym;
-      bfd_vma addend;
-    } a;
-    struct
-    {
-      asection *sec;
-      asymbol *s;
-      arelent r;
-    } b;
-  } u;
-  char *file;
-  unsigned int line;
-};
-
 extern int finalize_syms;
 extern symbolS *abs_section_sym;
 extern addressT dot_value;
-extern struct reloc_list* reloc_list;
+extern long string_byte_count;
+extern int section_alignment[];
 
 extern void append (char **charPP, char *fromP, unsigned long length);
 extern void record_alignment (segT seg, int align);
@@ -175,9 +161,6 @@ extern void number_to_chars_littleendian (char *, valueT, int);
 extern void number_to_chars_bigendian (char *, valueT, int);
 extern fixS *fix_new
   (fragS * frag, int where, int size, symbolS * add_symbol,
-   offsetT offset, int pcrel, bfd_reloc_code_real_type r_type);
-extern fixS *fix_at_start
-  (fragS * frag, int size, symbolS * add_symbol,
    offsetT offset, int pcrel, bfd_reloc_code_real_type r_type);
 extern fixS *fix_new_exp
   (fragS * frag, int where, int size, expressionS *exp, int pcrel,
