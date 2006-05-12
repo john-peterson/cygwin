@@ -1,12 +1,14 @@
 /* Top level stuff for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994,
+   1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "top.h"
@@ -37,49 +41,43 @@
 
 #include "interps.h"
 #include "main.h"
-#include "source.h"
-#include "cli/cli-cmds.h"
-#include "python/python.h"
-#include "objfiles.h"
-#include "auto-load.h"
+
+/* If nonzero, display time usage both at startup and for each command.  */
+
+int display_time;
+
+/* If nonzero, display space usage both at startup and for each command.  */
+
+int display_space;
+
+/* Whether this is the async version or not.  The async version is
+   invoked on the command line with the -nw --async options.  In this
+   version, the usual command_loop is substituted by and event loop which
+   processes UI events asynchronously. */
+int event_loop_p = 0;
 
 /* The selected interpreter.  This will be used as a set command
    variable, so it should always be malloc'ed - since
-   do_setshow_command will free it.  */
+   do_setshow_command will free it. */
 char *interpreter_p;
 
-/* Whether xdb commands will be handled.  */
+/* Whether xdb commands will be handled */
 int xdb_commands = 0;
 
-/* Whether dbx commands will be handled.  */
+/* Whether dbx commands will be handled */
 int dbx_commands = 0;
 
 /* System root path, used to find libraries etc.  */
 char *gdb_sysroot = 0;
 
-/* GDB datadir, used to store data files.  */
-char *gdb_datadir = 0;
-
-/* Non-zero if GDB_DATADIR was provided on the command line.
-   This doesn't track whether data-directory is set later from the
-   command line, but we don't reread system.gdbinit when that happens.  */
-static int gdb_datadir_provided = 0;
-
-/* If gdb was configured with --with-python=/path,
-   the possibly relocated path to python's lib directory.  */
-char *python_libdir = 0;
-
 struct ui_file *gdb_stdout;
 struct ui_file *gdb_stderr;
 struct ui_file *gdb_stdlog;
 struct ui_file *gdb_stdin;
-/* Target IO streams.  */
+/* target IO streams */
 struct ui_file *gdb_stdtargin;
 struct ui_file *gdb_stdtarg;
 struct ui_file *gdb_stdtargerr;
-
-/* True if --batch or --batch-silent was seen.  */
-int batch_flag = 0;
 
 /* Support for the --batch-silent option.  */
 int batch_silent = 0;
@@ -90,169 +88,22 @@ int batch_silent = 0;
 int return_child_result = 0;
 int return_child_result_value = -1;
 
-
-/* GDB as it has been invoked from the command line (i.e. argv[0]).  */
-static char *gdb_program_name;
+/* Whether to enable writing into executable and core files */
+extern int write_files;
 
 static void print_gdb_help (struct ui_file *);
 
-/* Relocate a file or directory.  PROGNAME is the name by which gdb
-   was invoked (i.e., argv[0]).  INITIAL is the default value for the
-   file or directory.  FLAG is true if the value is relocatable, false
-   otherwise.  Returns a newly allocated string; this may return NULL
-   under the same conditions as make_relative_prefix.  */
+/* These two are used to set the external editor commands when gdb is farming
+   out files to be edited by another program. */
 
-static char *
-relocate_path (const char *progname, const char *initial, int flag)
-{
-  if (flag)
-    return make_relative_prefix (progname, BINDIR, initial);
-  return xstrdup (initial);
-}
-
-/* Like relocate_path, but specifically checks for a directory.
-   INITIAL is relocated according to the rules of relocate_path.  If
-   the result is a directory, it is used; otherwise, INITIAL is used.
-   The chosen directory is then canonicalized using lrealpath.  This
-   function always returns a newly-allocated string.  */
-
-char *
-relocate_gdb_directory (const char *initial, int flag)
-{
-  char *dir;
-
-  dir = relocate_path (gdb_program_name, initial, flag);
-  if (dir)
-    {
-      struct stat s;
-
-      if (*dir == '\0' || stat (dir, &s) != 0 || !S_ISDIR (s.st_mode))
-	{
-	  xfree (dir);
-	  dir = NULL;
-	}
-    }
-  if (!dir)
-    dir = xstrdup (initial);
-
-  /* Canonicalize the directory.  */
-  if (*dir)
-    {
-      char *canon_sysroot = lrealpath (dir);
-
-      if (canon_sysroot)
-	{
-	  xfree (dir);
-	  dir = canon_sysroot;
-	}
-    }
-
-  return dir;
-}
-
-/* Compute the locations of init files that GDB should source and
-   return them in SYSTEM_GDBINIT, HOME_GDBINIT, LOCAL_GDBINIT.  If
-   there is no system gdbinit (resp. home gdbinit and local gdbinit)
-   to be loaded, then SYSTEM_GDBINIT (resp. HOME_GDBINIT and
-   LOCAL_GDBINIT) is set to NULL.  */
-static void
-get_init_files (char **system_gdbinit,
-		char **home_gdbinit,
-		char **local_gdbinit)
-{
-  static char *sysgdbinit = NULL;
-  static char *homeinit = NULL;
-  static char *localinit = NULL;
-  static int initialized = 0;
-
-  if (!initialized)
-    {
-      struct stat homebuf, cwdbuf, s;
-      char *homedir;
-
-      if (SYSTEM_GDBINIT[0])
-	{
-	  int datadir_len = strlen (GDB_DATADIR);
-	  int sys_gdbinit_len = strlen (SYSTEM_GDBINIT);
-	  char *relocated_sysgdbinit;
-
-	  /* If SYSTEM_GDBINIT lives in data-directory, and data-directory
-	     has been provided, search for SYSTEM_GDBINIT there.  */
-	  if (gdb_datadir_provided
-	      && datadir_len < sys_gdbinit_len
-	      && strncmp (SYSTEM_GDBINIT, GDB_DATADIR, datadir_len) == 0
-	      && strchr (SLASH_STRING, SYSTEM_GDBINIT[datadir_len]) != NULL)
-	    {
-	      /* Append the part of SYSTEM_GDBINIT that follows GDB_DATADIR
-		 to gdb_datadir.  */
-	      char *tmp_sys_gdbinit = xstrdup (SYSTEM_GDBINIT + datadir_len);
-	      char *p;
-
-	      for (p = tmp_sys_gdbinit; strchr (SLASH_STRING, *p); ++p)
-		continue;
-	      relocated_sysgdbinit = concat (gdb_datadir, SLASH_STRING, p,
-					     NULL);
-	      xfree (tmp_sys_gdbinit);
-	    }
-	  else
-	    {
-	      relocated_sysgdbinit = relocate_path (gdb_program_name,
-						    SYSTEM_GDBINIT,
-						    SYSTEM_GDBINIT_RELOCATABLE);
-	    }
-	  if (relocated_sysgdbinit && stat (relocated_sysgdbinit, &s) == 0)
-	    sysgdbinit = relocated_sysgdbinit;
-	  else
-	    xfree (relocated_sysgdbinit);
-	}
-
-      homedir = getenv ("HOME");
-
-      /* If the .gdbinit file in the current directory is the same as
-	 the $HOME/.gdbinit file, it should not be sourced.  homebuf
-	 and cwdbuf are used in that purpose.  Make sure that the stats
-	 are zero in case one of them fails (this guarantees that they
-	 won't match if either exists).  */
-
-      memset (&homebuf, 0, sizeof (struct stat));
-      memset (&cwdbuf, 0, sizeof (struct stat));
-
-      if (homedir)
-	{
-	  homeinit = xstrprintf ("%s/%s", homedir, gdbinit);
-	  if (stat (homeinit, &homebuf) != 0)
-	    {
-	      xfree (homeinit);
-	      homeinit = NULL;
-	    }
-	}
-
-      if (stat (gdbinit, &cwdbuf) == 0)
-	{
-	  if (!homeinit
-	      || memcmp ((char *) &homebuf, (char *) &cwdbuf,
-			 sizeof (struct stat)))
-	    localinit = gdbinit;
-	}
-      
-      initialized = 1;
-    }
-
-  *system_gdbinit = sysgdbinit;
-  *home_gdbinit = homeinit;
-  *local_gdbinit = localinit;
-}
+extern char *external_editor_command;
 
 /* Call command_loop.  If it happens to return, pass that through as a
-   non-zero return status.  */
+   non-zero return status. */
 
 static int
 captured_command_loop (void *data)
 {
-  /* Top-level execution commands can be run on the background from
-     here on.  */
-  interpreter_async = 1;
-
   current_interp_command_loop ();
   /* FIXME: cagney/1999-11-05: A correct command_loop() implementaton
      would clean things up (restoring the cleanup chain) to the state
@@ -260,40 +111,15 @@ captured_command_loop (void *data)
      the do_cleanups() below is redundant.  Unfortunately, many FUNCs
      are not that well behaved.  do_cleanups should either be replaced
      with a do_cleanups call (to cover the problem) or an assertion
-     check to detect bad FUNCs code.  */
-  do_cleanups (all_cleanups ());
+     check to detect bad FUNCs code. */
+  do_cleanups (ALL_CLEANUPS);
   /* If the command_loop returned, normally (rather than threw an
-     error) we try to quit.  If the quit is aborted, catch_errors()
+     error) we try to quit. If the quit is aborted, catch_errors()
      which called this catch the signal and restart the command
-     loop.  */
+     loop. */
   quit_command (NULL, instream == stdin);
   return 1;
 }
-
-/* Arguments of --command option and its counterpart.  */
-typedef struct cmdarg {
-  /* Type of this option.  */
-  enum {
-    /* Option type -x.  */
-    CMDARG_FILE,
-
-    /* Option type -ex.  */
-    CMDARG_COMMAND,
-
-    /* Option type -ix.  */
-    CMDARG_INIT_FILE,
-    
-    /* Option type -iex.  */
-    CMDARG_INIT_COMMAND
-  } type;
-
-  /* Value of this option - filename or the GDB command itself.  String memory
-     is not owned by this structure despite it is 'const'.  */
-  char *string;
-} cmdarg_s;
-
-/* Define type VEC (cmdarg_s).  */
-DEF_VEC_O (cmdarg_s);
 
 static int
 captured_main (void *data)
@@ -301,27 +127,34 @@ captured_main (void *data)
   struct captured_main_args *context = data;
   int argc = context->argc;
   char **argv = context->argv;
+  int count;
   static int quiet = 0;
+  static int batch = 0;
   static int set_args = 0;
-  static int inhibit_home_gdbinit = 0;
 
   /* Pointers to various arguments from command line.  */
   char *symarg = NULL;
   char *execarg = NULL;
-  char *pidarg = NULL;
   char *corearg = NULL;
-  char *pid_or_core_arg = NULL;
   char *cdarg = NULL;
   char *ttyarg = NULL;
 
-  /* These are static so that we can take their address in an
-     initializer.  */
+  /* These are static so that we can take their address in an initializer.  */
   static int print_help;
   static int print_version;
 
   /* Pointers to all arguments of --command option.  */
-  VEC (cmdarg_s) *cmdarg_vec = NULL;
-  struct cmdarg *cmdarg_p;
+  struct cmdarg {
+    enum {
+      CMDARG_FILE,
+      CMDARG_COMMAND
+    } type;
+    char *string;
+  } *cmdarg;
+  /* Allocated size of cmdarg.  */
+  int cmdsize;
+  /* Number of elements of cmdarg used.  */
+  int ncmd;
 
   /* Indices of all arguments of --directory option.  */
   char **dirarg;
@@ -330,23 +163,12 @@ captured_main (void *data)
   /* Number of elements used.  */
   int ndir;
 
-  /* gdb init files.  */
-  char *system_gdbinit;
-  char *home_gdbinit;
-  char *local_gdbinit;
+  struct stat homebuf, cwdbuf;
+  char *homedir;
 
   int i;
-  int save_auto_load;
-  struct objfile *objfile;
 
-  struct cleanup *pre_stat_chain;
-
-#ifdef HAVE_SBRK
-  /* Set this before calling make_command_stats_cleanup.  */
-  lim_at_start = (char *) sbrk (0);
-#endif
-
-  pre_stat_chain = make_command_stats_cleanup (0);
+  long time_at_startup = get_run_time ();
 
 #if defined (HAVE_SETLOCALE) && defined (HAVE_LC_MESSAGES)
   setlocale (LC_MESSAGES, "");
@@ -357,17 +179,30 @@ captured_main (void *data)
   bindtextdomain (PACKAGE, LOCALEDIR);
   textdomain (PACKAGE);
 
-  bfd_init ();
+#ifdef HAVE_SBRK
+  lim_at_start = (char *) sbrk (0);
+#endif
 
-  make_cleanup (VEC_cleanup (cmdarg_s), &cmdarg_vec);
+#if defined (ALIGN_STACK_ON_STARTUP)
+  i = (int) &count & 0x3;
+  if (i != 0)
+    alloca (4 - i);
+#endif
+
+  cmdsize = 1;
+  cmdarg = (struct cmdarg *) xmalloc (cmdsize * sizeof (*cmdarg));
+  ncmd = 0;
   dirsize = 1;
   dirarg = (char **) xmalloc (dirsize * sizeof (*dirarg));
   ndir = 0;
 
-  clear_quit_flag ();
-  saved_command_line = (char *) xmalloc (saved_command_line_size);
-  saved_command_line[0] = '\0';
+  quit_flag = 0;
+  line = (char *) xmalloc (linesize);
+  line[0] = '\0';		/* Terminate saved (now empty) cmd line */
   instream = stdin;
+
+  getcwd (gdb_dirbuf, sizeof (gdb_dirbuf));
+  current_directory = gdb_dirbuf;
 
   gdb_stdout = stdio_fileopen (stdout);
   gdb_stderr = stdio_fileopen (stderr);
@@ -377,42 +212,32 @@ captured_main (void *data)
   gdb_stdtargerr = gdb_stderr;	/* for moment */
   gdb_stdtargin = gdb_stdin;	/* for moment */
 
-  gdb_program_name = xstrdup (argv[0]);
-
-  if (! getcwd (gdb_dirbuf, sizeof (gdb_dirbuf)))
-    /* Don't use *_filtered or warning() (which relies on
-       current_target) until after initialize_all_files().  */
-    fprintf_unfiltered (gdb_stderr,
-			_("%s: warning: error finding "
-			  "working directory: %s\n"),
-                        argv[0], safe_strerror (errno));
-    
-  current_directory = gdb_dirbuf;
-
   /* Set the sysroot path.  */
-  gdb_sysroot = relocate_gdb_directory (TARGET_SYSTEM_ROOT,
-					TARGET_SYSTEM_ROOT_RELOCATABLE);
+#ifdef TARGET_SYSTEM_ROOT_RELOCATABLE
+  gdb_sysroot = make_relative_prefix (argv[0], BINDIR, TARGET_SYSTEM_ROOT);
+  if (gdb_sysroot)
+    {
+      struct stat s;
+      int res = 0;
 
-  debug_file_directory = relocate_gdb_directory (DEBUGDIR,
-						 DEBUGDIR_RELOCATABLE);
+      if (stat (gdb_sysroot, &s) == 0)
+	if (S_ISDIR (s.st_mode))
+	  res = 1;
 
-  gdb_datadir = relocate_gdb_directory (GDB_DATADIR,
-					GDB_DATADIR_RELOCATABLE);
-
-#ifdef WITH_PYTHON_PATH
-  {
-    /* For later use in helping Python find itself.  */
-    char *tmp = concat (WITH_PYTHON_PATH, SLASH_STRING, "lib", NULL);
-
-    python_libdir = relocate_gdb_directory (tmp, PYTHON_PATH_RELOCATABLE);
-    xfree (tmp);
-  }
+      if (res == 0)
+	{
+	  xfree (gdb_sysroot);
+	  gdb_sysroot = TARGET_SYSTEM_ROOT;
+	}
+    }
+  else
+    gdb_sysroot = TARGET_SYSTEM_ROOT;
+#else
+#if defined (TARGET_SYSTEM_ROOT)
+  gdb_sysroot = TARGET_SYSTEM_ROOT;
+#else
+  gdb_sysroot = "";
 #endif
-
-#ifdef RELOC_SRCDIR
-  add_substitute_path_rule (RELOC_SRCDIR,
-			    make_relative_prefix (argv[0], BINDIR,
-						  RELOC_SRCDIR));
 #endif
 
   /* There will always be an interpreter.  Either the one passed into
@@ -434,13 +259,15 @@ captured_main (void *data)
       OPT_STATISTICS,
       OPT_TUI,
       OPT_NOWINDOWS,
-      OPT_WINDOWS,
-      OPT_IX,
-      OPT_IEX
+      OPT_WINDOWS
     };
     static struct option long_options[] =
     {
+      {"async", no_argument, &event_loop_p, 1},
+      {"noasync", no_argument, &event_loop_p, 0},
+#if defined(TUI)
       {"tui", no_argument, 0, OPT_TUI},
+#endif
       {"xdb", no_argument, &xdb_commands, 1},
       {"dbx", no_argument, &dbx_commands, 1},
       {"readnow", no_argument, &readnow_symbol_files, 1},
@@ -448,15 +275,15 @@ captured_main (void *data)
       {"quiet", no_argument, &quiet, 1},
       {"q", no_argument, &quiet, 1},
       {"silent", no_argument, &quiet, 1},
-      {"nh", no_argument, &inhibit_home_gdbinit, 1},
       {"nx", no_argument, &inhibit_gdbinit, 1},
       {"n", no_argument, &inhibit_gdbinit, 1},
       {"batch-silent", no_argument, 0, 'B'},
-      {"batch", no_argument, &batch_flag, 1},
+      {"batch", no_argument, &batch, 1},
+      {"epoch", no_argument, &epoch_interface, 1},
 
-    /* This is a synonym for "--annotate=1".  --annotate is now
-       preferred, but keep this here for a long time because people
-       will be running emacses which use --fullname.  */
+    /* This is a synonym for "--annotate=1".  --annotate is now preferred,
+       but keep this here for a long time because people will be running
+       emacses which use --fullname.  */
       {"fullname", no_argument, 0, 'f'},
       {"f", no_argument, 0, 'f'},
 
@@ -476,10 +303,6 @@ captured_main (void *data)
       {"version", no_argument, &print_version, 1},
       {"x", required_argument, 0, 'x'},
       {"ex", required_argument, 0, 'X'},
-      {"init-command", required_argument, 0, OPT_IX},
-      {"init-eval-command", required_argument, 0, OPT_IEX},
-      {"ix", required_argument, 0, OPT_IX},
-      {"iex", required_argument, 0, OPT_IEX},
 #ifdef GDBTK
       {"tclcommand", required_argument, 0, 'z'},
       {"enable-external-editor", no_argument, 0, 'y'},
@@ -490,7 +313,6 @@ captured_main (void *data)
       {"i", required_argument, 0, 'i'},
       {"directory", required_argument, 0, 'd'},
       {"d", required_argument, 0, 'd'},
-      {"data-directory", required_argument, 0, 'D'},
       {"cd", required_argument, 0, OPT_CD},
       {"tty", required_argument, 0, 't'},
       {"baud", required_argument, 0, 'b'},
@@ -502,7 +324,7 @@ captured_main (void *data)
       {"statistics", no_argument, 0, OPT_STATISTICS},
       {"write", no_argument, &write_files, 1},
       {"args", no_argument, &set_args, 1},
-      {"l", required_argument, 0, 'l'},
+     {"l", required_argument, 0, 'l'},
       {"return-child-result", no_argument, &return_child_result, 1},
       {0, no_argument, 0, 0}
     };
@@ -538,20 +360,13 @@ captured_main (void *data)
 	    break;
 	  case OPT_STATISTICS:
 	    /* Enable the display of both time and space usage.  */
-	    set_display_time (1);
-	    set_display_space (1);
+	    display_time = 1;
+	    display_space = 1;
 	    break;
 	  case OPT_TUI:
 	    /* --tui is equivalent to -i=tui.  */
-#ifdef TUI
 	    xfree (interpreter_p);
 	    interpreter_p = xstrdup (INTERP_TUI);
-#else
-	    fprintf_unfiltered (gdb_stderr,
-				_("%s: TUI mode is not supported\n"),
-				argv[0]);
-	    exit (1);
-#endif
 	    break;
 	  case OPT_WINDOWS:
 	    /* FIXME: cagney/2003-03-01: Not sure if this option is
@@ -571,8 +386,7 @@ captured_main (void *data)
 	    break;
 	  case 'f':
 	    annotation_level = 1;
-	    /* We have probably been invoked from emacs.  Disable
-	       window interface.  */
+/* We have probably been invoked from emacs.  Disable window interface.  */
 	    use_windows = 0;
 	    break;
 	  case 's':
@@ -585,55 +399,40 @@ captured_main (void *data)
 	    corearg = optarg;
 	    break;
 	  case 'p':
-	    pidarg = optarg;
+	    /* "corearg" is shared by "--core" and "--pid" */
+	    corearg = optarg;
 	    break;
 	  case 'x':
-	    {
-	      struct cmdarg cmdarg = { CMDARG_FILE, optarg };
-
-	      VEC_safe_push (cmdarg_s, cmdarg_vec, &cmdarg);
-	    }
+	    cmdarg[ncmd].type = CMDARG_FILE;
+	    cmdarg[ncmd++].string = optarg;
+	    if (ncmd >= cmdsize)
+	      {
+		cmdsize *= 2;
+		cmdarg = xrealloc ((char *) cmdarg,
+				   cmdsize * sizeof (*cmdarg));
+	      }
 	    break;
 	  case 'X':
-	    {
-	      struct cmdarg cmdarg = { CMDARG_COMMAND, optarg };
-
-	      VEC_safe_push (cmdarg_s, cmdarg_vec, &cmdarg);
-	    }
-	    break;
-	  case OPT_IX:
-	    {
-	      struct cmdarg cmdarg = { CMDARG_INIT_FILE, optarg };
-
-	      VEC_safe_push (cmdarg_s, cmdarg_vec, &cmdarg);
-	    }
-	    break;
-	  case OPT_IEX:
-	    {
-	      struct cmdarg cmdarg = { CMDARG_INIT_COMMAND, optarg };
-
-	      VEC_safe_push (cmdarg_s, cmdarg_vec, &cmdarg);
-	    }
+	    cmdarg[ncmd].type = CMDARG_COMMAND;
+	    cmdarg[ncmd++].string = optarg;
+	    if (ncmd >= cmdsize)
+	      {
+		cmdsize *= 2;
+		cmdarg = xrealloc ((char *) cmdarg,
+				   cmdsize * sizeof (*cmdarg));
+	      }
 	    break;
 	  case 'B':
-	    batch_flag = batch_silent = 1;
+	    batch = batch_silent = 1;
 	    gdb_stdout = ui_file_new();
-	    break;
-	  case 'D':
-	    xfree (gdb_datadir);
-	    gdb_datadir = xstrdup (optarg);
-	    gdb_datadir_provided = 1;
 	    break;
 #ifdef GDBTK
 	  case 'z':
 	    {
-	      extern int gdbtk_test (char *);
-
+extern int gdbtk_test (char *);
 	      if (!gdbtk_test (optarg))
 		{
-		  fprintf_unfiltered (gdb_stderr,
-				      _("%s: unable to load "
-					"tclcommand file \"%s\""),
+		  fprintf_unfiltered (gdb_stderr, _("%s: unable to load tclcommand file \"%s\""),
 				      argv[0], optarg);
 		  exit (1);
 		}
@@ -644,10 +443,6 @@ captured_main (void *data)
 	    break;
 	  case 'w':
 	    {
-	      /* Set the external editor commands when gdb is farming out files
-		 to be edited by another program.  */
-	      extern char *external_editor_command;
-
 	      external_editor_command = xstrdup (optarg);
 	      break;
 	    }
@@ -680,7 +475,7 @@ captured_main (void *data)
 	      if (i == 0 && p == optarg)
 
 		/* Don't use *_filtered or warning() (which relies on
-		   current_target) until after initialize_all_files().  */
+		   current_target) until after initialize_all_files(). */
 
 		fprintf_unfiltered
 		  (gdb_stderr,
@@ -698,11 +493,11 @@ captured_main (void *data)
 	      if (i == 0 && p == optarg)
 
 		/* Don't use *_filtered or warning() (which relies on
-		   current_target) until after initialize_all_files().  */
+		   current_target) until after initialize_all_files(). */
 
-		fprintf_unfiltered (gdb_stderr,
-				    _("warning: could not set "
-				      "timeout limit to `%s'.\n"), optarg);
+		fprintf_unfiltered
+		  (gdb_stderr,
+		 _("warning: could not set timeout limit to `%s'.\n"), optarg);
 	      else
 		remote_timeout = i;
 	    }
@@ -710,8 +505,7 @@ captured_main (void *data)
 
 	  case '?':
 	    fprintf_unfiltered (gdb_stderr,
-				_("Use `%s --help' for a "
-				  "complete list of options.\n"),
+			_("Use `%s --help' for a complete list of options.\n"),
 				argv[0]);
 	    exit (1);
 	  }
@@ -723,71 +517,53 @@ captured_main (void *data)
 	use_windows = 0;
       }
 
-    if (batch_flag)
+    if (set_args)
+      {
+	/* The remaining options are the command-line options for the
+	   inferior.  The first one is the sym/exec file, and the rest
+	   are arguments.  */
+	if (optind >= argc)
+	  {
+	    fprintf_unfiltered (gdb_stderr,
+				_("%s: `--args' specified but no program specified\n"),
+				argv[0]);
+	    exit (1);
+	  }
+	symarg = argv[optind];
+	execarg = argv[optind];
+	++optind;
+	set_inferior_args_vector (argc - optind, &argv[optind]);
+      }
+    else
+      {
+	/* OK, that's all the options.  The other arguments are filenames.  */
+	count = 0;
+	for (; optind < argc; optind++)
+	  switch (++count)
+	    {
+	    case 1:
+	      symarg = argv[optind];
+	      execarg = argv[optind];
+	      break;
+	    case 2:
+	      /* The documentation says this can be a "ProcID" as well. 
+	         We will try it as both a corefile and a pid.  */
+	      corearg = argv[optind];
+	      break;
+	    case 3:
+	      fprintf_unfiltered (gdb_stderr,
+				  _("Excess command line arguments ignored. (%s%s)\n"),
+				  argv[optind], (optind == argc - 1) ? "" : " ...");
+	      break;
+	    }
+      }
+    if (batch)
       quiet = 1;
   }
 
   /* Initialize all files.  Give the interpreter a chance to take
      control of the console via the deprecated_init_ui_hook ().  */
   gdb_init (argv[0]);
-
-  /* Now that gdb_init has created the initial inferior, we're in
-     position to set args for that inferior.  */
-  if (set_args)
-    {
-      /* The remaining options are the command-line options for the
-	 inferior.  The first one is the sym/exec file, and the rest
-	 are arguments.  */
-      if (optind >= argc)
-	{
-	  fprintf_unfiltered (gdb_stderr,
-			      _("%s: `--args' specified but "
-				"no program specified\n"),
-			      argv[0]);
-	  exit (1);
-	}
-      symarg = argv[optind];
-      execarg = argv[optind];
-      ++optind;
-      set_inferior_args_vector (argc - optind, &argv[optind]);
-    }
-  else
-    {
-      /* OK, that's all the options.  */
-
-      /* The first argument, if specified, is the name of the
-	 executable.  */
-      if (optind < argc)
-	{
-	  symarg = argv[optind];
-	  execarg = argv[optind];
-	  optind++;
-	}
-
-      /* If the user hasn't already specified a PID or the name of a
-	 core file, then a second optional argument is allowed.  If
-	 present, this argument should be interpreted as either a
-	 PID or a core file, whichever works.  */
-      if (pidarg == NULL && corearg == NULL && optind < argc)
-	{
-	  pid_or_core_arg = argv[optind];
-	  optind++;
-	}
-
-      /* Any argument left on the command line is unexpected and
-	 will be ignored.  Inform the user.  */
-      if (optind < argc)
-	fprintf_unfiltered (gdb_stderr,
-			    _("Excess command line "
-			      "arguments ignored. (%s%s)\n"),
-			    argv[optind],
-			    (optind == argc - 1) ? "" : " ...");
-    }
-
-  /* Lookup gdbinit files.  Note that the gdbinit file name may be
-     overriden during file initialization, so get_init_files should be
-     called after gdb_init.  */
-  get_init_files (&system_gdbinit, &home_gdbinit, &local_gdbinit);
 
   /* Do these (and anything which might call wrap_here or *_filtered)
      after initialize_all_files() but before the interpreter has been
@@ -815,28 +591,26 @@ captured_main (void *data)
      it isn't encapsulated in MI output.  */
   if (!quiet && strcmp (interpreter_p, INTERP_MI1) == 0)
     {
-      /* Print all the junk at the top, with trailing "..." if we are
-         about to read a symbol file (possibly slowly).  */
+      /* Print all the junk at the top, with trailing "..." if we are about
+         to read a symbol file (possibly slowly).  */
       print_gdb_version (gdb_stdout);
       if (symarg)
 	printf_filtered ("..");
       wrap_here ("");
-      printf_filtered ("\n");
-      gdb_flush (gdb_stdout);	/* Force to screen during slow
-				   operations.  */
+      gdb_flush (gdb_stdout);	/* Force to screen during slow operations */
     }
 
+
   /* Install the default UI.  All the interpreters should have had a
-     look at things by now.  Initialize the default interpreter.  */
+     look at things by now.  Initialize the default interpreter. */
 
   {
     /* Find it.  */
     struct interp *interp = interp_lookup (interpreter_p);
-
     if (interp == NULL)
       error (_("Interpreter `%s' unrecognized"), interpreter_p);
     /* Install it.  */
-    if (!interp_set (interp, 1))
+    if (!interp_set (interp))
       {
         fprintf_unfiltered (gdb_stderr,
 			    "Interpreter `%s' failed to initialize.\n",
@@ -851,49 +625,47 @@ captured_main (void *data)
      any sane interpreter.  */
   if (!quiet && !current_interp_named_p (INTERP_MI1))
     {
-      /* Print all the junk at the top, with trailing "..." if we are
-         about to read a symbol file (possibly slowly).  */
+      /* Print all the junk at the top, with trailing "..." if we are about
+         to read a symbol file (possibly slowly).  */
       print_gdb_version (gdb_stdout);
       if (symarg)
 	printf_filtered ("..");
       wrap_here ("");
-      printf_filtered ("\n");
-      gdb_flush (gdb_stdout);	/* Force to screen during slow
-				   operations.  */
+      gdb_flush (gdb_stdout);	/* Force to screen during slow operations */
     }
 
-  /* Set off error and warning messages with a blank line.  */
-  error_pre_print = "\n";
+  error_pre_print = "\n\n";
   quit_pre_print = error_pre_print;
-  warning_pre_print = _("\nwarning: ");
 
-  /* Read and execute the system-wide gdbinit file, if it exists.
-     This is done *before* all the command line arguments are
-     processed; it sets global parameters, which are independent of
-     what file you are debugging or what directory you are in.  */
-  if (system_gdbinit && !inhibit_gdbinit)
-    catch_command_errors (source_script, system_gdbinit, 0, RETURN_MASK_ALL);
+  /* We may get more than one warning, don't double space all of them... */
+  warning_pre_print = _("\nwarning: ");
 
   /* Read and execute $HOME/.gdbinit file, if it exists.  This is done
      *before* all the command line arguments are processed; it sets
      global parameters, which are independent of what file you are
      debugging or what directory you are in.  */
-
-  if (home_gdbinit && !inhibit_gdbinit && !inhibit_home_gdbinit)
-    catch_command_errors (source_script, home_gdbinit, 0, RETURN_MASK_ALL);
-
-  /* Process '-ix' and '-iex' options early.  */
-  for (i = 0; VEC_iterate (cmdarg_s, cmdarg_vec, i, cmdarg_p); i++)
-    switch (cmdarg_p->type)
+  homedir = getenv ("HOME");
+  if (homedir)
     {
-      case CMDARG_INIT_FILE:
-        catch_command_errors (source_script, cmdarg_p->string,
-			      !batch_flag, RETURN_MASK_ALL);
-	break;
-      case CMDARG_INIT_COMMAND:
-        catch_command_errors (execute_command, cmdarg_p->string,
-			      !batch_flag, RETURN_MASK_ALL);
-	break;
+      char *homeinit = xstrprintf ("%s/%s", homedir, gdbinit);
+
+      if (!inhibit_gdbinit)
+	{
+	  catch_command_errors (source_command, homeinit, 0, RETURN_MASK_ALL);
+	}
+
+      /* Do stats; no need to do them elsewhere since we'll only
+         need them if homedir is set.  Make sure that they are
+         zero in case one of them fails (this guarantees that they
+         won't match if either exists).  */
+
+      memset (&homebuf, 0, sizeof (struct stat));
+      memset (&cwdbuf, 0, sizeof (struct stat));
+
+      stat (homeinit, &homebuf);
+      stat (gdbinit, &cwdbuf);	/* We'll only need this if
+				   homedir was set.  */
+      xfree (homeinit);
     }
 
   /* Now perform all the actions indicated by the arguments.  */
@@ -906,128 +678,165 @@ captured_main (void *data)
     catch_command_errors (directory_switch, dirarg[i], 0, RETURN_MASK_ALL);
   xfree (dirarg);
 
-  /* Skip auto-loading section-specified scripts until we've sourced
-     local_gdbinit (which is often used to augment the source search
-     path).  */
-  save_auto_load = global_auto_load;
-  global_auto_load = 0;
-
   if (execarg != NULL
       && symarg != NULL
       && strcmp (execarg, symarg) == 0)
     {
       /* The exec file and the symbol-file are the same.  If we can't
          open it, better only print one error message.
-         catch_command_errors returns non-zero on success!  */
-      if (catch_command_errors (exec_file_attach, execarg,
-				!batch_flag, RETURN_MASK_ALL))
-	catch_command_errors (symbol_file_add_main, symarg,
-			      !batch_flag, RETURN_MASK_ALL);
+         catch_command_errors returns non-zero on success! */
+      if (catch_command_errors (exec_file_attach, execarg, !batch, RETURN_MASK_ALL))
+	catch_command_errors (symbol_file_add_main, symarg, 0, RETURN_MASK_ALL);
     }
   else
     {
       if (execarg != NULL)
-	catch_command_errors (exec_file_attach, execarg,
-			      !batch_flag, RETURN_MASK_ALL);
+	catch_command_errors (exec_file_attach, execarg, !batch, RETURN_MASK_ALL);
       if (symarg != NULL)
-	catch_command_errors (symbol_file_add_main, symarg,
-			      !batch_flag, RETURN_MASK_ALL);
+	catch_command_errors (symbol_file_add_main, symarg, 0, RETURN_MASK_ALL);
     }
 
-  if (corearg && pidarg)
-    error (_("Can't attach to process and specify "
-	     "a core file at the same time."));
+  /* After the symbol file has been read, print a newline to get us
+     beyond the copyright line...  But errors should still set off
+     the error message with a (single) blank line.  */
+  if (!quiet)
+    printf_filtered ("\n");
+  error_pre_print = "\n";
+  quit_pre_print = error_pre_print;
+  warning_pre_print = _("\nwarning: ");
 
   if (corearg != NULL)
-    catch_command_errors (core_file_command, corearg,
-			  !batch_flag, RETURN_MASK_ALL);
-  else if (pidarg != NULL)
-    catch_command_errors (attach_command, pidarg,
-			  !batch_flag, RETURN_MASK_ALL);
-  else if (pid_or_core_arg)
     {
-      /* The user specified 'gdb program pid' or gdb program core'.
-	 If pid_or_core_arg's first character is a digit, try attach
-	 first and then corefile.  Otherwise try just corefile.  */
+      /* corearg may be either a corefile or a pid.
+	 If its first character is a digit, try attach first
+	 and then corefile.  Otherwise try corefile first. */
 
-      if (isdigit (pid_or_core_arg[0]))
+      if (isdigit (corearg[0]))
 	{
-	  if (catch_command_errors (attach_command, pid_or_core_arg,
-				    !batch_flag, RETURN_MASK_ALL) == 0)
-	    catch_command_errors (core_file_command, pid_or_core_arg,
-				  !batch_flag, RETURN_MASK_ALL);
+	  if (catch_command_errors (attach_command, corearg, 
+				    !batch, RETURN_MASK_ALL) == 0)
+	    catch_command_errors (core_file_command, corearg, 
+				  !batch, RETURN_MASK_ALL);
 	}
-      else /* Can't be a pid, better be a corefile.  */
-	catch_command_errors (core_file_command, pid_or_core_arg,
-			      !batch_flag, RETURN_MASK_ALL);
+      else /* Can't be a pid, better be a corefile. */
+	catch_command_errors (core_file_command, corearg, 
+			      !batch, RETURN_MASK_ALL);
     }
 
   if (ttyarg != NULL)
-    set_inferior_io_terminal (ttyarg);
+    catch_command_errors (tty_command, ttyarg, !batch, RETURN_MASK_ALL);
 
-  /* Error messages should no longer be distinguished with extra output.  */
+  /* Error messages should no longer be distinguished with extra output. */
   error_pre_print = NULL;
   quit_pre_print = NULL;
   warning_pre_print = _("warning: ");
 
   /* Read the .gdbinit file in the current directory, *if* it isn't
      the same as the $HOME/.gdbinit file (it should exist, also).  */
-  if (local_gdbinit)
-    {
-      auto_load_local_gdbinit_pathname = gdb_realpath (local_gdbinit);
 
-      if (!inhibit_gdbinit && auto_load_local_gdbinit
-	  && file_is_auto_load_safe (local_gdbinit,
-				     _("auto-load: Loading .gdbinit "
-				       "file \"%s\".\n"),
-				     local_gdbinit))
+  if (!homedir
+      || memcmp ((char *) &homebuf, (char *) &cwdbuf, sizeof (struct stat)))
+    if (!inhibit_gdbinit)
+      {
+	catch_command_errors (source_command, gdbinit, 0, RETURN_MASK_ALL);
+      }
+
+  for (i = 0; i < ncmd; i++)
+    {
+#if 0
+      /* NOTE: cagney/1999-11-03: SET_TOP_LEVEL() was a macro that
+         expanded into a call to setjmp().  */
+      if (!SET_TOP_LEVEL ()) /* NB: This is #if 0'd out */
 	{
-	  auto_load_local_gdbinit_loaded = 1;
-
-	  catch_command_errors (source_script, local_gdbinit, 0,
-				RETURN_MASK_ALL);
+	  /* NOTE: I am commenting this out, because it is not clear
+	     where this feature is used. It is very old and
+	     undocumented. ezannoni: 1999-05-04 */
+#if 0
+	  if (cmdarg[i][0] == '-' && cmdarg[i][1] == '\0')
+	    read_command_file (stdin);
+	  else
+#endif
+	    source_command (cmdarg[i], !batch);
+	  do_cleanups (ALL_CLEANUPS);
 	}
+#endif
+      if (cmdarg[i].type == CMDARG_FILE)
+        catch_command_errors (source_command, cmdarg[i].string,
+			      !batch, RETURN_MASK_ALL);
+      else  /* cmdarg[i].type == CMDARG_COMMAND */
+        catch_command_errors (execute_command, cmdarg[i].string,
+			      !batch, RETURN_MASK_ALL);
     }
+  xfree (cmdarg);
 
-  /* Now that all .gdbinit's have been read and all -d options have been
-     processed, we can read any scripts mentioned in SYMARG.
-     We wait until now because it is common to add to the source search
-     path in local_gdbinit.  */
-  global_auto_load = save_auto_load;
-  ALL_OBJFILES (objfile)
-    load_auto_scripts_for_objfile (objfile);
-
-  /* Process '-x' and '-ex' options.  */
-  for (i = 0; VEC_iterate (cmdarg_s, cmdarg_vec, i, cmdarg_p); i++)
-    switch (cmdarg_p->type)
-    {
-      case CMDARG_FILE:
-        catch_command_errors (source_script, cmdarg_p->string,
-			      !batch_flag, RETURN_MASK_ALL);
-	break;
-      case CMDARG_COMMAND:
-        catch_command_errors (execute_command, cmdarg_p->string,
-			      !batch_flag, RETURN_MASK_ALL);
-	break;
-    }
-
-  /* Read in the old history after all the command files have been
-     read.  */
+  /* Read in the old history after all the command files have been read. */
   init_history ();
 
-  if (batch_flag)
+  if (batch)
     {
       /* We have hit the end of the batch file.  */
       quit_force (NULL, 0);
     }
 
-  /* Show time and/or space usage.  */
-  do_cleanups (pre_stat_chain);
+  /* Do any host- or target-specific hacks.  This is used for i960 targets
+     to force the user to set a nindy target and spec its parameters.  */
 
+#ifdef BEFORE_MAIN_LOOP_HOOK
+  BEFORE_MAIN_LOOP_HOOK;
+#endif
+
+  /* Show time and/or space usage.  */
+
+  if (display_time)
+    {
+      long init_time = get_run_time () - time_at_startup;
+
+      printf_unfiltered (_("Startup time: %ld.%06ld\n"),
+			 init_time / 1000000, init_time % 1000000);
+    }
+
+  if (display_space)
+    {
+#ifdef HAVE_SBRK
+      extern char **environ;
+      char *lim = (char *) sbrk (0);
+
+      printf_unfiltered (_("Startup size: data size %ld\n"),
+			 (long) (lim - (char *) &environ));
+#endif
+    }
+
+#if 0
+  /* FIXME: cagney/1999-11-06: The original main loop was like: */
+  while (1)
+    {
+      if (!SET_TOP_LEVEL ())
+	{
+	  do_cleanups (ALL_CLEANUPS);	/* Do complete cleanup */
+	  /* GUIs generally have their own command loop, mainloop, or
+	     whatever.  This is a good place to gain control because
+	     many error conditions will end up here via longjmp().  */
+	  if (deprecated_command_loop_hook)
+	    deprecated_command_loop_hook ();
+	  else
+	    deprecated_command_loop ();
+	  quit_command ((char *) 0, instream == stdin);
+	}
+    }
+  /* NOTE: If the command_loop() returned normally, the loop would
+     attempt to exit by calling the function quit_command().  That
+     function would either call exit() or throw an error returning
+     control to SET_TOP_LEVEL. */
+  /* NOTE: The function do_cleanups() was called once each time round
+     the loop.  The usefulness of the call isn't clear.  If an error
+     was thrown, everything would have already been cleaned up.  If
+     command_loop() returned normally and quit_command() was called,
+     either exit() or error() (again cleaning up) would be called. */
+#endif
   /* NOTE: cagney/1999-11-07: There is probably no reason for not
      moving this loop and the code found in captured_command_loop()
      into the command_loop() proper.  The main thing holding back that
-     change - SET_TOP_LEVEL() - has been eliminated.  */
+     change - SET_TOP_LEVEL() - has been eliminated. */
   while (1)
     {
       catch_errors (captured_command_loop, 0, "", RETURN_MASK_ALL);
@@ -1053,12 +862,6 @@ gdb_main (struct captured_main_args *args)
 static void
 print_gdb_help (struct ui_file *stream)
 {
-  char *system_gdbinit;
-  char *home_gdbinit;
-  char *local_gdbinit;
-
-  get_init_files (&system_gdbinit, &home_gdbinit, &local_gdbinit);
-
   fputs_unfiltered (_("\
 This is the GNU debugger.  Usage:\n\n\
     gdb [options] [executable-file [core-file or process-id]]\n\
@@ -1067,6 +870,9 @@ Options:\n\n\
 "), stream);
   fputs_unfiltered (_("\
   --args             Arguments after executable-file are passed to inferior\n\
+"), stream);
+  fputs_unfiltered (_("\
+  --[no]async        Enable (disable) asynchronous version of CLI\n\
 "), stream);
   fputs_unfiltered (_("\
   -b BAUDRATE        Set serial port baud rate used for remote debugging.\n\
@@ -1080,14 +886,13 @@ Options:\n\n\
                      Execute a single GDB command.\n\
                      May be used multiple times and in conjunction\n\
                      with --command.\n\
-  --init-command=FILE, -ix Like -x but execute it before loading inferior.\n\
-  --init-eval-command=COMMAND, -iex Like -ex but before loading inferior.\n\
   --core=COREFILE    Analyze the core dump COREFILE.\n\
   --pid=PID          Attach to running process PID.\n\
 "), stream);
   fputs_unfiltered (_("\
   --dbx              DBX compatibility mode.\n\
   --directory=DIR    Search for source files in DIR.\n\
+  --epoch            Output information used by epoch emacs-GDB interface.\n\
   --exec=EXECFILE    Use EXECFILE as the executable.\n\
   --fullname         Output information used by emacs-GDB interface.\n\
   --help             Print this message.\n\
@@ -1099,12 +904,9 @@ Options:\n\n\
   fputs_unfiltered (_("\
   -l TIMEOUT         Set timeout in seconds for remote debugging.\n\
   --nw		     Do not use a window interface.\n\
-  --nx               Do not read any "), stream);
+  --nx               Do not read "), stream);
   fputs_unfiltered (gdbinit, stream);
-  fputs_unfiltered (_(" files.\n\
-  --nh               Do not read "), stream);
-  fputs_unfiltered (gdbinit, stream);
-  fputs_unfiltered (_(" file from home directory.\n\
+  fputs_unfiltered (_(" file.\n\
   --quiet            Do not print version number on startup.\n\
   --readnow          Fully read symbol files on first access.\n\
 "), stream);
@@ -1125,26 +927,8 @@ Options:\n\n\
   --xdb              XDB compatibility mode.\n\
 "), stream);
   fputs_unfiltered (_("\n\
-At startup, GDB reads the following init files and executes their commands:\n\
-"), stream);
-  if (system_gdbinit)
-    fprintf_unfiltered (stream, _("\
-   * system-wide init file: %s\n\
-"), system_gdbinit);
-  if (home_gdbinit)
-    fprintf_unfiltered (stream, _("\
-   * user-specific init file: %s\n\
-"), home_gdbinit);
-  if (local_gdbinit)
-    fprintf_unfiltered (stream, _("\
-   * local init file (see also 'set auto-load local-gdbinit'): ./%s\n\
-"), local_gdbinit);
-  fputs_unfiltered (_("\n\
 For more information, type \"help\" from within GDB, or consult the\n\
 GDB manual (available as on-line info or a printed manual).\n\
+Report bugs to \"bug-gdb@gnu.org\".\
 "), stream);
-  if (REPORT_BUGS_TO[0] && stream == gdb_stdout)
-    fprintf_unfiltered (stream, _("\
-Report bugs to \"%s\".\n\
-"), REPORT_BUGS_TO);
 }
