@@ -1,13 +1,13 @@
 /* BFD support for the ARM processor
-   Copyright 1994, 1997, 1999, 2000, 2002, 2003, 2004, 2005, 2006, 2007,
-   2009, 2010 Free Software Foundation, Inc.
+   Copyright 1994, 1997, 1999, 2000, 2002, 2003, 2004, 2005
+   Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rwe@pegasus.esprit.ec.org)
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,11 +17,10 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "libbfd.h"
 #include "libiberty.h"
 
@@ -93,8 +92,7 @@ processors[] =
   { bfd_mach_arm_4,  "strongarm1100" },
   { bfd_mach_arm_XScale, "xscale" },
   { bfd_mach_arm_ep9312, "ep9312" },
-  { bfd_mach_arm_iWMMXt, "iwmmxt" },
-  { bfd_mach_arm_iWMMXt2, "iwmmxt2" }
+  { bfd_mach_arm_iWMMXt, "iwmmxt" }
 };
 
 static bfd_boolean
@@ -124,8 +122,7 @@ scan (const struct bfd_arch_info *info, const char *string)
 }
 
 #define N(number, print, default, next)  \
-{  32, 32, 8, bfd_arch_arm, number, "arm", print, 4, default, compatible, \
-   scan, bfd_arch_default_fill, next }
+{  32, 32, 8, bfd_arch_arm, number, "arm", print, 4, default, compatible, scan, next }
 
 static const bfd_arch_info_type arch_info_struct[] =
 {
@@ -140,8 +137,7 @@ static const bfd_arch_info_type arch_info_struct[] =
   N (bfd_mach_arm_5TE,    "armv5te", FALSE, & arch_info_struct[9]),
   N (bfd_mach_arm_XScale, "xscale",  FALSE, & arch_info_struct[10]),
   N (bfd_mach_arm_ep9312, "ep9312",  FALSE, & arch_info_struct[11]),
-  N (bfd_mach_arm_iWMMXt, "iwmmxt",  FALSE, & arch_info_struct[12]),
-  N (bfd_mach_arm_iWMMXt2, "iwmmxt2", FALSE, NULL)
+  N (bfd_mach_arm_iWMMXt,"iwmmxt",  FALSE, NULL)
 };
 
 const bfd_arch_info_type bfd_arm_arch =
@@ -183,23 +179,19 @@ bfd_arm_merge_machines (bfd *ibfd, bfd *obfd)
      Intel XScale binary, since these architecture have co-processors which
      will not both be present on the same physical hardware.  */
   else if (in == bfd_mach_arm_ep9312
-	   && (out == bfd_mach_arm_XScale
-	       || out == bfd_mach_arm_iWMMXt
-	       || out == bfd_mach_arm_iWMMXt2))
+	   && (out == bfd_mach_arm_XScale || out == bfd_mach_arm_iWMMXt))
     {
       _bfd_error_handler (_("\
-error: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
+ERROR: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
 			  ibfd, obfd);
       bfd_set_error (bfd_error_wrong_format);
       return FALSE;
     }
   else if (out == bfd_mach_arm_ep9312
-	   && (in == bfd_mach_arm_XScale
-	       || in == bfd_mach_arm_iWMMXt
-	       || in == bfd_mach_arm_iWMMXt2))
+	   && (in == bfd_mach_arm_XScale || in == bfd_mach_arm_iWMMXt))
     {
       _bfd_error_handler (_("\
-error: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
+ERROR: %B is compiled for the EP9312, whereas %B is compiled for XScale"),
 			  obfd, ibfd);
       bfd_set_error (bfd_error_wrong_format);
       return FALSE;
@@ -252,10 +244,10 @@ arm_check_note (bfd *abfd,
 	return FALSE;
     }
   else
-    {
+    { 
       if (namesz != ((strlen (expected_name) + 1 + 3) & ~3))
 	return FALSE;
-
+      
       if (strcmp (descr, expected_name) != 0)
 	return FALSE;
 
@@ -263,7 +255,6 @@ arm_check_note (bfd *abfd,
     }
 
   /* FIXME: We should probably check the type as well.  */
-  (void) type;
 
   if (description_return != NULL)
     * description_return = descr;
@@ -318,7 +309,6 @@ bfd_arm_update_notes (bfd *abfd, const char *note_section)
     case bfd_mach_arm_XScale:  expected = "XScale"; break;
     case bfd_mach_arm_ep9312:  expected = "ep9312"; break;
     case bfd_mach_arm_iWMMXt:  expected = "iWMMXt"; break;
-    case bfd_mach_arm_iWMMXt2: expected = "iWMMXt2"; break;
     }
 
   if (strcmp (arch_string, expected) != 0)
@@ -365,8 +355,7 @@ architectures[] =
   { "armv5te", bfd_mach_arm_5TE },
   { "XScale",  bfd_mach_arm_XScale },
   { "ep9312",  bfd_mach_arm_ep9312 },
-  { "iWMMXt",  bfd_mach_arm_iWMMXt },
-  { "iWMMXt2", bfd_mach_arm_iWMMXt2 }
+  { "iWMMXt",  bfd_mach_arm_iWMMXt }
 };
 
 /* Extract the machine number stored in a note section.  */
@@ -431,4 +420,3 @@ bfd_is_arm_special_symbol_name (const char * name, int type)
 
   return (type != 0 && (name[2] == 0 || name[2] == '.'));
 }
-
