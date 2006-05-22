@@ -10,9 +10,15 @@ cat <<EOF
 
 /* Example Linker Script for linking NS CRX elf32 files. */
 
+/* The next line forces the entry point (${ENTRY} in this script)
+   to be entered in the output file as an undefined symbol.
+   It is needed in case the entry point is not called explicitly
+   (which is the usual case) AND is in an archive.  */
+
 OUTPUT_FORMAT("${OUTPUT_FORMAT}")
 OUTPUT_ARCH(${ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+EXTERN(${ENTRY})
+ENTRY(${ENTRY})
 
 /* Define memory regions.  */
 MEMORY
@@ -84,15 +90,14 @@ SECTIONS
        doesn't matter which directory crtbegin.o
        is in.  */
 
-    KEEP (*crtbegin.o(.ctors))
-    KEEP (*crtbegin?.o(.ctors))
-				       
+    KEEP (*crtbegin*.o(.ctors))
+
     /* We don't want to include the .ctor section from
        the crtend.o file until after the sorted ctors.
        The .ctor section from the crtend file contains the
        end of ctors marker and it must be last */
 
-    KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o) .ctors))
+    KEEP (*(EXCLUDE_FILE (*crtend*.o) .ctors))
     KEEP (*(SORT(.ctors.*)))
     KEEP (*(.ctors))
     __CTOR_END = .; 
@@ -101,9 +106,8 @@ SECTIONS
   .dtor ALIGN(4) : 
   { 
     __DTOR_START = .; 
-    KEEP (*crtbegin.o(.dtors))
-    KEEP (*crtbegin?.o(.dtors))
-    KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o) .dtors))
+    KEEP (*crtbegin*.o(.dtors))
+    KEEP (*(EXCLUDE_FILE (*crtend*.o) .dtors))
     KEEP (*(SORT(.dtors.*)))
     KEEP (*(.dtors))
     __DTOR_END = .; 
@@ -129,21 +133,21 @@ SECTIONS
    The heap and stack are aligned to the bus width, as a speed optimization
    for accessing data located there.  */
 
-  .heap (NOLOAD) :
+  .heap :
   {
     . = ALIGN(4);
     __HEAP_START = .;
     . += 0x2000; __HEAP_MAX = .;
   } > ram
 
-  .stack (NOLOAD) :
+  .stack :
   {
     . = ALIGN(4);
     . += 0x6000;
     __STACK_START = .;
   } > ram
 
-  .istack (NOLOAD) :
+  .istack :
   {
     . = ALIGN(4);
     . += 0x100;
@@ -165,13 +169,6 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 }
 
 __DATA_IMAGE_START = LOADADDR(.data);
