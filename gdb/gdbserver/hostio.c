@@ -1,5 +1,6 @@
 /* Host file transfer support for gdbserver.
-   Copyright (C) 2007-2013 Free Software Foundation, Inc.
+   Copyright (C) 2006
+   Free Software Foundation, Inc.
 
    Contributed by CodeSourcery.
 
@@ -7,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,11 +17,14 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "server.h"
 #include "gdb/fileio.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
@@ -114,7 +118,7 @@ require_data (char *p, int p_len, char **data, int *data_len)
 {
   int input_index, output_index, escaped;
 
-  *data = xmalloc (p_len);
+  *data = malloc (p_len);
 
   output_index = 0;
   escaped = 0;
@@ -134,10 +138,7 @@ require_data (char *p, int p_len, char **data, int *data_len)
     }
 
   if (escaped)
-    {
-      free (*data);
-      return -1;
-    }
+    return -1;
 
   *data_len = output_index;
   return 0;
@@ -176,18 +177,69 @@ require_valid_fd (int fd)
   return -1;
 }
 
-/* Fill in own_buf with the last hostio error packet, however it
-   suitable for the target.  */
-static void
-hostio_error (char *own_buf)
+static int
+errno_to_fileio_errno (int error)
 {
-  the_target->hostio_last_error (own_buf);
+  switch (error)
+    {
+    case EPERM:
+      return FILEIO_EPERM;
+    case ENOENT:
+      return FILEIO_ENOENT;
+    case EINTR:
+      return FILEIO_EINTR;
+    case EIO:
+      return FILEIO_EIO;
+    case EBADF:
+      return FILEIO_EBADF;
+    case EACCES:
+      return FILEIO_EACCES;
+    case EFAULT:
+      return FILEIO_EFAULT;
+    case EBUSY:
+      return FILEIO_EBUSY;
+    case EEXIST:
+      return FILEIO_EEXIST;
+    case ENODEV:
+      return FILEIO_ENODEV;
+    case ENOTDIR:
+      return FILEIO_ENOTDIR;
+    case EISDIR:
+      return FILEIO_EISDIR;
+    case EINVAL:
+      return FILEIO_EINVAL;
+    case ENFILE:
+      return FILEIO_ENFILE;
+    case EMFILE:
+      return FILEIO_EMFILE;
+    case EFBIG:
+      return FILEIO_EFBIG;
+    case ENOSPC:
+      return FILEIO_ENOSPC;
+    case ESPIPE:
+      return FILEIO_ESPIPE;
+    case EROFS:
+      return FILEIO_EROFS;
+    case ENOSYS:
+      return FILEIO_ENOSYS;
+    case ENAMETOOLONG:
+      return FILEIO_ENAMETOOLONG;
+    }
+  return FILEIO_EUNKNOWN;
+}
+
+static void
+hostio_error (char *own_buf, int error)
+{
+  int fileio_error = errno_to_fileio_errno (error);
+
+  sprintf (own_buf, "F-1,%x", fileio_error);
 }
 
 static void
 hostio_packet_error (char *own_buf)
 {
-  sprintf (own_buf, "F-1,%x", FILEIO_EINVAL);
+  hostio_error (own_buf, EINVAL);
 }
 
 static void
@@ -264,14 +316,14 @@ fileio_open_flags_to_host (int fileio_open_flags, int *open_flags_p)
 }
 
 static void
-handle_open (char *own_buf)
+handle_fopen (char *own_buf)
 {
   char filename[PATH_MAX];
   char *p;
   int fileio_flags, mode, flags, fd;
   struct fd_list *new_fd;
 
-  p = own_buf + strlen ("vFile:open:");
+  p = own_buf + strlen ("Fopen,");
 
   if (require_filename (&p, filename)
       || require_comma (&p)
@@ -291,12 +343,12 @@ handle_open (char *own_buf)
 
   if (fd == -1)
     {
-      hostio_error (own_buf);
+      hostio_error (own_buf, errno);
       return;
     }
 
   /* Record the new file descriptor.  */
-  new_fd = xmalloc (sizeof (struct fd_list));
+  new_fd = malloc (sizeof (struct fd_list));
   new_fd->fd = fd;
   new_fd->next = open_fds;
   open_fds = new_fd;
@@ -305,95 +357,65 @@ handle_open (char *own_buf)
 }
 
 static void
-handle_pread (char *own_buf, int *new_packet_len)
+handle_fread (char *own_buf, int *new_packet_len)
 {
-  int fd, ret, len, offset, bytes_sent;
+  int fd, ret, len, bytes_sent;
   char *p, *data;
 
-  p = own_buf + strlen ("vFile:pread:");
+  p = own_buf + strlen ("Fread,");
 
   if (require_int (&p, &fd)
       || require_comma (&p)
       || require_valid_fd (fd)
       || require_int (&p, &len)
-      || require_comma (&p)
-      || require_int (&p, &offset)
       || require_end (p))
     {
       hostio_packet_error (own_buf);
       return;
     }
 
-  data = xmalloc (len);
-#ifdef HAVE_PREAD
-  ret = pread (fd, data, len, offset);
-#else
-  ret = -1;
-#endif
-  /* If we have no pread or it failed for this file, use lseek/read.  */
-  if (ret == -1)
-    {
-      ret = lseek (fd, offset, SEEK_SET);
-      if (ret != -1)
-	ret = read (fd, data, len);
-    }
+  data = malloc (len);
+  ret = read (fd, data, len);
 
   if (ret == -1)
     {
-      hostio_error (own_buf);
+      hostio_error (own_buf, errno);
       free (data);
       return;
     }
 
   bytes_sent = hostio_reply_with_data (own_buf, data, ret, new_packet_len);
 
-  /* If we were using read, and the data did not all fit in the reply,
-     we would have to back up using lseek here.  With pread it does
-     not matter.  But we still have a problem; the return value in the
-     packet might be wrong, so we must fix it.  This time it will
-     definitely fit.  */
+  /* If all the data could not fit in the reply, back up the file
+     pointer for the next read.  */
   if (bytes_sent < ret)
-    bytes_sent = hostio_reply_with_data (own_buf, data, bytes_sent,
-					 new_packet_len);
+    lseek (fd, bytes_sent - ret, SEEK_CUR);
 
   free (data);
 }
 
 static void
-handle_pwrite (char *own_buf, int packet_len)
+handle_fwrite (char *own_buf, int packet_len)
 {
-  int fd, ret, len, offset;
+  int fd, ret, len;
   char *p, *data;
 
-  p = own_buf + strlen ("vFile:pwrite:");
+  p = own_buf + strlen ("Fwrite,");
 
   if (require_int (&p, &fd)
       || require_comma (&p)
       || require_valid_fd (fd)
-      || require_int (&p, &offset)
-      || require_comma (&p)
       || require_data (p, packet_len - (p - own_buf), &data, &len))
     {
       hostio_packet_error (own_buf);
       return;
     }
 
-#ifdef HAVE_PWRITE
-  ret = pwrite (fd, data, len, offset);
-#else
-  ret = -1;
-#endif
-  /* If we have no pwrite or it failed for this file, use lseek/write.  */
-  if (ret == -1)
-    {
-      ret = lseek (fd, offset, SEEK_SET);
-      if (ret != -1)
-	ret = write (fd, data, len);
-    }
+  ret = write (fd, data, len);
 
   if (ret == -1)
     {
-      hostio_error (own_buf);
+      hostio_error (own_buf, errno);
       free (data);
       return;
     }
@@ -403,13 +425,13 @@ handle_pwrite (char *own_buf, int packet_len)
 }
 
 static void
-handle_close (char *own_buf)
+handle_fclose (char *own_buf)
 {
   int fd, ret;
   char *p;
   struct fd_list **open_fd_p, *old_fd;
 
-  p = own_buf + strlen ("vFile:close:");
+  p = own_buf + strlen ("Fclose,");
 
   if (require_int (&p, &fd)
       || require_valid_fd (fd)
@@ -423,13 +445,12 @@ handle_close (char *own_buf)
 
   if (ret == -1)
     {
-      hostio_error (own_buf);
+      hostio_error (own_buf, errno);
       return;
     }
 
   open_fd_p = &open_fds;
-  /* We know that fd is in the list, thanks to require_valid_fd.  */
-  while ((*open_fd_p)->fd != fd)
+  while (*open_fd_p && (*open_fd_p)->fd != fd)
     open_fd_p = &(*open_fd_p)->next;
 
   old_fd = *open_fd_p;
@@ -439,85 +460,19 @@ handle_close (char *own_buf)
   hostio_reply (own_buf, ret);
 }
 
-static void
-handle_unlink (char *own_buf)
-{
-  char filename[PATH_MAX];
-  char *p;
-  int ret;
-
-  p = own_buf + strlen ("vFile:unlink:");
-
-  if (require_filename (&p, filename)
-      || require_end (p))
-    {
-      hostio_packet_error (own_buf);
-      return;
-    }
-
-  ret = unlink (filename);
-
-  if (ret == -1)
-    {
-      hostio_error (own_buf);
-      return;
-    }
-
-  hostio_reply (own_buf, ret);
-}
-
-static void
-handle_readlink (char *own_buf, int *new_packet_len)
-{
-#if defined (HAVE_READLINK)
-  char filename[PATH_MAX], linkname[PATH_MAX];
-  char *p;
-  int ret, bytes_sent;
-
-  p = own_buf + strlen ("vFile:readlink:");
-
-  if (require_filename (&p, filename)
-      || require_end (p))
-    {
-      hostio_packet_error (own_buf);
-      return;
-    }
-
-  ret = readlink (filename, linkname, sizeof (linkname) - 1);
-  if (ret == -1)
-    {
-      hostio_error (own_buf);
-      return;
-    }
-
-  bytes_sent = hostio_reply_with_data (own_buf, linkname, ret, new_packet_len);
-
-  /* If the response does not fit into a single packet, do not attempt
-     to return a partial response, but simply fail.  */
-  if (bytes_sent < ret)
-    sprintf (own_buf, "F-1,%x", FILEIO_ENAMETOOLONG);
-#else /* ! HAVE_READLINK */
-    sprintf (own_buf, "F-1,%x", FILEIO_ENOSYS);
-#endif
-}
-
 /* Handle all the 'F' file transfer packets.  */
 
 int
-handle_vFile (char *own_buf, int packet_len, int *new_packet_len)
+handle_f_hostio (char *own_buf, int packet_len, int *new_packet_len)
 {
-  if (strncmp (own_buf, "vFile:open:", 11) == 0)
-    handle_open (own_buf);
-  else if (strncmp (own_buf, "vFile:pread:", 11) == 0)
-    handle_pread (own_buf, new_packet_len);
-  else if (strncmp (own_buf, "vFile:pwrite:", 12) == 0)
-    handle_pwrite (own_buf, packet_len);
-  else if (strncmp (own_buf, "vFile:close:", 12) == 0)
-    handle_close (own_buf);
-  else if (strncmp (own_buf, "vFile:unlink:", 13) == 0)
-    handle_unlink (own_buf);
-  else if (strncmp (own_buf, "vFile:readlink:", 15) == 0)
-    handle_readlink (own_buf, new_packet_len);
+  if (strncmp (own_buf, "Fopen,", 6) == 0)
+    handle_fopen (own_buf);
+  else if (strncmp (own_buf, "Fread,", 6) == 0)
+    handle_fread (own_buf, new_packet_len);
+  else if (strncmp (own_buf, "Fwrite,", 7) == 0)
+    handle_fwrite (own_buf, packet_len);
+  else if (strncmp (own_buf, "Fclose,", 7) == 0)
+    handle_fclose (own_buf);
   else
     return 0;
 
