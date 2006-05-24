@@ -1,13 +1,12 @@
 /* Target definitions for NN-bit ELF
    Copyright 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-   2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   2003, 2004, 2005, 2006 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,9 +16,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* This structure contains everything that BFD knows about a target.
    It includes things like its byte order, name, what routines to call
@@ -32,9 +29,7 @@
 #ifndef bfd_elfNN_close_and_cleanup
 #define	bfd_elfNN_close_and_cleanup _bfd_elf_close_and_cleanup
 #endif
-#ifndef bfd_elfNN_bfd_free_cached_info
-#define bfd_elfNN_bfd_free_cached_info _bfd_free_cached_info
-#endif
+#define bfd_elfNN_bfd_free_cached_info _bfd_generic_bfd_free_cached_info
 #ifndef bfd_elfNN_get_section_contents
 #define bfd_elfNN_get_section_contents _bfd_generic_get_section_contents
 #endif
@@ -106,12 +101,6 @@
 #ifndef elf_backend_want_p_paddr_set_to_zero
 #define elf_backend_want_p_paddr_set_to_zero 0
 #endif
-#ifndef elf_backend_default_execstack
-#define elf_backend_default_execstack 1
-#endif
-#ifndef elf_backend_stack_align
-#define elf_backend_stack_align 16
-#endif
 
 #define bfd_elfNN_bfd_debug_info_start	bfd_void
 #define bfd_elfNN_bfd_debug_info_end	bfd_void
@@ -136,17 +125,11 @@
 #ifndef elf_backend_want_got_sym
 #define elf_backend_want_got_sym 1
 #endif
-#ifndef elf_backend_gc_keep
-#define elf_backend_gc_keep		_bfd_elf_gc_keep
-#endif
 #ifndef elf_backend_gc_mark_dynamic_ref
 #define elf_backend_gc_mark_dynamic_ref	bfd_elf_gc_mark_dynamic_ref_symbol
 #endif
 #ifndef elf_backend_gc_mark_hook
-#define elf_backend_gc_mark_hook	_bfd_elf_gc_mark_hook
-#endif
-#ifndef elf_backend_gc_mark_extra_sections
-#define elf_backend_gc_mark_extra_sections _bfd_elf_gc_mark_extra_sections
+#define elf_backend_gc_mark_hook	NULL
 #endif
 #ifndef elf_backend_gc_sweep_hook
 #define elf_backend_gc_sweep_hook	NULL
@@ -171,14 +154,6 @@
 #ifndef bfd_elfNN_section_already_linked
 #define bfd_elfNN_section_already_linked \
   _bfd_elf_section_already_linked
-#endif
-
-#ifndef bfd_elfNN_bfd_define_common_symbol
-#define bfd_elfNN_bfd_define_common_symbol bfd_generic_define_common_symbol
-#endif
-
-#ifndef bfd_elfNN_bfd_lookup_section_flags
-#define bfd_elfNN_bfd_lookup_section_flags bfd_elf_lookup_section_flags
 #endif
 
 #ifndef bfd_elfNN_bfd_make_debug_symbol
@@ -268,11 +243,6 @@
 #define bfd_elfNN_bfd_link_just_syms	_bfd_elf_link_just_syms
 #endif
 
-#ifndef bfd_elfNN_bfd_copy_link_hash_symbol_type
-#define bfd_elfNN_bfd_copy_link_hash_symbol_type \
-  _bfd_elf_copy_link_hash_symbol_type
-#endif
-
 #ifndef bfd_elfNN_bfd_link_split_section
 #define bfd_elfNN_bfd_link_split_section _bfd_generic_link_split_section
 #endif
@@ -286,7 +256,7 @@
 #endif
 
 #ifndef bfd_elfNN_mkobject
-#define bfd_elfNN_mkobject bfd_elf_make_object
+#define bfd_elfNN_mkobject bfd_elf_mkobject
 #endif
 
 #ifndef bfd_elfNN_mkcorefile
@@ -313,36 +283,13 @@
 #define elf_info_to_howto_rel 0
 #endif
 
-#ifndef elf_backend_arch_data
-#define elf_backend_arch_data NULL
-#endif
-
-#ifndef ELF_TARGET_ID
-#define ELF_TARGET_ID	GENERIC_ELF_DATA
-#endif
-
-#ifndef ELF_OSABI
-#define ELF_OSABI ELFOSABI_NONE
-#endif
-
 #ifndef ELF_MAXPAGESIZE
-# error ELF_MAXPAGESIZE is not defined
+  #error ELF_MAXPAGESIZE is not defined
 #define ELF_MAXPAGESIZE 1
 #endif
 
-#ifndef ELF_COMMONPAGESIZE
-#define ELF_COMMONPAGESIZE ELF_MAXPAGESIZE
-#endif
-
 #ifndef ELF_MINPAGESIZE
-#define ELF_MINPAGESIZE ELF_COMMONPAGESIZE
-#endif
-
-#if ELF_COMMONPAGESIZE > ELF_MAXPAGESIZE
-# error ELF_COMMONPAGESIZE > ELF_MAXPAGESIZE
-#endif
-#if ELF_MINPAGESIZE > ELF_COMMONPAGESIZE
-# error ELF_MINPAGESIZE > ELF_COMMONPAGESIZE
+#define ELF_MINPAGESIZE ELF_MAXPAGESIZE
 #endif
 
 #ifndef ELF_DYNAMIC_SEC_FLAGS
@@ -413,17 +360,11 @@
 #ifndef elf_backend_omit_section_dynsym
 #define elf_backend_omit_section_dynsym _bfd_elf_link_omit_section_dynsym
 #endif
-#ifndef elf_backend_relocs_compatible
-#define elf_backend_relocs_compatible _bfd_elf_default_relocs_compatible
-#endif
 #ifndef elf_backend_check_relocs
 #define elf_backend_check_relocs	0
 #endif
 #ifndef elf_backend_check_directives
 #define elf_backend_check_directives	0
-#endif
-#ifndef elf_backend_as_needed_cleanup
-#define elf_backend_as_needed_cleanup	0
 #endif
 #ifndef elf_backend_adjust_dynamic_symbol
 #define elf_backend_adjust_dynamic_symbol 0
@@ -433,10 +374,6 @@
 #endif
 #ifndef elf_backend_size_dynamic_sections
 #define elf_backend_size_dynamic_sections 0
-#endif
-#ifndef elf_backend_init_index_section
-#define elf_backend_init_index_section \
- ((void (*) (bfd *, struct bfd_link_info *)) bfd_void)
 #endif
 #ifndef elf_backend_relocate_section
 #define elf_backend_relocate_section	0
@@ -459,9 +396,6 @@
 #ifndef elf_backend_modify_segment_map
 #define elf_backend_modify_segment_map	0
 #endif
-#ifndef elf_backend_modify_program_headers
-#define elf_backend_modify_program_headers	0
-#endif
 #ifndef elf_backend_ecoff_debug_swap
 #define elf_backend_ecoff_debug_swap	0
 #endif
@@ -470,30 +404,6 @@
 #endif
 #ifndef elf_backend_got_header_size
 #define elf_backend_got_header_size	0
-#endif
-#ifndef elf_backend_got_elt_size
-#define elf_backend_got_elt_size _bfd_elf_default_got_elt_size
-#endif
-#ifndef elf_backend_obj_attrs_vendor
-#define elf_backend_obj_attrs_vendor		NULL
-#endif
-#ifndef elf_backend_obj_attrs_section
-#define elf_backend_obj_attrs_section		NULL
-#endif
-#ifndef elf_backend_obj_attrs_arg_type
-#define elf_backend_obj_attrs_arg_type		NULL
-#endif
-#ifndef elf_backend_obj_attrs_section_type
-#define elf_backend_obj_attrs_section_type		SHT_GNU_ATTRIBUTES
-#endif
-#ifndef elf_backend_obj_attrs_order
-#define elf_backend_obj_attrs_order		NULL
-#endif
-#ifndef elf_backend_obj_attrs_handle_unknown
-#define elf_backend_obj_attrs_handle_unknown	NULL
-#endif
-#ifndef elf_backend_static_tls_alignment
-#define elf_backend_static_tls_alignment	1
 #endif
 #ifndef elf_backend_post_process_headers
 #define elf_backend_post_process_headers	NULL
@@ -514,13 +424,10 @@
 #define elf_backend_hide_symbol		_bfd_elf_link_hash_hide_symbol
 #endif
 #ifndef elf_backend_fixup_symbol
-#define elf_backend_fixup_symbol		NULL
+#define elf_backend_fixup_symbol		NULL	
 #endif
 #ifndef elf_backend_merge_symbol_attribute
 #define elf_backend_merge_symbol_attribute	NULL
-#endif
-#ifndef elf_backend_get_target_dtag
-#define elf_backend_get_target_dtag		NULL
 #endif
 #ifndef elf_backend_ignore_undef_symbol
 #define elf_backend_ignore_undef_symbol		NULL
@@ -537,11 +444,11 @@
 #ifndef elf_backend_grok_psinfo
 #define elf_backend_grok_psinfo			NULL
 #endif
-#ifndef elf_backend_write_core_note
-#define elf_backend_write_core_note		NULL
+#ifndef elf_backend_sprintf_vma
+#define elf_backend_sprintf_vma			_bfd_elf_sprintf_vma
 #endif
-#ifndef elf_backend_lookup_section_flags_hook
-#define elf_backend_lookup_section_flags_hook	NULL
+#ifndef elf_backend_fprintf_vma
+#define elf_backend_fprintf_vma			_bfd_elf_fprintf_vma
 #endif
 #ifndef elf_backend_reloc_type_class
 #define elf_backend_reloc_type_class		_bfd_elf_reloc_type_class
@@ -595,9 +502,6 @@
 #ifndef elf_backend_default_use_rela_p
 #define elf_backend_default_use_rela_p !USE_REL
 #endif
-#ifndef elf_backend_rela_plts_and_copies_p
-#define elf_backend_rela_plts_and_copies_p elf_backend_default_use_rela_p
-#endif
 
 #ifndef elf_backend_rela_normal
 #define elf_backend_rela_normal 0
@@ -650,36 +554,16 @@
 #define elf_backend_merge_symbol NULL
 #endif
 
-#ifndef elf_backend_hash_symbol
-#define elf_backend_hash_symbol _bfd_elf_hash_symbol
-#endif
-
-#ifndef elf_backend_is_function_type
-#define elf_backend_is_function_type _bfd_elf_is_function_type
-#endif
-
-#ifndef elf_backend_maybe_function_sym
-#define elf_backend_maybe_function_sym _bfd_elf_maybe_function_sym
-#endif
-
-#ifndef elf_match_priority
-#define elf_match_priority \
-  (ELF_ARCH == bfd_arch_unknown ? 2 : ELF_OSABI == ELFOSABI_NONE ? 1 : 0)
-#endif
-
 extern const struct elf_size_info _bfd_elfNN_size_info;
 
-static struct elf_backend_data elfNN_bed =
+#ifndef INCLUDED_TARGET_FILE
+static const struct elf_backend_data elfNN_bed =
 {
   ELF_ARCH,			/* arch */
-  ELF_TARGET_ID,		/* target_id */
   ELF_MACHINE_CODE,		/* elf_machine_code */
-  ELF_OSABI,			/* elf_osabi  */
   ELF_MAXPAGESIZE,		/* maxpagesize */
   ELF_MINPAGESIZE,		/* minpagesize */
-  ELF_COMMONPAGESIZE,		/* commonpagesize */
   ELF_DYNAMIC_SEC_FLAGS,	/* dynamic_sec_flags */
-  elf_backend_arch_data,
   elf_info_to_howto,
   elf_info_to_howto_rel,
   elf_backend_sym_is_global,
@@ -700,14 +584,11 @@ static struct elf_backend_data elfNN_bed =
   elf_backend_link_output_symbol_hook,
   elf_backend_create_dynamic_sections,
   elf_backend_omit_section_dynsym,
-  elf_backend_relocs_compatible,
   elf_backend_check_relocs,
   elf_backend_check_directives,
-  elf_backend_as_needed_cleanup,
   elf_backend_adjust_dynamic_symbol,
   elf_backend_always_size_sections,
   elf_backend_size_dynamic_sections,
-  elf_backend_init_index_section,
   elf_backend_relocate_section,
   elf_backend_finish_dynamic_symbol,
   elf_backend_finish_dynamic_sections,
@@ -715,11 +596,8 @@ static struct elf_backend_data elfNN_bed =
   elf_backend_final_write_processing,
   elf_backend_additional_program_headers,
   elf_backend_modify_segment_map,
-  elf_backend_modify_program_headers,
-  elf_backend_gc_keep,
   elf_backend_gc_mark_dynamic_ref,
   elf_backend_gc_mark_hook,
-  elf_backend_gc_mark_extra_sections,
   elf_backend_gc_sweep_hook,
   elf_backend_post_process_headers,
   elf_backend_print_symbol_all,
@@ -729,14 +607,13 @@ static struct elf_backend_data elfNN_bed =
   elf_backend_hide_symbol,
   elf_backend_fixup_symbol,
   elf_backend_merge_symbol_attribute,
-  elf_backend_get_target_dtag,
   elf_backend_ignore_undef_symbol,
   elf_backend_emit_relocs,
   elf_backend_count_relocs,
   elf_backend_grok_prstatus,
   elf_backend_grok_psinfo,
-  elf_backend_write_core_note,
-  elf_backend_lookup_section_flags_hook,
+  elf_backend_sprintf_vma,
+  elf_backend_fprintf_vma,
   elf_backend_reloc_type_class,
   elf_backend_discard_info,
   elf_backend_ignore_discarded_relocs,
@@ -755,9 +632,6 @@ static struct elf_backend_data elfNN_bed =
   elf_backend_common_section_index,
   elf_backend_common_section,
   elf_backend_merge_symbol,
-  elf_backend_hash_symbol,
-  elf_backend_is_function_type,
-  elf_backend_maybe_function_sym,
   elf_backend_link_order_error_handler,
   elf_backend_relplt_name,
   ELF_MACHINE_ALT1,
@@ -765,21 +639,11 @@ static struct elf_backend_data elfNN_bed =
   &elf_backend_size_info,
   elf_backend_special_sections,
   elf_backend_got_header_size,
-  elf_backend_got_elt_size,
-  elf_backend_obj_attrs_vendor,
-  elf_backend_obj_attrs_section,
-  elf_backend_obj_attrs_arg_type,
-  elf_backend_obj_attrs_section_type,
-  elf_backend_obj_attrs_order,
-  elf_backend_obj_attrs_handle_unknown,
-  elf_backend_static_tls_alignment,
-  elf_backend_stack_align,
   elf_backend_collect,
   elf_backend_type_change_ok,
   elf_backend_may_use_rel_p,
   elf_backend_may_use_rela_p,
   elf_backend_default_use_rela_p,
-  elf_backend_rela_plts_and_copies_p,
   elf_backend_rela_normal,
   elf_backend_sign_extend_vma,
   elf_backend_want_got_plt,
@@ -791,9 +655,9 @@ static struct elf_backend_data elfNN_bed =
   elf_backend_can_refcount,
   elf_backend_want_got_sym,
   elf_backend_want_dynbss,
-  elf_backend_want_p_paddr_set_to_zero,
-  elf_backend_default_execstack
+  elf_backend_want_p_paddr_set_to_zero
 };
+#endif
 
 /* Forward declaration for use when initialising alternative_target field.  */
 #ifdef TARGET_LITTLE_SYM
@@ -817,7 +681,7 @@ const bfd_target TARGET_BIG_SYM =
 
   /* object_flags: mask of all file flags */
   (HAS_RELOC | EXEC_P | HAS_LINENO | HAS_DEBUG | HAS_SYMS | HAS_LOCALS
-   | DYNAMIC | WP_TEXT | D_PAGED | BFD_COMPRESS | BFD_DECOMPRESS),
+   | DYNAMIC | WP_TEXT | D_PAGED),
 
   /* section_flags: mask of all section flags */
   (SEC_HAS_CONTENTS | SEC_ALLOC | SEC_LOAD | SEC_RELOC | SEC_READONLY
@@ -838,8 +702,6 @@ const bfd_target TARGET_BIG_SYM =
      of the archiver and should be independently tunable.  The System V ABI,
      Chapter 7 (Formats & Protocols), Archive section sets this as 15.  */
   15,
-
-  elf_match_priority,
 
   /* Routines to byte-swap various sized integers from the data sections */
   bfd_getb64, bfd_getb_signed_64, bfd_putb64,
@@ -915,7 +777,7 @@ const bfd_target TARGET_LITTLE_SYM =
 
   /* object_flags: mask of all file flags */
   (HAS_RELOC | EXEC_P | HAS_LINENO | HAS_DEBUG | HAS_SYMS | HAS_LOCALS
-   | DYNAMIC | WP_TEXT | D_PAGED | BFD_COMPRESS | BFD_DECOMPRESS),
+   | DYNAMIC | WP_TEXT | D_PAGED),
 
   /* section_flags: mask of all section flags */
   (SEC_HAS_CONTENTS | SEC_ALLOC | SEC_LOAD | SEC_RELOC | SEC_READONLY
@@ -936,8 +798,6 @@ const bfd_target TARGET_LITTLE_SYM =
      of the archiver and should be independently tunable.  The System V ABI,
      Chapter 7 (Formats & Protocols), Archive section sets this as 15.  */
   15,
-
-  elf_match_priority,
 
   /* Routines to byte-swap various sized integers from the data sections */
   bfd_getl64, bfd_getl_signed_64, bfd_putl64,
