@@ -1,24 +1,24 @@
 /* Opcode table for m680[012346]0/m6888[12]/m68851/mcf5200.
    Copyright 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-   2000, 2001, 2003, 2004, 2005, 2006, 2007, 2009, 2010, 2011
+   2000, 2001, 2003, 2004, 2005, 2006
    Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
+   This file is part of GDB, GAS, and the GNU binutils.
 
-   This library is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   GDB, GAS, and the GNU binutils are free software; you can redistribute
+   them and/or modify them under the terms of the GNU General Public
+   License as published by the Free Software Foundation; either version
+   1, or (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   GDB, GAS, and the GNU binutils are distributed in the hope that they
+   will be useful, but WITHOUT ANY WARRANTY; without even the implied
+   warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+   the GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this file; see the file COPYING.  If not, write to the
-   Free Software Foundation, 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   along with this file; see the file COPYING.  If not, write to the Free
+   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
+   02110-1301, USA.  */
 
 #include "sysdep.h"
 #include "opcode/m68k.h"
@@ -29,10 +29,6 @@
 /* The assembler requires that all instances of the same mnemonic must
    be consecutive.  If they aren't, the assembler will bomb at
    runtime.  */
-
-/* Format strings consist of pairs of characters.  The first describes
-   the type of the operand and the second describes the encoding.
-   include/opcodes/m68k.h describes them in detail.  */
 
 const struct m68k_opcode m68k_opcodes[] =
 {
@@ -135,20 +131,20 @@ const struct m68k_opcode m68k_opcodes[] =
 {"bgtw", 2,	one(0067000),	one(0177777), "BW", m68000up | mcfisa_a },
 {"blew", 2,	one(0067400),	one(0177777), "BW", m68000up | mcfisa_a },
 
-{"bhil", 2,	one(0061377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"blsl", 2,	one(0061777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bccl", 2,	one(0062377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bcsl", 2,	one(0062777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bnel", 2,	one(0063377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"beql", 2,	one(0063777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bvcl", 2,	one(0064377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bvsl", 2,	one(0064777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bpll", 2,	one(0065377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bmil", 2,	one(0065777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bgel", 2,	one(0066377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bltl", 2,	one(0066777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"bgtl", 2,	one(0067377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
-{"blel", 2,	one(0067777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
+{"bhil", 2,	one(0061377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"blsl", 2,	one(0061777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bccl", 2,	one(0062377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bcsl", 2,	one(0062777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bnel", 2,	one(0063377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"beql", 2,	one(0063777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bvcl", 2,	one(0064377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bvsl", 2,	one(0064777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bpll", 2,	one(0065377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bmil", 2,	one(0065777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bgel", 2,	one(0066377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bltl", 2,	one(0066777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"bgtl", 2,	one(0067377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
+{"blel", 2,	one(0067777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
 
 {"bhis", 2,	one(0061000),	one(0177400), "BB", m68000up | mcfisa_a },
 {"blss", 2,	one(0061400),	one(0177400), "BB", m68000up | mcfisa_a },
@@ -197,14 +193,14 @@ const struct m68k_opcode m68k_opcodes[] =
 {"bfset", 4,	two(0167300, 0), two(0177700, 0170000),	"?sO2O3",   m68020up },
 {"bftst", 4,	two(0164300, 0), two(0177700, 0170000),	"/sO2O3",   m68020up },
 
-{"bgnd", 2,	one(0045372),	one(0177777), "", cpu32 | fido_a },
+{"bgnd", 2,	one(0045372),	one(0177777), "", cpu32 },
 
-{"bitrev", 2,	one(0000300),	one(0177770), "Ds", mcfisa_aa | mcfisa_c},
+{"bitrev", 2,	one(0000300),	one(0177770), "Ds", mcfisa_aa},
 
 {"bkpt", 2,	one(0044110),	one(0177770), "ts", m68010up },
 
 {"braw", 2,	one(0060000),	one(0177777), "BW", m68000up | mcfisa_a },
-{"bral", 2,	one(0060377),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b},
+{"bral", 2,	one(0060377),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
 {"bras", 2,	one(0060000),	one(0177400), "BB", m68000up | mcfisa_a },
 
 {"bset", 2,	one(0000700),	one(0170700), "Dd$s", m68000up | mcfisa_a },
@@ -213,14 +209,14 @@ const struct m68k_opcode m68k_opcodes[] =
 {"bset", 4,	one(0004300),	one(0177700), "#bqs", mcfisa_a },
 
 {"bsrw", 2,	one(0060400),	one(0177777), "BW", m68000up | mcfisa_a },
-{"bsrl", 2,	one(0060777),	one(0177777), "BL", m68020up | cpu32 | fido_a | mcfisa_b | mcfisa_c},
+{"bsrl", 2,	one(0060777),	one(0177777), "BL", m68020up | cpu32 | mcfisa_b},
 {"bsrs", 2,	one(0060400),	one(0177400), "BB", m68000up | mcfisa_a },
 
 {"btst", 2,	one(0000400),	one(0170700), "Dd;b", m68000up | mcfisa_a },
 {"btst", 4,	one(0004000),	one(0177700), "#b@s", m68000up },
 {"btst", 4,	one(0004000),	one(0177700), "#bqs", mcfisa_a },
 
-{"byterev", 2,	one(0001300),	one(0177770), "Ds", mcfisa_aa | mcfisa_c},
+{"byterev", 2,	one(0001300),	one(0177770), "Ds", mcfisa_aa},
 
 {"callm", 4,	one(0003300),	one(0177700), "#b!s", m68020 },
 
@@ -233,9 +229,9 @@ const struct m68k_opcode m68k_opcodes[] =
 {"casw", 4,	two(0006300, 0), two(0177700, 0177070),	"D3D2~s", m68020up },
 {"casl", 4,	two(0007300, 0), two(0177700, 0177070),	"D3D2~s", m68020up },
 
-{"chk2b", 4, 	two(0000300,0004000), two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
-{"chk2w", 4, 	two(0001300,0004000),	two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
-{"chk2l", 4, 	two(0002300,0004000),	two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
+{"chk2b", 4, 	two(0000300,0004000), two(0177700,07777), "!sR1", m68020up | cpu32 },
+{"chk2w", 4, 	two(0001300,0004000),	two(0177700,07777), "!sR1", m68020up | cpu32 },
+{"chk2l", 4, 	two(0002300,0004000),	two(0177700,07777), "!sR1", m68020up | cpu32 },
 
 {"chkl", 2,	one(0040400),		one(0170700), ";lDd", m68000up },
 {"chkw", 2,	one(0040600),		one(0170700), ";wDd", m68000up },
@@ -260,17 +256,17 @@ const struct m68k_opcode m68k_opcodes[] =
 {"clrw", 2,	one(0041100),	one(0177700), "$s", m68000up | mcfisa_a },
 {"clrl", 2,	one(0041200),	one(0177700), "$s", m68000up | mcfisa_a },
 
-{"cmp2b", 4,	two(0000300,0), two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
-{"cmp2w", 4,	two(0001300,0),	two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
-{"cmp2l", 4,	two(0002300,0),	two(0177700,07777), "!sR1", m68020up | cpu32 | fido_a },
+{"cmp2b", 4,	two(0000300,0), two(0177700,07777), "!sR1", m68020up | cpu32 },
+{"cmp2w", 4,	two(0001300,0),	two(0177700,07777), "!sR1", m68020up | cpu32 },
+{"cmp2l", 4,	two(0002300,0),	two(0177700,07777), "!sR1", m68020up | cpu32 },
 
 {"cmpaw", 2,	one(0130300),	one(0170700), "*wAd", m68000up },
 {"cmpal", 2,	one(0130700),	one(0170700), "*lAd", m68000up | mcfisa_a },
 
 {"cmpib", 4,	one(0006000),	one(0177700), "#b@s", m68000up },
-{"cmpib", 4,	one(0006000),	one(0177700), "#bDs", mcfisa_b | mcfisa_c },
+{"cmpib", 4,	one(0006000),	one(0177700), "#bDs", mcfisa_b },
 {"cmpiw", 4,	one(0006100),	one(0177700), "#w@s", m68000up },
-{"cmpiw", 4,	one(0006100),	one(0177700), "#wDs", mcfisa_b | mcfisa_c },
+{"cmpiw", 4,	one(0006100),	one(0177700), "#wDs", mcfisa_b },
 {"cmpil", 6,	one(0006200),	one(0177700), "#l@s", m68000up },
 {"cmpil", 6,	one(0006200),	one(0177700), "#lDs", mcfisa_a },
 
@@ -280,45 +276,21 @@ const struct m68k_opcode m68k_opcodes[] =
 
 /* The cmp opcode can generate the cmpa, cmpm, and cmpi instructions.  */
 {"cmpb", 4,	one(0006000),	one(0177700), "#b@s", m68000up },
-{"cmpb", 4,	one(0006000),	one(0177700), "#bDs", mcfisa_b | mcfisa_c },
+{"cmpb", 4,	one(0006000),	one(0177700), "#bDs", mcfisa_b },
 {"cmpb", 2,	one(0130410),	one(0170770), "+s+d", m68000up },
 {"cmpb", 2,	one(0130000),	one(0170700), ";bDd", m68000up },
-{"cmpb", 2,	one(0130000),	one(0170700), "*bDd", mcfisa_b | mcfisa_c },
+{"cmpb", 2,	one(0130000),	one(0170700), "*bDd", mcfisa_b },
 {"cmpw", 2,	one(0130300),	one(0170700), "*wAd", m68000up },
 {"cmpw", 4,	one(0006100),	one(0177700), "#w@s", m68000up },
-{"cmpw", 4,	one(0006100),	one(0177700), "#wDs", mcfisa_b | mcfisa_c },
+{"cmpw", 4,	one(0006100),	one(0177700), "#wDs", mcfisa_b },
 {"cmpw", 2,	one(0130510),	one(0170770), "+s+d", m68000up },
-{"cmpw", 2,	one(0130100),	one(0170700), "*wDd", m68000up | mcfisa_b | mcfisa_c },
+{"cmpw", 2,	one(0130100),	one(0170700), "*wDd", m68000up | mcfisa_b },
 {"cmpl", 2,	one(0130700),	one(0170700), "*lAd", m68000up | mcfisa_a },
 {"cmpl", 6,	one(0006200),	one(0177700), "#l@s", m68000up },
 {"cmpl", 6,	one(0006200),	one(0177700), "#lDs", mcfisa_a },
 {"cmpl", 2,	one(0130610),	one(0170770), "+s+d", m68000up },
 {"cmpl", 2,	one(0130200),	one(0170700), "*lDd", m68000up | mcfisa_a },
-  
-{"cp0bcbusy",2, one (0176300), one (01777770), "BW", mcfisa_a},
-{"cp1bcbusy",2, one (0177300), one (01777770), "BW", mcfisa_a},
-{"cp0nop",   4, two (0176000,0), two (01777477,0170777), "jE", mcfisa_a},
-{"cp1nop",   4, two (0177000,0), two (01777477,0170777), "jE", mcfisa_a},
-/* These all have 2 opcode words, but no fixed bits in the second
-   word.  We use a leading ' ' in the args string to indicate the
-   extra opcode word.  */
-{"cp0ldb",   6, one (0176000), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp1ldb",   6, one (0177000), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp0ldw",   6, one (0176100), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp1ldw",   6, one (0177100), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp0ldl",   6, one (0176200), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp1ldl",   6, one (0177200), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp0ld",    6, one (0176200), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp1ld",    6, one (0177200), one (01777700), ".pwR1jEK3", mcfisa_a},
-{"cp0stb",   6, one (0176400), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp1stb",   6, one (0177400), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp0stw",   6, one (0176500), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp1stw",   6, one (0177500), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp0stl",   6, one (0176600), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp1stl",   6, one (0177600), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp0st",    6, one (0176600), one (01777700), ".R1pwjEK3", mcfisa_a},
-{"cp1st",    6, one (0177600), one (01777700), ".R1pwjEK3", mcfisa_a},
-  
+
 {"dbcc", 2,	one(0052310),	one(0177770), "DsBw", m68000up },
 {"dbcs", 2,	one(0052710),	one(0177770), "DsBw", m68000up },
 {"dbeq", 2,	one(0053710),	one(0177770), "DsBw", m68000up },
@@ -338,21 +310,21 @@ const struct m68k_opcode m68k_opcodes[] =
 
 {"divsw", 2,	one(0100700),	one(0170700), ";wDd", m68000up | mcfhwdiv },
 
-{"divsl", 4, 	two(0046100,0006000),two(0177700,0107770),";lD3D1", m68020up | cpu32 | fido_a },
-{"divsl", 4, 	two(0046100,0004000),two(0177700,0107770),";lDD",   m68020up | cpu32 | fido_a },
+{"divsl", 4, 	two(0046100,0006000),two(0177700,0107770),";lD3D1", m68020up|cpu32 },
+{"divsl", 4, 	two(0046100,0004000),two(0177700,0107770),";lDD",   m68020up|cpu32 },
 {"divsl", 4, 	two(0046100,0004000),two(0177700,0107770),"qsDD",   mcfhwdiv },
 
-{"divsll", 4, 	two(0046100,0004000),two(0177700,0107770),";lD3D1",m68020up | cpu32 | fido_a },
-{"divsll", 4, 	two(0046100,0004000),two(0177700,0107770),";lDD",  m68020up | cpu32 | fido_a },
+{"divsll", 4, 	two(0046100,0004000),two(0177700,0107770),";lD3D1",m68020up|cpu32 },
+{"divsll", 4, 	two(0046100,0004000),two(0177700,0107770),";lDD",  m68020up|cpu32 },
 
 {"divuw", 2,	one(0100300),		one(0170700), ";wDd", m68000up | mcfhwdiv },
 
-{"divul", 4,	two(0046100,0002000),two(0177700,0107770),";lD3D1", m68020up | cpu32 | fido_a },
-{"divul", 4,	two(0046100,0000000),two(0177700,0107770),";lDD",   m68020up | cpu32 | fido_a },
+{"divul", 4,	two(0046100,0002000),two(0177700,0107770),";lD3D1", m68020up|cpu32 },
+{"divul", 4,	two(0046100,0000000),two(0177700,0107770),";lDD",   m68020up|cpu32 },
 {"divul", 4,	two(0046100,0000000),two(0177700,0107770),"qsDD",   mcfhwdiv },
 
-{"divull", 4,	two(0046100,0000000),two(0177700,0107770),";lD3D1",m68020up | cpu32 | fido_a },
-{"divull", 4,	two(0046100,0000000),two(0177700,0107770),";lDD",  m68020up | cpu32 | fido_a },
+{"divull", 4,	two(0046100,0000000),two(0177700,0107770),";lD3D1",m68020up|cpu32 },
+{"divull", 4,	two(0046100,0000000),two(0177700,0107770),";lDD",  m68020up|cpu32 },
 
 {"eorib", 4,	one(0005000),	one(0177700), "#b$s", m68000up },
 {"eorib", 4,	one(0005074),	one(0177777), "#bCs", m68000up },
@@ -386,9 +358,9 @@ const struct m68k_opcode m68k_opcodes[] =
 
 {"extw", 2,	one(0044200),	one(0177770), "Ds", m68000up|mcfisa_a },
 {"extl", 2,	one(0044300),	one(0177770), "Ds", m68000up|mcfisa_a },
-{"extbl", 2,	one(0044700),	one(0177770), "Ds", m68020up | cpu32 | fido_a | mcfisa_a },
+{"extbl", 2,	one(0044700),	one(0177770), "Ds", m68020up|cpu32|mcfisa_a },
 
-{"ff1", 2,   	one(0002300), one(0177770), "Ds", mcfisa_aa | mcfisa_c},
+{"ff1", 2,   	one(0002300), one(0177770), "Ds", mcfisa_aa},
 
 /* float stuff starts here */
 
@@ -489,7 +461,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"fdaddd", 4,	two(0xF000, 0x0066), two(0xF1C0, 0xE07F), "IiF8F7", cfloat },
 {"fdaddd", 4,	two(0xF000, 0x5466), two(0xF1C0, 0xFC7F), "IibsF7", cfloat },
 {"fdaddd", 4,	two(0xF000, 0x5466), two(0xF1C0, 0xFC7F), "Ii;FF7", m68040up },
-{"fdaddl", 4,	two(0xF000, 0x4066), two(0xF1C0, 0xFC7F), "IibsF7", cfloat },
+{"fdaddl", 4,	two(0xF000, 0x4066), two(0xF1C0, 0xFC7F), "IiwsF7", cfloat },
 {"fdaddl", 4,	two(0xF000, 0x4066), two(0xF1C0, 0xFC7F), "Ii;lF7", m68040up },
 {"fdaddp", 4,	two(0xF000, 0x4C66), two(0xF1C0, 0xFC7F), "Ii;pF7", m68040up },
 {"fdadds", 4,	two(0xF000, 0x4466), two(0xF1C0, 0xFC7F), "Ii;fF7", m68040up },
@@ -528,9 +500,6 @@ const struct m68k_opcode m68k_opcodes[] =
 {"fatanhx", 4,	two(0xF000, 0x000D), two(0xF1C0, 0xE07F), "IiF8F7", mfloat },
 {"fatanhx", 4,	two(0xF000, 0x480D), two(0xF1C0, 0xFC7F), "Ii;xF7", mfloat },
 {"fatanhx", 4,	two(0xF000, 0x000D), two(0xF1C0, 0xE07F), "IiFt",   mfloat },
-
-/* This is the same as `fbf .+2'.  */
-{"fnop", 4,	two(0xF280, 0x0000), two(0xFFFF, 0xFFFF), "Ii", mfloat | cfloat },
 
 {"fbeq", 2,	one(0xF081),		one(0xF1FF), "IdBW", mfloat | cfloat },
 {"fbf", 2,	one(0xF080),		one(0xF1FF), "IdBW", mfloat | cfloat },
@@ -1087,6 +1056,8 @@ const struct m68k_opcode m68k_opcodes[] =
 {"fdnegx", 4,	two(0xF000, 0x485E), two(0xF1C0, 0xFC7F), "Ii;xF7", m68040up },
 {"fdnegx", 4,	two(0xF000, 0x005E), two(0xF1C0, 0xE07F), "IiFt",   m68040up },
 
+{"fnop", 4,	two(0xF280, 0x0000), two(0xFFFF, 0xFFFF), "Ii", mfloat | cfloat },
+
 {"fremb", 4,	two(0xF000, 0x5825), two(0xF1C0, 0xFC7F), "Ii;bF7", mfloat },
 {"fremd", 4,	two(0xF000, 0x5425), two(0xF1C0, 0xFC7F), "Ii;FF7", mfloat },
 {"freml", 4,	two(0xF000, 0x4025), two(0xF1C0, 0xFC7F), "Ii;lF7", mfloat },
@@ -1452,26 +1423,26 @@ const struct m68k_opcode m68k_opcodes[] =
 {"halt", 2,	one(0045310),	one(0177777), "",     m68060 | mcfisa_a },
 
 {"illegal", 2,	one(0045374),	one(0177777), "",     m68000up | mcfisa_a },
-{"intouch", 2,	one(0xf428),	one(0xfff8), "As",    mcfisa_b | mcfisa_c },
+{"intouch", 2,	one(0xf428),	one(0xfff8), "As",    mcfisa_b },
 
 {"jmp", 2,	one(0047300),	one(0177700), "!s", m68000up | mcfisa_a },
 
-{"jra", 2,	one(0060000),	one(0177400), "Bb", m68000up | mcfisa_a },
+{"jra", 2,	one(0060000),	one(0177400), "Bg", m68000up | mcfisa_a },
 {"jra", 2,	one(0047300),	one(0177700), "!s", m68000up | mcfisa_a },
 
 {"jsr", 2,	one(0047200),	one(0177700), "!s", m68000up | mcfisa_a },
 
-{"jbsr", 2,	one(0060400),	one(0177400), "Bs", m68000up | mcfisa_a },
+{"jbsr", 2,	one(0060400),	one(0177400), "Bg", m68000up | mcfisa_a },
 {"jbsr", 2,	one(0047200),	one(0177700), "!s", m68000up | mcfisa_a },
 
 {"lea", 2,	one(0040700),	one(0170700), "!sAd", m68000up | mcfisa_a },
 
-{"lpstop", 6,	two(0174000,0000700),two(0177777,0177777),"#w", cpu32 | fido_a | m68060 },
+{"lpstop", 6,	two(0174000,0000700),two(0177777,0177777),"#w", cpu32|m68060 },
 
 {"linkw", 4,	one(0047120),	one(0177770), "As#w", m68000up | mcfisa_a },
-{"linkl", 6,	one(0044010),	one(0177770), "As#l", m68020up | cpu32 | fido_a },
+{"linkl", 6,	one(0044010),	one(0177770), "As#l", m68020up | cpu32 },
 {"link", 4,	one(0047120),	one(0177770), "As#W", m68000up | mcfisa_a },
-{"link", 6,	one(0044010),	one(0177770), "As#l", m68020up | cpu32 | fido_a },
+{"link", 6,	one(0044010),	one(0177770), "As#l", m68020up | cpu32 },
 
 {"lslb", 2,	one(0160410),	one(0170770), "QdDs", m68000up },
 {"lslb", 2,	one(0160450),	one(0170770), "DdDs", m68000up },
@@ -1508,7 +1479,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"macl", 4,  	two(0xa080, 0x0800), two(0xf180, 0x0f10), "RNRo4/Rn", mcfmac },
 {"macl", 4,  	two(0xa000, 0x0800), two(0xf1b0, 0x0b00), "RMRmiI", mcfmac },
 {"macl", 4,  	two(0xa000, 0x0a00), two(0xf1b0, 0x0b00), "RMRmMh", mcfmac },
-{"macl", 4,  	two(0xa000, 0x0800), two(0xf1b0, 0x0900), "RMRm", mcfmac },
+{"macl", 4,  	two(0xa000, 0x0800), two(0xf1b0, 0x0800), "RMRm", mcfmac },
 
 {"macl", 4,  	two(0xa000, 0x0800), two(0xf100, 0x0900), "R3R1iI4/RneG", mcfemac },
 {"macl", 4,  	two(0xa000, 0x0a00), two(0xf100, 0x0900), "R3R1Mh4/RneG", mcfemac },
@@ -1553,10 +1524,15 @@ const struct m68k_opcode m68k_opcodes[] =
 {"moveml", 4,	one(0044300),	one(0177700), "#w>s", m68000up },
 {"moveml", 4,	one(0046300),	one(0177700), "<sLw", m68000up },
 {"moveml", 4,	one(0046300),	one(0177700), "<s#w", m68000up },
-{"moveml", 4,	one(0044300),	one(0177700), "Lwys", mcfisa_a },
-{"moveml", 4,	one(0044300),	one(0177700), "#wys", mcfisa_a },
-{"moveml", 4,	one(0046300),	one(0177700), "ysLw", mcfisa_a },
-{"moveml", 4,	one(0046300),	one(0177700), "ys#w", mcfisa_a },
+/* FIXME: need specifier for mode 2 and 5 to simplify below insn patterns.  */
+{"moveml", 4,	one(0044320),	one(0177770), "Lwas", mcfisa_a },
+{"moveml", 4,	one(0044320),	one(0177770), "#was", mcfisa_a },
+{"moveml", 4,	one(0044350),	one(0177770), "Lwds", mcfisa_a },
+{"moveml", 4,	one(0044350),	one(0177770), "#wds", mcfisa_a },
+{"moveml", 4,	one(0046320),	one(0177770), "asLw", mcfisa_a },
+{"moveml", 4,	one(0046320),	one(0177770), "as#w", mcfisa_a },
+{"moveml", 4,	one(0046350),	one(0177770), "dsLw", mcfisa_a },
+{"moveml", 4,	one(0046350),	one(0177770), "ds#w", mcfisa_a },
 
 {"movepw", 2,	one(0000410),	one(0170770), "dsDd", m68000up },
 {"movepw", 2,	one(0000610),	one(0170770), "Ddds", m68000up },
@@ -1577,22 +1553,22 @@ const struct m68k_opcode m68k_opcodes[] =
 {"moveb", 2,	one(0010200),	one(0170700), "obad", mcfisa_a },
 {"moveb", 2,	one(0010300),	one(0170700), "ob+d", mcfisa_a },
 {"moveb", 2,	one(0010400),	one(0170700), "ob-d", mcfisa_a },
-{"moveb", 2,	one(0010000),	one(0170000), "obnd", mcfisa_b | mcfisa_c },
+{"moveb", 2,	one(0010000),	one(0170000), "obnd", mcfisa_b },
 
 {"movew", 2,	one(0030000),	one(0170000), "*w%d", m68000up },
 {"movew", 2,	one(0030000),	one(0170000), "ms%d", mcfisa_a },
 {"movew", 2,	one(0030000),	one(0170000), "nspd", mcfisa_a },
 {"movew", 2,	one(0030000),	one(0170000), "owmd", mcfisa_a },
-{"movew", 2,	one(0030000),	one(0170000), "ownd", mcfisa_b | mcfisa_c },
+{"movew", 2,	one(0030000),	one(0170000), "ownd", mcfisa_b },
 {"movew", 2,	one(0040300),	one(0177700), "Ss$s", m68000up },
 {"movew", 2,	one(0040300),	one(0177770), "SsDs", mcfisa_a },
 {"movew", 2,	one(0041300),	one(0177700), "Cs$s", m68010up },
 {"movew", 2,	one(0041300),	one(0177770), "CsDs", mcfisa_a },
 {"movew", 2,	one(0042300),	one(0177700), ";wCd", m68000up },
-{"movew", 2,	one(0042300),	one(0177770), "DsCd", mcfisa_a },
+{"movew", 2,	one(0042300),	one(0177700), "DsCd", mcfisa_a },
 {"movew", 4,	one(0042374),	one(0177777), "#wCd", mcfisa_a },
 {"movew", 2,	one(0043300),	one(0177700), ";wSd", m68000up },
-{"movew", 2,	one(0043300),	one(0177770), "DsSd", mcfisa_a },
+{"movew", 2,	one(0043300),	one(0177700), "DsSd", mcfisa_a },
 {"movew", 4,	one(0043374),	one(0177777), "#wSd", mcfisa_a },
 
 {"movel", 2,	one(0070000),	one(0170400), "MsDd", m68000up | mcfisa_a },
@@ -1600,6 +1576,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"movel", 2,	one(0020000),	one(0170000), "ms%d", mcfisa_a },
 {"movel", 2,	one(0020000),	one(0170000), "nspd", mcfisa_a },
 {"movel", 2,	one(0020000),	one(0170000), "olmd", mcfisa_a },
+{"movel", 2,	one(0020000),	one(0170000), "olnd", mcfisa_b },
 {"movel", 2,	one(0047140),	one(0177770), "AsUd", m68000up | mcfusp },
 {"movel", 2,	one(0047150),	one(0177770), "UdAs", m68000up | mcfusp },
 {"movel", 2,	one(0120600),	one(0177760), "EsRs", mcfmac },
@@ -1632,7 +1609,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"move", 2,	one(0030000),	one(0170000), "ms%d", mcfisa_a },
 {"move", 2,	one(0030000),	one(0170000), "nspd", mcfisa_a },
 {"move", 2,	one(0030000),	one(0170000), "owmd", mcfisa_a },
-{"move", 2,	one(0030000),	one(0170000), "ownd", mcfisa_b | mcfisa_c },
+{"move", 2,	one(0030000),	one(0170000), "ownd", mcfisa_b },
 {"move", 2,	one(0040300),	one(0177700), "Ss$s", m68000up },
 {"move", 2,	one(0040300),	one(0177770), "SsDs", mcfisa_a },
 {"move", 2,	one(0041300),	one(0177700), "Cs$s", m68010up },
@@ -1647,11 +1624,11 @@ const struct m68k_opcode m68k_opcodes[] =
 {"move", 2,	one(0047140),	one(0177770), "AsUd", m68000up },
 {"move", 2,	one(0047150),	one(0177770), "UdAs", m68000up },
 
-{"mov3ql", 2,	one(0120500),	one(0170700), "xd%s", mcfisa_b | mcfisa_c },
-{"mvsb", 2,	one(0070400),	one(0170700), "*bDd", mcfisa_b | mcfisa_c },
-{"mvsw", 2,	one(0070500),	one(0170700), "*wDd", mcfisa_b | mcfisa_c },
-{"mvzb", 2,	one(0070600),	one(0170700), "*bDd", mcfisa_b | mcfisa_c },
-{"mvzw", 2,	one(0070700),	one(0170700), "*wDd", mcfisa_b | mcfisa_c },
+{"mov3ql", 2,	one(0120500),	one(0170700), "xd%s", mcfisa_b },
+{"mvsb", 2,	one(0070400),	one(0170700), "*bDd", mcfisa_b },
+{"mvsw", 2,	one(0070500),	one(0170700), "*wDd", mcfisa_b },
+{"mvzb", 2,	one(0070600),	one(0170700), "*bDd", mcfisa_b },
+{"mvzw", 2,	one(0070700),	one(0170700), "*wDd", mcfisa_b },
 
 {"movesb", 4,	two(0007000, 0),     two(0177700, 07777), "~sR1", m68010up },
 {"movesb", 4,	two(0007000, 04000), two(0177700, 07777), "R1~s", m68010up },
@@ -1673,9 +1650,9 @@ const struct m68k_opcode m68k_opcodes[] =
 {"msacw", 4,  	two(0xa000, 0x0300), two(0xf1b0, 0x0900), "uMumMh", mcfmac },
 {"msacw", 4,  	two(0xa000, 0x0100), two(0xf1b0, 0x0f00), "uMum", mcfmac },
 
-{"msacw", 4,  	two(0xa000, 0x0100), two(0xf100, 0x0900), "uNuoiI4/RneG", mcfemac },/* Ry,Rx,SF,<ea>,accX.  */
-{"msacw", 4,  	two(0xa000, 0x0300), two(0xf100, 0x0900), "uNuoMh4/RneG", mcfemac },/* Ry,Rx,+1/-1,<ea>,accX.  */
-{"msacw", 4,  	two(0xa000, 0x0100), two(0xf100, 0x0f00), "uNuo4/RneG", mcfemac },/* Ry,Rx,<ea>,accX.  */
+{"msacw", 4,  	two(0xa000, 0x0100), two(0xf100, 0x0900), "uMumiI4/RneG", mcfemac },/* Ry,Rx,SF,<ea>,accX.  */
+{"msacw", 4,  	two(0xa000, 0x0300), two(0xf100, 0x0900), "uMumMh4/RneG", mcfemac },/* Ry,Rx,+1/-1,<ea>,accX.  */
+{"msacw", 4,  	two(0xa000, 0x0100), two(0xf100, 0x0f00), "uMum4/RneG", mcfemac },/* Ry,Rx,<ea>,accX.  */
 {"msacw", 4,  	two(0xa000, 0x0100), two(0xf130, 0x0900), "uMumiIeH", mcfemac },/* Ry,Rx,SF,accX.  */
 {"msacw", 4,  	two(0xa000, 0x0300), two(0xf130, 0x0900), "uMumMheH", mcfemac },/* Ry,Rx,+1/-1,accX.  */
 {"msacw", 4,  	two(0xa000, 0x0100), two(0xf130, 0x0f00), "uMumeH", mcfemac }, /* Ry,Rx,accX.  */
@@ -1685,7 +1662,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"msacl", 4,  	two(0xa080, 0x0900), two(0xf180, 0x0f10), "RNRo4/Rn", mcfmac },
 {"msacl", 4,  	two(0xa000, 0x0900), two(0xf1b0, 0x0b00), "RMRmiI", mcfmac },
 {"msacl", 4,  	two(0xa000, 0x0b00), two(0xf1b0, 0x0b00), "RMRmMh", mcfmac },
-{"msacl", 4,  	two(0xa000, 0x0900), two(0xf1b0, 0x0900), "RMRm", mcfmac },
+{"msacl", 4,  	two(0xa000, 0x0900), two(0xf1b0, 0x0800), "RMRm", mcfmac },
 
 {"msacl", 4,  	two(0xa000, 0x0900), two(0xf100, 0x0900), "R3R1iI4/RneG", mcfemac },
 {"msacl", 4,  	two(0xa000, 0x0b00), two(0xf100, 0x0900), "R3R1Mh4/RneG", mcfemac },
@@ -1695,14 +1672,14 @@ const struct m68k_opcode m68k_opcodes[] =
 {"msacl", 4,  	two(0xa000, 0x0900), two(0xf130, 0x0f00), "RMRmeH", mcfemac },
 
 {"mulsw", 2,	one(0140700),		one(0170700), ";wDd", m68000up|mcfisa_a },
-{"mulsl", 4,	two(0046000,004000), two(0177700,0107770), ";lD1", m68020up | cpu32 | fido_a },
+{"mulsl", 4,	two(0046000,004000), two(0177700,0107770), ";lD1", m68020up|cpu32 },
 {"mulsl", 4,	two(0046000,004000), two(0177700,0107770), "qsD1", mcfisa_a },
-{"mulsl", 4,	two(0046000,006000), two(0177700,0107770), ";lD3D1",m68020up | cpu32 | fido_a },
+{"mulsl", 4,	two(0046000,006000), two(0177700,0107770), ";lD3D1",m68020up|cpu32 },
 
 {"muluw", 2,	one(0140300),		one(0170700), ";wDd", m68000up|mcfisa_a },
-{"mulul", 4,	two(0046000,000000), two(0177700,0107770), ";lD1", m68020up | cpu32 | fido_a },
+{"mulul", 4,	two(0046000,000000), two(0177700,0107770), ";lD1", m68020up|cpu32 },
 {"mulul", 4,	two(0046000,000000), two(0177700,0107770), "qsD1", mcfisa_a },
-{"mulul", 4,	two(0046000,002000), two(0177700,0107770), ";lD3D1",m68020up | cpu32 | fido_a },
+{"mulul", 4,	two(0046000,002000), two(0177700,0107770), ";lD3D1",m68020up|cpu32 },
 
 {"nbcd", 2,	one(0044000),	one(0177700), "$s", m68000up },
 
@@ -1850,11 +1827,11 @@ const struct m68k_opcode m68k_opcodes[] =
 {"pmove", 4,    two(0xf000,0x4200), two(0xffc0,0xe3ff), "28%s", m68851 },
 {"pmove", 4,    two(0xf000,0x4000), two(0xffc0,0xe3ff), "|sW8", m68030|m68851 },
 {"pmove", 4,    two(0xf000,0x4200), two(0xffc0,0xe3ff), "W8~s", m68030|m68851 },
+{"pmove", 4,    two(0xf000,0x6200), two(0xffc0,0xe3e3), "*wX3", m68851 },
+{"pmove", 4,    two(0xf000,0x6000), two(0xffc0,0xe3e3), "X3%s", m68851 },
 {"pmove", 4,    two(0xf000,0x6000), two(0xffc0,0xffff), "*wY8", m68030|m68851 },
 {"pmove", 4,    two(0xf000,0x6200), two(0xffc0,0xffff), "Y8%s", m68030|m68851 },
 {"pmove", 4,    two(0xf000,0x6600), two(0xffc0,0xffff), "Z8%s", m68851 },
-{"pmove", 4,    two(0xf000,0x6000), two(0xffc0,0xe3e3), "*wX3", m68851 },
-{"pmove", 4,    two(0xf000,0x6200), two(0xffc0,0xe3e3), "X3%s", m68851 },
 {"pmove", 4,    two(0xf000,0x0800), two(0xffc0,0xfbff), "*l38", m68030 },
 {"pmove", 4,    two(0xf000,0x0a00), two(0xffc0,0xfbff), "38%s", m68030 },
 
@@ -2016,70 +1993,10 @@ const struct m68k_opcode m68k_opcodes[] =
 		
 {"rts", 2,	one(0047165),		one(0177777), "",   m68000up | mcfisa_a },
 
-{"satsl", 2,	one(0046200),		one(0177770), "Ds", mcfisa_b | mcfisa_c },
+{"satsl", 2,	one(0046200),		one(0177770), "Ds", mcfisa_b },
 
 {"sbcd", 2,	one(0100400),		one(0170770), "DsDd", m68000up },
 {"sbcd", 2,	one(0100410),		one(0170770), "-s-d", m68000up },
-  
-{"stldsr", 6,   two(0x40e7, 0x46fc),    two(0xffff, 0xffff), "#w", mcfisa_aa | mcfisa_c },
-  
-  /* Traps have to come before conditional sets, as they have a more
-     specific opcode.  */
-{"trapcc", 2,	one(0052374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapcs", 2,	one(0052774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapeq", 2,	one(0053774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"tpf", 2,	one(0050774),	one(0177777), "", mcfisa_a },
-{"trapf", 2,	one(0050774),	one(0177777), "", m68020up | cpu32 | fido_a | mcfisa_a },
-{"trapge", 2,	one(0056374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapgt", 2,	one(0057374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"traphi", 2,	one(0051374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"traple", 2,	one(0057774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapls", 2,	one(0051774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"traplt", 2,	one(0056774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapmi", 2,	one(0055774),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapne", 2,	one(0053374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trappl", 2,	one(0055374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapt", 2,	one(0050374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapvc", 2,	one(0054374),	one(0177777), "", m68020up | cpu32 | fido_a },
-{"trapvs", 2,	one(0054774),	one(0177777), "", m68020up | cpu32 | fido_a },
-
-{"trapccw", 4,	one(0052372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapcsw", 4,	one(0052772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapeqw", 4,	one(0053772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"tpfw", 4,	one(0050772),	one(0177777), "#w", mcfisa_a},
-{"trapfw", 4,	one(0050772),	one(0177777), "#w", m68020up | cpu32 | fido_a | mcfisa_a},
-{"trapgew", 4,	one(0056372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapgtw", 4,	one(0057372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"traphiw", 4,	one(0051372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"traplew", 4,	one(0057772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"traplsw", 4,	one(0051772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapltw", 4,	one(0056772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapmiw", 4,	one(0055772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapnew", 4,	one(0053372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapplw", 4,	one(0055372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"traptw", 4,	one(0050372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapvcw", 4,	one(0054372),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-{"trapvsw", 4,	one(0054772),	one(0177777), "#w", m68020up | cpu32 | fido_a },
-
-{"trapccl", 6,	one(0052373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapcsl", 6,	one(0052773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapeql", 6,	one(0053773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"tpfl", 6,	one(0050773),	one(0177777), "#l", mcfisa_a},
-{"trapfl", 6,	one(0050773),	one(0177777), "#l", m68020up | cpu32 | fido_a | mcfisa_a},
-{"trapgel", 6,	one(0056373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapgtl", 6,	one(0057373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"traphil", 6,	one(0051373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"traplel", 6,	one(0057773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"traplsl", 6,	one(0051773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapltl", 6,	one(0056773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapmil", 6,	one(0055773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapnel", 6,	one(0053373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trappll", 6,	one(0055373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"traptl", 6,	one(0050373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapvcl", 6,	one(0054373),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-{"trapvsl", 6,	one(0054773),	one(0177777), "#l", m68020up | cpu32 | fido_a },
-
-{"trapv", 2,	one(0047166),	one(0177777), "", m68000up },
 
 {"scc", 2,	one(0052300),	one(0177700), "$s", m68000up },
 {"scc", 2,	one(0052300),	one(0177700), "Ds", mcfisa_a },
@@ -2104,17 +2021,15 @@ const struct m68k_opcode m68k_opcodes[] =
 {"smi", 2,	one(0055700),	one(0177700), "$s", m68000up },
 {"smi", 2,	one(0055700),	one(0177700), "Ds", mcfisa_a },
 {"sne", 2,	one(0053300),	one(0177700), "$s", m68000up },
-{"sne", 2,	one(0053300),	one(0177770), "Ds", mcfisa_a },
+{"sne", 2,	one(0053300),	one(0177700), "Ds", mcfisa_a },
 {"spl", 2,	one(0055300),	one(0177700), "$s", m68000up },
-{"spl", 2,	one(0055300),	one(0177770), "Ds", mcfisa_a },
+{"spl", 2,	one(0055300),	one(0177700), "Ds", mcfisa_a },
 {"st", 2,	one(0050300),	one(0177700), "$s", m68000up },
-{"st", 2,	one(0050300),	one(0177770), "Ds", mcfisa_a },
+{"st", 2,	one(0050300),	one(0177700), "Ds", mcfisa_a },
 {"svc", 2,	one(0054300),	one(0177700), "$s", m68000up },
-{"svc", 2,	one(0054300),	one(0177770), "Ds", mcfisa_a },
+{"svc", 2,	one(0054300),	one(0177700), "Ds", mcfisa_a },
 {"svs", 2,	one(0054700),	one(0177700), "$s", m68000up },
-{"svs", 2,	one(0054700),	one(0177770), "Ds", mcfisa_a },
-
-{"sleep", 2,	one(0047170),	one(0177777), "", fido_a },
+{"svs", 2,	one(0054700),	one(0177700), "Ds", mcfisa_a },
 
 {"stop", 4,	one(0047162),	one(0177777), "#w", m68000up | mcfisa_a },
 
@@ -2167,7 +2082,7 @@ const struct m68k_opcode m68k_opcodes[] =
 {"swbeg", 4,	one(0045374),	one(0177777), "#w",   m68000up | mcfisa_a },
 {"swbegl", 6,	one(0045375),	one(0177777), "#l",   m68000up | mcfisa_a },
 
-{"tas", 2,	one(0045300),	one(0177700), "$s", m68000up | mcfisa_b | mcfisa_c},
+{"tas", 2,	one(0045300),	one(0177700), "$s", m68000up | mcfisa_b},
 
 #define TBL1(name,insn_size,signed,round,size)					\
   {name, insn_size, two(0174000, (signed<<11)|(!round<<10)|(size<<6)|0000400),	\
@@ -2176,20 +2091,71 @@ const struct m68k_opcode m68k_opcodes[] =
      two(0177770,0107770), "DsD3D1", cpu32 }
 #define TBL(name1, name2, name3, s, r) \
   TBL1(name1, 4, s, r, 0), TBL1(name2, 4, s, r, 1), TBL1(name3, 4, s, r, 2)
-TBL("tblsb", "tblsw", "tblsl", 1, 1),
-TBL("tblsnb", "tblsnw", "tblsnl", 1, 0),
+TBL("tblsb", "tblsw", "tblsl", 2, 1),
+TBL("tblsnb", "tblsnw", "tblsnl", 2, 0),
 TBL("tblub", "tbluw", "tblul", 0, 1),
 TBL("tblunb", "tblunw", "tblunl", 0, 0),
 
 {"trap", 2,	one(0047100),	one(0177760), "Ts", m68000up | mcfisa_a },
 
-{"trapx", 2,	one(0047060),	one(0177760), "Ts", fido_a },
+{"trapcc", 2,	one(0052374),	one(0177777), "", m68020up | cpu32 },
+{"trapcs", 2,	one(0052774),	one(0177777), "", m68020up | cpu32 },
+{"trapeq", 2,	one(0053774),	one(0177777), "", m68020up | cpu32 },
+{"trapf", 2,	one(0050774),	one(0177777), "", m68020up | cpu32 | mcfisa_a },
+{"trapge", 2,	one(0056374),	one(0177777), "", m68020up | cpu32 },
+{"trapgt", 2,	one(0057374),	one(0177777), "", m68020up | cpu32 },
+{"traphi", 2,	one(0051374),	one(0177777), "", m68020up | cpu32 },
+{"traple", 2,	one(0057774),	one(0177777), "", m68020up | cpu32 },
+{"trapls", 2,	one(0051774),	one(0177777), "", m68020up | cpu32 },
+{"traplt", 2,	one(0056774),	one(0177777), "", m68020up | cpu32 },
+{"trapmi", 2,	one(0055774),	one(0177777), "", m68020up | cpu32 },
+{"trapne", 2,	one(0053374),	one(0177777), "", m68020up | cpu32 },
+{"trappl", 2,	one(0055374),	one(0177777), "", m68020up | cpu32 },
+{"trapt", 2,	one(0050374),	one(0177777), "", m68020up | cpu32 },
+{"trapvc", 2,	one(0054374),	one(0177777), "", m68020up | cpu32 },
+{"trapvs", 2,	one(0054774),	one(0177777), "", m68020up | cpu32 },
 
-{"tstb", 2,	one(0045000),	one(0177700), ";b", m68020up | cpu32 | fido_a | mcfisa_a },
+{"trapccw", 4,	one(0052372),	one(0177777), "#w", m68020up|cpu32 },
+{"trapcsw", 4,	one(0052772),	one(0177777), "#w", m68020up|cpu32 },
+{"trapeqw", 4,	one(0053772),	one(0177777), "#w", m68020up|cpu32 },
+{"trapfw", 4,	one(0050772),	one(0177777), "#w", m68020up|cpu32|mcfisa_a},
+{"trapgew", 4,	one(0056372),	one(0177777), "#w", m68020up|cpu32 },
+{"trapgtw", 4,	one(0057372),	one(0177777), "#w", m68020up|cpu32 },
+{"traphiw", 4,	one(0051372),	one(0177777), "#w", m68020up|cpu32 },
+{"traplew", 4,	one(0057772),	one(0177777), "#w", m68020up|cpu32 },
+{"traplsw", 4,	one(0051772),	one(0177777), "#w", m68020up|cpu32 },
+{"trapltw", 4,	one(0056772),	one(0177777), "#w", m68020up|cpu32 },
+{"trapmiw", 4,	one(0055772),	one(0177777), "#w", m68020up|cpu32 },
+{"trapnew", 4,	one(0053372),	one(0177777), "#w", m68020up|cpu32 },
+{"trapplw", 4,	one(0055372),	one(0177777), "#w", m68020up|cpu32 },
+{"traptw", 4,	one(0050372),	one(0177777), "#w", m68020up|cpu32 },
+{"trapvcw", 4,	one(0054372),	one(0177777), "#w", m68020up|cpu32 },
+{"trapvsw", 4,	one(0054772),	one(0177777), "#w", m68020up|cpu32 },
+
+{"trapccl", 6,	one(0052373),	one(0177777), "#l", m68020up|cpu32 },
+{"trapcsl", 6,	one(0052773),	one(0177777), "#l", m68020up|cpu32 },
+{"trapeql", 6,	one(0053773),	one(0177777), "#l", m68020up|cpu32 },
+{"trapfl", 6,	one(0050773),	one(0177777), "#l", m68020up|cpu32|mcfisa_a},
+{"trapgel", 6,	one(0056373),	one(0177777), "#l", m68020up|cpu32 },
+{"trapgtl", 6,	one(0057373),	one(0177777), "#l", m68020up|cpu32 },
+{"traphil", 6,	one(0051373),	one(0177777), "#l", m68020up|cpu32 },
+{"traplel", 6,	one(0057773),	one(0177777), "#l", m68020up|cpu32 },
+{"traplsl", 6,	one(0051773),	one(0177777), "#l", m68020up|cpu32 },
+{"trapltl", 6,	one(0056773),	one(0177777), "#l", m68020up|cpu32 },
+{"trapmil", 6,	one(0055773),	one(0177777), "#l", m68020up|cpu32 },
+{"trapnel", 6,	one(0053373),	one(0177777), "#l", m68020up|cpu32 },
+{"trappll", 6,	one(0055373),	one(0177777), "#l", m68020up|cpu32 },
+{"traptl", 6,	one(0050373),	one(0177777), "#l", m68020up|cpu32 },
+{"trapvcl", 6,	one(0054373),	one(0177777), "#l", m68020up|cpu32 },
+{"trapvsl", 6,	one(0054773),	one(0177777), "#l", m68020up|cpu32 },
+
+{"trapv", 2,	one(0047166),	one(0177777), "", m68000up },
+
+{"tstb", 2,	one(0045000),	one(0177700), ";b", m68020up|cpu32|mcfisa_a },
 {"tstb", 2,	one(0045000),	one(0177700), "$b", m68000up },
-{"tstw", 2,	one(0045100),	one(0177700), "*w", m68020up | cpu32 | fido_a | mcfisa_a },
+{"tstw", 2,	one(0045100),	one(0177700), "*w", m68020up|cpu32|mcfisa_a },
 {"tstw", 2,	one(0045100),	one(0177700), "$w", m68000up },
-{"tstl", 2,	one(0045200),	one(0177700), "*l", m68020up | cpu32 | fido_a | mcfisa_a },
+{"tstl", 2,	one(0045200),	one(0177700), "*l", m68020up|cpu32|mcfisa_a },
 {"tstl", 2,	one(0045200),	one(0177700), "$l", m68000up },
 
 {"unlk", 2,	one(0047130),	one(0177770), "As", m68000up | mcfisa_a },
@@ -2201,8 +2167,6 @@ TBL("tblunb", "tblunw", "tblunl", 0, 0),
 {"wddataw", 2,	one(0175500),   one(0177700), "~s", mcfisa_a },
 {"wddatal", 2,	one(0175600),   one(0177700), "~s", mcfisa_a },
 
-{"wdebugl", 4,	two(0175720, 03),	two(0177770, 0xffff), "as", mcfisa_a },
-{"wdebugl", 4,	two(0175750, 03),	two(0177770, 0xffff), "ds", mcfisa_a },
 {"wdebug", 4,	two(0175720, 03),	two(0177770, 0xffff), "as", mcfisa_a },
 {"wdebug", 4,	two(0175750, 03),	two(0177770, 0xffff), "ds", mcfisa_a },
 };

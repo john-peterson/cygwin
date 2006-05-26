@@ -1,19 +1,17 @@
 /* Print Motorola 68k instructions.
    Copyright 1986, 1987, 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997,
-   1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2012  Free Software Foundation, Inc.
+   1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
+   Free Software Foundation, Inc.
 
-   This file is part of the GNU opcodes library.
-
-   This library is free software; you can redistribute it and/or modify
+   This file is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
@@ -60,103 +58,46 @@ static char *const reg_half_names[] =
 #endif
 
 /* Get a 1 byte signed integer.  */
-#define NEXTBYTE(p, val)			\
-  do						\
-    {						\
-      p += 2;					\
-      if (!FETCH_DATA (info, p))		\
-	return -3;				\
-      val = COERCE_SIGNED_CHAR (p[-1]);		\
-    }						\
-  while (0)
+#define NEXTBYTE(p)  (p += 2, FETCH_DATA (info, p), COERCE_SIGNED_CHAR(p[-1]))
 
 /* Get a 2 byte signed integer.  */
 #define COERCE16(x) ((int) (((x) ^ 0x8000) - 0x8000))
-
-#define NEXTWORD(p, val, ret_val)		\
-  do						\
-    {						\
-      p += 2;					\
-      if (!FETCH_DATA (info, p))		\
-	return ret_val;				\
-      val = COERCE16 ((p[-2] << 8) + p[-1]);	\
-    }						\
-  while (0)						
+#define NEXTWORD(p)  \
+  (p += 2, FETCH_DATA (info, p), \
+   COERCE16 ((p[-2] << 8) + p[-1]))
 
 /* Get a 4 byte signed integer.  */
 #define COERCE32(x) ((bfd_signed_vma) ((x) ^ 0x80000000) - 0x80000000)
-
-#define NEXTLONG(p, val, ret_val)					\
-  do									\
-    {									\
-      p += 4;								\
-      if (!FETCH_DATA (info, p))					\
-	return ret_val;							\
-      val = COERCE32 ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1]); \
-    }									\
-  while (0)
+#define NEXTLONG(p)  \
+  (p += 4, FETCH_DATA (info, p), \
+   (COERCE32 ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1])))
 
 /* Get a 4 byte unsigned integer.  */
-#define NEXTULONG(p, val)						\
-  do									\
-    {									\
-      p += 4;								\
-      if (!FETCH_DATA (info, p))					\
-	return -3;							\
-      val = (unsigned int) ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1]); \
-    }									\
-  while (0)
+#define NEXTULONG(p)  \
+  (p += 4, FETCH_DATA (info, p), \
+   (unsigned int) ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1]))
 
 /* Get a single precision float.  */
-#define NEXTSINGLE(val, p)					\
-  do								\
-    {								\
-      p += 4;							\
-      if (!FETCH_DATA (info, p))				\
-	return -3;						\
-      floatformat_to_double (& floatformat_ieee_single_big,	\
-			     (char *) p - 4, & val);		\
-    }								\
-  while (0)
+#define NEXTSINGLE(val, p) \
+  (p += 4, FETCH_DATA (info, p), \
+   floatformat_to_double (&floatformat_ieee_single_big, (char *) p - 4, &val))
 
 /* Get a double precision float.  */
-#define NEXTDOUBLE(val, p)					\
-  do								\
-    {								\
-      p += 8;							\
-      if (!FETCH_DATA (info, p))				\
-	return -3;						\
-      floatformat_to_double (& floatformat_ieee_double_big,	\
-			     (char *) p - 8, & val);		\
-    }								\
-  while (0)
+#define NEXTDOUBLE(val, p) \
+  (p += 8, FETCH_DATA (info, p), \
+   floatformat_to_double (&floatformat_ieee_double_big, (char *) p - 8, &val))
 
 /* Get an extended precision float.  */
-#define NEXTEXTEND(val, p)				\
-  do							\
-    {							\
-      p += 12;						\
-      if (!FETCH_DATA (info, p))			\
-	return -3;					\
-      floatformat_to_double (& floatformat_m68881_ext,	\
-			     (char *) p - 12, & val);	\
-    }							\
-  while (0)
+#define NEXTEXTEND(val, p) \
+  (p += 12, FETCH_DATA (info, p), \
+   floatformat_to_double (&floatformat_m68881_ext, (char *) p - 12, &val))
 
 /* Need a function to convert from packed to double
    precision.   Actually, it's easier to print a
    packed number than a double anyway, so maybe
    there should be a special case to handle this... */
-#define NEXTPACKED(p, val)			\
-  do						\
-    {						\
-      p += 12;					\
-      if (!FETCH_DATA (info, p))		\
-	return -3;				\
-      val = 0.0;				\
-    }						\
-  while (0)
-
+#define NEXTPACKED(p) \
+  (p += 12, FETCH_DATA (info, p), 0.0)
 
 /* Maximum length of an instruction.  */
 #define MAXLEN 22
@@ -169,10 +110,12 @@ struct private
   bfd_byte *max_fetched;
   bfd_byte the_buffer[MAXLEN];
   bfd_vma insn_start;
+  jmp_buf bailout;
 };
 
 /* Make sure that bytes from INFO->PRIVATE_DATA->BUFFER (inclusive)
-   to ADDR (exclusive) are valid.  Returns 1 for success, 0 on error.  */
+   to ADDR (exclusive) are valid.  Returns 1 for success, longjmps
+   on error.  */
 #define FETCH_DATA(info, addr) \
   ((addr) <= ((struct private *) (info->private_data))->max_fetched \
    ? 1 : fetch_data ((info), (addr)))
@@ -191,7 +134,7 @@ fetch_data (struct disassemble_info *info, bfd_byte *addr)
   if (status != 0)
     {
       (*info->memory_error_func) (status, start, info);
-      return 0;
+      longjmp (priv->bailout, 1);
     }
   else
     priv->max_fetched = addr;
@@ -216,8 +159,7 @@ dummy_print_address (bfd_vma vma ATTRIBUTE_UNUSED,
 /* Fetch BITS bits from a position in the instruction specified by CODE.
    CODE is a "place to put an argument", or 'x' for a destination
    that is a general address (mode and register).
-   BUFFER contains the instruction.
-   Returns -1 on failure.  */
+   BUFFER contains the instruction.  */
 
 static int
 fetch_arg (unsigned char *buffer,
@@ -272,87 +214,70 @@ fetch_arg (unsigned char *buffer,
       break;
 
     case 'k':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[3] >> 4);
       break;
 
     case 'C':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = buffer[3];
       break;
 
     case '1':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       val >>= 12;
       break;
 
     case '2':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       val >>= 6;
       break;
 
     case '3':
     case 'j':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       break;
 
     case '4':
-      if (! FETCH_DATA (info, buffer + 5))
-	return -1;
+      FETCH_DATA (info, buffer + 5);
       val = (buffer[4] << 8) + buffer[5];
       val >>= 12;
       break;
 
     case '5':
-      if (! FETCH_DATA (info, buffer + 5))
-	return -1;
+      FETCH_DATA (info, buffer + 5);
       val = (buffer[4] << 8) + buffer[5];
       val >>= 6;
       break;
 
     case '6':
-      if (! FETCH_DATA (info, buffer + 5))
-	return -1;
+      FETCH_DATA (info, buffer + 5);
       val = (buffer[4] << 8) + buffer[5];
       break;
 
     case '7':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       val >>= 7;
       break;
 
     case '8':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       val >>= 10;
       break;
 
     case '9':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
+      FETCH_DATA (info, buffer + 3);
       val = (buffer[2] << 8) + buffer[3];
       val >>= 5;
       break;
 
     case 'e':
       val = (buffer[1] >> 6);
-      break;
-
-    case 'E':
-      if (! FETCH_DATA (info, buffer + 3))
-	return -1;
-      val = (buffer[2] >> 1);
       break;
 
     case 'm':
@@ -385,8 +310,29 @@ fetch_arg (unsigned char *buffer,
       abort ();
     }
 
-  /* bits is never too big.  */
-  return val & ((1 << bits) - 1);
+  switch (bits)
+    {
+    case 1:
+      return val & 1;
+    case 2:
+      return val & 3;
+    case 3:
+      return val & 7;
+    case 4:
+      return val & 017;
+    case 5:
+      return val & 037;
+    case 6:
+      return val & 077;
+    case 7:
+      return val & 0177;
+    case 8:
+      return val & 0377;
+    case 12:
+      return val & 07777;
+    default:
+      abort ();
+    }
 }
 
 /* Check if an EA is valid for a particular code.  This is required
@@ -518,8 +464,7 @@ print_base (int regno, bfd_vma disp, disassemble_info *info)
 
 /* Print an indexed argument.  The base register is BASEREG (-1 for pc).
    P points to extension word, in buffer.
-   ADDR is the nominal core address of that extension word.
-   Returns NULL upon error.  */
+   ADDR is the nominal core address of that extension word.  */
 
 static unsigned char *
 print_indexed (int basereg,
@@ -534,7 +479,7 @@ print_indexed (int basereg,
   char buf[40];
   char vmabuf[50];
 
-  NEXTWORD (p, word, NULL);
+  word = NEXTWORD (p);
 
   /* Generate the text for the index register.
      Where this will be output is not yet determined.  */
@@ -572,10 +517,10 @@ print_indexed (int basereg,
   switch ((word >> 4) & 3)
     {
     case 2:
-      NEXTWORD (p, base_disp, NULL);
+      base_disp = NEXTWORD (p);
       break;
     case 3:
-      NEXTLONG (p, base_disp, NULL);
+      base_disp = NEXTLONG (p);
     }
   if (basereg == -1)
     base_disp += addr;
@@ -595,10 +540,10 @@ print_indexed (int basereg,
   switch (word & 3)
     {
     case 2:
-      NEXTWORD (p, outer_disp, NULL);
+      outer_disp = NEXTWORD (p);
       break;
     case 3:
-      NEXTLONG (p, outer_disp, NULL);
+      outer_disp = NEXTLONG (p);
     }
 
   print_base (basereg, base_disp, info);
@@ -616,18 +561,9 @@ print_indexed (int basereg,
   return p;
 }
 
-#define FETCH_ARG(size, val)				\
-  do							\
-    {							\
-      val = fetch_arg (buffer, place, size, info);	\
-      if (val < 0)					\
-	return -3;					\
-    }							\
-  while (0)
-
 /* Returns number of bytes "eaten" by the operand, or
    return -1 if an invalid operand was found, or -2 if
-   an opcode tabe error was found or -3 to simply abort.
+   an opcode tabe error was found.
    ADDR is the pc for this arg to be relative to.  */
 
 static int
@@ -653,21 +589,23 @@ print_insn_arg (const char *d,
     case 'c':		/* Cache identifier.  */
       {
         static char *const cacheFieldName[] = { "nc", "dc", "ic", "bc" };
-        FETCH_ARG (2, val);
-	(*info->fprintf_func) (info->stream, "%s", cacheFieldName[val]);
+        val = fetch_arg (buffer, place, 2, info);
+        (*info->fprintf_func) (info->stream, cacheFieldName[val]);
         break;
       }
 
     case 'a':		/* Address register indirect only. Cf. case '+'.  */
       {
-	FETCH_ARG (3, val);
-	(*info->fprintf_func) (info->stream, "%s@", reg_names[val + 8]);
+        (*info->fprintf_func)
+	  (info->stream,
+	   "%s@",
+	   reg_names[fetch_arg (buffer, place, 3, info) + 8]);
         break;
       }
 
     case '_':		/* 32-bit absolute address for move16.  */
       {
-        NEXTULONG (p, uval);
+        uval = NEXTULONG (p);
 	(*info->print_address_func) (uval, info);
         break;
       }
@@ -699,69 +637,35 @@ print_insn_arg (const char *d,
     case 'J':
       {
 	/* FIXME: There's a problem here, different m68k processors call the
-	   same address different names.  The tables below try to get it right
-	   using info->mach, but only for v4e.  */
-	struct regname { char * name; int value; };
-	static const struct regname names[] =
-	  {
-	    {"%sfc", 0x000}, {"%dfc", 0x001}, {"%cacr", 0x002},
-	    {"%tc",  0x003}, {"%itt0",0x004}, {"%itt1", 0x005},
-	    {"%dtt0",0x006}, {"%dtt1",0x007}, {"%buscr",0x008},
-	    {"%rgpiobar", 0x009}, {"%acr4",0x00c},
-	    {"%acr5",0x00d}, {"%acr6",0x00e}, {"%acr7", 0x00f},
-	    {"%usp", 0x800}, {"%vbr", 0x801}, {"%caar", 0x802},
-	    {"%msp", 0x803}, {"%isp", 0x804},
-	    {"%pc", 0x80f},
-	    /* Reg c04 is sometimes called flashbar or rambar.
-	       Reg c05 is also sometimes called rambar.  */
-	    {"%rambar0", 0xc04}, {"%rambar1", 0xc05},
+	   same address different names. This table can't get it right
+	   because it doesn't know which processor it's disassembling for.  */
+	static const struct { char *name; int value; } names[]
+	  = {{"%sfc", 0x000}, {"%dfc", 0x001}, {"%cacr", 0x002},
+	     {"%tc",  0x003}, {"%itt0",0x004}, {"%itt1", 0x005},
+             {"%dtt0",0x006}, {"%dtt1",0x007}, {"%buscr",0x008},
+	     {"%usp", 0x800}, {"%vbr", 0x801}, {"%caar", 0x802},
+	     {"%msp", 0x803}, {"%isp", 0x804},
+	     {"%flashbar", 0xc04}, {"%rambar", 0xc05}, /* mcf528x added these.  */
 
-	    /* reg c0e is sometimes called mbar2 or secmbar.
-	       reg c0f is sometimes called mbar.  */
-	    {"%mbar0", 0xc0e}, {"%mbar1", 0xc0f},
+	     /* Should we be calling this psr like we do in case 'Y'?  */
+	     {"%mmusr",0x805},
 
-	    /* Should we be calling this psr like we do in case 'Y'?  */
-	    {"%mmusr",0x805},
+             {"%urp", 0x806}, {"%srp", 0x807}, {"%pcr", 0x808}};
 
-	    {"%urp", 0x806}, {"%srp", 0x807}, {"%pcr", 0x808},
-
-	    /* Fido added these.  */
-	    {"%cac", 0xffe}, {"%mbo", 0xfff}
-	};
-	/* Alternate names for v4e (MCF5407/5445x/MCF547x/MCF548x), at least.  */
-	static const struct regname names_v4e[] =
-	  {
-	    {"%asid",0x003}, {"%acr0",0x004}, {"%acr1",0x005},
-	    {"%acr2",0x006}, {"%acr3",0x007}, {"%mmubar",0x008},
-	  };
-	unsigned int arch_mask;
-
-	arch_mask = bfd_m68k_mach_to_features (info->mach);
-	FETCH_ARG (12, val);
-	if (arch_mask & (mcfisa_b | mcfisa_c))
-	  {
-	    for (regno = ARRAY_SIZE (names_v4e); --regno >= 0;)
-	      if (names_v4e[regno].value == val)
-		{
-		  (*info->fprintf_func) (info->stream, "%s", names_v4e[regno].name);
-		  break;
-		}
-	    if (regno >= 0)
-	      break;
-	  }
-	for (regno = ARRAY_SIZE (names) - 1; regno >= 0; regno--)
+	val = fetch_arg (buffer, place, 12, info);
+	for (regno = sizeof names / sizeof names[0] - 1; regno >= 0; regno--)
 	  if (names[regno].value == val)
 	    {
 	      (*info->fprintf_func) (info->stream, "%s", names[regno].name);
 	      break;
 	    }
 	if (regno < 0)
-	  (*info->fprintf_func) (info->stream, "0x%x", val);
+	  (*info->fprintf_func) (info->stream, "%d", val);
       }
       break;
 
     case 'Q':
-      FETCH_ARG (3, val);
+      val = fetch_arg (buffer, place, 3, info);
       /* 0 means 8, except for the bkpt instruction... */
       if (val == 0 && d[1] != 's')
 	val = 8;
@@ -769,20 +673,10 @@ print_insn_arg (const char *d,
       break;
 
     case 'x':
-      FETCH_ARG (3, val);
+      val = fetch_arg (buffer, place, 3, info);
       /* 0 means -1.  */
       if (val == 0)
 	val = -1;
-      (*info->fprintf_func) (info->stream, "#%d", val);
-      break;
-
-    case 'j':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "#%d", val+1);
-      break;
-
-    case 'K':
-      FETCH_ARG (9, val);
       (*info->fprintf_func) (info->stream, "#%d", val);
       break;
 
@@ -790,13 +684,12 @@ print_insn_arg (const char *d,
       if (place == 'h')
 	{
 	  static char *const scalefactor_name[] = { "<<", ">>" };
-
-	  FETCH_ARG (1, val);
-	  (*info->fprintf_func) (info->stream, "%s", scalefactor_name[val]);
+	  val = fetch_arg (buffer, place, 1, info);
+	  (*info->fprintf_func) (info->stream, scalefactor_name[val]);
 	}
       else
 	{
-	  FETCH_ARG (8, val);
+	  val = fetch_arg (buffer, place, 8, info);
 	  if (val & 0x80)
 	    val = val - 0x100;
 	  (*info->fprintf_func) (info->stream, "#%d", val);
@@ -804,27 +697,29 @@ print_insn_arg (const char *d,
       break;
 
     case 'T':
-      FETCH_ARG (4, val);
+      val = fetch_arg (buffer, place, 4, info);
       (*info->fprintf_func) (info->stream, "#%d", val);
       break;
 
     case 'D':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%s", reg_names[val]);
+      (*info->fprintf_func) (info->stream, "%s",
+			     reg_names[fetch_arg (buffer, place, 3, info)]);
       break;
 
     case 'A':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%s", reg_names[val + 010]);
+      (*info->fprintf_func)
+	(info->stream, "%s",
+	 reg_names[fetch_arg (buffer, place, 3, info) + 010]);
       break;
 
     case 'R':
-      FETCH_ARG (4, val);
-      (*info->fprintf_func) (info->stream, "%s", reg_names[val]);
+      (*info->fprintf_func)
+	(info->stream, "%s",
+	 reg_names[fetch_arg (buffer, place, 4, info)]);
       break;
 
     case 'r':
-      FETCH_ARG (4, regno);
+      regno = fetch_arg (buffer, place, 4, info);
       if (regno > 7)
 	(*info->fprintf_func) (info->stream, "%s@", reg_names[regno]);
       else
@@ -832,12 +727,13 @@ print_insn_arg (const char *d,
       break;
 
     case 'F':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%%fp%d", val);
+      (*info->fprintf_func)
+	(info->stream, "%%fp%d",
+	 fetch_arg (buffer, place, 3, info));
       break;
 
     case 'O':
-      FETCH_ARG (6, val);
+      val = fetch_arg (buffer, place, 6, info);
       if (val & 0x20)
 	(*info->fprintf_func) (info->stream, "%s", reg_names[val & 7]);
       else
@@ -845,78 +741,78 @@ print_insn_arg (const char *d,
       break;
 
     case '+':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%s@+", reg_names[val + 8]);
+      (*info->fprintf_func)
+	(info->stream, "%s@+",
+	 reg_names[fetch_arg (buffer, place, 3, info) + 8]);
       break;
 
     case '-':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%s@-", reg_names[val + 8]);
+      (*info->fprintf_func)
+	(info->stream, "%s@-",
+	 reg_names[fetch_arg (buffer, place, 3, info) + 8]);
       break;
 
     case 'k':
       if (place == 'k')
-	{
-	  FETCH_ARG (3, val);
-	  (*info->fprintf_func) (info->stream, "{%s}", reg_names[val]);
-	}
+	(*info->fprintf_func)
+	  (info->stream, "{%s}",
+	   reg_names[fetch_arg (buffer, place, 3, info)]);
       else if (place == 'C')
 	{
-	  FETCH_ARG (7, val);
+	  val = fetch_arg (buffer, place, 7, info);
 	  if (val > 63)		/* This is a signed constant.  */
 	    val -= 128;
 	  (*info->fprintf_func) (info->stream, "{#%d}", val);
 	}
       else
-	return -1;
+	return -2;
       break;
 
     case '#':
     case '^':
       p1 = buffer + (*d == '#' ? 2 : 4);
       if (place == 's')
-	FETCH_ARG (4, val);
+	val = fetch_arg (buffer, place, 4, info);
       else if (place == 'C')
-	FETCH_ARG (7, val);
+	val = fetch_arg (buffer, place, 7, info);
       else if (place == '8')
-	FETCH_ARG (3, val);
+	val = fetch_arg (buffer, place, 3, info);
       else if (place == '3')
-	FETCH_ARG (8, val);
+	val = fetch_arg (buffer, place, 8, info);
       else if (place == 'b')
-	NEXTBYTE (p1, val);
+	val = NEXTBYTE (p1);
       else if (place == 'w' || place == 'W')
-	NEXTWORD (p1, val, -3);
+	val = NEXTWORD (p1);
       else if (place == 'l')
-	NEXTLONG (p1, val, -3);
+	val = NEXTLONG (p1);
       else
 	return -2;
-
       (*info->fprintf_func) (info->stream, "#%d", val);
       break;
 
     case 'B':
       if (place == 'b')
-	NEXTBYTE (p, disp);
+	disp = NEXTBYTE (p);
       else if (place == 'B')
 	disp = COERCE_SIGNED_CHAR (buffer[1]);
       else if (place == 'w' || place == 'W')
-	NEXTWORD (p, disp, -3);
+	disp = NEXTWORD (p);
       else if (place == 'l' || place == 'L' || place == 'C')
-	NEXTLONG (p, disp, -3);
+	disp = NEXTLONG (p);
       else if (place == 'g')
 	{
-	  NEXTBYTE (buffer, disp);
+	  disp = NEXTBYTE (buffer);
 	  if (disp == 0)
-	    NEXTWORD (p, disp, -3);
+	    disp = NEXTWORD (p);
 	  else if (disp == -1)
-	    NEXTLONG (p, disp, -3);
+	    disp = NEXTLONG (p);
 	}
       else if (place == 'c')
 	{
 	  if (buffer[1] & 0x40)		/* If bit six is one, long offset.  */
-	    NEXTLONG (p, disp, -3);
+	    disp = NEXTLONG (p);
 	  else
-	    NEXTWORD (p, disp, -3);
+	    disp = NEXTWORD (p);
 	}
       else
 	return -2;
@@ -925,32 +821,29 @@ print_insn_arg (const char *d,
       break;
 
     case 'd':
-      {
-	int val1;
-
-	NEXTWORD (p, val, -3);
-	FETCH_ARG (3, val1);
-	(*info->fprintf_func) (info->stream, "%s@(%d)", reg_names[val1 + 8], val);
-	break;
-      }
+      val = NEXTWORD (p);
+      (*info->fprintf_func)
+	(info->stream, "%s@(%d)",
+	 reg_names[fetch_arg (buffer, place, 3, info) + 8], val);
+      break;
 
     case 's':
-      FETCH_ARG (3, val);
-      (*info->fprintf_func) (info->stream, "%s", fpcr_names[val]);
+      (*info->fprintf_func) (info->stream, "%s",
+			     fpcr_names[fetch_arg (buffer, place, 3, info)]);
       break;
 
     case 'e':
-      FETCH_ARG (2, val);
+      val = fetch_arg(buffer, place, 2, info);
       (*info->fprintf_func) (info->stream, "%%acc%d", val);
       break;
 
     case 'g':
-      FETCH_ARG (1, val);
-      (*info->fprintf_func) (info->stream, "%%accext%s", val == 0 ? "01" : "23");
+      val = fetch_arg(buffer, place, 1, info);
+      (*info->fprintf_func) (info->stream, "%%accext%s", val==0 ? "01" : "23");
       break;
 
     case 'i':
-      FETCH_ARG (2, val);
+      val = fetch_arg(buffer, place, 2, info);
       if (val == 1)
 	(*info->fprintf_func) (info->stream, "<<");
       else if (val == 3)
@@ -962,8 +855,7 @@ print_insn_arg (const char *d,
     case 'I':
       /* Get coprocessor ID... */
       val = fetch_arg (buffer, 'd', 3, info);
-      if (val < 0)
-	return -3;
+
       if (val != 1)				/* Unusual coprocessor ID?  */
 	(*info->fprintf_func) (info->stream, "(cpid=%d) ", val);
       break;
@@ -995,16 +887,10 @@ print_insn_arg (const char *d,
       if (place == 'd')
 	{
 	  val = fetch_arg (buffer, 'x', 6, info);
-	  if (val < 0)
-	    return -3;
 	  val = ((val & 7) << 3) + ((val >> 3) & 7);
 	}
       else
-	{
-	  val = fetch_arg (buffer, 's', 6, info);
-	  if (val < 0)
-	    return -3;
-	}
+	val = fetch_arg (buffer, 's', 6, info);
 
       /* If the <ea> is invalid for *d, then reject this match.  */
       if (!m68k_valid_ea (*d, val))
@@ -1036,31 +922,29 @@ print_insn_arg (const char *d,
 	  break;
 
 	case 5:
-	  NEXTWORD (p, val, -3);
+	  val = NEXTWORD (p);
 	  (*info->fprintf_func) (info->stream, "%s@(%d)", regname, val);
 	  break;
 
 	case 6:
 	  p = print_indexed (regno, p, addr, info);
-	  if (p == NULL)
-	    return -3;
 	  break;
 
 	case 7:
 	  switch (val & 7)
 	    {
 	    case 0:
-	      NEXTWORD (p, val, -3);
+	      val = NEXTWORD (p);
 	      (*info->print_address_func) (val, info);
 	      break;
 
 	    case 1:
-	      NEXTULONG (p, uval);
+	      uval = NEXTULONG (p);
 	      (*info->print_address_func) (uval, info);
 	      break;
 
 	    case 2:
-	      NEXTWORD (p, val, -3);
+	      val = NEXTWORD (p);
 	      (*info->fprintf_func) (info->stream, "%%pc@(");
 	      (*info->print_address_func) (addr + val, info);
 	      (*info->fprintf_func) (info->stream, ")");
@@ -1068,8 +952,6 @@ print_insn_arg (const char *d,
 
 	    case 3:
 	      p = print_indexed (-1, p, addr, info);
-	      if (p == NULL)
-		return -3;
 	      break;
 
 	    case 4:
@@ -1077,17 +959,17 @@ print_insn_arg (const char *d,
 	      switch (place)
 	      {
 		case 'b':
-		  NEXTBYTE (p, val);
+		  val = NEXTBYTE (p);
 		  flt_p = 0;
 		  break;
 
 		case 'w':
-		  NEXTWORD (p, val, -3);
+		  val = NEXTWORD (p);
 		  flt_p = 0;
 		  break;
 
 		case 'l':
-		  NEXTLONG (p, val, -3);
+		  val = NEXTLONG (p);
 		  flt_p = 0;
 		  break;
 
@@ -1104,14 +986,14 @@ print_insn_arg (const char *d,
 		  break;
 
 		case 'p':
-		  NEXTPACKED (p, flval);
+		  flval = NEXTPACKED (p);
 		  break;
 
 		default:
 		  return -1;
 	      }
 	      if (flt_p)	/* Print a float? */
-		(*info->fprintf_func) (info->stream, "#0e%g", flval);
+		(*info->fprintf_func) (info->stream, "#%g", flval);
 	      else
 		(*info->fprintf_func) (info->stream, "#%d", val);
 	      break;
@@ -1126,7 +1008,7 @@ print_insn_arg (const char *d,
 	 mask bit and if set, add a '&' to the arg.  */
       if (place == '/')
 	{
-	  FETCH_ARG (1, val);
+	  val = fetch_arg (buffer, place, 1, info);
 	  if (val)
 	    info->fprintf_func (info->stream, "&");
 	}
@@ -1138,7 +1020,7 @@ print_insn_arg (const char *d,
 	  {
 	    char doneany;
 	    p1 = buffer + 2;
-	    NEXTWORD (p1, val, -3);
+	    val = NEXTWORD (p1);
 	    /* Move the pointer ahead if this point is farther ahead
 	       than the last.  */
 	    p = p1 > p ? p1 : p;
@@ -1179,8 +1061,7 @@ print_insn_arg (const char *d,
 	  {
 	    /* `fmovem' insn.  */
 	    char doneany;
-
-	    FETCH_ARG (8, val);
+	    val = fetch_arg (buffer, place, 8, info);
 	    if (val == 0)
 	      {
 		(*info->fprintf_func) (info->stream, "#0");
@@ -1214,9 +1095,10 @@ print_insn_arg (const char *d,
 	  }
 	else if (place == '8')
 	  {
-	    FETCH_ARG (3, val);
 	    /* fmoveml for FP status registers.  */
-	    (*info->fprintf_func) (info->stream, "%s", fpcr_names[val]);
+	    (*info->fprintf_func) (info->stream, "%s",
+				   fpcr_names[fetch_arg (buffer, place, 3,
+							 info)]);
 	  }
 	else
 	  return -2;
@@ -1232,9 +1114,9 @@ print_insn_arg (const char *d,
     case '2':
     case '3':
       {
+	int val = fetch_arg (buffer, place, 5, info);
 	char *name = 0;
 
-	FETCH_ARG (5, val);
 	switch (val)
 	  {
 	  case 2: name = "%tt0"; break;
@@ -1269,9 +1151,8 @@ print_insn_arg (const char *d,
 
     case 'f':
       {
-	int fc;
+	int fc = fetch_arg (buffer, place, 5, info);
 
-	FETCH_ARG (5, fc);
 	if (fc == 1)
 	  (*info->fprintf_func) (info->stream, "%%dfc");
 	else if (fc == 0)
@@ -1288,9 +1169,8 @@ print_insn_arg (const char *d,
 
     case 't':
       {
-	int level;
+	int level = fetch_arg (buffer, place, 3, info);
 
-	FETCH_ARG (3, level);
 	(*info->fprintf_func) (info->stream, "%d", level);
       }
       break;
@@ -1298,9 +1178,8 @@ print_insn_arg (const char *d,
     case 'u':
       {
 	short is_upper = 0;
-	int reg;
+	int reg = fetch_arg (buffer, place, 5, info);
 
-	FETCH_ARG (5, reg);
 	if (reg & 0x10)
 	  {
 	    is_upper = 1;
@@ -1330,7 +1209,6 @@ match_insn_m68k (bfd_vma memaddr,
   unsigned char *save_p;
   unsigned char *p;
   const char *d;
-  const char *args = best->args;
 
   struct private *priv = (struct private *) info->private_data;
   bfd_byte *buffer = priv->the_buffer;
@@ -1338,9 +1216,6 @@ match_insn_m68k (bfd_vma memaddr,
   void (* save_print_address) (bfd_vma, struct disassemble_info *)
     = info->print_address_func;
 
-  if (*args == '.')
-    args++;
-  
   /* Point at first word of argument data,
      and at descriptor for first argument.  */
   p = buffer + 2;
@@ -1349,7 +1224,7 @@ match_insn_m68k (bfd_vma memaddr,
      The only place this is stored in the opcode table is
      in the arguments--look for arguments which specify fields in the 2nd
      or 3rd words of the instruction.  */
-  for (d = args; *d; d += 2)
+  for (d = best->args; *d; d += 2)
     {
       /* I don't think it is necessary to be checking d[0] here;
 	 I suspect all this could be moved to the case statement below.  */
@@ -1396,8 +1271,8 @@ match_insn_m68k (bfd_vma memaddr,
      three words long.  */
   if (p - buffer < 6
       && (best->match & 0xffff) == 0xffff
-      && args[0] == '#'
-      && args[1] == 'w')
+      && best->args[0] == '#'
+      && best->args[1] == 'w')
     {
       /* Copy the one word argument into the usual location for a one
 	 word argument, to simplify printing it.  We can get away with
@@ -1411,19 +1286,21 @@ match_insn_m68k (bfd_vma memaddr,
 
   FETCH_DATA (info, p);
 
+  d = best->args;
+
   save_p = p;
   info->print_address_func = dummy_print_address;
   info->fprintf_func = (fprintf_ftype) dummy_printer;
 
   /* We scan the operands twice.  The first time we don't print anything,
      but look for errors.  */
-  for (d = args; *d; d += 2)
+  for (; *d; d += 2)
     {
       int eaten = print_insn_arg (d, buffer, p, memaddr + (p - buffer), info);
 
       if (eaten >= 0)
 	p += eaten;
-      else if (eaten == -1 || eaten == -3)
+      else if (eaten == -1)
 	{
 	  info->fprintf_func = save_printer;
 	  info->print_address_func = save_print_address;
@@ -1431,14 +1308,12 @@ match_insn_m68k (bfd_vma memaddr,
 	}
       else
 	{
-	  /* We must restore the print functions before trying to print the
-	     error message.  */
-	  info->fprintf_func = save_printer;
-	  info->print_address_func = save_print_address;
 	  info->fprintf_func (info->stream,
 			      /* xgettext:c-format */
 			      _("<internal error in opcode table: %s %s>\n"),
-			      best->name, best->args);
+			      best->name,  best->args);
+	  info->fprintf_func = save_printer;
+	  info->print_address_func = save_print_address;
 	  return 2;
 	}
     }
@@ -1447,7 +1322,7 @@ match_insn_m68k (bfd_vma memaddr,
   info->fprintf_func = save_printer;
   info->print_address_func = save_print_address;
 
-  d = args;
+  d = best->args;
 
   info->fprintf_func (info->stream, "%s", best->name);
 
@@ -1519,10 +1394,6 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
       const struct m68k_opcode *opc = opcodes[major_opcode][i];
       unsigned long opcode = opc->opcode;
       unsigned long match = opc->match;
-      const char *args = opc->args;
-
-      if (*args == '.')
-	args++;
 
       if (((0xff & buffer[0] & (match >> 24)) == (0xff & (opcode >> 24)))
 	  && ((0xff & buffer[1] & (match >> 16)) == (0xff & (opcode >> 16)))
@@ -1538,7 +1409,7 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
 	  /* Don't use for printout the variants of divul and divsl
 	     that have the same register number in two places.
 	     The more general variants will match instead.  */
-	  for (d = args; *d; d += 2)
+	  for (d = opc->args; *d; d += 2)
 	    if (d[1] == 'D')
 	      break;
 
@@ -1546,7 +1417,7 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
 	     point coprocessor instructions which use the same
 	     register number in two places, as above.  */
 	  if (*d == '\0')
-	    for (d = args; *d; d += 2)
+	    for (d = opc->args; *d; d += 2)
 	      if (d[1] == 't')
 		break;
 
@@ -1554,13 +1425,11 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
 	     wait for fmoveml.  */
 	  if (*d == '\0')
 	    {
-	      for (d = args; *d; d += 2)
+	      for (d = opc->args; *d; d += 2)
 		{
 		  if (d[0] == 's' && d[1] == '8')
 		    {
 		      val = fetch_arg (buffer, d[1], 3, info);
-		      if (val < 0)
-			return 0;
 		      if ((val & (val - 1)) != 0)
 			break;
 		    }
@@ -1570,7 +1439,7 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
 	  /* Don't match FPU insns with non-default coprocessor ID.  */
 	  if (*d == '\0')
 	    {
-	      for (d = args; *d; d += 2)
+	      for (d = opc->args; *d; d += 2)
 		{
 		  if (d[0] == 'I')
 		    {
@@ -1601,7 +1470,7 @@ print_insn_m68k (bfd_vma memaddr, disassemble_info *info)
 
   bfd_byte *buffer = priv.the_buffer;
 
-  info->private_data = & priv;
+  info->private_data = (PTR) &priv;
   /* Tell objdump to use two bytes per chunk
      and six bytes per line for displaying raw data.  */
   info->bytes_per_chunk = 2;
@@ -1610,23 +1479,31 @@ print_insn_m68k (bfd_vma memaddr, disassemble_info *info)
   priv.max_fetched = priv.the_buffer;
   priv.insn_start = memaddr;
 
+  if (setjmp (priv.bailout) != 0)
+    /* Error return.  */
+    return -1;
+
   arch_mask = bfd_m68k_mach_to_features (info->mach);
   if (!arch_mask)
     {
       /* First try printing an m680x0 instruction.  Try printing a Coldfire
 	 one if that fails.  */
       val = m68k_scan_mask (memaddr, info, m68k_mask);
-      if (val == 0)
-	val = m68k_scan_mask (memaddr, info, mcf_mask);
+      if (val)
+	return val;
+
+      val = m68k_scan_mask (memaddr, info, mcf_mask);
+      if (val)
+	return val;
     }
   else
     {
       val = m68k_scan_mask (memaddr, info, arch_mask);
+      if (val)
+	return val;
     }
 
-  if (val == 0)
-    /* Handle undefined instructions.  */
-    info->fprintf_func (info->stream, ".short 0x%04x", (buffer[0] << 8) + buffer[1]);
-
-  return val ? val : 2;
+  /* Handle undefined instructions.  */
+  info->fprintf_func (info->stream, "0%o", (buffer[0] << 8) + buffer[1]);
+  return 2;
 }
