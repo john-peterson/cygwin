@@ -1,11 +1,10 @@
 #source: eh3.s
 #source: eh3a.s
-#as: --64
-#ld: -melf_x86_64 -Ttext 0x400078
+#ld:
 #readelf: -wf
 #target: x86_64-*-*
 
-Contents of the .eh_frame section:
+The section .eh_frame contains:
 
 00000000 00000014 00000000 CIE
   Version:               1
@@ -14,8 +13,8 @@ Contents of the .eh_frame section:
   Data alignment factor: -8
   Return address column: 16
 
-  DW_CFA_def_cfa: r7 \(rsp\) ofs 8
-  DW_CFA_offset: r16 \(rip\) at cfa-8
+  DW_CFA_def_cfa: r7 ofs 8
+  DW_CFA_offset: r16 at cfa-8
   DW_CFA_nop
   DW_CFA_nop
   DW_CFA_nop
@@ -23,12 +22,12 @@ Contents of the .eh_frame section:
   DW_CFA_nop
   DW_CFA_nop
 
-00000018 0000001c 0000001c FDE cie=00000000 pc=00400078..00400078
-  DW_CFA_advance_loc: 0 to 00400078
+00000018 0000001c 0000001c FDE cie=00000000 pc=004000b0..004000b0
+  DW_CFA_advance_loc: 0 to 004000b0
   DW_CFA_def_cfa_offset: 16
-  DW_CFA_offset: r6 \(rbp\) at cfa-16
-  DW_CFA_advance_loc: 0 to 00400078
-  DW_CFA_def_cfa_register: r6 \(rbp\)
+  DW_CFA_offset: r6 at cfa-16
+  DW_CFA_advance_loc: 0 to 004000b0
+  DW_CFA_def_cfa_reg: r6
 
 00000038 ZERO terminator
 #pass
