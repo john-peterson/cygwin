@@ -231,13 +231,13 @@ test_lseek ()
     }
   else
     {
-      printf ("lseek 1: ret = %ld, errno = %d %s\n", (long) ret, errno,
+      printf ("lseek 1: ret = %d, errno = %d %s\n", ret, errno,
 	      strerrno (errno));
       stop ();
-      printf ("lseek 2: ret = %ld, errno = %d %s\n", (long) ret, errno,
+      printf ("lseek 2: ret = %d, errno = %d %s\n", ret, errno,
 	      strerrno (errno));
       stop ();
-      printf ("lseek 3: ret = %ld, errno = %d %s\n", (long) ret, errno,
+      printf ("lseek 3: ret = %d, errno = %d %s\n", ret, errno,
 	      strerrno (errno));
     }
   /* Seeking on an invalid file descriptor */
@@ -373,21 +373,17 @@ test_system ()
   int ret;
   char sys[512];
 
-  /* Test for shell */
-  ret = system (NULL);
-  printf ("system 1: ret = %d %s\n", ret, ret != 0 ? "OK" : "");
-  stop ();
   /* This test prepares the directory for test_rename() */
   sprintf (sys, "mkdir -p %s %s", TESTSUBDIR, TESTDIR2);
   ret = system (sys);
   if (ret == 127)
-    printf ("system 2: ret = %d /bin/sh unavailable???\n", ret);
+    printf ("system 1: ret = %d /bin/sh unavailable???\n", ret);
   else
-    printf ("system 2: ret = %d %s\n", ret, ret == 0 ? "OK" : "");
+    printf ("system 1: ret = %d %s\n", ret, ret == 0 ? "OK" : "");
   stop ();
   /* Invalid command (just guessing ;-) ) */
   ret = system ("wrtzlpfrmpft");
-  printf ("system 3: ret = %d %s\n", ret, WEXITSTATUS (ret) == 127 ? "OK" : "");
+  printf ("system 2: ret = %d %s\n", ret, WEXITSTATUS (ret) == 127 ? "OK" : "");
   stop ();
 }
 
@@ -473,7 +469,7 @@ test_unlink ()
 		  strerrno (errno));
         }
       else
-	printf ("unlink 2: ret = %d chmod failed, errno= %d\n", ret, errno);
+	printf ("unlink 2: ret = %d chmod failed\n", ret, errno);
     }
   else
     printf ("unlink 2: ret = %d, errno = %d\n", ret, errno);
