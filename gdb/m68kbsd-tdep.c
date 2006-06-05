@@ -1,12 +1,12 @@
 /* Target-dependent code for Motorola 68000 BSD's.
 
-   Copyright (C) 2004-2013 Free Software Foundation, Inc.
+   Copyright (C) 2004, 2005 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "arch-utils.h"
@@ -25,7 +27,6 @@
 #include "regset.h"
 #include "trad-frame.h"
 #include "tramp-frame.h"
-#include "gdbtypes.h"
 
 #include "gdb_assert.h"
 #include "gdb_string.h"
@@ -42,14 +43,12 @@
 #define M68KBSD_SIZEOF_FPREGS	(((8 * 3) + 3) * 4)
 
 int
-m68kbsd_fpreg_offset (struct gdbarch *gdbarch, int regnum)
+m68kbsd_fpreg_offset (int regnum)
 {
-  int fp_len = TYPE_LENGTH (gdbarch_register_type (gdbarch, regnum));
-  
   if (regnum >= M68K_FPC_REGNUM)
-    return 8 * fp_len + (regnum - M68K_FPC_REGNUM) * 4;
+    return 8 * 12 + (regnum - M68K_FPC_REGNUM) * 4;
 
-  return (regnum - M68K_FP0_REGNUM) * fp_len;
+  return (regnum - M68K_FP0_REGNUM) * 12;
 }
 
 /* Supply register REGNUM from the buffer specified by FPREGS and LEN
@@ -61,7 +60,6 @@ m68kbsd_supply_fpregset (const struct regset *regset,
 			 struct regcache *regcache,
 			 int regnum, const void *fpregs, size_t len)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
   const gdb_byte *regs = fpregs;
   int i;
 
@@ -70,8 +68,7 @@ m68kbsd_supply_fpregset (const struct regset *regset,
   for (i = M68K_FP0_REGNUM; i <= M68K_PC_REGNUM; i++)
     {
       if (regnum == i || regnum == -1)
-	regcache_raw_supply (regcache, i,
-			     regs + m68kbsd_fpreg_offset (gdbarch, i));
+	regcache_raw_supply (regcache, i, regs + m68kbsd_fpreg_offset (i));
     }
 }
 
@@ -138,24 +135,24 @@ m68kbsd_regset_from_core_section (struct gdbarch *gdbarch,
 
 static void
 m68kobsd_sigtramp_cache_init (const struct tramp_frame *self,
-			      struct frame_info *this_frame,
+			      struct frame_info *next_frame,
 			      struct trad_frame_cache *this_cache,
 			      CORE_ADDR func)
 {
   CORE_ADDR addr, base, pc;
   int regnum;
 
-  base = get_frame_register_unsigned (this_frame, M68K_SP_REGNUM);
+  base = frame_unwind_register_unsigned (next_frame, M68K_SP_REGNUM);
 
   /* The 'addql #4,%sp' instruction at offset 8 adjusts the stack
      pointer.  Adjust the frame base accordingly.  */
-  pc = get_frame_register_unsigned (this_frame, M68K_PC_REGNUM);
+  pc = frame_unwind_register_unsigned (next_frame, M68K_PC_REGNUM);
   if ((pc - func) > 8)
     base -= 4;
 
   /* Get frame pointer, stack pointer, program counter and processor
      state from `struct sigcontext'.  */
-  addr = get_frame_memory_unsigned (this_frame, base + 8, 4);
+  addr = get_frame_memory_unsigned (next_frame, base + 8, 4);
   trad_frame_set_reg_addr (this_cache, M68K_FP_REGNUM, addr + 8);
   trad_frame_set_reg_addr (this_cache, M68K_SP_REGNUM, addr + 12);
   trad_frame_set_reg_addr (this_cache, M68K_PC_REGNUM, addr + 20);
@@ -163,7 +160,7 @@ m68kobsd_sigtramp_cache_init (const struct tramp_frame *self,
 
   /* The sc_ap member of `struct sigcontext' points to additional
      hardware state.  Here we find the missing registers.  */
-  addr = get_frame_memory_unsigned (this_frame, addr + 16, 4) + 4;
+  addr = get_frame_memory_unsigned (next_frame, addr + 16, 4) + 4;
   for (regnum = M68K_D0_REGNUM; regnum < M68K_FP_REGNUM; regnum++, addr += 4)
     trad_frame_set_reg_addr (this_cache, regnum, addr);
 
@@ -196,8 +193,6 @@ m68kbsd_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->jb_pc = 5;
   tdep->jb_elt_size = 4;
 
-  set_gdbarch_decr_pc_after_break (gdbarch, 2);
-
   set_gdbarch_regset_from_core_section
     (gdbarch, m68kbsd_regset_from_core_section);
 }
@@ -211,7 +206,7 @@ m68kbsd_aout_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   m68kbsd_init_abi (info, gdbarch);
 
-  tdep->struct_return = reg_struct_return;
+  m68k_aout_init_abi (info, gdbarch);
 
   tramp_frame_prepend_unwinder (gdbarch, &m68kobsd_sigtramp);
 }
@@ -227,6 +222,7 @@ m68kbsd_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* NetBSD ELF uses the SVR4 ABI.  */
   m68k_svr4_init_abi (info, gdbarch);
+  /* But with pcc structure return */
   tdep->struct_return = pcc_struct_return;
 
   /* NetBSD ELF uses SVR4-style shared libraries.  */
