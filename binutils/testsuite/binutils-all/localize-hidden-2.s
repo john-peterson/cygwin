@@ -1,2 +1,2 @@
 	.globl	G
-	G == 0x100
+	.equ	G,0x100
