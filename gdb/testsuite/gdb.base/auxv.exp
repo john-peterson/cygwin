@@ -1,10 +1,11 @@
 # Test `info auxv' and related functionality.
 
-# Copyright (C) 1992-2013 Free Software Foundation, Inc.
+# Copyright 1992,1993,1994,1995,1996,1997,1998,1999,2000,2004
+#	Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -13,16 +14,21 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 
 # This file is based on corefile.exp which was written by Fred
 # Fish. (fnf@cygnus.com)
 
-if { ! [istarget "*-*-linux*"] && ! [istarget "*-*-solaris*"] } {
-    verbose "Skipping auxv.exp because of lack of support."
-    return
+if $tracelevel then {
+	strace $tracelevel
 }
 
+set prms_id 0
+set bug_id 0
 
 set testfile "auxv"
 set srcfile ${testfile}.c
@@ -30,10 +36,7 @@ set binfile ${objdir}/${subdir}/${testfile}
 set corefile ${objdir}/${subdir}/${testfile}.corefile
 set gcorefile ${objdir}/${subdir}/${testfile}.gcore
 
-if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable \
-		  {debug additional_flags=-DUSE_RLIMIT}] != ""
-     && [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable \
-		  {debug}] != "" } {
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
     untested "couldn't compile ${srcdir}/${subdir}/${srcfile}"
     return -1
 }
@@ -42,7 +45,7 @@ if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable \
 # Make it the working directory for gdb and its child.
 set coredir "${objdir}/${subdir}/coredir.[getpid]"
 file mkdir $coredir
-set core_works [expr [isnative] && ! [is_remote target]]
+set core_works [isnative]
 
 # Run GDB on the test program up to where it will dump core.
 
@@ -50,8 +53,10 @@ gdb_exit
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 gdb_load ${binfile}
-gdb_test_no_output "set print sevenbit-strings"
-gdb_test_no_output "set width 0"
+gdb_test "set print sevenbit-strings" "" \
+	"set print sevenbit-strings; ${testfile}"
+gdb_test "set width 0" "" \
+	"set width 0; ${testfile}"
 
 if {$core_works} {
     if {[gdb_test "cd $coredir" ".*Working directory .*" \
@@ -72,10 +77,8 @@ proc fetch_auxv {test} {
 
     set auxv_lines {}
     set bad -1
-    # Former trailing `\[\r\n\]+' may eat just \r leaving \n in the buffer
-    # corrupting the next matches.
     if {[gdb_test_multiple "info auxv" $test {
-	-re "info auxv\r\n" {
+	-re "info auxv\[\r\n\]+" {
 	    exp_continue
 	}
 	-ex "The program has no auxiliary information now" {
@@ -90,20 +93,20 @@ proc fetch_auxv {test} {
 	    set bad 1
 	    exp_continue
 	}
-	-re "^\[0-9\]+\[ \t\]+(AT_\[^ \t\]+)\[^\r\n\]+\r\n" {
+	-re "^\[0-9\]+\[ \t\]+(AT_\[^ \t\]+)\[^\r\n\]+\[\r\n\]+" {
 	    lappend auxv_lines $expect_out(0,string)
 	    exp_continue
 	}
-	-re "^\[0-9\]+\[ \t\]+\\?\\?\\?\[^\r\n\]+\r\n" {
+	-re "^\[0-9\]+\[ \t\]+\\?\\?\\?\[^\r\n\]+\[\r\n\]+" {
 	    warning "Unrecognized tag value: $expect_out(0,string)"
 	    set bad 1
 	    lappend auxv_lines $expect_out(0,string)
 	    exp_continue
 	}
-	-re "$gdb_prompt $" {
+	-re ".*$gdb_prompt $" {
 	    incr bad
 	}
-	-re "^\[^\r\n\]+\r\n" {
+	-re "^\[^\r\n\]+\[\r\n\]+" {
 	    if {!$bad} {
 		warning "Unrecognized output: $expect_out(0,string)"
 		set bad 1
@@ -126,7 +129,20 @@ proc fetch_auxv {test} {
 set live_data [fetch_auxv "info auxv on live process"]
 
 # Now try gcore.
-set gcore_works [gdb_gcore_cmd "$gcorefile" "gcore"]
+set gcore_works 0
+set escapedfilename [string_to_regexp $gcorefile]
+gdb_test_multiple "gcore $gcorefile" "gcore" {
+    -re "Saved corefile ${escapedfilename}\[\r\n\]+$gdb_prompt $" {
+	pass "gcore"
+	set gcore_works 1
+    }
+    -re "Can't create a corefile\[\r\n\]+$gdb_prompt $" {
+	unsupported "gcore"
+    }
+    -re "Undefined command: .*\[\r\n\]+$gdb_prompt $" {
+	unsupported "gcore"
+    }
+}
 
 # Let the program continue and die.
 gdb_test continue ".*Program received signal.*"
@@ -144,7 +160,7 @@ if {$core_works} {
     } else {
 	set core_works 0
 	warning "can't generate a core file - core tests suppressed - check ulimit -c"
-	unsupported $test
+	fail $test
     }
 } else {
     unsupported $test
