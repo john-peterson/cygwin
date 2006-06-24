@@ -1,181 +1,156 @@
-2012-12-17  Nick Clifton  <nickc@redhat.com>
+2006-06-24  Richard Sandiford  <richard@codesourcery.com>
 
-	* binutils-all/windres/README: Add copyright notice.
+	* binutils-all/localize-hidden-1.d: Use objdump --syms instead
+	of readelf.
 
-2012-11-27  Roland McGrath  <mcgrathr@google.com>
+2005-12-24  Ben Elliston  <bje@gnu.org>
 
-	* lib/binutils-common.exp (is_zlib_supported): New function.
-	* lib/utils-lib.exp (run_dump_test): If as options include
-	--compress-debug-sections and zlib is not available, report
-	the test as unsupported.
-	* binutils-all/compress.exp: Bail out if zlib is not available.
-	* binutils-all/objdump.exp (objdump compressed debug):
-	Mark unsupported if zlib is not available.
-	* binutils-all/readelf.exp (readelf_compressed_wa_test): Likewise.
+	* config/default.exp: Do not load the unneeded util-defs.exp.
 
-2012-11-06  H.J. Lu  <hongjiu.lu@intel.com>
+2005-11-15  Jan Beulich  <jbeulich@novell.com>
 
-	PR binutils/14567
-	* binutils-all/ar.exp (bfdtest1): Removed.
-	(long_filenames): Take bfdtests.
-	(thin_archive): Likewise.
-	(thin_archive_with_nested): Likewise.
-	(bfdtests): New.
-	Pass $bfdtests to long_filenames, thin_archive and
-	thin_archive_with_nested.
+	* config/default.exp (link_or_copy): New. Use it for setting
+	up assembler and linker for the compiler to use.
 
-2012-10-29  Alan Modra  <amodra@gmail.com>
+2005-10-20  H.J. Lu  <hongjiu.lu@intel.com>
 
-	* binutils-all/copy-3.d: Exclude all cygwin and mingw targets,
-	and rs6000.
+	PR ld/251
+	* binutils-all/group.s: New file.
 
-2012-10-24  H.J. Lu  <hongjiu.lu@intel.com>
+	* binutils-all/objcopy.exp (objcopy_test_readelf): New
+	procedure.
+	Use it to test ELF group.
 
-	* binutils-all/ar.exp (bfdtest1): Remove findfile.
+2005-10-19  H.J. Lu  <hongjiu.lu@intel.com>
 
-2012-10-21  H.J. Lu  <hongjiu.lu@intel.com>
+	PR ld/1487
+	* binutils-all/objcopy.exp (objcopy_test): New procedure.
+	Use it to test simple copy, ia64 link order and ELF unknown
+	section type.
 
-	* binutils-all/dw2-1.W: Updated.
+	* binutils-all/unknown.s: New file.
 
-2012-10-20  H.J. Lu  <hongjiu.lu@intel.com>
+2005-10-19  H.J. Lu  <hongjiu.lu@intel.com>
 
-	* binutils-all/compress.exp: Add an objdump test.
-	* binutils-all/dw2-1.W: New file.
+	PR binutils/1321
+	* binutils-all/link-order.s: New.
 
-2012-08-17  H.J. Lu  <hongjiu.lu@intel.com>
+	* binutils-all/objcopy.exp: Check ia64 link order.
 
-	* binutils-all/ar.exp (long_filenames): Remove extra verbose
-	before binutils_run.
-	(thin_archive): Likewise.
-	(thin_archive_with_nested): Likewise.  Also run bfdtest1 on
-	$archive2.
+2005-10-11  Danny Smith  <dannysmith@users.sourceforge.net>
 
-2012-08-16  H.J. Lu  <hongjiu.lu@intel.com>
+	* binutils-all/windres/escapex-2.rc: New file.
+	* binutils-all/windres/escapex-2.rsd: Generate.
 
-	PR binutils/14481
-	* ar.exp (bfdtest1): New.
-	(long_filenames): Run bfdtest1.
-	(thin_archive): Likewise.
-	(thin_archive_with_nested): Likewise.
+2005-08-26  Christian Groessler  <chris@groessler.org>
 
-2012-08-13  Ian Bolton  <ian.bolton@arm.com>
-	    Laurent Desnogues  <laurent.desnogues@arm.com>
-	    Jim MacArthur  <jim.macarthur@arm.com>
-	    Marcus Shawcroft  <marcus.shawcroft@arm.com>
-	    Nigel Stephens  <nigel.stephens@arm.com>
-	    Ramana Radhakrishnan  <ramana.radhakrishnan@arm.com>
-	    Richard Earnshaw  <rearnsha@arm.com>
-	    Sofiane Naci  <sofiane.naci@arm.com>
-	    Tejas Belagod  <tejas.belagod@arm.com>
-	    Yufeng Zhang  <yufeng.zhang@arm.com>
+	* binutils-all/objcopy.exp: Don't setup_xfail "z8*-*".
 
-	* objdump.exp: Add AArch64.
+2005-08-18  Alan Modra  <amodra@bigpond.net.au>
 
-2012-08-02  H.J. Lu  <hongjiu.lu@intel.com>
+	* binutils-all/objcopy.exp: Remove a29k support.
+	* binutils-all/objdump.exp: Likewise, alliant and convex too.
 
-	PR binutils/14420
-	* binutils-all/i386/compressed-1a.d: Updated.
-	* binutils-all/objdump.W: Likewise.
-	* binutils-all/readelf.wa: Likewise.
-	* binutils-all/x86-64/compressed-1a.d: Likewise.
+2005-05-07  Nick Clifton  <nickc@redhat.com>
 
-2012-07-28  Kai Tietz  <ktietz@redhat.com>
+	* Update the address and phone number of the FSF organization in
+	the GPL notices in the following files:
+	binutils-all/ar.exp, binutils-all/dlltool.exp,
+	binutils-all/nm.exp, binutils-all/objcopy.exp,
+	binutils-all/objdump.exp, binutils-all/readelf.exp,
+	binutils-all/size.exp, binutils-all/hppa/objdump.exp,
+	binutils-all/m68k/objdump.exp, binutils-all/vax/objdump.exp,
+	binutils-all/windres/msupdate, binutils-all/windres/windres.exp,
+	config/default.exp, lib/utils-lib.exp
 
-	* binutils-all/windres/version_small.rc: New test.
-	* binutils-all/windres/version_small.rsd: Likewise.
+2005-04-04  Jan-Benedict Glaw  <jbglaw@lug-owl.>
 
-2012-07-03  H.J. Lu  <hongjiu.lu@intel.com>
+	* binutils-all/vax/objdump.exp: Condense the two tests into one
+	and add a "-M entry:" for the second label.
 
-	PR binutils/14319
-	* binutils-all/compress.exp: Test compress empty debug sections.
+2005-03-29  Jan-Benedict Glaw  <jbglaw@lug-owl.de>
 
-	* binutils-all/dw2-empty.S: New file.
+	* binutils-all/vax: New directory.
+	* binutils-all/vax/objdump.exp: New script.  Test the -Mentry:
+	switch added to the VAX disassembler.
+	* binutils-all/vax/entrymask.s: New assembler source file.
 
-2012-06-07  Thomas Schwinge  <thomas@codesourcery.com>
+2005-03-08  Ben Elliston  <bje@au.ibm.com>
 
-	* binutils-all/i386/i386.exp: Don't skip for x86_64-*-linux*.
+       * config/default.exp: Remove send_user call for stray output.
 
-2012-05-17  H.J. Lu  <hongjiu.lu@intel.com>
+2005-01-04  Martin Koegler  <mkoegler@auto.tuwien.ac.at>
 
-	* binutils-all/hppa/objdump.exp: Expect addend as signed.
+	* binutils-all/testprog.c: Add prototype for printf() and make
+	type of "string" array be "char" in order to avoid compile time
+	warnings.
 
-2012-05-17  Alan Modra  <amodra@gmail.com>
+2004-12-31  Alan Modra  <amodra@bigpond.net.au>
 
-	* binutils-all/objdump.W: Update.
-	* binutils-all/readelf.wa: Update.
-	* binutils-all/i386/compressed-1a.d: Update.
-	* binutils-all/x86-64/compressed-1a.d: Update.
+	* binutils-all/readelf.ss: Allow for both .rel and .rela sections.
 
-2012-05-16  Meador Inge  <meadori@codesourcery.com>
+2004-11-04  Hans-Peter Nilsson  <hp@axis.com>
 
-	* binutils-all/arm/objdump.exp:
-	STMFD/LDMIA sp!, {reg} don't disassemble to PUSH/POP {reg} any longer.
+	* binutils-all/objdump.exp (cpus_expected): Append cris.
 
-2012-04-12  H.J. Lu  <hongjiu.lu@intel.com>
+2004-10-28  H.J. Lu  <hongjiu.lu@intel.com>
 
-	PR binutils/13947
-	* binutils-all/i386/compressed-1b.d: Remove empty REL section.
-	* binutils-all/i386/compressed-1c.d: Likewise.
+	* binutils-all/dlltool.exp: Set XFAIL if $target_xfail is yes.
 
-	* binutils-all/x86-64/compressed-1b.d: Remove empty RELA
-	section.
-	* binutils-all/x86-64/compressed-1c.d: Likewise.
+2004-10-23  Aaron W. LaFramboise  <aaron98wiridge9@aaronwl.com>
 
-2012-04-03  Roland McGrath  <mcgrathr@google.com>
+	* binutils-all/alias.def: New file.
+	* binutils-all/dlltool.exp: Two new -p tests.
+	* config/default.exp (dlltool_gas_flag): New variable.
+	Copy gas and lds executables into tmpdir/gas directory rather than
+	making symlinks which might not be supported by the host OS.
+	Attempt to handle the case where the host OS does not use the .exe
+	extension but the target OS does.
+	* lib/utils-lib.exp (exe_ext): New procedure.
 
-	* lib/binutils-common.exp (is_elf_format): Consider *-*-nacl* to
-	be ELF too.
+2004-07-12  Nick Clifton  <nickc@redhat.com>
 
-	* binutils-all/elfedit-4.d: Add "#as: --64" option.
+	* binutils-all/dlltool.exp: Check that the -p switch is not
+	rejected.
 
-	* binutils-all/i386/i386.exp: Accept nacl targets too.
-	* binutils-all/x86-64/x86-64.exp: Likewise.
+2004-07-09  Andreas Schwab  <schwab@suse.de>
 
-2012-03-13  Hans-Peter Nilsson  <hp@axis.com>
+	* binutils-all/m68k/movem.s: New file.
 
-	PR binutils/3807
-	* binutils-all/objcopy.exp (localize-hidden-1): Correct xfailed
-	mips-targets.
+	* binutils-all/m68k/objdump.exp: New file.
 
-2012-02-25  Walter Lee  <walt@tilera.com>
+2004-05-15  Nick Clifton  <nickc@redhat.com>
 
-	* binutils-all/objdump.exp (cpus_expected): Add tilegx.
+	* binutils-all/readelf.ss: Allow for ARM mapping symbols.
 
-2012-02-14  Alan Modra  <amodra@gmail.com>
+2004-05-12  Ben Elliston  <bje@au.ibm.com>
 
-	* binutils-all/dlltool.exp: Add setup_xfail.
+	* binutils-all/ar.exp: Remove stray semicolons.
+	* binutils-all/dlltool.exp: Likewise.
+	* binutils-all/objcopy.exp: Likewise.
+	* binutils-all/readelf.exp: Likewise.
+	* binutils-all/windres/windres.exp: Likewise.
+	* lib/utils-lib.exp: Likewise.
 
-	* binutils-all/dw2-decodedline.S: Always have whitespace before
-	directives.
-	* binutils-all/version.s: Likewise.
-	* binutils-all/objdump.exp (dw2-decodedline): Don't run for
-	hppa64*-*-hpux*, i370-*-*, i960-*-*.
+2004-04-14  Richard Sandiford  <rsandifo@redhat.com>
 
-2012-02-11  Kai Tietz  <ktietz@redhat.com>
+	* binutils-all/readelf.ss-mips: Allow named section symbols.
 
-	* binutils-all/version.def: New file.
-	* binutils-all/dlltool.exp: Add version-dll test.
+2004-03-30  Jakub Jelinek  <jakub@redhat.com>
 
-2012-02-02  Nick Clifton  <nickc@redhat.com>
+	* binutils-all/objcopy.exp: Accept main as a data symbol as well.
 
-	* binutils-all/readelf.n: Add #pass to cope with targets that add
-	their own notes.
+2004-02-27  Andreas Schwab  <schwab@suse.de>
 
-2012-02-01  Nick Clifton  <nickc@redhat.com>
+	* binutils-all/ar.exp (argument_parsing): New test.
 
-	PR binutils/13482
-	* binutils-all/version.s: New test source file.
-	* binutils-all/readelf.n: New file: expected readelf output.
-	* binutils-all/readelf.exp: Add test of .note section contents.
+2004-02-20  Nathan Sidwell  <nathan@codesourcery.com>
 
-For older changes see ChangeLog-0411
+	* binutils-all/objcopy.exp: Reorder arguments for POSIXLY_CORRECT
+	systems.
+
+For older changes see ChangeLog-9303
 
-Copyright (C) 2012 Free Software Foundation, Inc.
-
-Copying and distribution of this file, with or without modification,
-are permitted in any medium without royalty provided the copyright
-notice and this notice are preserved.
-
 Local Variables:
 mode: change-log
 left-margin: 8
