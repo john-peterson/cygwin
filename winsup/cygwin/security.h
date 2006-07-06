@@ -1,7 +1,6 @@
 /* security.h: security declarations
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,13 +8,10 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
+#ifndef _SECURITY_H
+#define _SECURITY_H
 
 #include <accctrl.h>
-
-/* Special file attribute set, for instance, in open() and mkdir() to
-   flag that a file has just been created.  Used in alloc_sd, see there. */
-#define S_JUSTCREATED 0x80000000
 
 #define DEFAULT_UID DOMAIN_USER_RID_ADMIN
 #define UNKNOWN_UID 400 /* Non conflicting number */
@@ -24,64 +20,11 @@ details. */
 #define MAX_SID_LEN 40
 #define MAX_DACL_LEN(n) (sizeof (ACL) \
 		   + (n) * (sizeof (ACCESS_ALLOWED_ACE) - sizeof (DWORD) + MAX_SID_LEN))
-#define SD_MIN_SIZE (sizeof (SECURITY_DESCRIPTOR) + MAX_DACL_LEN (1))
-#define ACL_MAXIMUM_SIZE 65532	/* Yeah, right.  64K - sizeof (DWORD). */
-#define SD_MAXIMUM_SIZE 65536
+#define ACL_DEFAULT_SIZE 3072
 #define NO_SID ((PSID)NULL)
 
-#ifndef SE_CREATE_TOKEN_PRIVILEGE
-#define SE_CREATE_TOKEN_PRIVILEGE            2UL
-#define SE_ASSIGNPRIMARYTOKEN_PRIVILEGE      3UL
-#define SE_LOCK_MEMORY_PRIVILEGE             4UL
-#define SE_INCREASE_QUOTA_PRIVILEGE          5UL
-#define SE_MACHINE_ACCOUNT_PRIVILEGE         6UL
-#define SE_TCB_PRIVILEGE                     7UL
-#define SE_SECURITY_PRIVILEGE                8UL
-#define SE_TAKE_OWNERSHIP_PRIVILEGE          9UL
-#define SE_LOAD_DRIVER_PRIVILEGE            10UL
-#define SE_SYSTEM_PROFILE_PRIVILEGE         11UL
-#define SE_SYSTEMTIME_PRIVILEGE             12UL
-#define SE_PROF_SINGLE_PROCESS_PRIVILEGE    13UL
-#define SE_INC_BASE_PRIORITY_PRIVILEGE      14UL
-#define SE_CREATE_PAGEFILE_PRIVILEGE        15UL
-#define SE_CREATE_PERMANENT_PRIVILEGE       16UL
-#define SE_BACKUP_PRIVILEGE                 17UL
-#define SE_RESTORE_PRIVILEGE                18UL
-#define SE_SHUTDOWN_PRIVILEGE               19UL
-#define SE_DEBUG_PRIVILEGE                  20UL
-#define SE_AUDIT_PRIVILEGE                  21UL
-#define SE_SYSTEM_ENVIRONMENT_PRIVILEGE     22UL
-#define SE_CHANGE_NOTIFY_PRIVILEGE          23UL
-#define SE_REMOTE_SHUTDOWN_PRIVILEGE        24UL
-/* Starting with Windows 2000 */
-#define SE_UNDOCK_PRIVILEGE                 25UL
-#define SE_SYNC_AGENT_PRIVILEGE             26UL
-#define SE_ENABLE_DELEGATION_PRIVILEGE      27UL
-#define SE_MANAGE_VOLUME_PRIVILEGE          28UL
-/* Starting with Windows 2000 SP4, XP SP2, 2003 Server */
-#define SE_IMPERSONATE_PRIVILEGE            29UL
-#define SE_CREATE_GLOBAL_PRIVILEGE          30UL
-/* Starting with Vista */
-#define SE_TRUSTED_CREDMAN_ACCESS_PRIVILEGE 31UL
-#define SE_RELABEL_PRIVILEGE                32UL
-#define SE_INCREASE_WORKING_SET_PRIVILEGE   33UL
-#define SE_TIME_ZONE_PRIVILEGE              34UL
-#define SE_CREATE_SYMBOLIC_LINK_PRIVILEGE   35UL
-
-#define SE_MAX_WELL_KNOWN_PRIVILEGE SE_CREATE_SYMBOLIC_LINK_PRIVILEGE
-
-#endif /* ! SE_CREATE_TOKEN_PRIVILEGE */
-
-/* Added for debugging purposes. */
-typedef struct {
-  BYTE  Revision;
-  BYTE  SubAuthorityCount;
-  SID_IDENTIFIER_AUTHORITY IdentifierAuthority;
-  DWORD SubAuthority[8];
-} DBGSID, *PDBGSID;
-
 /* Macro to define variable length SID structures */
-#define MKSID(name, comment, authority, count, rid...) \
+#define SID(name, comment, authority, count, rid...) \
 static NO_COPY struct  { \
   BYTE  Revision; \
   BYTE  SubAuthorityCount; \
@@ -94,38 +37,25 @@ cygpsid NO_COPY name = (PSID) &name##_struct;
 #define FILE_WRITE_BITS  (FILE_WRITE_DATA | GENERIC_WRITE | GENERIC_ALL)
 #define FILE_EXEC_BITS   (FILE_EXECUTE | GENERIC_EXECUTE | GENERIC_ALL)
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-  /* We need these declarations, otherwise g++ complains that the below
-     inline methods use an undefined function, if ntdll.h isn't included. */
-  BOOLEAN NTAPI RtlEqualSid (PSID, PSID);
-  NTSTATUS NTAPI RtlCopySid (ULONG, PSID, PSID);
-#ifdef __cplusplus
-}
-#endif
-
 class cygpsid {
 protected:
   PSID psid;
 public:
   cygpsid () {}
   cygpsid (PSID nsid) { psid = nsid; }
-  operator PSID () const { return psid; }
+  operator const PSID () { return psid; }
   const PSID operator= (PSID nsid) { return psid = nsid;}
   __uid32_t get_id (BOOL search_grp, int *type = NULL);
   int get_uid () { return get_id (FALSE); }
   int get_gid () { return get_id (TRUE); }
 
-  PWCHAR string (PWCHAR nsidstr) const;
   char *string (char *nsidstr) const;
 
   bool operator== (const PSID nsid) const
     {
       if (!psid || !nsid)
 	return nsid == psid;
-      return RtlEqualSid (psid, nsid);
+      return EqualSid (psid, nsid);
     }
   bool operator!= (const PSID nsid) const
     { return !(*this == nsid); }
@@ -142,45 +72,33 @@ public:
 
 class cygsid : public cygpsid {
   char sbuf[MAX_SID_LEN];
-  bool well_known_sid;
 
-  const PSID getfromstr (const char *nsidstr, bool well_known);
-  PSID get_sid (DWORD s, DWORD cnt, DWORD *r, bool well_known);
+  const PSID getfromstr (const char *nsidstr);
+  PSID get_sid (DWORD s, DWORD cnt, DWORD *r);
 
-  inline const PSID assign (const PSID nsid, bool well_known)
+  inline const PSID assign (const PSID nsid)
     {
       if (!nsid)
 	psid = NO_SID;
       else
 	{
 	  psid = (PSID) sbuf;
-	  RtlCopySid (MAX_SID_LEN, psid, nsid);
-	  well_known_sid = well_known;
+	  CopySid (MAX_SID_LEN, psid, nsid);
 	}
       return psid;
     }
 
 public:
   inline operator const PSID () { return psid; }
-  inline bool is_well_known_sid () { return well_known_sid; }
 
-  /* Both, = and *= are assignment operators.  = creates a "normal" SID,
-     *= marks the SID as being a well-known SID.  This difference is
-     important when creating a SID list for LSA authentication. */
   inline const PSID operator= (cygsid &nsid)
-    { return assign (nsid, nsid.well_known_sid); }
+    { return assign (nsid); }
   inline const PSID operator= (const PSID nsid)
-    { return assign (nsid, false); }
+    { return assign (nsid); }
   inline const PSID operator= (const char *nsidstr)
-    { return getfromstr (nsidstr, false); }
-  inline const PSID operator*= (cygsid &nsid)
-    { return assign (nsid, true); }
-  inline const PSID operator*= (const PSID nsid)
-    { return assign (nsid, true); }
-  inline const PSID operator*= (const char *nsidstr)
-    { return getfromstr (nsidstr, true); }
+    { return getfromstr (nsidstr); }
 
-  inline cygsid () : cygpsid ((PSID) sbuf), well_known_sid (false) {}
+  inline cygsid () : cygpsid ((PSID) sbuf) {}
   inline cygsid (const PSID nsid) { *this = nsid; }
   inline cygsid (const char *nstrsid) { *this = nstrsid; }
 
@@ -188,28 +106,21 @@ public:
 
   BOOL getfrompw (const struct passwd *pw);
   BOOL getfromgr (const struct __group32 *gr);
-
-  void debug_print (const char *prefix = NULL) const
-    {
-      char buf[256] __attribute__ ((unused));
-      debug_printf ("%s %s%s", prefix ?: "", string (buf) ?: "NULL", well_known_sid ? " (*)" : " (+)");
-    }
 };
 
 typedef enum { cygsidlist_empty, cygsidlist_alloc, cygsidlist_auto } cygsidlist_type;
 class cygsidlist {
-  int maxcnt;
-  int cnt;
-
-  BOOL add (const PSID nsi, bool well_known); /* Only with auto for now */
-
+  int maxcount;
 public:
+  int count;
   cygsid *sids;
   cygsidlist_type type;
 
   cygsidlist (cygsidlist_type t, int m)
-  : maxcnt (m), cnt (0), type (t)
     {
+      type = t;
+      count = 0;
+      maxcount = m;
       if (t == cygsidlist_alloc)
 	sids = alloc_sids (m);
       else
@@ -217,59 +128,49 @@ public:
     }
   ~cygsidlist () { if (type == cygsidlist_auto) delete [] sids; }
 
-  BOOL addfromgr (struct __group32 *gr) /* Only with alloc */
-    { return sids[cnt].getfromgr (gr) && ++cnt; }
-
-  /* += adds a "normal" SID, *= adds a well-known SID.  See comment in class
-     cygsid above. */
-  BOOL operator+= (cygsid &si) { return add ((PSID) si,
-					     si.is_well_known_sid ()); }
-  BOOL operator+= (const char *sidstr) { cygsid nsi (sidstr);
-					 return add ((PSID) nsi,
-						     nsi.is_well_known_sid ());
-				       }
-  BOOL operator+= (const PSID psid) { return add (psid, false); }
-  BOOL operator*= (cygsid &si) { return add ((PSID) si, true); }
-  BOOL operator*= (const char *sidstr) { cygsid nsi (sidstr);
-					 return add ((PSID) nsi, true); }
-  BOOL operator*= (const PSID psid) { return add (psid, true); }
-
-  void count (int ncnt)
-    { cnt = ncnt; }
-  int count () const { return cnt; }
-  int non_well_known_count () const
+  BOOL add (const PSID nsi) /* Only with auto for now */
     {
-      int wcnt = 0;
-      for (int i = 0; i < cnt; ++i)
-	if (!sids[i].is_well_known_sid ())
-	  ++wcnt;
-      return wcnt;
+      if (count >= maxcount)
+	{
+	  cygsid *tmp = new cygsid [ 2 * maxcount];
+	  if (!tmp)
+	    return FALSE;
+	  maxcount *= 2;
+	  for (int i = 0; i < count; ++i)
+	    tmp[i] = sids[i];
+	  delete [] sids;
+	  sids = tmp;
+	}
+      sids[count++] = nsi;
+      return TRUE;
     }
+  BOOL add (cygsid &nsi) { return add ((PSID) nsi); }
+  BOOL add (const char *sidstr)
+    { cygsid nsi (sidstr); return add (nsi); }
+  BOOL addfromgr (struct __group32 *gr) /* Only with alloc */
+    { return sids[count].getfromgr (gr) && ++count; }
+
+  BOOL operator+= (cygsid &si) { return add (si); }
+  BOOL operator+= (const char *sidstr) { return add (sidstr); }
+  BOOL operator+= (const PSID psid) { return add (psid); }
 
   int position (const PSID sid) const
     {
-      for (int i = 0; i < cnt; ++i)
+      for (int i = 0; i < count; ++i)
 	if (sids[i] == sid)
 	  return i;
       return -1;
     }
 
-  int next_non_well_known_sid (int idx)
-    {
-      while (++idx < cnt)
-	if (!sids[idx].is_well_known_sid ())
-	  return idx;
-      return -1;
-    }
   BOOL contains (const PSID sid) const { return position (sid) >= 0; }
   cygsid *alloc_sids (int n);
   void free_sids ();
   void debug_print (const char *prefix = NULL) const
     {
       debug_printf ("-- begin sidlist ---");
-      if (!cnt)
+      if (!count)
 	debug_printf ("No elements");
-      for (int i = 0; i < cnt; ++i)
+      for (int i = 0; i < count; ++i)
 	sids[i].debug_print (prefix);
       debug_printf ("-- ende sidlist ---");
     }
@@ -290,15 +191,7 @@ public:
   void free ();
 
   inline DWORD size () const { return sd_size; }
-  inline DWORD copy (void *buf, DWORD buf_size) const {
-    if (buf_size < size ())
-      return sd_size;
-    memcpy (buf, psd, sd_size);
-    return 0;
-  }
   inline operator const PSECURITY_DESCRIPTOR () { return psd; }
-  inline operator PSECURITY_DESCRIPTOR *() { return &psd; }
-  inline void operator =(PSECURITY_DESCRIPTOR nsd) { psd = nsd; }
 };
 
 class user_groups {
@@ -332,7 +225,6 @@ public:
 extern cygpsid well_known_null_sid;
 extern cygpsid well_known_world_sid;
 extern cygpsid well_known_local_sid;
-extern cygpsid well_known_console_logon_sid;
 extern cygpsid well_known_creator_owner_sid;
 extern cygpsid well_known_creator_group_sid;
 extern cygpsid well_known_dialup_sid;
@@ -341,55 +233,77 @@ extern cygpsid well_known_batch_sid;
 extern cygpsid well_known_interactive_sid;
 extern cygpsid well_known_service_sid;
 extern cygpsid well_known_authenticated_users_sid;
-extern cygpsid well_known_this_org_sid;
 extern cygpsid well_known_system_sid;
-extern cygpsid well_known_builtin_sid;
 extern cygpsid well_known_admins_sid;
-extern cygpsid well_known_users_sid;
-extern cygpsid fake_logon_sid;
-extern cygpsid mandatory_medium_integrity_sid;
-extern cygpsid mandatory_high_integrity_sid;
-extern cygpsid mandatory_system_integrity_sid;
-extern cygpsid well_known_samba_unix_user_fake_sid;
 
-bool privilege_luid (const PWCHAR pname, LUID &luid, bool &high_integrity);
+/* Order must be same as cygpriv in sec_helper.cc. */
+enum cygpriv_idx {
+  SE_CREATE_TOKEN_PRIV = 0,
+  SE_ASSIGNPRIMARYTOKEN_PRIV,
+  SE_LOCK_MEMORY_PRIV,
+  SE_INCREASE_QUOTA_PRIV,
+  SE_UNSOLICITED_INPUT_PRIV,
+  SE_MACHINE_ACCOUNT_PRIV,
+  SE_TCB_PRIV,
+  SE_SECURITY_PRIV,
+  SE_TAKE_OWNERSHIP_PRIV,
+  SE_LOAD_DRIVER_PRIV,
+  SE_SYSTEM_PROFILE_PRIV,
+  SE_SYSTEMTIME_PRIV,
+  SE_PROF_SINGLE_PROCESS_PRIV,
+  SE_INC_BASE_PRIORITY_PRIV,
+  SE_CREATE_PAGEFILE_PRIV,
+  SE_CREATE_PERMANENT_PRIV,
+  SE_BACKUP_PRIV,
+  SE_RESTORE_PRIV,
+  SE_SHUTDOWN_PRIV,
+  SE_DEBUG_PRIV,
+  SE_AUDIT_PRIV,
+  SE_SYSTEM_ENVIRONMENT_PRIV,
+  SE_CHANGE_NOTIFY_PRIV,
+  SE_REMOTE_SHUTDOWN_PRIV,
+  SE_CREATE_GLOBAL_PRIV,
+  SE_UNDOCK_PRIV,
+  SE_MANAGE_VOLUME_PRIV,
+  SE_IMPERSONATE_PRIV,
+  SE_ENABLE_DELEGATION_PRIV,
+  SE_SYNC_AGENT_PRIV,
 
-extern inline BOOL
-well_known_sid_type (SID_NAME_USE type)
-{
-  return type == SidTypeAlias || type == SidTypeWellKnownGroup;
-}
+  SE_NUM_PRIVS
+};
 
-extern inline BOOL
+const LUID *privilege_luid (enum cygpriv_idx idx);
+const LUID *privilege_luid_by_name (const char *pname);
+const char *privilege_name (enum cygpriv_idx idx);
+
+inline BOOL
 legal_sid_type (SID_NAME_USE type)
 {
   return type == SidTypeUser  || type == SidTypeGroup
       || type == SidTypeAlias || type == SidTypeWellKnownGroup;
 }
 
-class path_conv;
+extern bool allow_ntea;
+extern bool allow_ntsec;
+extern bool allow_smbntsec;
+extern bool allow_traverse;
+
 /* File manipulation */
-int __reg3 get_file_attribute (HANDLE, path_conv &, mode_t *,
-				  __uid32_t *, __gid32_t *);
-int __reg3 set_file_attribute (HANDLE, path_conv &,
-				  __uid32_t, __gid32_t, mode_t);
-int __reg2 get_object_sd (HANDLE, security_descriptor &);
-int __reg3 get_object_attribute (HANDLE, __uid32_t *, __gid32_t *, mode_t *);
-int __reg3 set_object_attribute (HANDLE, __uid32_t, __gid32_t, mode_t);
-int __reg3 create_object_sd_from_attribute (HANDLE, __uid32_t, __gid32_t,
-					       mode_t, security_descriptor &);
-int __reg3 set_object_sd (HANDLE, security_descriptor &, bool);
+int __stdcall get_file_attribute (int, HANDLE, const char *, mode_t *,
+				  __uid32_t * = NULL, __gid32_t * = NULL);
+int __stdcall set_file_attribute (bool, HANDLE, const char *, int);
+int __stdcall set_file_attribute (bool, HANDLE, const char *, __uid32_t, __gid32_t, int);
+int __stdcall get_nt_object_security (HANDLE, SE_OBJECT_TYPE,
+				      security_descriptor &);
+int __stdcall get_object_attribute (HANDLE handle, SE_OBJECT_TYPE object_type, mode_t *,
+				  __uid32_t * = NULL, __gid32_t * = NULL);
+LONG __stdcall read_sd (const char *file, security_descriptor &sd);
+LONG __stdcall write_sd (HANDLE fh, const char *file, security_descriptor &sd);
+bool __stdcall add_access_allowed_ace (PACL acl, int offset, DWORD attributes, PSID sid, size_t &len_add, DWORD inherit);
+bool __stdcall add_access_denied_ace (PACL acl, int offset, DWORD attributes, PSID sid, size_t &len_add, DWORD inherit);
+int __stdcall check_file_access (const char *, int);
 
-int __reg3 get_reg_attribute (HKEY hkey, mode_t *, __uid32_t *, __gid32_t *);
-LONG __reg3 get_file_sd (HANDLE fh, path_conv &, security_descriptor &, bool);
-LONG __reg3 set_file_sd (HANDLE fh, path_conv &, security_descriptor &, bool);
-bool __reg3 add_access_allowed_ace (PACL, int, DWORD, PSID, size_t &, DWORD);
-bool __reg3 add_access_denied_ace (PACL, int, DWORD, PSID, size_t &, DWORD);
-int __reg3 check_file_access (path_conv &, int, bool);
-int __reg3 check_registry_access (HANDLE, int, bool);
-
-void set_security_attribute (path_conv &pc, int attribute,
-			     PSECURITY_ATTRIBUTES psa,
+void set_security_attribute (int attribute, PSECURITY_ATTRIBUTES psa,
 			     security_descriptor &sd_buf);
 
 bool get_sids_info (cygpsid, cygpsid, __uid32_t * , __gid32_t *);
@@ -398,87 +312,77 @@ bool get_sids_info (cygpsid, cygpsid, __uid32_t * , __gid32_t *);
 struct __acl32;
 extern "C" int aclsort32 (int, int, __acl32 *);
 extern "C" int acl32 (const char *, int, int, __acl32 *);
-int getacl (HANDLE, path_conv &, int, __acl32 *);
-int setacl (HANDLE, path_conv &, int, __acl32 *, bool &);
+int getacl (HANDLE, const char *, DWORD, int, __acl32 *);
+int setacl (HANDLE, const char *, int, __acl32 *);
 
-/* Set impersonation or restricted token.  */
-void set_imp_token (HANDLE token, int type);
-/* Function creating a token by calling NtCreateToken. */
+struct _UNICODE_STRING;
+void __stdcall str2buf2uni (_UNICODE_STRING &, WCHAR *, const char *) __attribute__ ((regparm (3)));
+void __stdcall str2uni_cat (_UNICODE_STRING &, const char *) __attribute__ ((regparm (2)));
+
+/* Try a subauthentication. */
+HANDLE subauth (struct passwd *pw);
+/* Try creating a token directly. */
 HANDLE create_token (cygsid &usersid, user_groups &groups, struct passwd * pw);
-/* LSA authentication function. */
-HANDLE lsaauth (cygsid &, user_groups &, struct passwd *);
-/* LSA private key storage authentication, same as when using service logons. */
-HANDLE lsaprivkeyauth (struct passwd *pw);
 /* Verify an existing token */
 bool verify_token (HANDLE token, cygsid &usersid, user_groups &groups, bool *pintern = NULL);
 /* Get groups of a user */
 bool get_server_groups (cygsidlist &grp_list, PSID usersid, struct passwd *pw);
 
 /* Extract U-domain\user field from passwd entry. */
-void extract_nt_dom_user (const struct passwd *pw, PWCHAR domain, PWCHAR user);
+void extract_nt_dom_user (const struct passwd *pw, char *domain, char *user);
 /* Get default logonserver for a domain. */
-bool get_logon_server (PWCHAR domain, PWCHAR wserver, bool rediscovery);
-
-HANDLE open_local_policy (ACCESS_MASK access);
+bool get_logon_server (const char * domain, char * server, WCHAR *wserver,
+		       bool rediscovery);
 
 /* sec_helper.cc: Security helper functions. */
-int set_privilege (HANDLE token, DWORD privilege, bool enable);
+int set_privilege (HANDLE token, enum cygpriv_idx privilege, bool enable);
 void set_cygwin_privileges (HANDLE token);
 
-#define _push_thread_privilege(_priv, _val, _check) { \
-    HANDLE _dup_token = NULL; \
-    HANDLE _token = (cygheap->user.issetuid () && (_check)) \
-		    ? cygheap->user.primary_token () : hProcToken; \
-    if (!DuplicateTokenEx (_token, MAXIMUM_ALLOWED, NULL, \
-			   SecurityImpersonation, TokenImpersonation, \
-			   &_dup_token)) \
-      debug_printf ("DuplicateTokenEx: %E"); \
-    else if (!ImpersonateLoggedOnUser (_dup_token)) \
-      debug_printf ("ImpersonateLoggedOnUser: %E"); \
-    else \
-      set_privilege (_dup_token, (_priv), (_val));
+#define set_process_privilege(p,v) set_privilege (hProcImpToken, (p), (v))
 
+#define _push_thread_privilege(_priv, _val, _check) { \
+    HANDLE _token = NULL, _dup_token = NULL; \
+    if (wincap.has_security ()) \
+      { \
+	_token = (cygheap->user.issetuid () && (_check)) \
+		 ? cygheap->user.token () : hProcImpToken; \
+	if (!DuplicateTokenEx (_token, MAXIMUM_ALLOWED, NULL, \
+			       SecurityImpersonation, TokenImpersonation, \
+			       &_dup_token)) \
+	  debug_printf ("DuplicateTokenEx: %E"); \
+	else if (!ImpersonateLoggedOnUser (_dup_token)) \
+	  debug_printf ("ImpersonateLoggedOnUser: %E"); \
+	else \
+	  set_privilege (_dup_token, (_priv), (_val)); \
+      }
 #define push_thread_privilege(_priv, _val) _push_thread_privilege(_priv,_val,1)
 #define push_self_privilege(_priv, _val)   _push_thread_privilege(_priv,_val,0)
 
 #define pop_thread_privilege() \
     if (_dup_token) \
       { \
-	if (!cygheap->user.issetuid ()) \
-	  RevertToSelf (); \
-	else \
-	  cygheap->user.reimpersonate (); \
+	ImpersonateLoggedOnUser (_token); \
 	CloseHandle (_dup_token); \
       } \
   }
-
 #define pop_self_privilege()		   pop_thread_privilege()
 
 /* shared.cc: */
+/* Retrieve a security descriptor that allows all access */
+SECURITY_DESCRIPTOR *__stdcall get_null_sd ();
 
 /* Various types of security attributes for use in Create* functions. */
 extern SECURITY_ATTRIBUTES sec_none, sec_none_nih, sec_all, sec_all_nih;
-extern SECURITY_ATTRIBUTES *__reg3 __sec_user (PVOID, PSID, PSID,
-						  DWORD, BOOL);
-
-extern PSECURITY_DESCRIPTOR _recycler_sd (void *buf, bool users, bool dir);
-#define recycler_sd(users,dir) \
-  (_recycler_sd (alloca (sizeof (SECURITY_DESCRIPTOR) + MAX_DACL_LEN (3)), \
-		 (users), \
-		 (dir)))
-
-extern PSECURITY_DESCRIPTOR _everyone_sd (void *buf, ACCESS_MASK access);
-#define everyone_sd(access)	(_everyone_sd (alloca (SD_MIN_SIZE), (access)))
-
-#define sec_none_cloexec(f) (((f) & O_CLOEXEC ? &sec_none_nih : &sec_none))
-
+extern SECURITY_ATTRIBUTES *__stdcall __sec_user (PVOID sa_buf, PSID sid1, PSID sid2,
+						  DWORD access2, BOOL inherit)
+  __attribute__ ((regparm (3)));
 extern bool sec_acl (PACL acl, bool original, bool admins, PSID sid1 = NO_SID,
 		     PSID sid2 = NO_SID, DWORD access2 = 0);
 
-ssize_t __reg3 read_ea (HANDLE, path_conv &, const char *,
-			   char *, size_t);
-int __reg3 write_ea (HANDLE, path_conv &, const char *, const char *,
-			size_t, int);
+int __stdcall read_ea (HANDLE hdl, const char *file, const char *attrname,
+		       char *buf, int len);
+BOOL __stdcall write_ea (HANDLE hdl, const char *file, const char *attrname,
+			 const char *buf, int len);
 
 /* Note: sid1 is usually (read: currently always) the current user's
    effective sid (cygheap->user.sid ()). */
@@ -495,3 +399,4 @@ sec_user (SECURITY_ATTRIBUTES *sa_buf, PSID sid1, PSID sid2 = NULL,
 {
   return __sec_user (sa_buf, sid1, sid2, access2, TRUE);
 }
+#endif /*_SECURITY_H*/
