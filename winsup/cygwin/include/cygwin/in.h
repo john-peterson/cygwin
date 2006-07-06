@@ -23,8 +23,6 @@
 typedef uint16_t in_port_t;
 typedef uint32_t in_addr_t;
 
-#ifndef __INSIDE_CYGWIN_NET__
-
 /* Standard well-defined IP protocols.  If you ever add one here, don't
    forget to define it below. */
 enum
@@ -112,17 +110,13 @@ enum
   IPPORT_USERRESERVED = 5000
 };
 
-/* Avoid collision with Mingw64 headers. */
-#ifndef s_addr
 /* Internet address. */
 struct in_addr
 {
   in_addr_t s_addr;
 };
-#define s_addr s_addr
-#endif
 
-/* Request struct for IPv4 multicast socket ops */
+/* Request struct for multicast socket ops */
 
 struct ip_mreq
 {
@@ -130,59 +124,6 @@ struct ip_mreq
   struct in_addr imr_interface;	/* local IP address of interface */
 };
 
-struct ip_mreq_source
-{
-  struct in_addr imr_multiaddr;
-  struct in_addr imr_sourceaddr;
-  struct in_addr imr_interface;
-};
-
-struct ip_msfilter
-{
-  struct in_addr imsf_multiaddr;
-  struct in_addr imsf_interface;
-  uint32_t       imsf_fmode;
-  uint32_t       imsf_numsrc;
-  struct in_addr imsf_slist[1];
-};
-
-#define IP_MSFILTER_SIZE(numsrc) (sizeof (struct ip_msfilter) \
-				  - sizeof (struct in_addr) \
-				  + (numsrc) * sizeof (struct in_addr))
-
-struct in_pktinfo
-{
-  struct in_addr ipi_addr;
-  uint32_t       ipi_ifindex;
-};
-
-/* Request struct for IP agnostic multicast socket ops */
-
-struct group_req
-{
-  uint32_t                gr_interface;
-  struct sockaddr_storage gr_group;
-};
-
-struct group_source_req
-{
-  uint32_t                gsr_interface;
-  struct sockaddr_storage gsr_group;
-  struct sockaddr_storage gsr_source;
-};
-
-struct group_filter
-{
-  uint32_t                gf_interface;
-  struct sockaddr_storage gf_group;
-  uint32_t                gf_fmode;
-  uint32_t                gf_numsrc;
-  struct sockaddr_storage gf_slist[1];
-};
-
-#define GROUP_FILTER_SIZE(numsrc) (sizeof (struct group_filter) \
-				   - sizeof (struct sockaddr_storage) \
-				   + (numsrc) * sizeof (struct sockaddr_storage))
 
 /* Structure describing an Internet (IP) socket address. */
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
@@ -203,35 +144,35 @@ struct sockaddr_in
  * On subnets, host and network parts are found according
  * to the subnet mask, not these masks.
  */
-#define	IN_CLASSA(a)		((((in_addr_t) (a)) & 0x80000000) == 0)
+#define	IN_CLASSA(a)		((((long int) (a)) & 0x80000000) == 0)
 #define	IN_CLASSA_NET		0xff000000
 #define	IN_CLASSA_NSHIFT	24
 #define	IN_CLASSA_HOST		(0xffffffff & ~IN_CLASSA_NET)
 #define	IN_CLASSA_MAX		128
 
-#define	IN_CLASSB(a)		((((in_addr_t) (a)) & 0xc0000000) == 0x80000000)
+#define	IN_CLASSB(a)		((((long int) (a)) & 0xc0000000) == 0x80000000)
 #define	IN_CLASSB_NET		0xffff0000
 #define	IN_CLASSB_NSHIFT	16
 #define	IN_CLASSB_HOST		(0xffffffff & ~IN_CLASSB_NET)
 #define	IN_CLASSB_MAX		65536
 
-#define	IN_CLASSC(a)		((((in_addr_t) (a)) & 0xe0000000) == 0xc0000000)
+#define	IN_CLASSC(a)		((((long int) (a)) & 0xe0000000) == 0xc0000000)
 #define	IN_CLASSC_NET		0xffffff00
 #define	IN_CLASSC_NSHIFT	8
 #define	IN_CLASSC_HOST		(0xffffffff & ~IN_CLASSC_NET)
 
-#define	IN_CLASSD(a)		((((in_addr_t) (a)) & 0xf0000000) == 0xe0000000)
+#define	IN_CLASSD(a)		((((long int) (a)) & 0xf0000000) == 0xe0000000)
 #define	IN_MULTICAST(a)		IN_CLASSD(a)
 #define IN_MULTICAST_NET	0xF0000000
 
-#define	IN_EXPERIMENTAL(a)	((((in_addr_t) (a)) & 0xe0000000) == 0xe0000000)
-#define	IN_BADCLASS(a)		((((in_addr_t) (a)) & 0xf0000000) == 0xf0000000)
+#define	IN_EXPERIMENTAL(a)	((((long int) (a)) & 0xe0000000) == 0xe0000000)
+#define	IN_BADCLASS(a)		((((long int) (a)) & 0xf0000000) == 0xf0000000)
 
 /* Address to accept any incoming messages. */
-#define	INADDR_ANY		((in_addr_t) 0x00000000)
+#define	INADDR_ANY		((unsigned long int) 0x00000000)
 
 /* Address to send to all hosts. */
-#define	INADDR_BROADCAST	((in_addr_t) 0xffffffff)
+#define	INADDR_BROADCAST	((unsigned long int) 0xffffffff)
 
 /* Address indicating an error return. */
 #define	INADDR_NONE		0xffffffff
@@ -241,12 +182,11 @@ struct sockaddr_in
 
 /* Address to loopback in software to local host.  */
 #define	INADDR_LOOPBACK		0x7f000001	/* 127.0.0.1   */
-#define	IN_LOOPBACK(a)		((((in_addr_t) (a)) & 0xff000000) == 0x7f000000)
+#define	IN_LOOPBACK(a)		((((long int) (a)) & 0xff000000) == 0x7f000000)
 
 /* Defines for Multicast INADDR */
 #define INADDR_UNSPEC_GROUP	0xe0000000      /* 224.0.0.0   */
 #define INADDR_ALLHOSTS_GROUP	0xe0000001      /* 224.0.0.1   */
-#define INADDR_ALLRTRS_GROUP	0xe0000002	/* 224.0.0.2   */
 #define INADDR_MAX_LOCAL_GROUP  0xe00000ff      /* 224.0.0.255 */
 
 #define INET_ADDRSTRLEN 16
@@ -266,6 +206,4 @@ struct sockaddr_in
 #ifdef AF_INET6
 #include <cygwin/in6.h>
 #endif
-#endif
-
 #endif	/* _CYGWIN_IN_H */

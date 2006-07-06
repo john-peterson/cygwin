@@ -63,11 +63,8 @@
 extern "C" {
 #endif
 
-#include <inttypes.h>
-#include <sys/socket.h>
-#ifndef __INSIDE_CYGWIN_NET__
-#include <netinet/in.h>
-#endif
+#include <stdint.h>
+#include <cygwin/socket.h>
 
 /*
  * Structures returned by network data base library.  All addresses are
@@ -117,7 +114,6 @@ struct rpcent {
 	int	r_number;	/* rpc program number */
 };
 
-#ifndef __INSIDE_CYGWIN_NET__
 struct addrinfo {
   int             ai_flags;		/* input flags */
   int             ai_family;		/* address family of socket */
@@ -128,7 +124,6 @@ struct addrinfo {
   struct sockaddr *ai_addr;		/* socket address of socket */
   struct addrinfo *ai_next;		/* pointer to next in list */
 };
-#endif
 
 /*
  * Error return codes from gethostbyname() and gethostbyaddr()
@@ -139,9 +134,6 @@ struct addrinfo {
 extern int h_errno;
 #else
 extern __declspec(dllimport) int h_errno;
-/* Some packages expect h_errno to be a macro, otherwise they redeclare
-   h_errno, which leads to spurious warnings. */
-#define h_errno h_errno
 #endif
 
 #define	NETDB_INTERNAL -1 /* see errno */
@@ -155,11 +147,16 @@ extern __declspec(dllimport) int h_errno;
 #define AI_PASSIVE      1
 #define AI_CANONNAME    2
 #define AI_NUMERICHOST  4
-#define AI_NUMERICSERV  8
-#define AI_ALL          256
-#define AI_ADDRCONFIG   1024 /* Only available on Vista.  Unchangable default
-				on older systems. */
-#define AI_V4MAPPED     2048
+/*
+ * These are not available in the WinSock implementation.  It wouldn't make
+ * sense to support them in the ipv4 only case, so we drop them entirely.
+ * We can define them if we run into problems but they are non-functional, so...
+ */
+#if 0
+#define AI_V4MAPPED     16
+#define AI_ALL          32
+#define AI_ADDRCONFIG   64
+#endif
 
 #define NI_NOFQDN       1
 #define NI_NUMERICHOST  2
@@ -183,7 +180,8 @@ extern __declspec(dllimport) int h_errno;
 #define EAI_SYSTEM      11
 #define EAI_BADHINTS    12
 #define EAI_PROTOCOL    13
-#define EAI_OVERFLOW    14
+
+#define EAI_MAX		14
 
 #ifndef __INSIDE_CYGWIN_NET__
 void		endhostent (void);
@@ -193,7 +191,6 @@ void		endservent (void);
 void		endrpcent  (void);
 struct hostent	*gethostbyaddr (const char *, int, int);
 struct hostent	*gethostbyname (const char *);
-struct hostent	*gethostbyname2 (const char *, int);
 struct hostent	*gethostent (void);
 struct netent	*getnetbyaddr (long, int); /* u_long? */
 struct netent	*getnetbyname (const char *);
@@ -220,18 +217,6 @@ int		getaddrinfo (const char *, const char *,
 			     const struct addrinfo *, struct addrinfo **);
 int		getnameinfo (const struct sockaddr *, socklen_t, char *,
 			     socklen_t, char *, socklen_t, int);
-
-int		rcmd (char **, uint16_t, const char *, const char *,
-		      const char *, int *);
-int		rcmd_af (char **, uint16_t, const char *, const char *,
-			 const char *, int *, int);
-int		rexec (char **, uint16_t rport, char *, char *, char *, int *);
-int		rresvport (int *);
-int		rresvport_af (int *, int);
-int		iruserok (unsigned long, int, const char *, const char *);
-int		iruserok_sa (const void *, int, int, const char *,
-			     const char *);
-int		ruserok (const char *, int, const char *, const char *);
 #endif
 
 #ifdef __cplusplus
