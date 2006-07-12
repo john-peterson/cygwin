@@ -10,6 +10,10 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *	This product includes software developed by the University of
+ *	California, Berkeley and its contributors.
  * 4. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
@@ -36,7 +40,6 @@ __FBSDID("$FreeBSD$");
 #else
 #define  __INSIDE_CYGWIN_NET__
 #include "winsup.h"
-#undef  __INSIDE_CYGWIN_NET__
 #endif
 
 #ifndef __CYGWIN__
@@ -200,7 +203,7 @@ cygwin_rcmd_af(char **ahost, in_port_t rport, const char *locuser,
 			    NULL);
 			return (-1);
 		}
-		fcntl64(s, F_SETOWN, pid);
+		fcntl(s, F_SETOWN, pid);
 		if (cygwin_connect(s, ai->ai_addr, ai->ai_addrlen) >= 0)
 			break;
 		(void)close(s);
@@ -292,9 +295,11 @@ again:
 		case AF_INET:
 			aport = ntohs(((struct sockaddr_in *)&from)->sin_port);
 			break;
+#ifdef INET6
 		case AF_INET6:
 			aport = ntohs(((struct sockaddr_in6 *)&from)->sin6_port);
 			break;
+#endif
 		default:
 			aport = 0;	/* error */
 			break;
@@ -372,10 +377,12 @@ cygwin_rresvport_af(int *alport, int family)
 		sport = &((struct sockaddr_in *)&ss)->sin_port;
 		((struct sockaddr_in *)&ss)->sin_addr.s_addr = INADDR_ANY;
 		break;
+#ifdef INET6
 	case AF_INET6:
 		sport = &((struct sockaddr_in6 *)&ss)->sin6_port;
 		((struct sockaddr_in6 *)&ss)->sin6_addr = in6addr_any;
 		break;
+#endif
 	default:
 		errno = EAFNOSUPPORT;
 		return -1;
@@ -431,7 +438,7 @@ iruserok_sa(const void *ra, int rlen, int superuser, const char *ruser,
 	struct sockaddr_storage ss;
 
 	/* avoid alignment issue */
-	if (rlen > (int) sizeof(ss))
+	if (rlen > (int) sizeof(ss)) 
 		return(-1);
 	memcpy(&ss, ra, rlen);
 	raddr = (struct sockaddr *)&ss;
@@ -583,6 +590,7 @@ __ivaliduser_af(FILE *hostf, const void *raddr, const char *luser,
 		salen = sizeof(struct sockaddr_in);
 		memcpy(&sin->sin_addr, raddr, sizeof(sin->sin_addr));
 		break;
+#ifdef INET6
 	case AF_INET6:
 		if (len != sizeof(sin6->sin6_addr))
 			return -1;
@@ -592,6 +600,7 @@ __ivaliduser_af(FILE *hostf, const void *raddr, const char *luser,
 		salen = sizeof(struct sockaddr_in6);
 		memcpy(&sin6->sin6_addr, raddr, sizeof(sin6->sin6_addr));
 		break;
+#endif
 	default:
 		return -1;
 	}
