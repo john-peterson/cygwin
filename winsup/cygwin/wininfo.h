@@ -1,6 +1,6 @@
 /* wininfo.h: main Cygwin header file.
 
-   Copyright 2004, 2005, 2006, 2013 Red Hat, Inc.
+   Copyright 2004 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,10 +15,11 @@ class wininfo
   static muto _lock;
 public:
   operator HWND ();
-  int __reg3 process (HWND, UINT, WPARAM, LPARAM);
+  int __stdcall process (HWND, UINT, WPARAM, LPARAM)
+    __attribute__ ((regparm (3)));
   void lock ();
   void release ();
-  DWORD __reg1 WINAPI winthread ();
+  DWORD WINAPI winthread () __attribute__ ((regparm (1)));
 };
 
 extern wininfo winmsg;

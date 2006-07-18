@@ -100,13 +100,18 @@ SECTIONS
     SORT(*)(.idata$7)
     . = ALIGN(16);
     __cygheap_start = ABSOLUTE(.);
+    . = ALIGN(0x10000);
   }
   .cygheap ALIGN(__section_alignment__) :
   {
-    . = . + (2048 * 1024);
-    . = ALIGN(0x10000);
-    __cygheap_end = ABSOLUTE(.);
+    __cygheap_mid = .;
+    *(.cygheap)
+    . = . + 1;
+    . = ALIGN(512 * 1024);
   }
+  __cygheap_end = ABSOLUTE(.);
+  __cygheap_end1 = __cygheap_mid + SIZEOF(.cygheap);
+  __cygwin_debug_size = SIZEOF(.gnu_debuglink);
   /DISCARD/ :
   {
     *(.debug$S)
@@ -133,6 +138,6 @@ SECTIONS
   .debug_str      ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_str) }
   .debug_loc      ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_loc) }
   .debug_macinfo  ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_macinfo) }
+  .debug_macinfo  ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_macinfo) }
   .debug_ranges   ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_ranges) }
-  .debug_pubtypes ALIGN(__section_alignment__) (NOLOAD) : { *(.debug_pubtypes) }
 }

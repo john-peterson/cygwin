@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# Copyright 2005, 2006, 2007, 2008, 2011 Red Hat, Inc.
+# Copyright 2006 Red Hat, Inc.
 #
 # This file is part of Cygwin.
 #
@@ -16,7 +16,7 @@ my $objdump = shift;
 my @objcopy = ((shift));
 my $dll = shift;
 my $dbg = shift;
-xit 0, @objcopy, '-R', '.gnu_debuglink_overlay', '--add-gnu-debuglink=/dev/null', '--only-keep-debug', $dll, $dbg;
+xit 0, @objcopy, '-j', '.stab', '-j', '.stabstr', $dll, $dbg;
 xit 0, @objcopy, '-g', '--add-gnu-debuglink=' . $dbg, $dll;
 open(OBJDUMP, '-|', "$objdump --headers $dll");
 my %section;
@@ -45,7 +45,7 @@ for my $k (sort {$section{$a}{-idx} <=> $section{$b}{-idx}} keys %section) {
 	$vma = $section{$k}{-vma};
     }
     if ($vma != $section{$k}{-vma}) {
-	my $newvma = align($vma, $section{$k}{-algn});
+        my $newvma = align($vma, $section{$k}{-algn});
 	if ($newvma != $vma) {
 	    printf STDERR "$0: ERROR $k VMA 0x%08x != 0x%08x\n", $vma, $newvma;
 	    exit 1;
