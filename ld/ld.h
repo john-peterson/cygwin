@@ -1,24 +1,24 @@
 /* ld.h -- general linker header file
    Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   2001, 2002, 2003, 2004, 2005, 2006
    Free Software Foundation, Inc.
 
-   This file is part of the GNU Binutils.
+   This file is part of GLD, the Gnu Linker.
 
-   This program is free software; you can redistribute it and/or modify
+   GLD is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+   the Free Software Foundation; either version 2, or (at your option)
+   any later version.
 
-   This program is distributed in the hope that it will be useful,
+   GLD is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   along with GLD; see the file COPYING.  If not, write to the Free
+   Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA
+   02110-1301, USA.  */
 
 #ifndef LD_H
 #define LD_H
@@ -31,6 +31,24 @@
 #ifndef SEEK_END
 #define SEEK_END 2
 #endif
+
+#if defined(__GNUC__) && !defined(C_ALLOCA)
+# undef alloca
+# define alloca __builtin_alloca
+#else
+# if defined(HAVE_ALLOCA_H) && !defined(C_ALLOCA)
+#  include <alloca.h>
+# else
+#  ifndef alloca /* predefined by HP cc +Olibcalls */
+#   if !defined (__STDC__) && !defined (__hpux)
+char *alloca ();
+#   else
+void *alloca ();
+#   endif /* __STDC__, __hpux */
+#  endif /* alloca */
+# endif /* HAVE_ALLOCA_H */
+#endif
+
 
 #ifdef HAVE_LOCALE_H
 # ifndef ENABLE_NLS
@@ -63,6 +81,8 @@
 # define N_(String) (String)
 #endif
 
+#include "bin-bugs.h"
+
 /* Look in this environment name for the linker to pretend to be */
 #define EMULATION_ENVIRON "LDEMULATION"
 /* If in there look for the strings: */
@@ -81,13 +101,10 @@ typedef struct name_list {
 }
 name_list;
 
-typedef enum {sort_none, sort_ascending, sort_descending} sort_order;
-
 /* A wildcard specification.  */
 
 typedef enum {
-  none, by_name, by_alignment, by_name_alignment, by_alignment_name,
-  by_none, by_init_priority
+  none, by_name, by_alignment, by_name_alignment, by_alignment_name
 } sort_type;
 
 extern sort_type sort_section;
@@ -96,7 +113,6 @@ struct wildcard_spec {
   const char *name;
   struct name_list *exclude_name_list;
   sort_type sorted;
-  struct flag_info *section_flag_list;
 };
 
 struct wildcard_list {
@@ -116,7 +132,6 @@ typedef struct fat_user_section_struct {
      list of hash table entries for symbols defined in this section.  */
   struct map_symbol_def *map_symbol_def_head;
   struct map_symbol_def **map_symbol_def_tail;
-  unsigned long map_symbol_def_count;
 } fat_section_userdata_type;
 
 #define get_userdata(x) ((x)->userdata)
@@ -126,28 +141,29 @@ typedef struct fat_user_section_struct {
 #define LONG_SIZE	(4)
 #define QUAD_SIZE	(8)
 
-enum endian_enum { ENDIAN_UNSET = 0, ENDIAN_BIG, ENDIAN_LITTLE };
-
-enum symbolic_enum
-  {
-    symbolic_unset = 0,
-    symbolic,
-    symbolic_functions,
-  };
-
-enum dynamic_list_enum
-  {
-    dynamic_list_unset = 0,
-    dynamic_list_data,
-    dynamic_list
-  };
-
 typedef struct {
   /* 1 => assign space to common symbols even if `relocatable_output'.  */
   bfd_boolean force_common_definition;
 
   /* 1 => do not assign addresses to common symbols.  */
   bfd_boolean inhibit_common_definition;
+  bfd_boolean relax;
+
+  /* Name of runtime interpreter to invoke.  */
+  char *interpreter;
+
+  /* Name to give runtime libary from the -soname argument.  */
+  char *soname;
+
+  /* Runtime library search path from the -rpath argument.  */
+  char *rpath;
+
+  /* Link time runtime library search path from the -rpath-link
+     argument.  */
+  char *rpath_link;
+
+  /* Big or little endian as set on command line.  */
+  enum { ENDIAN_UNSET = 0, ENDIAN_BIG, ENDIAN_LITTLE } endian;
 
   /* If TRUE, build MIPS embedded PIC relocation tables in the output
      file.  */
@@ -163,46 +179,6 @@ typedef struct {
      files.  */
   bfd_boolean warn_mismatch;
 
-  /* Warn on attempting to open an incompatible library during a library
-     search.  */
-  bfd_boolean warn_search_mismatch;
-
-  /* If non-zero check section addresses, once computed,
-     for overlaps.  Relocatable links only check when this is > 0.  */
-  signed char check_section_addresses;
-
-  /* If TRUE allow the linking of input files in an unknown architecture
-     assuming that the user knows what they are doing.  This was the old
-     behaviour of the linker.  The new default behaviour is to reject such
-     input files.  */
-  bfd_boolean accept_unknown_input_arch;
-
-  /* If TRUE we'll just print the default output on stdout.  */
-  bfd_boolean print_output_format;
-
-  /* Big or little endian as set on command line.  */
-  enum endian_enum endian;
-
-  /* -Bsymbolic and -Bsymbolic-functions, as set on command line.  */
-  enum symbolic_enum symbolic;
-
-  /* --dynamic-list, --dynamic-list-cpp-new, --dynamic-list-cpp-typeinfo
-     and --dynamic-list FILE, as set on command line.  */
-  enum dynamic_list_enum dynamic_list;
-
-  /* Name of runtime interpreter to invoke.  */
-  char *interpreter;
-
-  /* Name to give runtime libary from the -soname argument.  */
-  char *soname;
-
-  /* Runtime library search path from the -rpath argument.  */
-  char *rpath;
-
-  /* Link time runtime library search path from the -rpath-link
-     argument.  */
-  char *rpath_link;
-
   /* Name of shared object whose symbol table should be filtered with
      this shared object.  From the --filter option.  */
   char *filter_shlib;
@@ -215,8 +191,20 @@ typedef struct {
      .exports sections.  */
   char *version_exports_section;
 
-  /* Default linker script.  */
-  char *default_script;
+  /* If TRUE (the default) check section addresses, once compute,
+     fpor overlaps.  */
+  bfd_boolean check_section_addresses;
+
+  /* If TRUE allow the linking of input files in an unknown architecture
+     assuming that the user knows what they are doing.  This was the old
+     behaviour of the linker.  The new default behaviour is to reject such
+     input files.  */
+  bfd_boolean accept_unknown_input_arch;
+
+  /* If TRUE reduce memory overheads, at the expense of speed.
+     This will cause map file generation to use an O(N^2) algorithm.  */
+  bfd_boolean reduce_memory_overheads;
+
 } args_type;
 
 extern args_type command_line;
@@ -224,8 +212,12 @@ extern args_type command_line;
 typedef int token_code_type;
 
 typedef struct {
+  bfd_size_type specified_data_size;
   bfd_boolean magic_demand_paged;
   bfd_boolean make_executable;
+
+  /* If TRUE, doing a dynamic link.  */
+  bfd_boolean dynamic_link;
 
   /* If TRUE, -shared is supported.  */
   /* ??? A better way to do this is perhaps to define this in the
@@ -256,9 +248,12 @@ typedef struct {
   /* If TRUE, warning messages are fatal */
   bfd_boolean fatal_warnings;
 
-  sort_order sort_common;
+  bfd_boolean sort_common;
 
   bfd_boolean text_read_only;
+
+  char *map_filename;
+  FILE *map_file;
 
   bfd_boolean stats;
 
@@ -266,42 +261,24 @@ typedef struct {
      sections.  */
   bfd_boolean unique_orphan_sections;
 
+  unsigned int split_by_reloc;
+  bfd_size_type split_by_file;
+
   /* If set, only search library directories explicitly selected
      on the command line.  */
   bfd_boolean only_cmd_line_lib_dirs;
 
-  /* If set, numbers and absolute symbols are simply treated as
-     numbers everywhere.  */
-  bfd_boolean sane_expr;
-
-  /* If set, code and non-code sections should never be in one segment.  */
-  bfd_boolean separate_code;
-
-  /* The rpath separation character.  Usually ':'.  */
-  char rpath_separator;
-
-  char *map_filename;
-  FILE *map_file;
-
-  unsigned int split_by_reloc;
-  bfd_size_type split_by_file;
-
-  bfd_size_type specified_data_size;
-
   /* The size of the hash table to use.  */
-  unsigned long hash_table_size;
-
-  /* The maximum page size for ELF.  */
-  bfd_vma maxpagesize;
-
-  /* The common page size for ELF.  */
-  bfd_vma commonpagesize;
+  bfd_size_type hash_table_size;
 } ld_config_type;
 
 extern ld_config_type config;
 
 extern FILE * saved_script_handle;
 extern bfd_boolean force_make_executable;
+
+/* Non-zero if we are processing a --defsym from the command line.  */
+extern int parsing_defsym;
 
 extern int yyparse (void);
 extern void add_cref (const char *, bfd *, asection *, bfd_vma);

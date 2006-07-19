@@ -1,35 +1,32 @@
 /* ldcref.c -- output a cross reference table
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008  Free Software Foundation, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006
+   Free Software Foundation, Inc.
    Written by Ian Lance Taylor <ian@cygnus.com>
 
-   This file is part of the GNU Binutils.
+This file is part of GLD, the Gnu Linker.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
-   (at your option) any later version.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
-
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
 /* This file holds routines that manage the cross reference table.
    The table is used to generate cross reference reports.  It is also
    used to implement the NOCROSSREFS command in the linker script.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "sysdep.h"
 #include "bfdlink.h"
 #include "libiberty.h"
-#include "demangle.h"
 #include "objalloc.h"
 
 #include "ld.h"
@@ -59,7 +56,7 @@ struct cref_ref {
 struct cref_hash_entry {
   struct bfd_hash_entry root;
   /* The demangled name.  */
-  const char *demangled;
+  char *demangled;
   /* References to and definitions of this symbol.  */
   struct cref_ref *refs;
 };
@@ -109,7 +106,6 @@ static size_t cref_symcount;
    add syms from an as-needed library.  */
 static struct bfd_hash_entry **old_table;
 static unsigned int old_size;
-static unsigned int old_count;
 static void *old_tab;
 static void *alloc_mark;
 static size_t tabsize, entsize, refsize;
@@ -179,7 +175,7 @@ add_cref (const char *name,
 
   if (r == NULL)
     {
-      r = (struct cref_ref *) bfd_hash_allocate (&cref_table.root, sizeof *r);
+      r = bfd_hash_allocate (&cref_table.root, sizeof *r);
       if (r == NULL)
 	einfo (_("%X%P: cref alloc failed: %E\n"));
       r->next = h->refs;
@@ -226,7 +222,7 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
 	      entsize += cref_table.root.entsize;
 	      c = (struct cref_hash_entry *) p;
 	      for (r = c->refs; r != NULL; r = r->next)
-		refsize += sizeof (struct cref_ref);
+		refsize += sizeof (struct cref_hash_entry);
 	    }
 	}
 
@@ -242,7 +238,6 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
       old_ref = (char *) old_ent + entsize;
       old_table = cref_table.root.table;
       old_size = cref_table.root.size;
-      old_count = cref_table.root.count;
       old_symcount = cref_symcount;
 
       for (i = 0; i < cref_table.root.size; i++)
@@ -258,8 +253,8 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
 	      c = (struct cref_hash_entry *) p;
 	      for (r = c->refs; r != NULL; r = r->next)
 		{
-		  memcpy (old_ref, r, sizeof (struct cref_ref));
-		  old_ref = (char *) old_ref + sizeof (struct cref_ref);
+		  memcpy (old_ref, r, sizeof (struct cref_hash_entry));
+		  old_ref = (char *) old_ref + sizeof (struct cref_hash_entry);
 		}
 	    }
 	}
@@ -283,7 +278,6 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
       old_ref = (char *) old_ent + entsize;
       cref_table.root.table = old_table;
       cref_table.root.size = old_size;
-      cref_table.root.count = old_count;
       memcpy (cref_table.root.table, old_tab, tabsize);
       cref_symcount = old_symcount;
 
@@ -300,8 +294,8 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
 	      c = (struct cref_hash_entry *) p;
 	      for (r = c->refs; r != NULL; r = r->next)
 		{
-		  memcpy (r, old_ref, sizeof (struct cref_ref));
-		  old_ref = (char *) old_ref + sizeof (struct cref_ref);
+		  memcpy (r, old_ref, sizeof (struct cref_hash_entry));
+		  old_ref = (char *) old_ref + sizeof (struct cref_hash_entry);
 		}
 	    }
 	}
@@ -324,13 +318,10 @@ handle_asneeded_cref (bfd *abfd ATTRIBUTE_UNUSED,
 static bfd_boolean
 cref_fill_array (struct cref_hash_entry *h, void *data)
 {
-  struct cref_hash_entry ***pph = (struct cref_hash_entry ***) data;
+  struct cref_hash_entry ***pph = data;
 
   ASSERT (h->demangled == NULL);
-  h->demangled = bfd_demangle (link_info.output_bfd, h->root.string,
-			       DMGL_ANSI | DMGL_PARAMS);
-  if (h->demangled == NULL)
-    h->demangled = h->root.string;
+  h->demangled = demangle (h->root.string);
 
   **pph = h;
 
@@ -344,10 +335,8 @@ cref_fill_array (struct cref_hash_entry *h, void *data)
 static int
 cref_sort_array (const void *a1, const void *a2)
 {
-  const struct cref_hash_entry * const *p1 =
-      (const struct cref_hash_entry * const *) a1;
-  const struct cref_hash_entry * const *p2 =
-      (const struct cref_hash_entry * const *) a2;
+  const struct cref_hash_entry * const *p1 = a1;
+  const struct cref_hash_entry * const *p2 = a2;
 
   return strcmp ((*p1)->demangled, (*p2)->demangled);
 }
@@ -380,7 +369,7 @@ output_cref (FILE *fp)
       return;
     }
 
-  csyms = (struct cref_hash_entry **) xmalloc (cref_symcount * sizeof (*csyms));
+  csyms = xmalloc (cref_symcount * sizeof (*csyms));
 
   csym_fill = csyms;
   cref_hash_traverse (&cref_table, cref_fill_array, &csym_fill);
@@ -480,16 +469,36 @@ static void
 check_local_sym_xref (lang_input_statement_type *statement)
 {
   bfd *abfd;
-  asymbol **syms;
+  lang_input_statement_type *li;
+  asymbol **asymbols, **syms;
 
   abfd = statement->the_bfd;
   if (abfd == NULL)
     return;
 
-  if (!bfd_generic_link_read_symbols (abfd))
-    einfo (_("%B%F: could not read symbols: %E\n"), abfd);
+  li = abfd->usrdata;
+  if (li != NULL && li->asymbols != NULL)
+    asymbols = li->asymbols;
+  else
+    {
+      long symsize;
+      long symbol_count;
 
-  for (syms = bfd_get_outsymbols (abfd); *syms; ++syms)
+      symsize = bfd_get_symtab_upper_bound (abfd);
+      if (symsize < 0)
+	einfo (_("%B%F: could not read symbols; %E\n"), abfd);
+      asymbols = xmalloc (symsize);
+      symbol_count = bfd_canonicalize_symtab (abfd, asymbols);
+      if (symbol_count < 0)
+	einfo (_("%B%F: could not read symbols: %E\n"), abfd);
+      if (li != NULL)
+	{
+	  li->asymbols = asymbols;
+	  li->symbol_count = symbol_count;
+	}
+    }
+
+  for (syms = asymbols; *syms; ++syms)
     {
       asymbol *sym = *syms;
       if (sym->flags & (BSF_GLOBAL | BSF_WARNING | BSF_INDIRECT | BSF_FILE))
@@ -511,6 +520,9 @@ check_local_sym_xref (lang_input_statement_type *statement)
 		check_refs (symname, FALSE, sym->section, abfd, ncrs);
 	}
     }
+
+  if (li == NULL)
+    free (asymbols);
 }
 
 /* Check one symbol to see if it is a prohibited cross reference.  */
@@ -576,6 +588,8 @@ check_refs (const char *name,
 	    bfd *abfd,
 	    struct lang_nocrossrefs *ncrs)
 {
+  lang_input_statement_type *li;
+  asymbol **asymbols;
   struct check_refs_info info;
 
   /* We need to look through the relocations for this BFD, to see
@@ -584,15 +598,37 @@ check_refs (const char *name,
      the BFD in which the symbol is defined, since even a single
      BFD might contain a prohibited cross reference.  */
 
-  if (!bfd_generic_link_read_symbols (abfd))
-    einfo (_("%B%F: could not read symbols: %E\n"), abfd);
+  li = abfd->usrdata;
+  if (li != NULL && li->asymbols != NULL)
+    asymbols = li->asymbols;
+  else
+    {
+      long symsize;
+      long symbol_count;
+
+      symsize = bfd_get_symtab_upper_bound (abfd);
+      if (symsize < 0)
+	einfo (_("%B%F: could not read symbols; %E\n"), abfd);
+      asymbols = xmalloc (symsize);
+      symbol_count = bfd_canonicalize_symtab (abfd, asymbols);
+      if (symbol_count < 0)
+	einfo (_("%B%F: could not read symbols: %E\n"), abfd);
+      if (li != NULL)
+	{
+	  li->asymbols = asymbols;
+	  li->symbol_count = symbol_count;
+	}
+    }
 
   info.sym_name = name;
   info.global = global;
   info.defsec = sec;
   info.ncrs = ncrs;
-  info.asymbols = bfd_get_outsymbols (abfd);
+  info.asymbols = asymbols;
   bfd_map_over_sections (abfd, check_reloc_refs, &info);
+
+  if (li == NULL)
+    free (asymbols);
 }
 
 /* This is called via bfd_map_over_sections.  INFO->SYM_NAME is a symbol
@@ -604,7 +640,7 @@ check_refs (const char *name,
 static void
 check_reloc_refs (bfd *abfd, asection *sec, void *iarg)
 {
-  struct check_refs_info *info = (struct check_refs_info *) iarg;
+  struct check_refs_info *info = iarg;
   asection *outsec;
   const char *outsecname;
   asection *outdefsec;
@@ -651,7 +687,7 @@ check_reloc_refs (bfd *abfd, asection *sec, void *iarg)
   if (relsize == 0)
     return;
 
-  relpp = (arelent **) xmalloc (relsize);
+  relpp = xmalloc (relsize);
   relcount = bfd_canonicalize_reloc (abfd, sec, relpp, info->asymbols);
   if (relcount < 0)
     einfo (_("%B%F: could not read relocs: %E\n"), abfd);
@@ -671,11 +707,11 @@ check_reloc_refs (bfd *abfd, asection *sec, void *iarg)
 						   | BSF_WEAK)) != 0))
 	      || (!global
 		  && ((*q->sym_ptr_ptr)->flags & (BSF_LOCAL
-						  | BSF_SECTION_SYM)) != 0
-		  && bfd_get_section (*q->sym_ptr_ptr) == info->defsec))
+						  | BSF_SECTION_SYM)) != 0))
 	  && (symname != NULL
 	      ? strcmp (bfd_asymbol_name (*q->sym_ptr_ptr), symname) == 0
-	      : ((*q->sym_ptr_ptr)->flags & BSF_SECTION_SYM) != 0))
+	      : (((*q->sym_ptr_ptr)->flags & BSF_SECTION_SYM) != 0
+		 && bfd_get_section (*q->sym_ptr_ptr) == info->defsec)))
 	{
 	  /* We found a reloc for the symbol.  The symbol is defined
 	     in OUTSECNAME.  This reloc is from a section which is
