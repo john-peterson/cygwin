@@ -1,14 +1,18 @@
 /* debug.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2011
-   Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <malloc.h>
+#include "sync.h"
+#include "sigproc.h"
+#include "pinfo.h"
+#include "perprocess.h"
+#include "security.h"
 #include "cygerrno.h"
 #ifdef DEBUGGING
 #include "path.h"
@@ -22,19 +26,26 @@ details. */
 #ifdef DEBUGGING
 /* Here lies extra debugging routines which help track down internal
    Cygwin problems when compiled with -DDEBUGGING . */
+#include <stdlib.h>
 #define NFREEH (sizeof (cygheap->debug.freeh) / sizeof (cygheap->debug.freeh[0]))
 
 class lock_debug
 {
   static muto locker;
+  bool acquired;
  public:
-  lock_debug ()
+  lock_debug () : acquired (0)
   {
-    locker.acquire (INFINITE);
+    if (locker.name && !exit_state)
+      acquired = !!locker.acquire (INFINITE);
   }
   void unlock ()
   {
-    locker.release ();
+    if (locker.name && acquired)
+      {
+	locker.release ();
+	acquired = false;
+      }
   }
   ~lock_debug () {unlock ();}
   friend void debug_init ();
@@ -58,6 +69,7 @@ find_handle (HANDLE h)
   for (hl = &cygheap->debug.starth; hl->next != NULL; hl = hl->next)
     if (hl->next->h == h)
       goto out;
+  cygheap->debug.endh = hl;
   hl = NULL;
 
 out:
@@ -67,7 +79,6 @@ out:
 void
 verify_handle (const char *func, int ln, HANDLE h)
 {
-  lock_debug here;
   handle_list *hl = find_handle (h);
   if (!hl)
     return;
@@ -80,7 +91,6 @@ verify_handle (const char *func, int ln, HANDLE h)
 void
 setclexec (HANDLE oh, HANDLE nh, bool not_inheriting)
 {
-  lock_debug here;
   handle_list *hl = find_handle (oh);
   if (hl)
     {
@@ -95,6 +105,7 @@ static handle_list * __stdcall
 newh ()
 {
   handle_list *hl;
+  lock_debug here;
 
   for (hl = cygheap->debug.freeh; hl < cygheap->debug.freeh + NFREEH; hl++)
     if (hl->name == NULL)
@@ -103,10 +114,9 @@ newh ()
   return NULL;
 }
 
-void __reg3
+void __stdcall
 modify_handle (const char *func, int ln, HANDLE h, const char *name, bool inh)
 {
-  lock_debug here;
   handle_list *hl = find_handle (h);
   if (!hl)
     {
@@ -119,15 +129,15 @@ modify_handle (const char *func, int ln, HANDLE h, const char *name, bool inh)
 }
 
 /* Add a handle to the linked list of known handles. */
-void __reg3
+void __stdcall
 add_handle (const char *func, int ln, HANDLE h, const char *name, bool inh)
 {
   handle_list *hl;
+  lock_debug here;
 
   if (!cygheap)
     return;
 
-  lock_debug here;
   if ((hl = find_handle (h)))
     {
       hl = hl->next;
@@ -151,11 +161,11 @@ add_handle (const char *func, int ln, HANDLE h, const char *name, bool inh)
   hl->name = name;
   hl->func = func;
   hl->ln = ln;
+  hl->next = NULL;
   hl->inherited = inh;
   hl->pid = GetCurrentProcessId ();
-  hl->next = cygheap->debug.starth.next;
-  cygheap->debug.starth.next = hl;
-  SetHandleInformation (h, HANDLE_FLAG_PROTECT_FROM_CLOSE, HANDLE_FLAG_PROTECT_FROM_CLOSE);
+  cygheap->debug.endh->next = hl;
+  cygheap->debug.endh = hl;
   debug_printf ("protecting handle '%s'(%p), inherited flag %d", hl->name, hl->h, hl->inherited);
 }
 
@@ -164,7 +174,7 @@ delete_handle (handle_list *hl)
 {
   handle_list *hnuke = hl->next;
   debug_printf ("nuking handle '%s' (%p)", hnuke->name, hnuke->h);
-  hl->next = hnuke->next;
+  hl->next = hl->next->next;
   memset (hnuke, 0, sizeof (*hnuke));
 }
 
@@ -184,6 +194,7 @@ static bool __stdcall
 mark_closed (const char *func, int ln, HANDLE h, const char *name, bool force)
 {
   handle_list *hl;
+  lock_debug here;
 
   if (!cygheap)
     return true;
@@ -191,6 +202,7 @@ mark_closed (const char *func, int ln, HANDLE h, const char *name, bool force)
   if ((hl = find_handle (h)) && !force)
     {
       hl = hl->next;
+      here.unlock ();	// race here
       system_printf ("attempt to close protected handle %s:%d(%s<%p>) winpid %d",
 		     hl->func, hl->ln, hl->name, hl->h, hl->pid);
       system_printf (" by %s:%d(%s<%p>)", func, ln, name, h);
@@ -198,7 +210,7 @@ mark_closed (const char *func, int ln, HANDLE h, const char *name, bool force)
     }
 
   handle_list *hln;
-  if (hl && (hln = hl->next) && strcmp (name, hln->name) != 0)
+  if (hl && (hln = hl->next) && strcmp (name, hln->name))
     {
       system_printf ("closing protected handle %s:%d(%s<%p>)",
 		     hln->func, hln->ln, hln->name, hln->h);
@@ -213,23 +225,21 @@ mark_closed (const char *func, int ln, HANDLE h, const char *name, bool force)
 
 /* Close a known handle.  Complain if !force and closing a known handle or
    if the name of the handle being closed does not match the registered name. */
-bool __reg3
+bool __stdcall
 close_handle (const char *func, int ln, HANDLE h, const char *name, bool force)
 {
   bool ret;
-
   lock_debug here;
+
   if (!mark_closed (func, ln, h, name, force))
     return false;
 
-  SetHandleInformation (h, HANDLE_FLAG_PROTECT_FROM_CLOSE, 0);
   ret = CloseHandle (h);
 
+#if 0 /* Uncomment to see CloseHandle failures */
   if (!ret)
-    {
-      system_printf ("CloseHandle(%s<%p>) failed %s:%d, %E", name, h, func, ln);
-      try_to_debug ();
-    }
+    small_printf ("CloseHandle(%s) %p failed %s:%d\n", name, h, func, ln);
+#endif
   return ret;
 }
 #endif /*DEBUGGING*/
