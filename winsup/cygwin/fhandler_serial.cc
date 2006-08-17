@@ -1,7 +1,6 @@
 /* fhandler_serial.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -11,17 +10,15 @@ details. */
 
 #include "winsup.h"
 #include <unistd.h>
-#include <sys/param.h>
+#include <stdlib.h>
 #include "cygerrno.h"
 #include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "sigproc.h"
 #include "pinfo.h"
-#include <asm/socket.h>
-#include <devioctl.h>
-#include <ntddser.h>
-#include "cygwait.h"
+#include <sys/termios.h>
+#include <ddk/ntddser.h>
 
 /**********************************************************************/
 /* fhandler_serial */
@@ -41,13 +38,16 @@ fhandler_serial::overlapped_setup ()
   overlapped_armed = 0;
 }
 
-void __stdcall
+void
 fhandler_serial::raw_read (void *ptr, size_t& ulen)
 {
   int tot;
   DWORD n;
+  HANDLE w4[2];
+  size_t minchars = vmin_ ? min (vmin_, ulen) : ulen;
 
-  size_t minchars = vmin_ ? MIN (vmin_, ulen) : ulen;
+  w4[0] = io_status.hEvent;
+  w4[1] = signal_arrived;
 
   debug_printf ("ulen %d, vmin_ %d, vtime_ %d, hEvent %p", ulen, vmin_, vtime_,
 		io_status.hEvent);
@@ -73,7 +73,7 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
 	termios_printf ("error detected %x", ev);
       else if (st.cbInQue && !vtime_)
 	inq = st.cbInQue;
-      else if (!is_nonblocking () && !overlapped_armed)
+      else if (!overlapped_armed)
 	{
 	  if ((size_t) tot >= minchars)
 	    break;
@@ -88,7 +88,7 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
 	  else
 	    {
 	      overlapped_armed = 1;
-	      switch (cygwait (io_status.hEvent))
+	      switch (WaitForMultipleObjects (2, w4, FALSE, INFINITE))
 		{
 		case WAIT_OBJECT_0:
 		  if (!GetOverlappedResult (get_handle (), &io_status, &n,
@@ -96,17 +96,12 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
 		    goto err;
 		  debug_printf ("n %d, ev %x", n, ev);
 		  break;
-		case WAIT_SIGNALED:
+		case WAIT_OBJECT_0 + 1:
 		  tot = -1;
 		  PurgeComm (get_handle (), PURGE_RXABORT);
 		  overlapped_armed = 0;
 		  set_sig_errno (EINTR);
 		  goto out;
-		case WAIT_CANCELED:
-		  PurgeComm (get_handle (), PURGE_RXABORT);
-		  overlapped_armed = 0;
-		  pthread::static_cancel_self ();
-		  /*NOTREACHED*/
 		default:
 		  goto err;
 		}
@@ -122,23 +117,6 @@ fhandler_serial::raw_read (void *ptr, size_t& ulen)
 	/* Got something */;
       else if (GetLastError () != ERROR_IO_PENDING)
 	goto err;
-      else if (is_nonblocking ())
-	{
-	  /* Use CancelIo rather than PurgeComm (PURGE_RXABORT) since
-	     PurgeComm apparently discards in-flight bytes while CancelIo
-	     only stops the overlapped IO routine. */
-	  CancelIo (get_handle ());
-	  if (GetOverlappedResult (get_handle (), &io_status, &n, FALSE))
-	    tot = n;
-	  else if (GetLastError () != ERROR_OPERATION_ABORTED)
-	    goto err;
-	  if (tot == 0)
-	    {
-	      tot = -1;
-	      set_errno (EAGAIN);
-	    }
-	  goto out;
-	}
       else if (!GetOverlappedResult (get_handle (), &io_status, &n, TRUE))
 	goto err;
 
@@ -167,7 +145,7 @@ out:
 
 /* Cover function to WriteFile to provide Posix interface and semantics
    (as much as possible).  */
-ssize_t __stdcall
+int
 fhandler_serial::raw_write (const void *ptr, size_t len)
 {
   DWORD bytes_written;
@@ -197,25 +175,6 @@ fhandler_serial::raw_write (const void *ptr, size_t len)
 	  goto err;
 	}
 
-      if (!is_nonblocking ())
-	{
-	  switch (cygwait (write_status.hEvent))
-	    {
-	    case WAIT_OBJECT_0:
-	      break;
-	    case WAIT_SIGNALED:
-	      PurgeComm (get_handle (), PURGE_TXABORT);
-	      set_sig_errno (EINTR);
-	      ForceCloseHandle (write_status.hEvent);
-	      return -1;
-	    case WAIT_CANCELED:
-	      PurgeComm (get_handle (), PURGE_TXABORT);
-	      pthread::static_cancel_self ();
-	      /*NOTREACHED*/
-	    default:
-	      goto err;
-	    }
-	}
       if (!GetOverlappedResult (get_handle (), &write_status, &bytes_written, TRUE))
 	goto err;
 
@@ -232,10 +191,10 @@ err:
   return -1;
 }
 
-int
+void
 fhandler_serial::init (HANDLE f, DWORD flags, mode_t bin)
 {
-  return open (flags, bin & (O_BINARY | O_TEXT));
+  open (flags, bin & (O_BINARY | O_TEXT));
 }
 
 int
@@ -243,6 +202,7 @@ fhandler_serial::open (int flags, mode_t mode)
 {
   int res;
   COMMTIMEOUTS to;
+  extern BOOL reset_com;
 
   syscall_printf ("fhandler_serial::open (%s, %p, %p)",
 			get_name (), flags, mode);
@@ -253,6 +213,8 @@ fhandler_serial::open (int flags, mode_t mode)
   res = 1;
 
   SetCommMask (get_handle (), EV_RXCHAR);
+
+  uninterruptible_io (true);	// Handled explicitly in read code
 
   overlapped_setup ();
 
@@ -268,6 +230,7 @@ fhandler_serial::open (int flags, mode_t mode)
      initialization we are, is really a terrible kludge and should
      be fixed ASAP.
   */
+  extern char *__progname;
   if (reset_com && __progname)
     {
       DCB state;
@@ -297,6 +260,23 @@ fhandler_serial::open (int flags, mode_t mode)
       state.fAbortOnError = TRUE;
       if (!SetCommState (get_handle (), &state))
 	system_printf ("couldn't set initial state for %s, %E", get_name ());
+    }
+
+  /* setting rts and dtr to known state so that ioctl() function with
+  request TIOCMGET could return correct value of RTS and DTR lines.
+  Important only for Win 9x systems */
+
+  if (!wincap.supports_reading_modem_output_lines ())
+    {
+      if (EscapeCommFunction (get_handle (), SETDTR) == 0)
+	system_printf ("couldn't set initial state of DTR for %s, %E", get_name ());
+      if (EscapeCommFunction (get_handle (), SETRTS) == 0)
+	system_printf ("couldn't set initial state of RTS for %s, %E", get_name ());
+
+      /* even though one of above functions fail I have to set rts and dtr
+      variables to initial value. */
+      rts = TIOCM_RTS;
+      dtr = TIOCM_DTR;
     }
 
   SetCommMask (get_handle (), EV_RXCHAR);
@@ -442,12 +422,12 @@ fhandler_serial::switch_modem_lines (int set, int clr)
 
 /* ioctl: */
 int
-fhandler_serial::ioctl (unsigned int cmd, void *buf)
+fhandler_serial::ioctl (unsigned int cmd, void *buffer)
 {
   int res = 0;
 
-# define ibuf ((int) buf)
-# define ipbuf (*(int *) buf)
+# define ibuffer ((int) buffer)
+# define ipbuffer (*(int *) buffer)
 
   DWORD ev;
   COMSTAT st;
@@ -460,7 +440,7 @@ fhandler_serial::ioctl (unsigned int cmd, void *buf)
     switch (cmd)
       {
       case TCFLSH:
-	res = tcflush (ibuf);
+	res = tcflush (ibuffer);
 	break;
       case TIOCMGET:
 	DWORD modem_lines;
@@ -471,40 +451,40 @@ fhandler_serial::ioctl (unsigned int cmd, void *buf)
 	  }
 	else
 	  {
-	    ipbuf = 0;
+	    ipbuffer = 0;
 	    if (modem_lines & MS_CTS_ON)
-	      ipbuf |= TIOCM_CTS;
+	      ipbuffer |= TIOCM_CTS;
 	    if (modem_lines & MS_DSR_ON)
-	      ipbuf |= TIOCM_DSR;
+	      ipbuffer |= TIOCM_DSR;
 	    if (modem_lines & MS_RING_ON)
-	      ipbuf |= TIOCM_RI;
+	      ipbuffer |= TIOCM_RI;
 	    if (modem_lines & MS_RLSD_ON)
-	      ipbuf |= TIOCM_CD;
+	      ipbuffer |= TIOCM_CD;
 
 	    DWORD cb;
 	    DWORD mcr;
 	    if (!DeviceIoControl (get_handle (), IOCTL_SERIAL_GET_DTRRTS,
 				  NULL, 0, &mcr, 4, &cb, 0) || cb != 4)
-	      ipbuf |= rts | dtr;
+	      ipbuffer |= rts | dtr;
 	    else
 	      {
 		if (mcr & 2)
-		  ipbuf |= TIOCM_RTS;
+		  ipbuffer |= TIOCM_RTS;
 		if (mcr & 1)
-		  ipbuf |= TIOCM_DTR;
+		  ipbuffer |= TIOCM_DTR;
 	      }
 	  }
 	break;
       case TIOCMSET:
-	if (switch_modem_lines (ipbuf, ~ipbuf))
+	if (switch_modem_lines (ipbuffer, ~ipbuffer))
 	  res = -1;
 	break;
       case TIOCMBIS:
-	if (switch_modem_lines (ipbuf, 0))
+	if (switch_modem_lines (ipbuffer, 0))
 	  res = -1;
 	break;
       case TIOCMBIC:
-	if (switch_modem_lines (0, ipbuf))
+	if (switch_modem_lines (0, ipbuffer))
 	  res = -1;
 	break;
       case TIOCCBRK:
@@ -529,24 +509,21 @@ fhandler_serial::ioctl (unsigned int cmd, void *buf)
 	   res = -1;
 	 }
        else
-	 ipbuf = st.cbInQue;
+	 ipbuffer = st.cbInQue;
        break;
      case TIOCGWINSZ:
-       ((struct winsize *) buf)->ws_row = 0;
-       ((struct winsize *) buf)->ws_col = 0;
-       break;
-     case FIONREAD:
-       set_errno (ENOTSUP);
-       res = -1;
+       ((struct winsize *) buffer)->ws_row = 0;
+       ((struct winsize *) buffer)->ws_col = 0;
        break;
      default:
-       res = fhandler_base::ioctl (cmd, buf);
+       set_errno (ENOSYS);
+       res = -1;
        break;
      }
 
-  termios_printf ("%d = ioctl(%p, %p)", res, cmd, buf);
-# undef ibuf
-# undef ipbuf
+  termios_printf ("%d = ioctl (%p, %p)", res, cmd, buffer);
+# undef ibuffer
+# undef ipbuffer
   return res;
 }
 
@@ -658,44 +635,8 @@ fhandler_serial::tcsetattr (int action, const struct termios *t)
     case B115200:
       state.BaudRate = CBR_115200;
       break;
-    case B128000:
-      state.BaudRate = CBR_128000;
-      break;
     case B230400:
       state.BaudRate = 230400 /* CBR_230400 - not defined */;
-      break;
-    case B256000:
-      state.BaudRate = CBR_256000;
-      break;
-    case B460800:
-      state.BaudRate = 460800 /* CBR_460800 - not defined */;
-      break;
-    case B500000:
-      state.BaudRate = 500000 /* CBR_500000 - not defined */;
-      break;
-    case B576000:
-      state.BaudRate = 576000 /* CBR_576000 - not defined */;
-      break;
-    case B921600:
-      state.BaudRate = 921600 /* CBR_921600 - not defined */;
-      break;
-    case B1000000:
-      state.BaudRate = 1000000 /* CBR_1000000 - not defined */;
-      break;
-    case B1152000:
-      state.BaudRate = 1152000 /* CBR_1152000 - not defined */;
-      break;
-    case B1500000:
-      state.BaudRate = 1500000 /* CBR_1500000 - not defined */;
-      break;
-    case B2000000:
-      state.BaudRate = 2000000 /* CBR_2000000 - not defined */;
-      break;
-    case B2500000:
-      state.BaudRate = 2500000 /* CBR_2500000 - not defined */;
-      break;
-    case B3000000:
-      state.BaudRate = 3000000 /* CBR_3000000 - not defined */;
       break;
     default:
       /* Unsupported baud rate! */
@@ -1001,44 +942,8 @@ fhandler_serial::tcgetattr (struct termios *t)
     case CBR_115200:
 	t->c_ospeed = t->c_ispeed = B115200;
 	break;
-    case CBR_128000:
-	t->c_ospeed = t->c_ispeed = B128000;
-	break;
     case 230400: /* CBR_230400 - not defined */
 	t->c_ospeed = t->c_ispeed = B230400;
-	break;
-    case CBR_256000:
-	t->c_ospeed = t->c_ispeed = B256000;
-	break;
-    case 460800: /* CBR_460000 - not defined */
-	t->c_ospeed = t->c_ispeed = B460800;
-	break;
-    case 500000: /* CBR_500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B500000;
-	break;
-    case 576000: /* CBR_576000 - not defined */
-	t->c_ospeed = t->c_ispeed = B576000;
-	break;
-    case 921600: /* CBR_921600 - not defined */
-	t->c_ospeed = t->c_ispeed = B921600;
-	break;
-    case 1000000: /* CBR_1000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1000000;
-	break;
-    case 1152000: /* CBR_1152000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1152000;
-	break;
-    case 1500000: /* CBR_1500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B1500000;
-	break;
-    case 2000000: /* CBR_2000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B2000000;
-	break;
-    case 2500000: /* CBR_2500000 - not defined */
-	t->c_ospeed = t->c_ispeed = B2500000;
-	break;
-    case 3000000: /* CBR_3000000 - not defined */
-	t->c_ospeed = t->c_ispeed = B3000000;
 	break;
     default:
 	/* Unsupported baud rate! */
@@ -1159,9 +1064,11 @@ fhandler_serial::fixup_after_exec ()
 }
 
 int
-fhandler_serial::dup (fhandler_base *child, int flags)
+fhandler_serial::dup (fhandler_base *child)
 {
   fhandler_serial *fhc = (fhandler_serial *) child;
   fhc->overlapped_setup ();
-  return fhandler_base::dup (child, flags);
+  fhc->vmin_ = vmin_;
+  fhc->vtime_ = vtime_;
+  return fhandler_base::dup (child);
 }
