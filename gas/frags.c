@@ -1,13 +1,13 @@
 /* frags.c - manage frags -
    Copyright 1987, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011, 2012
+   1999, 2000, 2001, 2003, 2004, 2005, 2006
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -25,7 +25,7 @@
 #include "obstack.h"
 
 extern fragS zero_address_frag;
-extern fragS predefined_address_frag;
+extern fragS bss_address_frag;
 
 /* Initialization for frag routines.  */
 
@@ -33,7 +33,7 @@ void
 frag_init (void)
 {
   zero_address_frag.fr_type = rs_fill;
-  predefined_address_frag.fr_type = rs_fill;
+  bss_address_frag.fr_type = rs_fill;
 }
 
 /* Check that we're not trying to assemble into a section that can't
@@ -85,40 +85,31 @@ frag_grow (unsigned int nchars)
 {
   if (obstack_room (&frchain_now->frch_obstack) < nchars)
     {
+      unsigned int n;
       long oldc;
-      long newc;
 
+      frag_wane (frag_now);
+      frag_new (0);
+      oldc = frchain_now->frch_obstack.chunk_size;
       /* Try to allocate a bit more than needed right now.  But don't do
          this if we would waste too much memory.  Especially necessary
-         for extremely big (like 2GB initialized) frags.  */
+	 for extremely big (like 2GB initialized) frags.  */
       if (nchars < 0x10000)
-        newc = 2 * nchars;
+	frchain_now->frch_obstack.chunk_size = 2 * nchars;
       else
-        newc = nchars + 0x10000;
-      newc += SIZEOF_STRUCT_FRAG;
-
-      /* Check for possible overflow.  */
-      if (newc < 0)
-        as_fatal (_("can't extend frag %u chars"), nchars);
-
-      /* Force to allocate at least NEWC bytes, but not less than the
-         default.  */
-      oldc = obstack_chunk_size (&frchain_now->frch_obstack);
-      if (newc > oldc)
-	obstack_chunk_size (&frchain_now->frch_obstack) = newc;
-
-      while (obstack_room (&frchain_now->frch_obstack) < nchars)
-        {
-          /* Not enough room in this frag.  Close it and start a new one.
-             This must be done in a loop because the created frag may not
-             be big enough if the current obstack chunk is used.  */
-          frag_wane (frag_now);
-          frag_new (0);
-        }
-
-      /* Restore the old chunk size.  */
-      obstack_chunk_size (&frchain_now->frch_obstack) = oldc;
+        frchain_now->frch_obstack.chunk_size = nchars + 0x10000;
+      frchain_now->frch_obstack.chunk_size += SIZEOF_STRUCT_FRAG;
+      if (frchain_now->frch_obstack.chunk_size > 0)
+	while ((n = obstack_room (&frchain_now->frch_obstack)) < nchars
+	       && (unsigned long) frchain_now->frch_obstack.chunk_size > nchars)
+	  {
+	    frag_wane (frag_now);
+	    frag_new (0);
+	  }
+      frchain_now->frch_obstack.chunk_size = oldc;
     }
+  if (obstack_room (&frchain_now->frch_obstack) < nchars)
+    as_fatal (_("can't extend frag %u chars"), nchars);
 }
 
 /* Call this to close off a completed frag, and start up a new (empty)
@@ -146,12 +137,12 @@ frag_new (int old_frags_var_max_size
   fragS *former_last_fragP;
   frchainS *frchP;
 
-  gas_assert (frchain_now->frch_last == frag_now);
+  assert (frchain_now->frch_last == frag_now);
 
   /* Fix up old frag's fr_fix.  */
   frag_now->fr_fix = frag_now_fix_octets () - old_frags_var_max_size;
   /* Make sure its type is valid.  */
-  gas_assert (frag_now->fr_type != 0);
+  assert (frag_now->fr_type != 0);
 
   /* This will align the obstack so the next struct we allocate on it
      will begin at a correct boundary.  */
@@ -159,8 +150,8 @@ frag_new (int old_frags_var_max_size
   frchP = frchain_now;
   know (frchP);
   former_last_fragP = frchP->frch_last;
-  gas_assert (former_last_fragP != 0);
-  gas_assert (former_last_fragP == frag_now);
+  assert (former_last_fragP != 0);
+  assert (former_last_fragP == frag_now);
   frag_now = frag_alloc (&frchP->frch_obstack);
 
   as_where (&frag_now->fr_file, &frag_now->fr_line);
@@ -179,7 +170,7 @@ frag_new (int old_frags_var_max_size
   }
 #endif
 
-  gas_assert (frchain_now->frch_last == frag_now);
+  assert (frchain_now->frch_last == frag_now);
 
   frag_now->fr_next = NULL;
 }
@@ -202,33 +193,6 @@ frag_more (int nchars)
   return (retval);
 }
 
-/* Close the current frag, setting its fields for a relaxable frag.  Start a
-   new frag.  */
-
-static void
-frag_var_init (relax_stateT type, int max_chars, int var,
-               relax_substateT subtype, symbolS *symbol, offsetT offset,
-               char *opcode)
-{
-  frag_now->fr_var = var;
-  frag_now->fr_type = type;
-  frag_now->fr_subtype = subtype;
-  frag_now->fr_symbol = symbol;
-  frag_now->fr_offset = offset;
-  frag_now->fr_opcode = opcode;
-#ifdef USING_CGEN
-  frag_now->fr_cgen.insn = 0;
-  frag_now->fr_cgen.opindex = 0;
-  frag_now->fr_cgen.opinfo = 0;
-#endif
-#ifdef TC_FRAG_INIT
-  TC_FRAG_INIT (frag_now);
-#endif
-  as_where (&frag_now->fr_file, &frag_now->fr_line);
-
-  frag_new (max_chars);
-}
-
 /* Start a new frag unless we have max_chars more chars of room in the
    current frag.  Close off the old frag with a .fill 0.
 
@@ -245,8 +209,23 @@ frag_var (relax_stateT type, int max_chars, int var, relax_substateT subtype,
   frag_grow (max_chars);
   retval = obstack_next_free (&frchain_now->frch_obstack);
   obstack_blank_fast (&frchain_now->frch_obstack, max_chars);
-  frag_var_init (type, max_chars, var, subtype, symbol, offset, opcode);
-  return retval;
+  frag_now->fr_var = var;
+  frag_now->fr_type = type;
+  frag_now->fr_subtype = subtype;
+  frag_now->fr_symbol = symbol;
+  frag_now->fr_offset = offset;
+  frag_now->fr_opcode = opcode;
+#ifdef USING_CGEN
+  frag_now->fr_cgen.insn = 0;
+  frag_now->fr_cgen.opindex = 0;
+  frag_now->fr_cgen.opinfo = 0;
+#endif
+#ifdef TC_FRAG_INIT
+  TC_FRAG_INIT (frag_now);
+#endif
+  as_where (&frag_now->fr_file, &frag_now->fr_line);
+  frag_new (max_chars);
+  return (retval);
 }
 
 /* OVE: This variant of frag_var assumes that space for the tail has been
@@ -261,9 +240,23 @@ frag_variant (relax_stateT type, int max_chars, int var,
   register char *retval;
 
   retval = obstack_next_free (&frchain_now->frch_obstack);
-  frag_var_init (type, max_chars, var, subtype, symbol, offset, opcode);
-
-  return retval;
+  frag_now->fr_var = var;
+  frag_now->fr_type = type;
+  frag_now->fr_subtype = subtype;
+  frag_now->fr_symbol = symbol;
+  frag_now->fr_offset = offset;
+  frag_now->fr_opcode = opcode;
+#ifdef USING_CGEN
+  frag_now->fr_cgen.insn = 0;
+  frag_now->fr_cgen.opindex = 0;
+  frag_now->fr_cgen.opinfo = 0;
+#endif
+#ifdef TC_FRAG_INIT
+  TC_FRAG_INIT (frag_now);
+#endif
+  as_where (&frag_now->fr_file, &frag_now->fr_line);
+  frag_new (max_chars);
+  return (retval);
 }
 
 /* Reduce the variable end of a frag to a harmless state.  */
@@ -396,10 +389,10 @@ frag_append_1_char (int datum)
    not already accounted for in the frag FR_ADDRESS.  */
 
 bfd_boolean
-frag_offset_fixed_p (const fragS *frag1, const fragS *frag2, offsetT *offset)
+frag_offset_fixed_p (fragS *frag1, fragS *frag2, bfd_vma *offset)
 {
-  const fragS *frag;
-  offsetT off;
+  fragS *frag;
+  bfd_vma off;
 
   /* Start with offset initialised to difference between the two frags.
      Prior to assigning frag addresses this will be zero.  */

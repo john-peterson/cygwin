@@ -23,8 +23,8 @@ SECTIONS
   .got : { *(.got.plt) *(.got) }
 
   . = ALIGN (0x400);
-  .data : { *(.data) }
+  .bss : { *(.bss) }
 
   . = ALIGN (0x400);
-  .bss : { *(.bss) }
+  .data : { *(.data) }
 }

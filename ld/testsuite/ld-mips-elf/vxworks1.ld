@@ -23,10 +23,10 @@ SECTIONS
   .got : { *(.got.plt) *(.got) }
 
   . = ALIGN (0x400);
-  .data : { *(.data) }
+  .bss : { *(.bss) *(.dynbss) }
 
   . = ALIGN (0x400);
-  .bss : { *(.bss) *(.dynbss) }
+  .data : { *(.data) }
 
   /DISCARD/ : { *(.reginfo) }
 }

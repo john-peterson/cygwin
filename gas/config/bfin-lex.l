@@ -1,12 +1,12 @@
 /* bfin-lex.l  ADI Blackfin lexer
-   Copyright 2005, 2006, 2007, 2008, 2010
+   Copyright 2005
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
    GAS is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    GAS is distributed in the hope that it will be useful,
@@ -20,9 +20,11 @@
    02110-1301, USA.  */
 %{
 
-#include "as.h"
+#include <stdlib.h>
+#include <string.h>
 #include "bfin-defs.h"
 #include "bfin-parse.h"
+#include "as.h"
 
 static long parse_int (char **end);
 static int parse_halfreg (Register *r, int cl, char *hr);
@@ -39,7 +41,6 @@ int yylex (void);
    and <INITIAL> would match some keyword rules only with
    initial.  */
 %s KEYWORD
-%s FLAGS
 
 %%
 [sS][fF][tT][rR][eE][sS][eE][tT]        _REG.regno = REG_sftreset;  return REG;
@@ -48,8 +49,8 @@ int yylex (void);
 [hH][wW][eE][rR][rR][cC][aA][uU][sS][eE] _REG.regno = REG_hwerrcause; return REG;
 [eE][xX][cC][aA][uU][sS][eE]            _REG.regno = REG_excause;   return REG;
 [eE][mM][uU][cC][aA][uU][sS][eE]	_REG.regno = REG_emucause;  return REG;
-<FLAGS>[zZ]                             return Z;
-<FLAGS>[xX]                             return X;
+[zZ]                                    return Z;
+[xX]                                    return X;
 [wW]32                                  yylval.value = M_W32; return MMOD;
 [wW]                                    return W;
 [vV][iI][tT]_[mM][aA][xX]               return VIT_MAX;
@@ -59,13 +60,13 @@ int yylex (void);
 [tT][hH]                                return TH;
 [tT][fF][uU]                            yylval.value = M_TFU; return MMOD;
 [tT][eE][sS][tT][sS][eE][tT]            return TESTSET;
-<FLAGS>[tT]                             yylval.value = M_T; return MMOD;
-<FLAGS>[sS]                             return S;
+[tT]                                    yylval.value = M_T; return MMOD;
+[sS]                                                        return S;
 [sS][yY][sS][cC][fF][gG]       _REG.regno = REG_SYSCFG; return REG;
 [sS][tT][iI]                            return STI;
 [sS][sS][yY][nN][cC]                    return SSYNC;
-[sS][pP]"."[lL]                         _REG.regno = REG_SP; _REG.flags = F_REG_LOW; return HALF_REG;
-[sS][pP]"."[hH]                         _REG.regno = REG_SP; _REG.flags = F_REG_HIGH; return HALF_REG;
+[sS][pP]"."[lL]                         _REG.regno = REG_SP; return HALF_REG;
+[sS][pP]"."[hH]                         _REG.regno = REG_SP | F_REG_HIGH; return HALF_REG;
 [sS][pP]                                _REG.regno = REG_SP; return REG;
 [sS][iI][gG][nN][bB][iI][tT][sS]        return SIGNBITS;
 [sS][iI][gG][nN]                        return SIGN;
@@ -123,7 +124,7 @@ int yylex (void);
 [mM][0-3]"."[lLhH]  return parse_halfreg (&yylval.reg, T_REG_M, yytext);
 [mM][0-3]           return parse_reg (&yylval.reg, T_REG_M, yytext);
 
-<FLAGS>[mM]                             return M;
+[mM]                                    return M;
 [lL][tT]                                return LT;
 [lL][sS][hH][iI][fF][tT]                return LSHIFT;
 [lL][sS][eE][tT][uU][pP]                return LSETUP;
@@ -159,8 +160,8 @@ int yylex (void);
 [gG][eE]                                return GE;
 [fF][uU]                                yylval.value = M_FU; return MMOD;
 [fF][pP]         _REG.regno = REG_FP; return REG;
-[fF][pP]"."[lL]  _REG.regno = REG_FP; _REG.flags = F_REG_LOW; return HALF_REG;
-[fF][pP]"."[hH]  _REG.regno = REG_FP; _REG.flags = F_REG_HIGH; return HALF_REG;
+[fF][pP]"."[lL]  _REG.regno = REG_FP; return HALF_REG;
+[fF][pP]"."[hH]  _REG.regno = REG_FP | F_REG_HIGH; return HALF_REG;
 
 [eE][xX][tT][rR][aA][cC][tT]            return EXTRACT;
 [eE][xX][pP][aA][dD][jJ]                return EXPADJ;
@@ -190,6 +191,7 @@ int yylex (void);
 [bB][yY][tT][eE][oO][pP]16[mM]          return BYTEOP16M;
 [bB][yY][tT][eE][oO][pP]16[pP]          return BYTEOP16P;
 [bB][yY][tT][eE][oO][pP]3[pP]           return BYTEOP3P;
+[bB][yY][tT][eE][oO][pP]2[mM]           return BYTEOP2M;
 [bB][yY][tT][eE][oO][pP]2[pP]           return BYTEOP2P;
 [bB][yY][tT][eE][oO][pP]1[pP]           return BYTEOP1P;
 [bB][yY]                                return BY;
@@ -208,8 +210,6 @@ int yylex (void);
 [bB]                                    return B;
 [aA][zZ]  _REG.regno = S_AZ;   return STATUS_REG;
 [aA][nN]  _REG.regno = S_AN;   return STATUS_REG;
-[aA][cC]0_[cC][oO][pP][yY]  _REG.regno = S_AC0_COPY; return STATUS_REG;
-[vV]_[cC][oO][pP][yY]       _REG.regno = S_V_COPY;   return STATUS_REG;
 [aA][qQ]  _REG.regno = S_AQ;   return STATUS_REG;
 [aA][cC]0 _REG.regno = S_AC0;  return STATUS_REG;
 [aA][cC]1 _REG.regno = S_AC1;  return STATUS_REG;
@@ -217,8 +217,8 @@ int yylex (void);
 [aA][vV]0[sS] _REG.regno = S_AV0S; return STATUS_REG;
 [aA][vV]1 _REG.regno = S_AV1;  return STATUS_REG;
 [aA][vV]1[sS] _REG.regno = S_AV1S; return STATUS_REG;
+[vV] _REG.regno = S_V; return STATUS_REG;
 [vV][sS]  _REG.regno = S_VS;   return STATUS_REG;
-[rR][nN][dD]_[mM][oO][dD]  _REG.regno = S_RND_MOD; return STATUS_REG;
 
 
 [aA][sS][tT][aA][tT]   _REG.regno = REG_ASTAT; return REG;
@@ -233,7 +233,7 @@ int yylex (void);
 [aA]1"."[hH]    return A_ONE_DOT_H;
 [aA]0"."[hH]    return A_ZERO_DOT_H;
 [aA][bB][sS]                            return ABS;
-[aA][bB][oO][rR][tT]                    return ABORT;
+abort                                   return ABORT;
 [aA]1"."[xX]    _REG.regno = REG_A1x; return REG;
 [aA]1"."[wW]    _REG.regno = REG_A1w; return REG;
 [aA]1           _REG.regno = REG_A1;  return REG_A_DOUBLE_ONE;
@@ -263,8 +263,8 @@ int yylex (void);
 "<<="                   return _LESS_LESS_ASSIGN;
 "<<"                    return LESS_LESS;
 "<"                     return LESS_THAN;
-"("                     BEGIN(FLAGS); return LPAREN;
-")"                     BEGIN(INITIAL); return RPAREN;
+"("                     return LPAREN;
+")"                     return RPAREN;
 ":"                     return COLON;
 "/"                     return SLASH;
 "-="                    return _MINUS_ASSIGN;
@@ -295,14 +295,14 @@ int yylex (void);
 <KEYWORD>[iI][fF][lL][uU][sS][hH]                return IFLUSH;
 <KEYWORD>[fF][lL][uU][sS][hH][iI][nN][vV]        return FLUSHINV;
 <KEYWORD>[fF][lL][uU][sS][hH]                    return FLUSH;
-([0-9]+)|(0[xX][0-9a-fA-F]+)|([bhfodBHOFD]#[0-9a-fA-F]+)|(0"."[0-9]+) {
+([0-9]+)|(0[xX][0-9a-fA-F]+)|([bhfodBHOFD]#[0-9a-fA-F]+)|(0.[0-9]+) {
     yylval.value = parse_int (&yytext);
     return NUMBER;
   }
-[[:alpha:]\x80-\xff_$.][[:alnum:]\x80-\xff_$.]* {
+[A-Za-z_$.][A-Za-z0-9_$.]* { 
     yylval.symbol = symbol_find_or_make (yytext);
     symbol_mark_used (yylval.symbol);
-    return SYMBOL;
+    return SYMBOL; 
   }
 [0-9][bfBF] {
     char *name;
@@ -315,8 +315,8 @@ int yylex (void);
 	if ((yylval.symbol != NULL)
              && (S_IS_DEFINED (yylval.symbol)))
           return SYMBOL;
-	as_bad ("backward reference to unknown label %d:",
-						  (int) (ref[0] - '0'));
+	as_bad ("backward reference to unknown label %d:", 
+						  (int) (ref[0] - '0')); 
       }
     else if (ref[1] == 'f' || ref[1] == 'F')
       {
@@ -331,8 +331,8 @@ int yylex (void);
 	yylval.symbol = symbol_find_or_make (name);
 	/* We have no need to check symbol properties.  */
 	return SYMBOL;
-      }
-  }
+      }                                  
+  }                                  
 [ \t\n]                                    ;
 "/*".*"*/"                                 ;
 .                                          return yytext[0];
@@ -344,6 +344,7 @@ static long parse_int (char **end)
   int shiftvalue = 0;
   char * char_bag;
   long value = 0;
+  char c;
   char *arg = *end;
 
   while (*arg && *arg == ' ')
@@ -365,7 +366,7 @@ static long parse_int (char **end)
 
       case '0':  /* Accept different formated integers hex octal and binary. */
         {
-	  char c = *++arg;
+	  c = *++arg;
           arg++;
 	  if (c == 'x' || c == 'X') /* Hex input.  */
 	    fmt = 'h';
@@ -419,7 +420,7 @@ static long parse_int (char **end)
         break;
 
 /* The assembler allows for fractional constants to be created
-   by either the 0.xxxx or the f#xxxx format
+   by either the 0.xxxx or the f#xxxx format 
 
    i.e.   0.5 would result in 0x4000
 
@@ -462,7 +463,7 @@ static long parse_int (char **end)
         {
           while (1)
             {
-              char c;
+              int c;
               c = *arg++;
               if (c >= '0' && c <= '9')
                 value = (value * 10) + (c - '0');
@@ -486,7 +487,7 @@ static long parse_int (char **end)
     {
       char c;
       c = *arg++;
-      if (c == 0 || !strchr (char_bag, c))
+      if (c == 0 || !index (char_bag, c))
 	{
           not_done = 0;
           *--arg = c;
@@ -510,7 +511,6 @@ static long parse_int (char **end)
 static int parse_reg (Register *r, int cl, char *rt)
 {
   r->regno = cl | (rt[1] - '0');
-  r->flags = F_REG_NONE;
   return REG;
 }
 
@@ -526,12 +526,11 @@ static int parse_halfreg (Register *r, int cl, char *rt)
 
       case 'l':
       case 'L':
-	r->flags = F_REG_LOW;
 	break;
 
       case 'h':
       case 'H':
-	r->flags = F_REG_HIGH;
+	r->regno |= F_REG_HIGH;
 	break;
     }
 
@@ -541,7 +540,7 @@ static int parse_halfreg (Register *r, int cl, char *rt)
 /* Our start state is KEYWORD as we have
    command keywords such as PREFETCH.  */
 
-void
+void 
 set_start_state (void)
 {
   BEGIN KEYWORD;
@@ -551,7 +550,7 @@ set_start_state (void)
 #ifndef yywrap
 int
 yywrap ()
-{
+{ 
   return 1;
 }
 #endif

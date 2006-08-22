@@ -1,12 +1,12 @@
 # This shell script emits a C file. -*- C -*-
-#   Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
+#   Copyright 2003, 2004, 2005, 2006
 #   Free Software Foundation, Inc.
 #
-# This file is part of the GNU Binutils.
+# This file is part of GLD, the Gnu Linker.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -16,14 +16,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-# MA 02110-1301, USA.
+# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.
 #
 
 # This file is sourced from elf32.em, and defines extra xtensa-elf
 # specific routines.
 #
-fragment <<EOF
+cat >>e${EMULATION_NAME}.c <<EOF
 
 #include <xtensa-config.h>
 #include "../bfd/elf-bfd.h"
@@ -31,16 +30,14 @@ fragment <<EOF
 #include "elf/xtensa.h"
 #include "bfd.h"
 
-/* Provide default values for new configuration settings.  */
-#ifndef XSHAL_ABI
-#define XSHAL_ABI 0
-#endif
-
 static void xtensa_wild_group_interleave (lang_statement_union_type *);
 static void xtensa_colocate_output_literals (lang_statement_union_type *);
 static void xtensa_strip_inconsistent_linkonce_sections
   (lang_statement_list_type *);
 
+
+/* Flag for the emulation-specific "--no-relax" option.  */
+static bfd_boolean disable_relaxation = FALSE;
 
 /* This number is irrelevant until we turn on use_literal_pages */
 static bfd_vma xtensa_page_power = 12; /* 4K pages.  */
@@ -98,10 +95,10 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
   bfd_byte *insn_contents = NULL;
   unsigned entry_count;
   unsigned entry;
-  Elf_Internal_Shdr *rel_hdr;
+  Elf_Internal_Shdr *symtab_hdr;
   Elf_Internal_Rela *internal_relocs = NULL;
   unsigned reloc_count;
-
+ 
   *error_message = "";
   insn_sec = bfd_get_section_by_name (abfd, insn_sec_name);
   if (insn_sec == NULL)
@@ -114,7 +111,7 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
       *error_message = _("file already has property tables");
       return FALSE;
     }
-
+  
   if (insn_sec->size != 0)
     {
       insn_contents = (bfd_byte *) bfd_malloc (insn_sec->size);
@@ -131,26 +128,35 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
 	}
     }
 
-  /* Create a property table section for it.  */
+  /* Create a Property table section and relocation section for it.  */
   prop_sec_name = strdup (prop_sec_name);
-  prop_sec = bfd_make_section_with_flags
-    (abfd, prop_sec_name, bfd_get_section_flags (abfd, insn_sec));
+  prop_sec = bfd_make_section (abfd, prop_sec_name);
   if (prop_sec == NULL
+      || ! bfd_set_section_flags (abfd, prop_sec, 
+				  bfd_get_section_flags (abfd, insn_sec))
       || ! bfd_set_section_alignment (abfd, prop_sec, 2))
     {
       *error_message = _("could not create new section");
       goto cleanup;
     }
-
+  
+  if (! bfd_set_section_flags (abfd, prop_sec, 
+			       bfd_get_section_flags (abfd, insn_sec))
+      || ! bfd_set_section_alignment (abfd, prop_sec, 2))
+    {
+      *error_message = _("could not set new section properties");
+      goto cleanup;
+    }
   prop_sec->size = entry_count * 12;
   prop_contents = (bfd_byte *) bfd_zalloc (abfd, prop_sec->size);
   elf_section_data (prop_sec)->this_hdr.contents = prop_contents;
 
   /* The entry size and size must be set to allow the linker to compute
      the number of relocations since it does not use reloc_count.  */
-  rel_hdr = _bfd_elf_single_rel_hdr (prop_sec);
-  rel_hdr->sh_entsize = sizeof (Elf32_External_Rela);
-  rel_hdr->sh_size = _bfd_elf_single_rel_hdr (insn_sec)->sh_size;
+  elf_section_data (prop_sec)->rel_hdr.sh_entsize =
+    sizeof (Elf32_External_Rela);
+  elf_section_data (prop_sec)->rel_hdr.sh_size = 
+    elf_section_data (insn_sec)->rel_hdr.sh_size;
 
   if (prop_contents == NULL && prop_sec->size != 0)
     {
@@ -165,12 +171,12 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
       /* If there is already an internal_reloc, then save it so that the
 	 read_relocs function freshly allocates a copy.  */
       Elf_Internal_Rela *saved_relocs = elf_section_data (insn_sec)->relocs;
-
+      
       elf_section_data (insn_sec)->relocs = NULL;
-      internal_relocs =
+      internal_relocs = 
 	_bfd_elf_link_read_relocs (abfd, insn_sec, NULL, NULL, FALSE);
       elf_section_data (insn_sec)->relocs = saved_relocs;
-
+      
       if (internal_relocs == NULL)
 	{
 	  *error_message = _("out of memory");
@@ -184,13 +190,13 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
       elf_section_data (prop_sec)->relocs = internal_relocs;
       prop_sec->reloc_count = reloc_count;
     }
-
+  
   /* Now copy each insn table entry to the prop table entry with
      appropriate flags.  */
   for (entry = 0; entry < entry_count; ++entry)
     {
       unsigned value;
-      unsigned flags = (XTENSA_PROP_INSN | XTENSA_PROP_NO_TRANSFORM
+      unsigned flags = (XTENSA_PROP_INSN | XTENSA_PROP_INSN_NO_TRANSFORM
 			| XTENSA_PROP_INSN_NO_REORDER);
       value = bfd_get_32 (abfd, insn_contents + entry * 8 + 0);
       bfd_put_32 (abfd, value, prop_contents + entry * 12 + 0);
@@ -205,6 +211,7 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
   if (internal_relocs)
     {
       unsigned i;
+      symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
 
       for (i = 0; i < reloc_count; i++)
 	{
@@ -213,7 +220,7 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
 
 	  rela = &internal_relocs[i];
 
-	  /* If this relocation is to the .xt.insn section,
+	  /* If this relocation is to the .xt.insn section, 
 	     change the section number and the offset.  */
 	  r_offset = rela->r_offset;
 	  r_offset += 4 * (r_offset / 8);
@@ -222,10 +229,10 @@ replace_insn_sec_with_prop_sec (bfd *abfd,
     }
 
   remove_section (abfd, insn_sec);
-
+  
   if (insn_contents)
     free (insn_contents);
-
+  
   return TRUE;
 
  cleanup:
@@ -253,14 +260,15 @@ replace_instruction_table_sections (bfd *abfd, asection *sec)
   char *prop_sec_name = NULL;
   char *owned_prop_sec_name = NULL;
   const char *sec_name;
-
+    
   sec_name = bfd_get_section_name (abfd, sec);
   if (strcmp (sec_name, INSN_SEC_BASE_NAME) == 0)
     {
       insn_sec_name = INSN_SEC_BASE_NAME;
       prop_sec_name = PROP_SEC_BASE_NAME;
     }
-  else if (CONST_STRNEQ (sec_name, LINKONCE_SEC_OLD_TEXT_BASE_NAME))
+  else if (strncmp (sec_name, LINKONCE_SEC_OLD_TEXT_BASE_NAME,
+		    strlen (LINKONCE_SEC_OLD_TEXT_BASE_NAME)) == 0)
     {
       insn_sec_name = sec_name;
       owned_prop_sec_name = (char *) xmalloc (strlen (sec_name) + 20);
@@ -290,13 +298,17 @@ replace_instruction_table_sections (bfd *abfd, asection *sec)
 static void
 elf_xtensa_after_open (void)
 {
+  bfd *abfd;
+
   /* First call the ELF version.  */
   gld${EMULATION_NAME}_after_open ();
-
+  
   /* Now search the input files looking for instruction table sections.  */
-  LANG_FOR_EACH_INPUT_STATEMENT (f)
+  for (abfd = link_info.input_bfds;
+       abfd != NULL;
+       abfd = abfd->link_next)
     {
-      asection *sec = f->the_bfd->sections;
+      asection *sec = abfd->sections;
       asection *next_sec;
 
       /* Do not use bfd_map_over_sections here since we are removing
@@ -304,111 +316,10 @@ elf_xtensa_after_open (void)
       while (sec != NULL)
 	{
 	  next_sec = sec->next;
-	  replace_instruction_table_sections (f->the_bfd, sec);
+	  replace_instruction_table_sections (abfd, sec);
 	  sec = next_sec;
 	}
     }
-}
-
-
-static bfd_boolean
-xt_config_info_unpack_and_check (char *data,
-				 bfd_boolean *pmismatch,
-				 char **pmsg)
-{
-  char *d, *key;
-  unsigned num;
-
-  *pmismatch = FALSE;
-
-  d = data;
-  while (*d)
-    {
-      key = d;
-      d = strchr (d, '=');
-      if (! d)
-	goto error;
-
-      /* Overwrite the equal sign.  */
-      *d++ = 0;
-
-      /* Check if this is a quoted string or a number.  */
-      if (*d == '"')
-	{
-	  /* No string values are currently checked by LD;
-	     just skip over the quotes.  */
-	  d++;
-	  d = strchr (d, '"');
-	  if (! d)
-	    goto error;
-	  /* Overwrite the trailing quote.  */
-	  *d++ = 0;
-	}
-      else
-	{
-	  if (*d == 0)
-	    goto error;
-	  num = strtoul (d, &d, 0);
-
-	  if (! strcmp (key, "ABI"))
-	    {
-	      if (num != XSHAL_ABI)
-		{
-		  *pmismatch = TRUE;
-		  *pmsg = "ABI does not match";
-		}
-	    }
-	  else if (! strcmp (key, "USE_ABSOLUTE_LITERALS"))
-	    {
-	      if (num != XSHAL_USE_ABSOLUTE_LITERALS)
-		{
-		  *pmismatch = TRUE;
-		  *pmsg = "incompatible use of the Extended L32R option";
-		}
-	    }
-	}
-
-      if (*d++ != '\n')
-	goto error;
-    }
-
-  return TRUE;
-
- error:
-  return FALSE;
-}
-
-
-#define XTINFO_NAME "Xtensa_Info"
-#define XTINFO_NAMESZ 12
-#define XTINFO_TYPE 1
-
-static void
-check_xtensa_info (bfd *abfd, asection *info_sec)
-{
-  char *data, *errmsg = "";
-  bfd_boolean mismatch;
-
-  data = xmalloc (info_sec->size);
-  if (! bfd_get_section_contents (abfd, info_sec, data, 0, info_sec->size))
-    einfo (_("%F%P:%B: cannot read contents of section %A\n"), abfd, info_sec);
-
-  if (info_sec->size > 24
-      && info_sec->size >= 24 + bfd_get_32 (abfd, data + 4)
-      && bfd_get_32 (abfd, data + 0) == XTINFO_NAMESZ
-      && bfd_get_32 (abfd, data + 8) == XTINFO_TYPE
-      && strcmp (data + 12, XTINFO_NAME) == 0
-      && xt_config_info_unpack_and_check (data + 12 + XTINFO_NAMESZ,
-					  &mismatch, &errmsg))
-    {
-      if (mismatch)
-	einfo (_("%P:%B: warning: incompatible Xtensa configuration (%s)\n"),
-	       abfd, errmsg);
-    }
-  else
-    einfo (_("%P:%B: warning: cannot parse .xtensa.info section\n"), abfd);
-
-  free (data);
 }
 
 
@@ -418,8 +329,7 @@ check_xtensa_info (bfd *abfd, asection *info_sec)
 static void
 elf_xtensa_before_allocation (void)
 {
-  asection *info_sec, *first_info_sec;
-  bfd *first_bfd;
+  bfd *in_bfd;
   bfd_boolean is_big_endian = XCHAL_HAVE_BE;
 
   /* Check that the output endianness matches the Xtensa
@@ -429,109 +339,45 @@ elf_xtensa_before_allocation (void)
      required to process relocations) for the selected Xtensa
      configuration.  */
 
-  if (is_big_endian
-      && link_info.output_bfd->xvec->byteorder == BFD_ENDIAN_LITTLE)
+  if (is_big_endian && output_bfd->xvec->byteorder == BFD_ENDIAN_LITTLE)
     {
       einfo (_("%F%P: little endian output does not match "
 	       "Xtensa configuration\n"));
     }
-  if (!is_big_endian
-      && link_info.output_bfd->xvec->byteorder == BFD_ENDIAN_BIG)
+  if (!is_big_endian && output_bfd->xvec->byteorder == BFD_ENDIAN_BIG)
     {
       einfo (_("%F%P: big endian output does not match "
 	       "Xtensa configuration\n"));
     }
 
-  /* Keep track of the first input .xtensa.info section, and as a fallback,
-     the first input bfd where a .xtensa.info section could be created.
-     After the input .xtensa.info has been checked, the contents of the
-     first one will be replaced with the output .xtensa.info table.  */
-  first_info_sec = 0;
-  first_bfd = 0;
+  /* Check that the endianness for each input file matches the output.
+     The merge_private_bfd_data hook has already reported any mismatches
+     as errors, but those errors are not fatal.  At this point, we
+     cannot go any further if there are any mismatches.  */
 
-  LANG_FOR_EACH_INPUT_STATEMENT (f)
+  for (in_bfd = link_info.input_bfds;
+       in_bfd != NULL;
+       in_bfd = in_bfd->link_next)
     {
-      /* Check that the endianness for each input file matches the output.
-	 The merge_private_bfd_data hook has already reported any mismatches
-	 as errors, but those errors are not fatal.  At this point, we
-	 cannot go any further if there are any mismatches.  */
-      if ((is_big_endian && f->the_bfd->xvec->byteorder == BFD_ENDIAN_LITTLE)
-	  || (!is_big_endian && f->the_bfd->xvec->byteorder == BFD_ENDIAN_BIG))
-	einfo (_("%F%P: cross-endian linking for %B not supported\n"),
-	       f->the_bfd);
-
-      if (! first_bfd)
-	first_bfd = f->the_bfd;
-
-      info_sec = bfd_get_section_by_name (f->the_bfd, ".xtensa.info");
-      if (! info_sec)
-	continue;
-
-      if (! first_info_sec)
-	first_info_sec = info_sec;
-
-      /* Unpack the .xtensa.info section and check it against the current
-	 Xtensa configuration.  */
-      check_xtensa_info (f->the_bfd, info_sec);
-
-      /* Do not include this copy of .xtensa.info in the output.  */
-      info_sec->size = 0;
-      info_sec->flags |= SEC_EXCLUDE;
-    }
-
-  /* Reuse the first .xtensa.info input section to hold the output
-     .xtensa.info; or, if none were found, create a new section in the
-     first input bfd (assuming there is one).  */
-  info_sec = first_info_sec;
-  if (! info_sec && first_bfd)
-    {
-      info_sec = bfd_make_section_with_flags (first_bfd, ".xtensa.info",
-					      SEC_HAS_CONTENTS | SEC_READONLY);
-      if (! info_sec)
-	einfo (_("%F%P: failed to create .xtensa.info section\n"));
-    }
-  if (info_sec)
-    {
-      int xtensa_info_size;
-      char *data;
-
-      info_sec->flags &= ~SEC_EXCLUDE;
-      info_sec->flags |= SEC_IN_MEMORY;
-
-      data = xmalloc (100);
-      sprintf (data, "USE_ABSOLUTE_LITERALS=%d\nABI=%d\n",
-	       XSHAL_USE_ABSOLUTE_LITERALS, XSHAL_ABI);
-      xtensa_info_size = strlen (data) + 1;
-
-      /* Add enough null terminators to pad to a word boundary.  */
-      do
-	data[xtensa_info_size++] = 0;
-      while ((xtensa_info_size & 3) != 0);
-
-      info_sec->size = 12 + XTINFO_NAMESZ + xtensa_info_size;
-      info_sec->contents = xmalloc (info_sec->size);
-      bfd_put_32 (info_sec->owner, XTINFO_NAMESZ, info_sec->contents + 0);
-      bfd_put_32 (info_sec->owner, xtensa_info_size, info_sec->contents + 4);
-      bfd_put_32 (info_sec->owner, XTINFO_TYPE, info_sec->contents + 8);
-      memcpy (info_sec->contents + 12, XTINFO_NAME, XTINFO_NAMESZ);
-      memcpy (info_sec->contents + 12 + XTINFO_NAMESZ, data, xtensa_info_size);
-      free (data);
+      if ((is_big_endian && in_bfd->xvec->byteorder == BFD_ENDIAN_LITTLE)
+	  || (!is_big_endian && in_bfd->xvec->byteorder == BFD_ENDIAN_BIG))
+	einfo (_("%F%P: cross-endian linking not supported\n"));
     }
 
   /* Enable relaxation by default if the "--no-relax" option was not
      specified.  This is done here instead of in the before_parse hook
      because there is a check in main() to prohibit use of --relax and
      -r together and that combination should be allowed for Xtensa.  */
-  if (RELAXATION_DISABLED_BY_DEFAULT)
-    ENABLE_RELAXATION;
+
+  if (!disable_relaxation)
+    command_line.relax = TRUE;
 
   xtensa_strip_inconsistent_linkonce_sections (stat_ptr);
 
   gld${EMULATION_NAME}_before_allocation ();
 
   xtensa_wild_group_interleave (stat_ptr->head);
-
-  if (RELAXATION_ENABLED)
+  if (command_line.relax)
     xtensa_colocate_output_literals (stat_ptr->head);
 
   /* TBD: We need to force the page alignments to here and only do
@@ -595,6 +441,59 @@ static size_t ld_count_children (lang_statement_union_type *);
 #endif
 
 extern lang_statement_list_type constructor_list;
+
+/*  Begin verbatim code from ldlang.c:
+    the following are copied from ldlang.c because they are defined
+    there statically.  */
+
+static void
+lang_for_each_statement_worker (void (*func) (lang_statement_union_type *),
+				lang_statement_union_type *s)
+{
+  for (; s != (lang_statement_union_type *) NULL; s = s->header.next)
+    {
+      func (s);
+
+      switch (s->header.type)
+	{
+	case lang_constructors_statement_enum:
+	  lang_for_each_statement_worker (func, constructor_list.head);
+	  break;
+	case lang_output_section_statement_enum:
+	  lang_for_each_statement_worker
+	    (func,
+	     s->output_section_statement.children.head);
+	  break;
+	case lang_wild_statement_enum:
+	  lang_for_each_statement_worker
+	    (func,
+	     s->wild_statement.children.head);
+	  break;
+	case lang_group_statement_enum:
+	  lang_for_each_statement_worker (func,
+					  s->group_statement.children.head);
+	  break;
+	case lang_data_statement_enum:
+	case lang_reloc_statement_enum:
+	case lang_object_symbols_statement_enum:
+	case lang_output_statement_enum:
+	case lang_target_statement_enum:
+	case lang_input_section_enum:
+	case lang_input_statement_enum:
+	case lang_assignment_statement_enum:
+	case lang_padding_statement_enum:
+	case lang_address_statement_enum:
+	case lang_fill_statement_enum:
+	  break;
+	default:
+	  FAIL ();
+	  break;
+	}
+    }
+}
+
+/* End of verbatim code from ldlang.c.  */
+
 
 static reloc_deps_section *
 xtensa_get_section_deps (const reloc_deps_graph *deps ATTRIBUTE_UNUSED,
@@ -1286,7 +1185,7 @@ input_section_linked (asection *sec)
 }
 
 
-/* Strip out any linkonce property tables or XCC exception tables where the
+/* Strip out any linkonce literal sections or property tables where the
    associated linkonce text is from a different object file.  Normally,
    a matching set of linkonce sections is taken from the same object file,
    but sometimes the files are compiled differently so that some of the
@@ -1301,33 +1200,28 @@ is_inconsistent_linkonce_section (asection *sec)
 {
   bfd *abfd = sec->owner;
   const char *sec_name = bfd_get_section_name (abfd, sec);
-  const char *name;
+  char *prop_tag = 0;
 
   if ((bfd_get_section_flags (abfd, sec) & SEC_LINK_ONCE) == 0
       || strncmp (sec_name, ".gnu.linkonce.", linkonce_len) != 0)
     return FALSE;
 
-  /* Check if this is an Xtensa property section or an exception table
-     for Tensilica's XCC compiler.  */
-  name = sec_name + linkonce_len;
-  if (CONST_STRNEQ (name, "prop."))
-    name = strchr (name + 5, '.') + 1;
-  else if (name[1] == '.'
-	   && (name[0] == 'p' || name[0] == 'e' || name[0] == 'h'))
-    name += 2;
-  else
-    name = 0;
-
-  if (name)
+  /* Check if this is an Xtensa property section.  */
+  if (strncmp (sec_name + linkonce_len, "p.", 2) == 0)
+    prop_tag = "p.";
+  else if (strncmp (sec_name + linkonce_len, "prop.", 5) == 0)
+    prop_tag = "prop.";
+  if (prop_tag)
     {
-      char *dep_sec_name = xmalloc (strlen (sec_name) + 1);
+      int tag_len = strlen (prop_tag);
+      char *dep_sec_name = xmalloc (strlen (sec_name));
       asection *dep_sec;
 
       /* Get the associated linkonce text section and check if it is
 	 included in the link.  If not, this section is inconsistent
 	 and should be stripped.  */
-      strcpy (dep_sec_name, ".gnu.linkonce.t.");
-      strcat (dep_sec_name, name);
+      strcpy (dep_sec_name, ".gnu.linkonce.");
+      strcat (dep_sec_name, sec_name + linkonce_len + tag_len);
       dep_sec = bfd_get_section_by_name (abfd, dep_sec_name);
       if (dep_sec == NULL || ! input_section_linked (dep_sec))
 	{
@@ -1355,7 +1249,6 @@ xtensa_strip_inconsistent_linkonce_sections (lang_statement_list_type *slist)
 	case lang_input_section_enum:
 	  if (is_inconsistent_linkonce_section (s->input_section.section))
 	    {
-	      s->input_section.section->output_section = bfd_abs_section_ptr;
 	      *s_p = s_next;
 	      continue;
 	    }
@@ -1614,6 +1507,7 @@ xtensa_layout_wild (const reloc_deps_graph *deps, lang_wild_statement_type *w)
 static void
 xtensa_colocate_output_literals_callback (lang_statement_union_type *statement)
 {
+  lang_output_section_statement_type *os;
   reloc_deps_graph *deps;
   if (statement->header.type == lang_output_section_statement_enum)
     {
@@ -1634,6 +1528,8 @@ xtensa_colocate_output_literals_callback (lang_statement_union_type *statement)
       size_t new_child_count;
 #endif
       bfd_boolean no_reorder = FALSE;
+
+      os = &statement->output_section_statement;
 
 #if EXTRA_VALIDATION
       old_child_count = ld_count_children (statement);
@@ -1817,10 +1713,8 @@ ld_local_file_relocations_fit (lang_statement_union_type *statement,
 		  bfd_vma target_addr = e->tgt->output_offset & ~3;
 		  if (l32r_addr < target_addr)
 		    {
-		      fflush (stdout);
 		      fprintf (stderr, "Warning: "
 			       "l32r target section before l32r\n");
-		      fflush (stderr);
 		      return FALSE;
 		    }
 
@@ -1887,22 +1781,25 @@ ld_xtensa_insert_page_offsets (bfd_vma dot,
 		etree_type *name_op = exp_nameop (NAME, ".");
 		etree_type *addend_op = exp_intop (1 << xtensa_page_power);
 		etree_type *add_op = exp_binop ('+', name_op, addend_op);
-		etree_type *assign_op = exp_assign (".", add_op, FALSE);
+		etree_type *assign_op = exp_assop ('=', ".", add_op);
 
 		lang_assignment_statement_type *assign_stmt;
 		lang_statement_union_type *assign_union;
 		lang_statement_list_type tmplist;
+		lang_statement_list_type *old_stat_ptr = stat_ptr;
 
 		/* There is hidden state in "lang_add_assignment".  It
 		   appends the new assignment statement to the stat_ptr
 		   list.  Thus, we swap it before and after the call.  */
 
-		lang_list_init (&tmplist);
-		push_stat_ptr (&tmplist);
+		tmplist.head = NULL;
+		tmplist.tail = &tmplist.head;
+
+		stat_ptr = &tmplist;
 		/* Warning: side effect; statement appended to stat_ptr.  */
 		assign_stmt = lang_add_assignment (assign_op);
 		assign_union = (lang_statement_union_type *) assign_stmt;
-		pop_stat_ptr ();
+		stat_ptr = old_stat_ptr;
 
 		assign_union->header.next = l;
 		*(*stack_p)->iterloc.loc = assign_union;
@@ -1924,7 +1821,8 @@ EOF
 #
 PARSE_AND_LIST_PROLOGUE='
 #define OPTION_OPT_SIZEOPT              (300)
-#define OPTION_LITERAL_MOVEMENT		(OPTION_OPT_SIZEOPT + 1)
+#define OPTION_NO_RELAX			(OPTION_OPT_SIZEOPT + 1)
+#define OPTION_LITERAL_MOVEMENT		(OPTION_NO_RELAX + 1)
 #define OPTION_NO_LITERAL_MOVEMENT	(OPTION_LITERAL_MOVEMENT + 1)
 extern int elf32xtensa_size_opt;
 extern int elf32xtensa_no_literal_movement;
@@ -1932,19 +1830,22 @@ extern int elf32xtensa_no_literal_movement;
 
 PARSE_AND_LIST_LONGOPTS='
   { "size-opt", no_argument, NULL, OPTION_OPT_SIZEOPT},
+  { "no-relax", no_argument, NULL, OPTION_NO_RELAX},
   { "literal-movement", no_argument, NULL, OPTION_LITERAL_MOVEMENT},
   { "no-literal-movement", no_argument, NULL, OPTION_NO_LITERAL_MOVEMENT},
 '
 
 PARSE_AND_LIST_OPTIONS='
-  fprintf (file, _("\
-  --size-opt                  When relaxing longcalls, prefer size\n\
-                                optimization over branch target alignment\n"));
+  fprintf (file, _("  --size-opt\t\tWhen relaxing longcalls, prefer size optimization\n\t\t\t  over branch target alignment\n"));
+  fprintf (file, _("  --no-relax\t\tDo not relax branches or coalesce literals\n"));
 '
 
 PARSE_AND_LIST_ARGS_CASES='
     case OPTION_OPT_SIZEOPT:
       elf32xtensa_size_opt = 1;
+      break;
+    case OPTION_NO_RELAX:
+      disable_relaxation = TRUE;
       break;
     case OPTION_LITERAL_MOVEMENT:
       elf32xtensa_no_literal_movement = 0;
@@ -1960,3 +1861,4 @@ LDEMUL_BEFORE_PARSE=elf_xtensa_before_parse
 LDEMUL_AFTER_OPEN=elf_xtensa_after_open
 LDEMUL_CHOOSE_TARGET=elf_xtensa_choose_target
 LDEMUL_BEFORE_ALLOCATION=elf_xtensa_before_allocation
+

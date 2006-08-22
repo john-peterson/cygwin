@@ -9,11 +9,14 @@ SECTIONS
   . = ALIGN (0x400);
   .rel.dyn : { *(.rel.dyn) }
 
-  . = ALIGN (0x400) + 0x400;
+  . = ALIGN (0x400);
+  .MIPS.stubs : { *(.MIPS.stubs) }
+
+  . = ALIGN (0x400);
   .text : { *(.text) }
 
   . = ALIGN (0x10000);
-  HIDDEN (_gp = . + 0x7ff0);
+  _gp = . + 0x7ff0;
   .got : { *(.got) }
 
   . = ALIGN (0x400);

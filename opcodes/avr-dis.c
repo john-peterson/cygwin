@@ -1,28 +1,25 @@
 /* Disassemble AVR instructions.
-   Copyright 1999, 2000, 2002, 2004, 2005, 2006, 2007, 2008, 2012
+   Copyright 1999, 2000, 2002, 2004, 2005, 2006
    Free Software Foundation, Inc.
 
    Contributed by Denis Chertykov <denisc@overta.ru>
 
-   This file is part of libopcodes.
-
-   This library is free software; you can redistribute it and/or modify
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
 
-   It is distributed in the hope that it will be useful, but WITHOUT
-   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
-   License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-   MA 02110-1301, USA.  */
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
-#include "sysdep.h"
 #include <assert.h>
+#include "sysdep.h"
 #include "dis-asm.h"
 #include "opintl.h"
 #include "libiberty.h"
@@ -46,11 +43,9 @@ const struct avr_opcodes_s avr_opcodes[] =
   {NULL, NULL, NULL, 0, 0, 0}
 };
 
-static const char * comment_start = "0x";
-
 static int
 avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constraint,
-             char *opcode_str, char *buf, char *comment, int regs, int *sym, bfd_vma *sym_addr)
+             char *buf, char *comment, int regs, int *sym, bfd_vma *sym_addr)
 {
   int ok = 1;
   *sym = 0;
@@ -109,7 +104,7 @@ avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constra
 	    case 0x100e: xyz = "-X"; break;
 	    default: xyz = "??"; ok = 0;
 	  }
-	strcpy (buf, xyz);
+	sprintf (buf, xyz);
 
 	if (AVR_UNDEF_P (insn))
 	  sprintf (comment, _("undefined"));
@@ -118,19 +113,8 @@ avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constra
 
     case 'z':
       *buf++ = 'Z';
-
-      /* Check for post-increment. */
-      char *s;
-      for (s = opcode_str; *s; ++s)
-        {
-          if (*s == '+')
-            {
-	      if (insn & (1 << (15 - (s - opcode_str))))
-		*buf++ = '+';
-              break;
-            }
-        }
-
+      if (insn & 0x1)
+	*buf++ = '+';
       *buf = '\0';
       if (AVR_UNDEF_P (insn))
 	sprintf (comment, _("undefined"));
@@ -156,11 +140,12 @@ avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constra
     case 'h':
       *sym = 1;
       *sym_addr = ((((insn & 1) | ((insn & 0x1f0) >> 3)) << 16) | insn2) * 2;
-      /* See PR binutils/2454.  Ideally we would like to display the hex
+      /* See PR binutils/2545.  Ideally we would like to display the hex
 	 value of the address only once, but this would mean recoding
 	 objdump_print_address() which would affect many targets.  */
       sprintf (buf, "%#lx", (unsigned long) *sym_addr);      
-      strcpy (comment, comment_start);
+      sprintf (comment, "0x");
+
       break;
       
     case 'L':
@@ -169,18 +154,17 @@ avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constra
 	sprintf (buf, ".%+-8d", rel_addr);
         *sym = 1;
         *sym_addr = pc + 2 + rel_addr;
-	strcpy (comment, comment_start);
+	sprintf (comment, "0x");
       }
       break;
 
     case 'l':
       {
 	int rel_addr = ((((insn >> 3) & 0x7f) ^ 0x40) - 0x40) * 2;
-
 	sprintf (buf, ".%+-8d", rel_addr);
         *sym = 1;
         *sym_addr = pc + 2 + rel_addr;
-	strcpy (comment, comment_start);
+	sprintf (comment, "0x");
       }
       break;
 
@@ -238,10 +222,6 @@ avr_operand (unsigned int insn, unsigned int insn2, unsigned int pc, int constra
       }
       break;
       
-    case 'E':
-      sprintf (buf, "%d", (insn >> 4) & 15);
-      break;
-      
     case '?':
       *buf = '\0';
       break;
@@ -287,16 +267,9 @@ print_insn_avr (bfd_vma addr, disassemble_info *info)
   int sym_op1 = 0, sym_op2 = 0;
   bfd_vma sym_addr1, sym_addr2;
 
-
   if (!initialized)
     {
       unsigned int nopcodes;
-
-      /* PR 4045: Try to avoid duplicating the 0x prefix that
-	 objdump_print_addr() will put on addresses when there
-	 is no symbol table available.  */
-      if (info->symtab_size == 0)
-	comment_start = " ";
 
       nopcodes = sizeof (avr_opcodes) / sizeof (struct avr_opcodes_s);
       
@@ -346,8 +319,7 @@ print_insn_avr (bfd_vma addr, disassemble_info *info)
 
   if (opcode->name)
     {
-      char *constraints = opcode->constraints;
-      char *opcode_str = opcode->opcode;
+      char *op = opcode->constraints;
 
       insn2 = 0;
       ok = 1;
@@ -358,14 +330,14 @@ print_insn_avr (bfd_vma addr, disassemble_info *info)
 	  cmd_len = 4;
 	}
 
-      if (*constraints && *constraints != '?')
+      if (*op && *op != '?')
 	{
-	  int regs = REGISTER_P (*constraints);
+	  int regs = REGISTER_P (*op);
 
-	  ok = avr_operand (insn, insn2, addr, *constraints, opcode_str, op1, comment1, 0, &sym_op1, &sym_addr1);
+	  ok = avr_operand (insn, insn2, addr, *op, op1, comment1, 0, &sym_op1, &sym_addr1);
 
-	  if (ok && *(++constraints) == ',')
-	    ok = avr_operand (insn, insn2, addr, *(++constraints), opcode_str, op2,
+	  if (ok && *(++op) == ',')
+	    ok = avr_operand (insn, insn2, addr, *(++op), op2,
 			      *comment1 ? comment2 : comment1, regs, &sym_op2, &sym_addr2);
 	}
     }

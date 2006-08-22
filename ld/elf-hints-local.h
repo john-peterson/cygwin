@@ -1,6 +1,6 @@
 /* Copyright (c) 1997 John D. Polstra.
    All rights reserved.
-
+ 
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions
    are met:
@@ -9,7 +9,7 @@
    2. Redistributions in binary form must reproduce the above copyright
       notice, this list of conditions and the following disclaimer in the
       documentation and/or other materials provided with the distribution.
-
+ 
    THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
    ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -25,18 +25,16 @@
 #ifndef	_ELF_HINTS_H_
 #define	_ELF_HINTS_H_
 
-#include "bfd_stdint.h"
-
 /* Hints file produced by ldconfig.  */
 struct elfhints_hdr
 {
-  uint32_t magic;		/* Magic number.  */
-  uint32_t version;		/* File version (1).  */
-  uint32_t strtab;		/* Offset of string table in file.  */
-  uint32_t strsize;		/* Size of string table.  */
-  uint32_t dirlist;		/* Offset of directory list in string table.  */
-  uint32_t dirlistlen;		/* strlen(dirlist).  */
-  uint32_t spare[26];		/* Room for expansion.  */
+  u_int32_t magic;		/* Magic number.  */
+  u_int32_t version;		/* File version (1).  */
+  u_int32_t strtab;		/* Offset of string table in file.  */
+  u_int32_t strsize;		/* Size of string table.  */
+  u_int32_t dirlist;		/* Offset of directory list in string table.  */
+  u_int32_t dirlistlen;		/* strlen(dirlist).  */
+  u_int32_t spare[26];		/* Room for expansion.  */
 };
 
 #define ELFHINTS_MAGIC	0x746e6845
