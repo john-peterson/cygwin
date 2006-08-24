@@ -1,4 +1,4 @@
-@ Test to ensure that a Thumb-1 BL with a Thumb-2-only offset makes the linker generate a stub.
+@ Test to ensure that a Thumb-1 BL with a Thumb-2-only offset fails.
 
 	.arch armv5t
 	.global _start
@@ -12,7 +12,7 @@
 _start:
 	bl bar
 
-@ We will place the section .foo at 0x100100c.
+@ We will place the section .foo at 0x401004.
 
 	.section .foo, "xa"
 	.thumb_func
