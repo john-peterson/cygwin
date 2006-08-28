@@ -1,12 +1,12 @@
 /* Target-dependent code for OpenBSD/arm.
 
-   Copyright (C) 2006-2013 Free Software Foundation, Inc.
+   Copyright (C) 2006 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "osabi.h"
@@ -32,7 +34,7 @@
 
 static void
 armobsd_sigframe_init (const struct tramp_frame *self,
-		       struct frame_info *this_frame,
+		       struct frame_info *next_frame,
 		       struct trad_frame_cache *cache,
 		       CORE_ADDR func)
 {
@@ -41,7 +43,7 @@ armobsd_sigframe_init (const struct tramp_frame *self,
 
   /* We find the appropriate instance of `struct sigcontext' at a
      fixed offset in the signal frame.  */
-  sp = get_frame_register_signed (this_frame, ARM_SP_REGNUM);
+  sp = frame_unwind_register_signed (next_frame, ARM_SP_REGNUM);
   sigcontext_addr = sp + 16;
 
   /* PC.  */
@@ -70,10 +72,6 @@ static const struct tramp_frame armobsd_sigframe =
 };
 
 
-/* Override default thumb breakpoints.  */
-static const char arm_obsd_thumb_le_breakpoint[] = {0xfe, 0xdf};
-static const char arm_obsd_thumb_be_breakpoint[] = {0xdf, 0xfe};
-
 static void
 armobsd_init_abi (struct gdbarch_info info,
 		  struct gdbarch *gdbarch)
@@ -98,23 +96,6 @@ armobsd_init_abi (struct gdbarch_info info,
 
   /* OpenBSD/arm uses -fpcc-struct-return by default.  */
   tdep->struct_return = pcc_struct_return;
-
-  /* Single stepping.  */
-  set_gdbarch_software_single_step (gdbarch, arm_software_single_step);
-
-  /* Breakpoints.  */
-  switch (info.byte_order)
-    {
-    case BFD_ENDIAN_BIG:
-      tdep->thumb_breakpoint = arm_obsd_thumb_be_breakpoint;
-      tdep->thumb_breakpoint_size = sizeof (arm_obsd_thumb_be_breakpoint);
-      break;
-
-    case BFD_ENDIAN_LITTLE:
-      tdep->thumb_breakpoint = arm_obsd_thumb_le_breakpoint;
-      tdep->thumb_breakpoint_size = sizeof (arm_obsd_thumb_le_breakpoint);
-      break;
-    }
 }
 
 
@@ -126,9 +107,6 @@ armobsd_core_osabi_sniffer (bfd *abfd)
 
   return GDB_OSABI_UNKNOWN;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_armobsd_tdep;
 
 void
 _initialize_armobsd_tdep (void)

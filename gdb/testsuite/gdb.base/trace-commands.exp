@@ -1,8 +1,8 @@
-# Copyright 2006-2013 Free Software Foundation, Inc.
+# Copyright 2006 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -11,10 +11,15 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 # Test that the source command's verbose mode works, the 'set trace-commands'
 # command works, and that the nest depth is correct in various circumstances.
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 gdb_exit
 gdb_start
@@ -44,7 +49,8 @@ gdb_test "show trace-commands" "State of GDB CLI command tracing is off\\." \
 	 "show trace-commands says off"
 
 # Source the script with verbose mode.
-gdb_test_sequence "source -v tracecommandsscript" "source -v" {
+send_gdb "source -v tracecommandsscript\n"
+gdb_expect_list "source -v" ".*$gdb_prompt $" {
   {[\r\n]\+echo in tracecommandsscript\\n}
   {[\r\n]\+define func}
   {[\r\n]\+if 1}
@@ -57,7 +63,7 @@ gdb_test_sequence "source -v tracecommandsscript" "source -v" {
 }
 
 # Turn on command tracing.
-gdb_test_no_output "set trace-commands" "set trace-commands"
+gdb_test "set trace-commands" "" "set trace-commands"
 
 # Make sure show trace-commands now gives 'on'.
 gdb_test "show trace-commands" \
@@ -68,8 +74,8 @@ gdb_test "show trace-commands" \
 gdb_test "echo hi\\n" {\+echo hi\\n[\r\n]+hi} "simple trace-commands test"
 
 # Nested test
-gdb_test_sequence "if 1\nset \$i = 0\nwhile \$i < 5\nfunc \$i\nset \$i += 1\nend\nend" \
-    "nested trace-commands test" {
+send_gdb "if 1\nset \$i = 0\nwhile \$i < 5\nfunc \$i\nset \$i += 1\nend\nend\n"
+gdb_expect_list	"nested trace-commands test" ".*$gdb_prompt $" {
   {[\r\n]\+if 1}
   {[\r\n]\+\+set \$i = 0}
   {[\r\n]\+\+while \$i < 5}
@@ -91,11 +97,12 @@ gdb_test_sequence "if 1\nset \$i = 0\nwhile \$i < 5\nfunc \$i\nset \$i += 1\nend
 }
 
 # Function with source works
-gdb_test_sequence "define topfunc\nsource tracecommandsscript\nend" \
-    "define user command" {
+send_gdb "define topfunc\nsource tracecommandsscript\nend\n"
+gdb_expect_list "define user command" ".*$gdb_prompt $" {
   {[\r\n]\+define topfunc}
 }
-gdb_test_sequence "topfunc" "nested trace-commands test with source" {
+send_gdb "topfunc\n"
+gdb_expect_list "nested trace-commands test with source" ".*$gdb_prompt $" {
   {[\r\n]\+topfunc}
   {[\r\n]\+\+source tracecommandsscript}
   {[\r\n]\+\+echo in tracecommandsscript\\n}
@@ -110,8 +117,8 @@ gdb_test_sequence "topfunc" "nested trace-commands test with source" {
 }
 
 # Test nest depth resets properly on error
-gdb_test_sequence "if 1\nif 2\nload\necho should not get here\\n\nend\nend" \
-    "depth resets on error part 1" {
+send_gdb "if 1\nif 2\nload\necho should not get here\\n\nend\nend\n"
+gdb_expect_list "depth resets on error part 1" ".*$gdb_prompt $" {
   {[\r\n]\+if 1}
   {[\r\n]\+\+if 2}
   {[\r\n]\+\+\+load}

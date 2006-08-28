@@ -1,12 +1,12 @@
 /* Target-dependent code for FreeBSD/alpha.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2002, 2003, 2006 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "value.h"
@@ -64,25 +66,24 @@ CORE_ADDR alphafbsd_sigtramp_start = 0x11ffff68;
 CORE_ADDR alphafbsd_sigtramp_end = 0x11ffffe0;
 
 static int
-alphafbsd_pc_in_sigtramp (struct gdbarch *gdbarch,
-			  CORE_ADDR pc, const char *func_name)
+alphafbsd_pc_in_sigtramp (CORE_ADDR pc, char *func_name)
 {
   return (pc >= alphafbsd_sigtramp_start && pc < alphafbsd_sigtramp_end);
 }
 
 static LONGEST
-alphafbsd_sigtramp_offset (struct gdbarch *gdbarch, CORE_ADDR pc)
+alphafbsd_sigtramp_offset (CORE_ADDR pc)
 {
   return pc - alphafbsd_sigtramp_start;
 }
 
-/* Assuming THIS_FRAME is the frame of a BSD sigtramp routine,
-   return the address of the associated sigcontext structure.  */
+/* Assuming NEXT_FRAME is for a frame following a BSD sigtramp
+   routine, return the address of the associated sigcontext structure.  */
 
 static CORE_ADDR
-alphafbsd_sigcontext_addr (struct frame_info *this_frame)
+alphafbsd_sigcontext_addr (struct frame_info *next_frame)
 {
-  return get_frame_register_unsigned (this_frame, ALPHA_SP_REGNUM) + 24;
+  return frame_unwind_register_unsigned (next_frame, ALPHA_SP_REGNUM) + 24;
 }
 
 /* FreeBSD 5.0-RELEASE or later.  */

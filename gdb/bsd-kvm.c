@@ -1,12 +1,12 @@
 /* BSD Kernel Data Access Library (libkvm) interface.
 
-   Copyright (C) 2004-2013 Free Software Foundation, Inc.
+   Copyright (C) 2004, 2005 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "cli/cli-cmds.h"
@@ -25,7 +27,6 @@
 #include "target.h"
 #include "value.h"
 #include "gdbcore.h"		/* for get_exec_file */
-#include "gdbthread.h"
 
 #include "gdb_assert.h"
 #include <fcntl.h>
@@ -56,11 +57,6 @@ static int (*bsd_kvm_supply_pcb)(struct regcache *regcache, struct pcb *pcb);
 
 /* Target ops for libkvm interface.  */
 static struct target_ops bsd_kvm_ops;
-
-/* This is the ptid we use while we're connected to kvm.  The kvm
-   target currently doesn't export any view of the running processes,
-   so this represents the kernel task.  */
-static ptid_t bsd_kvm_ptid;
 
 static void
 bsd_kvm_open (char *filename, int from_tty)
@@ -95,12 +91,10 @@ bsd_kvm_open (char *filename, int from_tty)
   core_kd = temp_kd;
   push_target (&bsd_kvm_ops);
 
-  add_thread_silent (bsd_kvm_ptid);
-  inferior_ptid = bsd_kvm_ptid;
+  target_fetch_registers (-1);
 
-  target_fetch_registers (get_current_regcache (), -1);
-
-  reinit_frame_cache ();
+  flush_cached_frames ();
+  select_frame (get_current_frame ());
   print_stack_frame (get_selected_frame (NULL), -1, 1);
 }
 
@@ -113,9 +107,6 @@ bsd_kvm_close (int quitting)
 	warning (("%s"), kvm_geterr(core_kd));
       core_kd = NULL;
     }
-
-  inferior_ptid = null_ptid;
-  delete_thread_silent (bsd_kvm_ptid);
 }
 
 static LONGEST
@@ -160,7 +151,7 @@ bsd_kvm_files_info (struct target_ops *ops)
 /* Fetch process control block at address PADDR.  */
 
 static int
-bsd_kvm_fetch_pcb (struct regcache *regcache, struct pcb *paddr)
+bsd_kvm_fetch_pcb (struct pcb *paddr)
 {
   struct pcb pcb;
 
@@ -168,18 +159,17 @@ bsd_kvm_fetch_pcb (struct regcache *regcache, struct pcb *paddr)
     error (("%s"), kvm_geterr (core_kd));
 
   gdb_assert (bsd_kvm_supply_pcb);
-  return bsd_kvm_supply_pcb (regcache, &pcb);
+  return bsd_kvm_supply_pcb (current_regcache, &pcb);
 }
 
 static void
-bsd_kvm_fetch_registers (struct target_ops *ops,
-			 struct regcache *regcache, int regnum)
+bsd_kvm_fetch_registers (int regnum)
 {
   struct nlist nl[2];
 
   if (bsd_kvm_paddr)
     {
-      bsd_kvm_fetch_pcb (regcache, bsd_kvm_paddr);
+      bsd_kvm_fetch_pcb (bsd_kvm_paddr);
       return;
     }
 
@@ -193,9 +183,9 @@ bsd_kvm_fetch_registers (struct target_ops *ops,
 
   if (nl[0].n_value != 0)
     {
-      /* Found dumppcb.  If it contains a valid context, return
+      /* Found dumppcb. If it contains a valid context, return
 	 immediately.  */
-      if (bsd_kvm_fetch_pcb (regcache, (struct pcb *) nl[0].n_value))
+      if (bsd_kvm_fetch_pcb ((struct pcb *) nl[0].n_value))
 	return;
     }
 
@@ -217,7 +207,7 @@ bsd_kvm_fetch_registers (struct target_ops *ops,
       if (kvm_read (core_kd, nl[0].n_value, &paddr, sizeof paddr) == -1)
 	error (("%s"), kvm_geterr (core_kd));
 
-      bsd_kvm_fetch_pcb (regcache, paddr);
+      bsd_kvm_fetch_pcb (paddr);
       return;
     }
 
@@ -242,12 +232,12 @@ bsd_kvm_fetch_registers (struct target_ops *ops,
       if (kvm_read (core_kd, nl[0].n_value, &paddr, sizeof paddr) == -1)
 	error (("%s"), kvm_geterr (core_kd));
 
-      bsd_kvm_fetch_pcb (regcache, paddr);
+      bsd_kvm_fetch_pcb (paddr);
       return;
     }
 #endif
 
-  /* i18n: PCB == "Process Control Block".  */
+  /* i18n: PCB == "Process Control Block" */
   error (_("Cannot find a valid PCB"));
 }
 
@@ -284,9 +274,10 @@ bsd_kvm_proc_cmd (char *arg, int fromtty)
   if (kvm_read (core_kd, addr, &bsd_kvm_paddr, sizeof bsd_kvm_paddr) == -1)
     error (("%s"), kvm_geterr (core_kd));
 
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (-1);
 
-  reinit_frame_cache ();
+  flush_cached_frames ();
+  select_frame (get_current_frame ());
   print_stack_frame (get_selected_frame (NULL), -1, 1);
 }
 
@@ -296,7 +287,7 @@ static void
 bsd_kvm_pcb_cmd (char *arg, int fromtty)
 {
   if (arg == NULL)
-    /* i18n: PCB == "Process Control Block".  */
+    /* i18n: PCB == "Process Control Block" */
     error_no_arg (_("pcb address"));
 
   if (core_kd == NULL)
@@ -304,31 +295,11 @@ bsd_kvm_pcb_cmd (char *arg, int fromtty)
 
   bsd_kvm_paddr = (struct pcb *)(u_long) parse_and_eval_address (arg);
 
-  target_fetch_registers (get_current_regcache (), -1);
+  target_fetch_registers (-1);
 
-  reinit_frame_cache ();
+  flush_cached_frames ();
+  select_frame (get_current_frame ());
   print_stack_frame (get_selected_frame (NULL), -1, 1);
-}
-
-static int
-bsd_kvm_thread_alive (struct target_ops *ops,
-		      ptid_t ptid)
-{
-  return 1;
-}
-
-static char *
-bsd_kvm_pid_to_str (struct target_ops *ops, ptid_t ptid)
-{
-  static char buf[64];
-  xsnprintf (buf, sizeof buf, "<kvm>");
-  return buf;
-}
-
-static int
-bsd_kvm_return_one (struct target_ops *ops)
-{
-  return 1;
 }
 
 /* Add the libkvm interface to the list of all possible targets and
@@ -350,12 +321,10 @@ Optionally specify the filename of a core dump.");
   bsd_kvm_ops.to_fetch_registers = bsd_kvm_fetch_registers;
   bsd_kvm_ops.to_xfer_partial = bsd_kvm_xfer_partial;
   bsd_kvm_ops.to_files_info = bsd_kvm_files_info;
-  bsd_kvm_ops.to_thread_alive = bsd_kvm_thread_alive;
-  bsd_kvm_ops.to_pid_to_str = bsd_kvm_pid_to_str;
   bsd_kvm_ops.to_stratum = process_stratum;
-  bsd_kvm_ops.to_has_memory = bsd_kvm_return_one;
-  bsd_kvm_ops.to_has_stack = bsd_kvm_return_one;
-  bsd_kvm_ops.to_has_registers = bsd_kvm_return_one;
+  bsd_kvm_ops.to_has_memory = 1;
+  bsd_kvm_ops.to_has_stack = 1;
+  bsd_kvm_ops.to_has_registers = 1;
   bsd_kvm_ops.to_magic = OPS_MAGIC;
 
   add_target (&bsd_kvm_ops);
@@ -369,22 +338,6 @@ Generic command for manipulating the kernel memory interface."),
 	   _("Set current context from proc address"), &bsd_kvm_cmdlist);
 #endif
   add_cmd ("pcb", class_obscure, bsd_kvm_pcb_cmd,
-	   /* i18n: PCB == "Process Control Block".  */
+	   /* i18n: PCB == "Process Control Block" */
 	   _("Set current context from pcb address"), &bsd_kvm_cmdlist);
-
-  /* Some notes on the ptid usage on this target.
-
-     The pid field represents the kvm inferior instance.  Currently,
-     we don't support multiple kvm inferiors, but we start at 1
-     anyway.  The lwp field is set to != 0, in case the core wants to
-     refer to the whole kvm inferior with ptid(1,0,0).
-
-     If kvm is made to export running processes as gdb threads,
-     the following form can be used:
-     ptid (1, 1, 0) -> kvm inferior 1, in kernel
-     ptid (1, 1, 1) -> kvm inferior 1, process 1
-     ptid (1, 1, 2) -> kvm inferior 1, process 2
-     ptid (1, 1, n) -> kvm inferior 1, process n  */
-
-  bsd_kvm_ptid = ptid_build (1, 1, 0);
 }

@@ -1,12 +1,14 @@
 /* Support for printing Modula 2 values for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1988, 1989, 1991, 1992, 1996, 1998,
+                 2000, 2005, 2006
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "symtab.h"
@@ -29,21 +33,35 @@
 #include "m2-lang.h"
 #include "target.h"
 
-static int print_unpacked_pointer (struct type *type,
-				   CORE_ADDR address, CORE_ADDR addr,
-				   const struct value_print_options *options,
-				   struct ui_file *stream);
+int print_unpacked_pointer (struct type *type,
+			    CORE_ADDR address, CORE_ADDR addr,
+			    int format, struct ui_file *stream);
+
+
+/* Print function pointer with inferior address ADDRESS onto stdio
+   stream STREAM.  */
+
 static void
-m2_print_array_contents (struct type *type, const gdb_byte *valaddr,
-			 int embedded_offset, CORE_ADDR address,
-			 struct ui_file *stream, int recurse,
-			 const struct value *val,
-			 const struct value_print_options *options,
-			 int len);
+print_function_pointer_address (CORE_ADDR address, struct ui_file *stream)
+{
+  CORE_ADDR func_addr = gdbarch_convert_from_func_ptr_addr (current_gdbarch,
+							    address,
+							    &current_target);
 
+  /* If the function pointer is represented by a description, print the
+     address of the description.  */
+  if (addressprint && func_addr != address)
+    {
+      fputs_filtered ("@", stream);
+      fputs_filtered (paddress (address), stream);
+      fputs_filtered (": ", stream);
+    }
+  print_address_demangle (func_addr, stream, demangle);
+}
 
-/* get_long_set_bounds - assigns the bounds of the long set to low and
-                         high.  */
+/*
+ *  get_long_set_bounds - assigns the bounds of the long set to low and high.
+ */
 
 int
 get_long_set_bounds (struct type *type, LONGEST *low, LONGEST *high)
@@ -68,7 +86,8 @@ get_long_set_bounds (struct type *type, LONGEST *low, LONGEST *high)
 static void
 m2_print_long_set (struct type *type, const gdb_byte *valaddr,
 		   int embedded_offset, CORE_ADDR address,
-		   struct ui_file *stream)
+		   struct ui_file *stream, int format,
+		   enum val_prettyprint pretty)
 {
   int empty_set        = 1;
   int element_seen     = 0;
@@ -97,6 +116,8 @@ m2_print_long_set (struct type *type, const gdb_byte *valaddr,
     }
 
   target = TYPE_TARGET_TYPE (range);
+  if (target == NULL)
+    target = builtin_type_int;
 
   if (get_discrete_bounds (range, &field_low, &field_high) >= 0)
     {
@@ -141,6 +162,8 @@ m2_print_long_set (struct type *type, const gdb_byte *valaddr,
 	      if (get_discrete_bounds (range, &field_low, &field_high) < 0)
 		break;
 	      target = TYPE_TARGET_TYPE (range);
+	      if (target == NULL)
+		target = builtin_type_int;
 	    }
 	}
       if (element_seen)
@@ -156,167 +179,88 @@ m2_print_long_set (struct type *type, const gdb_byte *valaddr,
     }
 }
 
-static void
-m2_print_unbounded_array (struct type *type, const gdb_byte *valaddr,
-			  int embedded_offset, CORE_ADDR address,
-			  struct ui_file *stream, int recurse,
-			  const struct value_print_options *options)
-{
-  struct type *content_type;
-  CORE_ADDR addr;
-  LONGEST len;
-  struct value *val;
-
-  CHECK_TYPEDEF (type);
-  content_type = TYPE_TARGET_TYPE (TYPE_FIELD_TYPE (type, 0));
-
-  addr = unpack_pointer (TYPE_FIELD_TYPE (type, 0),
-			 (TYPE_FIELD_BITPOS (type, 0) / 8) +
-			 valaddr + embedded_offset);
-
-  val = value_at_lazy (TYPE_TARGET_TYPE (TYPE_FIELD_TYPE (type, 0)),
-		       addr);
-  len = unpack_field_as_long (type, valaddr + embedded_offset, 1);
-
-  fprintf_filtered (stream, "{");  
-  m2_print_array_contents (value_type (val),
-			   value_contents_for_printing (val),
-			   value_embedded_offset (val), addr, stream,
-			   recurse, val, options, len);
-  fprintf_filtered (stream, ", HIGH = %d}", (int) len);
-}
-
-static int
+int
 print_unpacked_pointer (struct type *type,
 			CORE_ADDR address, CORE_ADDR addr,
-			const struct value_print_options *options,
-			struct ui_file *stream)
+			int format, struct ui_file *stream)
 {
-  struct gdbarch *gdbarch = get_type_arch (type);
   struct type *elttype = check_typedef (TYPE_TARGET_TYPE (type));
-  int want_space = 0;
 
   if (TYPE_CODE (elttype) == TYPE_CODE_FUNC)
     {
       /* Try to print what function it points to.  */
-      print_function_pointer_address (options, gdbarch, addr, stream);
+      print_function_pointer_address (addr, stream);
       /* Return value is irrelevant except for string pointers.  */
       return 0;
     }
 
-  if (options->addressprint && options->format != 's')
-    {
-      fputs_filtered (paddress (gdbarch, address), stream);
-      want_space = 1;
-    }
+  if (addressprint && format != 's')
+    fputs_filtered (paddress (address), stream);
 
   /* For a pointer to char or unsigned char, also print the string
      pointed to, unless pointer is null.  */
 
   if (TYPE_LENGTH (elttype) == 1
       && TYPE_CODE (elttype) == TYPE_CODE_INT
-      && (options->format == 0 || options->format == 's')
+      && (format == 0 || format == 's')
       && addr != 0)
-    {
-      if (want_space)
-	fputs_filtered (" ", stream);
-      return val_print_string (TYPE_TARGET_TYPE (type), NULL, addr, -1,
-			       stream, options);
-    }
+      return val_print_string (addr, -1, TYPE_LENGTH (elttype), stream);
   
   return 0;
 }
 
 static void
-print_variable_at_address (struct type *type,
-			   const gdb_byte *valaddr,
-			   struct ui_file *stream,
-			   int recurse,
-			   const struct value_print_options *options)
+print_variable_at_address (struct type *type, const gdb_byte *valaddr,
+			   struct ui_file *stream, int format,
+			   int deref_ref, int recurse,
+			   enum val_prettyprint pretty)
 {
-  struct gdbarch *gdbarch = get_type_arch (type);
   CORE_ADDR addr = unpack_pointer (type, valaddr);
   struct type *elttype = check_typedef (TYPE_TARGET_TYPE (type));
 
   fprintf_filtered (stream, "[");
-  fputs_filtered (paddress (gdbarch, addr), stream);
+  fputs_filtered (paddress (addr), stream);
   fprintf_filtered (stream, "] : ");
   
   if (TYPE_CODE (elttype) != TYPE_CODE_UNDEF)
     {
       struct value *deref_val =
-	value_at (TYPE_TARGET_TYPE (type), unpack_pointer (type, valaddr));
-
-      common_val_print (deref_val, stream, recurse, options, current_language);
+	value_at
+	(TYPE_TARGET_TYPE (type),
+	 unpack_pointer (lookup_pointer_type (builtin_type_void),
+			 valaddr));
+      common_val_print (deref_val, stream, format, deref_ref,
+			recurse, pretty);
     }
   else
     fputs_filtered ("???", stream);
 }
 
+/* Print data of type TYPE located at VALADDR (within GDB), which came from
+   the inferior at address ADDRESS, onto stdio stream STREAM according to
+   FORMAT (a letter or 0 for natural format).  The data at VALADDR is in
+   target byte order.
 
-/* m2_print_array_contents - prints out the contents of an
-                             array up to a max_print values.
-                             It prints arrays of char as a string
-                             and all other data types as comma
-                             separated values.  */
+   If the data are a string pointer, returns the number of string characters
+   printed.
 
-static void
-m2_print_array_contents (struct type *type, const gdb_byte *valaddr,
-			 int embedded_offset, CORE_ADDR address,
-			 struct ui_file *stream, int recurse,
-			 const struct value *val,
-			 const struct value_print_options *options,
-			 int len)
-{
-  CHECK_TYPEDEF (type);
+   If DEREF_REF is nonzero, then dereference references, otherwise just print
+   them like pointers.
 
-  if (TYPE_LENGTH (type) > 0)
-    {
-      if (options->prettyprint_arrays)
-	print_spaces_filtered (2 + 2 * recurse, stream);
-      /* For an array of chars, print with string syntax.  */
-      if (TYPE_LENGTH (type) == 1 &&
-	  ((TYPE_CODE (type) == TYPE_CODE_INT)
-	   || ((current_language->la_language == language_m2)
-	       && (TYPE_CODE (type) == TYPE_CODE_CHAR)))
-	  && (options->format == 0 || options->format == 's'))
-	val_print_string (type, NULL, address, len+1, stream, options);
-      else
-	{
-	  fprintf_filtered (stream, "{");
-	  val_print_array_elements (type, valaddr, embedded_offset,
-				    address, stream, recurse, val,
-				    options, 0);
-	  fprintf_filtered (stream, "}");
-	}
-    }
-}
+   The PRETTY parameter controls prettyprinting.  */
 
-/* Decorations for Modula 2.  */
-
-static const struct generic_val_print_decorations m2_decorations =
-{
-  "",
-  " + ",
-  " * I",
-  "TRUE",
-  "FALSE",
-  "void"
-};
-
-/* See val_print for a description of the various parameters of this
-   function; they are identical.  */
-
-void
+int
 m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
-	      CORE_ADDR address, struct ui_file *stream, int recurse,
-	      const struct value *original_value,
-	      const struct value_print_options *options)
+	      CORE_ADDR address, struct ui_file *stream, int format,
+	      int deref_ref, int recurse, enum val_prettyprint pretty)
 {
-  struct gdbarch *gdbarch = get_type_arch (type);
-  unsigned int i = 0;	/* Number of characters printed.  */
+  unsigned int i = 0;	/* Number of characters printed */
   unsigned len;
   struct type *elttype;
+  unsigned eltlen;
+  int length_pos, length_size, string_pos;
+  int char_size;
+  LONGEST val;
   CORE_ADDR addr;
 
   CHECK_TYPEDEF (type);
@@ -326,66 +270,98 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
       if (TYPE_LENGTH (type) > 0 && TYPE_LENGTH (TYPE_TARGET_TYPE (type)) > 0)
 	{
 	  elttype = check_typedef (TYPE_TARGET_TYPE (type));
-	  len = TYPE_LENGTH (type) / TYPE_LENGTH (elttype);
-	  if (options->prettyprint_arrays)
+	  eltlen = TYPE_LENGTH (elttype);
+	  len = TYPE_LENGTH (type) / eltlen;
+	  if (prettyprint_arrays)
 	    print_spaces_filtered (2 + 2 * recurse, stream);
 	  /* For an array of chars, print with string syntax.  */
-	  if (TYPE_LENGTH (elttype) == 1 &&
+	  if (eltlen == 1 &&
 	      ((TYPE_CODE (elttype) == TYPE_CODE_INT)
 	       || ((current_language->la_language == language_m2)
 		   && (TYPE_CODE (elttype) == TYPE_CODE_CHAR)))
-	      && (options->format == 0 || options->format == 's'))
+	      && (format == 0 || format == 's'))
 	    {
 	      /* If requested, look for the first null char and only print
 	         elements up to it.  */
-	      if (options->stop_print_at_null)
+	      if (stop_print_at_null)
 		{
 		  unsigned int temp_len;
 
-		  /* Look for a NULL char.  */
+		  /* Look for a NULL char. */
 		  for (temp_len = 0;
 		       (valaddr + embedded_offset)[temp_len]
-			 && temp_len < len && temp_len < options->print_max;
+			 && temp_len < len && temp_len < print_max;
 		       temp_len++);
 		  len = temp_len;
 		}
 
-	      LA_PRINT_STRING (stream, TYPE_TARGET_TYPE (type),
-			       valaddr + embedded_offset, len, NULL,
-			       0, options);
+	      LA_PRINT_STRING (stream, valaddr + embedded_offset, len, 1, 0);
 	      i = len;
 	    }
 	  else
 	    {
 	      fprintf_filtered (stream, "{");
-	      val_print_array_elements (type, valaddr, embedded_offset,
-					address, stream,
-					recurse, original_value,
-					options, 0);
+	      val_print_array_elements (type, valaddr + embedded_offset,
+					address, stream, format, deref_ref,
+					recurse, pretty, 0);
 	      fprintf_filtered (stream, "}");
 	    }
 	  break;
 	}
       /* Array of unspecified length: treat like pointer to first elt.  */
-      print_unpacked_pointer (type, address, address, options, stream);
+      print_unpacked_pointer (type, address, address, format, stream);
       break;
 
     case TYPE_CODE_PTR:
       if (TYPE_CONST (type))
 	print_variable_at_address (type, valaddr + embedded_offset,
-				   stream, recurse, options);
-      else if (options->format && options->format != 's')
-	val_print_scalar_formatted (type, valaddr, embedded_offset,
-				    original_value, options, 0, stream);
+				   stream, format, deref_ref, recurse,
+				   pretty);
+      else if (format && format != 's')
+	print_scalar_formatted (valaddr + embedded_offset, type, format,
+				0, stream);
       else
 	{
 	  addr = unpack_pointer (type, valaddr + embedded_offset);
-	  print_unpacked_pointer (type, addr, address, options, stream);
+	  print_unpacked_pointer (type, addr, address, format, stream);
+	}
+      break;
+
+    case TYPE_CODE_MEMBER:
+      error (_("not implemented: member type in m2_val_print"));
+      break;
+
+    case TYPE_CODE_REF:
+      elttype = check_typedef (TYPE_TARGET_TYPE (type));
+      if (addressprint)
+	{
+	  CORE_ADDR addr
+	    = extract_typed_address (valaddr + embedded_offset, type);
+	  fprintf_filtered (stream, "@");
+	  fputs_filtered (paddress (addr), stream);
+	  if (deref_ref)
+	    fputs_filtered (": ", stream);
+	}
+      /* De-reference the reference.  */
+      if (deref_ref)
+	{
+	  if (TYPE_CODE (elttype) != TYPE_CODE_UNDEF)
+	    {
+	      struct value *deref_val =
+		value_at
+		(TYPE_TARGET_TYPE (type),
+		 unpack_pointer (lookup_pointer_type (builtin_type_void),
+				 valaddr + embedded_offset));
+	      common_val_print (deref_val, stream, format, deref_ref,
+				recurse, pretty);
+	    }
+	  else
+	    fputs_filtered ("???", stream);
 	}
       break;
 
     case TYPE_CODE_UNION:
-      if (recurse && !options->unionprint)
+      if (recurse && !unionprint)
 	{
 	  fprintf_filtered (stream, "{...}");
 	  break;
@@ -394,16 +370,127 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
     case TYPE_CODE_STRUCT:
       if (m2_is_long_set (type))
 	m2_print_long_set (type, valaddr, embedded_offset, address,
-			   stream);
-      else if (m2_is_unbounded_array (type))
-	m2_print_unbounded_array (type, valaddr, embedded_offset,
-				  address, stream, recurse, options);
+			   stream, format, pretty);
       else
 	cp_print_value_fields (type, type, valaddr, embedded_offset,
-			       address, stream, recurse, original_value,
-			       options, NULL, 0);
+			       address, stream, format,
+			       recurse, pretty, NULL, 0);
       break;
 
+    case TYPE_CODE_ENUM:
+      if (format)
+	{
+	  print_scalar_formatted (valaddr + embedded_offset, type,
+				  format, 0, stream);
+	  break;
+	}
+      len = TYPE_NFIELDS (type);
+      val = unpack_long (type, valaddr + embedded_offset);
+      for (i = 0; i < len; i++)
+	{
+	  QUIT;
+	  if (val == TYPE_FIELD_BITPOS (type, i))
+	    {
+	      break;
+	    }
+	}
+      if (i < len)
+	{
+	  fputs_filtered (TYPE_FIELD_NAME (type, i), stream);
+	}
+      else
+	{
+	  print_longest (stream, 'd', 0, val);
+	}
+      break;
+
+    case TYPE_CODE_FUNC:
+      if (format)
+	{
+	  print_scalar_formatted (valaddr + embedded_offset, type,
+				  format, 0, stream);
+	  break;
+	}
+      /* FIXME, we should consider, at least for ANSI C language, eliminating
+         the distinction made between FUNCs and POINTERs to FUNCs.  */
+      fprintf_filtered (stream, "{");
+      type_print (type, "", stream, -1);
+      fprintf_filtered (stream, "} ");
+      /* Try to print what function it points to, and its address.  */
+      print_address_demangle (address, stream, demangle);
+      break;
+
+    case TYPE_CODE_BOOL:
+      format = format ? format : output_format;
+      if (format)
+	print_scalar_formatted (valaddr + embedded_offset, type,
+				format, 0, stream);
+      else
+	{
+	  val = unpack_long (type, valaddr + embedded_offset);
+	  if (val == 0)
+	    fputs_filtered ("FALSE", stream);
+	  else if (val == 1)
+	    fputs_filtered ("TRUE", stream);
+	  else
+	    fprintf_filtered (stream, "%ld)", (long int) val);
+	}
+      break;
+
+    case TYPE_CODE_RANGE:
+      if (TYPE_LENGTH (type) == TYPE_LENGTH (TYPE_TARGET_TYPE (type)))
+	{
+	  m2_val_print (TYPE_TARGET_TYPE (type), valaddr, embedded_offset,
+			address, stream, format, deref_ref, recurse, pretty);
+	  break;
+	}
+      /* FIXME: create_range_type does not set the unsigned bit in a
+         range type (I think it probably should copy it from the target
+         type), so we won't print values which are too large to
+         fit in a signed integer correctly.  */
+      /* FIXME: Doesn't handle ranges of enums correctly.  (Can't just
+         print with the target type, though, because the size of our type
+         and the target type might differ).  */
+      /* FALLTHROUGH */
+
+    case TYPE_CODE_INT:
+      format = format ? format : output_format;
+      if (format)
+	print_scalar_formatted (valaddr + embedded_offset, type, format,
+				0, stream);
+      else
+	val_print_type_code_int (type, valaddr + embedded_offset, stream);
+      break;
+
+    case TYPE_CODE_CHAR:
+      format = format ? format : output_format;
+      if (format)
+	print_scalar_formatted (valaddr + embedded_offset, type,
+				format, 0, stream);
+      else
+	{
+	  val = unpack_long (type, valaddr + embedded_offset);
+	  if (TYPE_UNSIGNED (type))
+	    fprintf_filtered (stream, "%u", (unsigned int) val);
+	  else
+	    fprintf_filtered (stream, "%d", (int) val);
+	  fputs_filtered (" ", stream);
+	  LA_PRINT_CHAR ((unsigned char) val, stream);
+	}
+      break;
+
+    case TYPE_CODE_FLT:
+      if (format)
+	print_scalar_formatted (valaddr + embedded_offset, type,
+				format, 0, stream);
+      else
+	print_floating (valaddr + embedded_offset, type, stream);
+      break;
+
+    case TYPE_CODE_METHOD:
+      break;
+
+    case TYPE_CODE_BITSTRING:
     case TYPE_CODE_SET:
       elttype = TYPE_INDEX_TYPE (type);
       CHECK_TYPEDEF (elttype);
@@ -418,9 +505,13 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 	  struct type *range = elttype;
 	  LONGEST low_bound, high_bound;
 	  int i;
+	  int is_bitstring = TYPE_CODE (type) == TYPE_CODE_BITSTRING;
 	  int need_comma = 0;
 
-	  fputs_filtered ("{", stream);
+	  if (is_bitstring)
+	    fputs_filtered ("B'", stream);
+	  else
+	    fputs_filtered ("{", stream);
 
 	  i = get_discrete_bounds (range, &low_bound, &high_bound);
 	maybe_bad_bstring:
@@ -434,13 +525,14 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 	    {
 	      int element = value_bit_index (type, valaddr + embedded_offset,
 					     i);
-
 	      if (element < 0)
 		{
 		  i = element;
 		  goto maybe_bad_bstring;
 		}
-	      if (element)
+	      if (is_bitstring)
+		fprintf_filtered (stream, "%d", element);
+	      else if (element)
 		{
 		  if (need_comma)
 		    fputs_filtered (", ", stream);
@@ -452,7 +544,6 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 					  ++i))
 		    {
 		      int j = i;
-
 		      fputs_filtered ("..", stream);
 		      while (i + 1 <= high_bound
 			     && value_bit_index (type,
@@ -464,42 +555,31 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 		}
 	    }
 	done:
-	  fputs_filtered ("}", stream);
+	  if (is_bitstring)
+	    fputs_filtered ("'", stream);
+	  else
+	    fputs_filtered ("}", stream);
 	}
       break;
 
-    case TYPE_CODE_RANGE:
-      if (TYPE_LENGTH (type) == TYPE_LENGTH (TYPE_TARGET_TYPE (type)))
-	{
-	  m2_val_print (TYPE_TARGET_TYPE (type), valaddr, embedded_offset,
-			address, stream, recurse, original_value, options);
-	  break;
-	}
-      /* FIXME: create_range_type does not set the unsigned bit in a
-         range type (I think it probably should copy it from the target
-         type), so we won't print values which are too large to
-         fit in a signed integer correctly.  */
-      /* FIXME: Doesn't handle ranges of enums correctly.  (Can't just
-         print with the target type, though, because the size of our type
-         and the target type might differ).  */
-      /* FALLTHROUGH */
-
-    case TYPE_CODE_REF:
-    case TYPE_CODE_ENUM:
-    case TYPE_CODE_FUNC:
-    case TYPE_CODE_INT:
-    case TYPE_CODE_FLT:
-    case TYPE_CODE_METHOD:
     case TYPE_CODE_VOID:
-    case TYPE_CODE_ERROR:
-    case TYPE_CODE_UNDEF:
-    case TYPE_CODE_BOOL:
-    case TYPE_CODE_CHAR:
-    default:
-      generic_val_print (type, valaddr, embedded_offset, address,
-			 stream, recurse, original_value, options,
-			 &m2_decorations);
+      fprintf_filtered (stream, "void");
       break;
+
+    case TYPE_CODE_ERROR:
+      fprintf_filtered (stream, _("<error type>"));
+      break;
+
+    case TYPE_CODE_UNDEF:
+      /* This happens (without TYPE_FLAG_STUB set) on systems which don't use
+         dbx xrefs (NO_DBX_XREFS in gcc) if a file has a "struct foo *bar"
+         and no complete type for struct foo in that file.  */
+      fprintf_filtered (stream, _("<incomplete type>"));
+      break;
+
+    default:
+      error (_("Invalid m2 type code %d in symbol table."), TYPE_CODE (type));
     }
   gdb_flush (stream);
+  return (0);
 }

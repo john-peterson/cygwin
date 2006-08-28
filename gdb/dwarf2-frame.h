@@ -1,6 +1,6 @@
 /* Frame unwinder for frames with DWARF Call Frame Information.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004, 2005 Free Software Foundation, Inc.
 
    Contributed by Mark Kettenis.
 
@@ -8,7 +8,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -17,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #ifndef DWARF2_FRAME_H
 #define DWARF2_FRAME_H 1
@@ -25,9 +27,6 @@
 struct gdbarch;
 struct objfile;
 struct frame_info;
-struct dwarf2_per_cu_data;
-struct agent_expr;
-struct axs_value;
 
 /* Register rule.  */
 
@@ -58,7 +57,6 @@ enum dwarf2_frame_reg_rule
 
   /* These aren't defined by the DWARF2 CFI specification, but are
      used internally by GDB.  */
-  DWARF2_FRAME_REG_FN,		/* Call a registered function.  */
   DWARF2_FRAME_REG_RA,		/* Return Address.  */
   DWARF2_FRAME_REG_RA_OFFSET,	/* Return Address with offset.  */
   DWARF2_FRAME_REG_CFA,		/* Call Frame Address.  */
@@ -74,9 +72,7 @@ struct dwarf2_frame_state_reg
   union {
     LONGEST offset;
     ULONGEST reg;
-    const gdb_byte *exp;
-    struct value *(*fn) (struct frame_info *this_frame, void **this_cache,
-			 int regnum);
+    unsigned char *exp;
   } loc;
   ULONGEST exp_len;
   enum dwarf2_frame_reg_rule how;
@@ -98,37 +94,33 @@ extern void
 				   int (*signal_frame_p) (struct gdbarch *,
 							  struct frame_info *));
 
-/* Set the architecture-specific adjustment of .eh_frame and .debug_frame
-   register numbers.  */
+/* Set the architecture-specific mapping of .eh_frame register numbers to
+   DWARF register numbers.  */
 
 extern void
-  dwarf2_frame_set_adjust_regnum (struct gdbarch *gdbarch,
-				  int (*adjust_regnum) (struct gdbarch *,
-							int, int));
+  dwarf2_frame_set_eh_frame_regnum (struct gdbarch *gdbarch,
+				    int (*eh_frame_regnum) (struct gdbarch *,
+							    int));
 
-/* Append the DWARF-2 frame unwinders to GDBARCH's list.  */
+/* Translate a .eh_frame register to DWARF register.  */
 
-void dwarf2_append_unwinders (struct gdbarch *gdbarch);
+extern int
+  dwarf2_frame_eh_frame_regnum (struct gdbarch *gdbarch, int regnum);
+
+/* Return the frame unwind methods for the function that contains PC,
+   or NULL if it can't be handled by DWARF CFI frame unwinder.  */
+
+extern const struct frame_unwind *
+  dwarf2_frame_sniffer (struct frame_info *next_frame);
 
 /* Return the frame base methods for the function that contains PC, or
    NULL if it can't be handled by the DWARF CFI frame unwinder.  */
 
 extern const struct frame_base *
-  dwarf2_frame_base_sniffer (struct frame_info *this_frame);
+  dwarf2_frame_base_sniffer (struct frame_info *next_frame);
 
-/* Compute the DWARF CFA for a frame.  */
+/* Register the DWARF CFI for OBJFILE.  */
 
-CORE_ADDR dwarf2_frame_cfa (struct frame_info *this_frame);
-
-/* Update the agent expression EXPR with code to compute the CFA for a
-   frame at PC.  GDBARCH is the architecture of the function at PC.
-   This function may call dwarf2_compile_expr_to_ax; DATA is passed
-   through to that function if needed.  */
-
-extern void dwarf2_compile_cfa_to_ax (struct agent_expr *expr,
-				      struct axs_value *loc,
-				      struct gdbarch *gdbarch,
-				      CORE_ADDR pc,
-				      struct dwarf2_per_cu_data *data);
+void dwarf2_frame_build_info (struct objfile *objfile);
 
 #endif /* dwarf2-frame.h */

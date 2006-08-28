@@ -1,26 +1,34 @@
-# Copyright 1992-2013 Free Software Foundation, Inc.
+# Copyright 1992, 1994, 1995, 1996, 1997, 1999, 2002 Free Software
+# Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Fred Fish. (fnf@cygnus.com)
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
 if { [skip_cplus_tests] } { continue }
 
-standard_testfile .cc
-
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
-    return -1
+set testfile "misc"
+set srcfile ${testfile}.cc
+set binfile ${objdir}/${subdir}/${testfile}
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++}] != "" } {
+     untested misc.exp
+     return -1
 }
 
 #
@@ -32,17 +40,39 @@ proc deduce_language_of_main {} {
 
     # See what language gdb thinks main() is, prior to reading full symbols.
     # I think this fails for COFF targets.
-    gdb_test "show language" \
-	"source language is \"auto; currently c\[+\]+\".*" \
-	"deduced language is C++, before full symbols"
+    send_gdb "show language\n"
+    gdb_expect {
+	-re ".* source language is \"auto; currently c\[+\]+\".*$gdb_prompt $" {
+	    pass "deduced language is C++, before full symbols"
+	}
+	-re ".*$gdb_prompt $" {
+	    fail "source language not correct for C++ (psymtabs only)"
+	    return
+	}
+	timeout {
+	    fail "can't show language (timeout)"
+	    return
+	}
+    }
 
     runto_main
 
     # See if our idea of the language has changed.
 
-    gdb_test "show language" \
-	"source language is \"auto; currently c\[+\]+\".*" \
-	"deduced language is C++, after full symbols"
+    send_gdb "show language\n"
+    gdb_expect {
+	-re ".* source language is \"auto; currently c\[+\]+\".*$gdb_prompt $" {
+	    pass "deduced language is C++, after full symbols"
+	}
+	-re ".*$gdb_prompt $" {
+	    fail "source language not correct for C++ (full symbols)"
+	    return
+	}
+	timeout {
+	    fail "can't show language (timeout)"
+	    return
+	}
+    }
 }
 
 proc test_expr { args } {
@@ -51,7 +81,7 @@ proc test_expr { args } {
     }
     set last_ent [expr [llength $args] - 1];
     set testname [lindex $args $last_ent];
-    if [gdb_test_no_output [lindex $args 0] "$testname (setup)"] {
+    if [gdb_test [lindex $args 0] "" "$testname (setup)"] {
 	gdb_suppress_tests;
     }
     for {set x 1} {$x < $last_ent} {set x [expr $x + 2]} {
@@ -63,6 +93,24 @@ proc test_expr { args } {
 }
 
 proc do_tests {} {
+    global prms_id
+    global bug_id
+    global subdir
+    global objdir
+    global srcdir
+    global binfile
+    global gdb_prompt
+
+    set prms_id 0
+    set bug_id 0
+
+    # Start with a fresh gdb.
+
+    gdb_exit
+    gdb_start
+    gdb_reinitialize_dir $srcdir/$subdir
+    gdb_load $binfile
+
     deduce_language_of_main
     # Check for fixes for PRs 8916 and 8630
     gdb_test "print s.a" ".* = 0" "print s.a for foo struct (known gcc 2.7.2 and earlier bug)"

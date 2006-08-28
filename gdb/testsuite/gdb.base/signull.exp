@@ -1,10 +1,10 @@
 # This testcase is part of GDB, the GNU debugger.
 
-# Copyright 2004-2013 Free Software Foundation, Inc.
+# Copyright 2004, 2005 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -13,7 +13,8 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # Check that GDB can trigger and backtrace SIGSEGV signal stacks
 # caused by both accessing (data) and executing (code) at address
@@ -28,10 +29,16 @@
 # This also tests backtrace/gdb1476.
 
 if [target_info exists gdb,nosignals] {
-    verbose "Skipping signull.exp because of nosignals."
+    verbose "Skipping signals.exp because of nosignals."
     continue
 }
 
+if $tracelevel {
+    strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 set testfile "signull"
 set srcfile ${testfile}.c
@@ -60,7 +67,8 @@ if ![runto_main] then {
 # especially on targets without an MMU.  Don't run the tests in that
 # case.
 
-gdb_test_multiple "x 0" "memory at address 0" {
+send_gdb "x 0\n"
+gdb_expect {
     -re "0x0:.*Cannot access memory at address 0x0.*$gdb_prompt $" { }
     -re "0x0:.*Error accessing memory address 0x0.*$gdb_prompt $" { }
     -re ".*$gdb_prompt $" {
@@ -73,21 +81,15 @@ gdb_test_multiple "x 0" "memory at address 0" {
 # then function pointers are descriptors, probe this and remember the
 # result.
 
-gdb_test_no_output "set test = code_entry_point" \
-    "set for function pointer probe"
+gdb_test "set test = code_entry_point" "" "set for function pointer probe"
 set test "probe function pointer"
 set function_pointer code_entry_point
-set signame "SIGSEGV"
 gdb_test_multiple "continue" "$test" {
     -re "Program received signal SIGSEGV.*bowler .*$gdb_prompt $" {
 	set function_pointer code_descriptor
 	pass "$test (function descriptor)"
     }
     -re "Program received signal SIGSEGV.*0.*$gdb_prompt $" {
-	pass "$test (function entry-point)"
-    }
-    -re "Program received signal SIGBUS.*0.*$gdb_prompt $" {
-	set signame SIGBUS
 	pass "$test (function entry-point)"
     }
 }
@@ -99,22 +101,20 @@ gdb_test "break bowler"
 gdb_test "break keeper"
 # By default Stop:Yes Print:Yes Pass:Yes
 gdb_test "handle SIGSEGV" "SIGSEGV.*Yes.*Yes.*Yes.*Segmentation fault"
-gdb_test "handle SIGBUS" "SIGBUS.*Yes.*Yes.*Yes.*Bus error"
 
 # For the given signal type, check that: the SIGSEGV occures; a
 # backtrace from the SEGV works; the sigsegv is delivered; a backtrace
 # through the SEGV works.
 
 proc test_segv { name tag bt_from_segv bt_from_keeper } {
-    global signame
     gdb_test continue "Breakpoint.* bowler.*" "${name}; start with the bowler"
     # NB: Don't use $tag in the testname - changes across systems.
-    gdb_test_no_output "set test = $tag" "${name}; select the pointer type"
-    gdb_test continue "Program received signal ${signame}.*" \
-	"${name}; take the ${signame}"
-    gdb_test backtrace $bt_from_segv "${name}; backtrace from ${signame}"
+    gdb_test "set test = $tag" "" "${name}; select the pointer type"
+    gdb_test continue "Program received signal SIGSEGV.*" \
+	"${name}; take the SIGSEGV"
+    gdb_test backtrace $bt_from_segv "${name}; backtrace from SIGSEGV"
     gdb_test continue "Breakpoint.* keeper.*" "${name}; continue to the keeper"
-    gdb_test backtrace $bt_from_keeper "${name}; backtrace from keeper through ${signame}"
+    gdb_test backtrace $bt_from_keeper "${name}; backtrace from keeper through SIGSEGV"
 }
 
 test_segv "data read" data_read \

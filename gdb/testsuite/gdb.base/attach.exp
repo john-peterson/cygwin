@@ -1,18 +1,25 @@
-# Copyright 1997-2013 Free Software Foundation, Inc.
+# Copyright 1997, 1999, 2002, 2003, 2004 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 # On HP-UX 11.0, this test is causing a process running the program
 # "attach" to be left around spinning.  Until we figure out why, I am
@@ -57,7 +64,7 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile2}" "${binfile2}" executable {d
     return -1
 }
 
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1
 }
 
@@ -86,28 +93,7 @@ proc do_attach_tests {} {
 
     set test "attach to nonsense is prohibited"
     gdb_test_multiple "attach abc" "$test" {
-	-re "Illegal process-id: abc\\.\r\n$gdb_prompt $" {
-	    pass "$test"
-	}
-	-re "Attaching to.*, process .*couldn't open /proc file.*$gdb_prompt $" {
-	    # Response expected from /proc-based systems.
-	    pass "$test" 
-	}
-	-re "Can't attach to process..*$gdb_prompt $" {
-	    # Response expected on Cygwin
-	    pass "$test"
-	}
-	-re "Attaching to.*$gdb_prompt $" {
-	    fail "$test (bogus pid allowed)"
-	}
-    }
-
-    # Verify that we cannot attach to nonsense even if its initial part is
-    # a valid PID.
-
-    set test "attach to digits-starting nonsense is prohibited"
-    gdb_test_multiple "attach ${testpid}x" "$test" {
-	-re "Illegal process-id: ${testpid}x\\.\r\n$gdb_prompt $" {
+	-re "Illegal process-id: abc.*$gdb_prompt $" {
 	    pass "$test"
 	}
 	-re "Attaching to.*, process .*couldn't open /proc file.*$gdb_prompt $" {
@@ -157,10 +143,6 @@ proc do_attach_tests {} {
 	}
 	-re "Can't attach to process..*$gdb_prompt $" {
 	    # Response expected on Cygwin
-	    pass "$test"
-	}
-	-re "Attaching to.*, process $boguspid.*failed.*$gdb_prompt $" {
-	    # Response expected on the extended-remote target.
 	    pass "$test"
 	}
     }
@@ -227,8 +209,7 @@ proc do_attach_tests {} {
     # Verify that we can attach to the process just by giving the
     # process ID.
    
-    set test "attach2, with no file"
-    set found_exec_file 0
+    set test "set file, before attach2"
     gdb_test_multiple "attach $testpid" "$test" {
 	-re "Attaching to process $testpid.*Load new symbol table from \"$escapedbinfile\.exe\".*y or n. $" {
 	    # On Cygwin, the DLL's symbol tables are loaded prior to the
@@ -237,44 +218,47 @@ proc do_attach_tests {} {
 	    # executable.
 	    gdb_test "y" "Reading symbols from $escapedbinfile\.\.\.*done." \
 		"$test (reset file)"
-
-	    set found_exec_file 1
 	}
 	-re "Attaching to process $testpid.*Reading symbols from $escapedbinfile.*main.*at .*$gdb_prompt $" {
 	    pass "$test"
-	    set found_exec_file 1
-	}
-    }
-
-    if {$found_exec_file == 0} {
-	set test "load file manually, after attach2"
-	gdb_test_multiple "file $binfile" "$test" {
-	    -re "A program is being debugged already..*Are you sure you want to change the file.*y or n. $" {
-		gdb_test "y" "Reading symbols from $escapedbinfile\.\.\.*done." \
-		    "$test (re-read)"
-	    }
-	    -re "Reading symbols from $escapedbinfile\.\.\.*done.*$gdb_prompt $" {
-		pass "$test"
-	    }
 	}
     }
 
     # Verify that we can modify the variable "should_exit" in the
     # program.
 
-    gdb_test_no_output "set should_exit=1" "after attach2, set should_exit"
+    gdb_test "set should_exit=1" "" "after attach2, set should_exit"
 
     # Verify that the modification really happened.
 
-    gdb_test "tbreak 19" "Temporary breakpoint .*at.*$srcfile, line 19.*" \
-	"after attach2, set tbreak postloop"
-
-    gdb_test "continue" "main.*at.*$srcfile:19.*" \
-	"after attach2, reach tbreak postloop"
+    send_gdb "tbreak 19\n"
+    gdb_expect {
+	-re "Breakpoint .*at.*$srcfile, line 19.*$gdb_prompt $" {
+	    pass "after attach2, set tbreak postloop"
+	}
+	-re "$gdb_prompt $" {
+	    fail "after attach2, set tbreak postloop"
+	}
+	timeout {
+	    fail "(timeout) after attach2, set tbreak postloop"
+	}
+    }
+    send_gdb "continue\n"
+    gdb_expect {
+	-re "main.*at.*$srcfile:19.*$gdb_prompt $" {
+	    pass "after attach2, reach tbreak postloop"
+	}
+	-re "$gdb_prompt $" {
+	    fail "after attach2, reach tbreak postloop"
+	}
+	timeout {
+	    fail "(timeout) after attach2, reach tbreak postloop"
+	}
+    }
 
     # Allow the test process to exit, to cleanup after ourselves.
 
-    gdb_continue_to_end "after attach2, exit"
+    gdb_test "continue" "Program exited normally." "after attach2, exit"
 
     # Make sure we don't leave a process around to confuse
     # the next test run (and prevent the compile by keeping
@@ -307,7 +291,7 @@ proc do_attach_tests {} {
     # Explicitly flush out any knowledge of the previous attachment.
 
     set test "before attach3, flush symbols"
-    gdb_test_multiple "symbol-file" "$test" {
+    gdb_test_multiple "symbol" "$test" {
 	-re "Discard symbol table from.*y or n. $" {
 	    gdb_test "y" "No symbol file now." \
 		"$test"
@@ -325,11 +309,11 @@ proc do_attach_tests {} {
 	"attach when process' a.out not in cwd"
 
     set test "after attach3, exit"
-    gdb_test "kill" \
-	"" \
-	"$test" \
-	"Kill the program being debugged.*y or n. $" \
-	"y"
+    gdb_test_multiple "kill" "$test" {
+	-re "Kill the program being debugged.*y or n. $" {
+	    gdb_test "y" "" "$test"
+	}
+    }
     
     # Another "don't leave a process around"
     remote_exec build "kill -9 ${testpid}"
@@ -352,7 +336,7 @@ proc do_call_attach_tests {} {
 
     # Attach
    
-    gdb_test "file $binfile2" ".*" "force switch to gdb64, if necessary"
+    gdb_test "file $binfile2" "" "force switch to gdb64, if necessary"
     set test "attach call"
     gdb_test_multiple "attach $testpid" "$test" {
 	-re "warning: reading register.*I.*O error.*$gdb_prompt $" {
@@ -381,7 +365,7 @@ proc do_call_attach_tests {} {
     # Get rid of the process
     
     gdb_test "p should_exit = 1"
-    gdb_continue_to_end
+    gdb_test "c" "Program exited normally."
    
     # Be paranoid
    

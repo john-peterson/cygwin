@@ -1,17 +1,21 @@
-# Copyright 1999-2013 Free Software Foundation, Inc.
+# Copyright 1999, 2000, 2001, 2002, 2003, 2005 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 
 #
 # test basic Machine interface (MI) operations
@@ -33,11 +37,13 @@ if [mi_gdb_start separate-inferior-tty] {
     continue
 }
 
-standard_testfile basics.c
+set testfile "basics"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
 set escapedobjdir [string_to_regexp ${objdir}]
-set envirodir [string_to_regexp ${objdir}/${subdir}]
+set escapedsrcdir [string_to_regexp ${srcdir}]
 
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-DFAKEARGV}] != "" } {
      untested mi-basics.exp
      return -1
 }
@@ -57,11 +63,23 @@ proc test_mi_interpreter_selection {} {
 
     # All this test expects is to get the prompt back
     # with no syntax error message
-    if ![mi_gdb_test "-gdb-version" "~\"GNU gdb.*" "acceptance of MI operations"] {
-	return 1
-    } 
-
-    note "Skipping all other MI tests."
+    send_gdb "-gdb-version\n"
+    gdb_expect {
+           -re "GNU gdb .*\r\n$mi_gdb_prompt$" \
+               { pass "acceptance of MI operations" 
+                 return 1}
+           -re ".*\r\n$mi_gdb_prompt$" \
+               { fail "acceptance of MI operations"
+                 note "Skipping all other MI tests." }
+           -re "Undefined command.*$gdb_prompt $" \
+               { fail "acceptance of MI operations"
+                 note "Skipping all other MI tests." }
+           -re ".*$gdb_prompt $" \
+               { fail "acceptance of MI operations"
+                 note "Skipping all other MI tests." }
+           timeout { fail "acceptance of MI operations (timeout)"
+                     note "Skipping all other MI tests." }
+    }
     return 0
 }
 
@@ -73,10 +91,15 @@ proc test_exec_and_symbol_mi_operatons {} {
     # Tests:
     # -file-exec-and-symbols
 
-    if [mi_gdb_test "-file-exec-and-symbols ${binfile}" "\\\^done" \
-       "file-exec-and-symbols operation"] {
-	note "Skipping all other MI tests."
-	return 0
+    # Can't use mi_gdb_test as if this doesn't work,
+    #  we must give up on the whole test file
+    send_gdb "-file-exec-and-symbols ${binfile}\n"
+    gdb_expect {
+           -re "\[\r\n\]*\\\^done\r\n$mi_gdb_prompt$" \
+               { pass "file-exec-and-symbols operation" }
+           timeout { fail "file-exec-and-symbols operation (timeout)"
+                     note "Skipping all other MI tests."
+                     return 0}
     }
 
     # The following is not used by mi-support.exp, but we test here so
@@ -102,8 +125,7 @@ proc test_exec_and_symbol_mi_operatons {} {
              "\\\^done" \
              "file-symbol-file operation"
 
-    # We need to return != 0.
-    return 1
+    # FIXME: if we cannot load we have to skip all other tests.
 }
 
 proc test_breakpoints_deletion {} {
@@ -127,9 +149,8 @@ proc test_breakpoints_deletion {} {
 
 proc test_dir_specification {} {
     global mi_gdb_prompt
-    global objdir
+    global srcdir
     global subdir
-    global envirodir
 
     # Add to the search directories, display, then reset back to default
     # Tests:
@@ -137,7 +158,9 @@ proc test_dir_specification {} {
     # -environment-directory 
     # -environment-directory -r
 
-    mi_gdb_test "202-environment-directory ${objdir}/${subdir}" \
+    set envirodir [string_to_regexp ${srcdir}/${subdir}]
+
+    mi_gdb_test "202-environment-directory ${srcdir}/${subdir}" \
              "202\\\^done,source-path=\"${envirodir}.\\\$cdir.\\\$cwd\"" \
              "environment-directory arg operation"
 
@@ -165,23 +188,18 @@ proc test_cwd_specification {} {
              "205\\\^done" \
              "environment-cd arg operation"
 
-    # The canonical name of the working directory may differ on a
-    # remote host from that on the build system.
-    if ![is_remote host] {
-	mi_gdb_test "206-environment-pwd" \
+    mi_gdb_test "206-environment-pwd" \
              "206\\\^done,cwd=\"${escapedobjdir}\"" \
              "environment-pwd operation"
-    }
 }
 
 proc test_path_specification {} {
     global mi_gdb_prompt
     global orig_path
     global objdir
-    global subdir
+    global srcdir
     global escapedobjdir
-    global envirodir
-    global expect_out
+    global escapedsrcdir
 
     # Add to the path, display, then reset 
     # Tests:
@@ -190,18 +208,23 @@ proc test_path_specification {} {
     # -environment-path -r dir
     # -environment-path -r
 
-    mi_gdb_test "-environment-path" "\\\^done,path=\"(.*)\"" "environment-path"
-    set orig_path $expect_out(3,string)
-
-    set orig_path [string_to_regexp ${orig_path}]
-    set pathdir [string_to_regexp ${objdir}/${subdir}]
+    send_gdb "-environment-path\n"
+    gdb_expect 20 {
+	-re "\\\^done,path=\"\(.*\)\"\r\n$mi_gdb_prompt" { 
+	  set orig_path $expect_out(1,string); 
+	}
+	timeout { 
+	  perror "-environment-path (timeout)" ; 
+	  return 
+	}
+    }
 
     mi_gdb_test "207-environment-path" \
              "207\\\^done,path=\"$orig_path\"" \
              "environment-path no-args operation"
 
-    mi_gdb_test "208-environment-path $objdir ${objdir}/${subdir}" \
-             "208\\\^done,path=\"$escapedobjdir.${envirodir}.$orig_path\"" \
+    mi_gdb_test "208-environment-path $srcdir $objdir" \
+             "208\\\^done,path=\"$escapedsrcdir.$escapedobjdir.$orig_path\"" \
              "environment-path dir1 dir2 operation"
 
     mi_gdb_test "209-environment-path -r $objdir" \
@@ -252,8 +275,8 @@ proc test_setshow_inferior_tty {} {
 		"verify tty is correct"
 }
 
-if { [test_mi_interpreter_selection]
-      && [test_exec_and_symbol_mi_operatons] } {
+if [test_mi_interpreter_selection] {
+  test_exec_and_symbol_mi_operatons
   test_breakpoints_deletion
   test_dir_specification
   test_cwd_specification

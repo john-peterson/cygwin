@@ -1,41 +1,43 @@
-# Copyright 1988-2013 Free Software Foundation, Inc.
+# Copyright 1988, 1990, 1991, 1992, 1994, 1995, 1996, 1997, 1999, 2002,
+# 2003, 2004 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Rob Savoye. (rob@cygnus.com)
+
+if $tracelevel {
+    strace $tracelevel
+}
 
 #
 # test running programs
 #
-
-if [target_info exists no_long_long] {
-    set exec_opts [list debug additional_flags=-DNO_LONG_LONG]
-} else {
-    set exec_opts [list debug]
-}
+set prms_id 0
+set bug_id 0
 
 set testfile whatis
 set srcfile ${testfile}.c
 set binfile ${objdir}/${subdir}/${testfile}
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable $exec_opts] != "" } {
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
      untested whatis.exp
      return -1
 }
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 
@@ -123,13 +125,6 @@ gdb_test "whatis v_unsigned_long" \
     "type = (unsigned long|long unsigned int)" \
     "whatis unsigned long"
 
-
-if ![target_info exists no_long_long] {
-    gdb_test "whatis v_unsigned_long_long" \
-	"type = (unsigned long long|long long unsigned int)" \
-	"whatis unsigned long long"
-}
-
 gdb_test "whatis v_float" \
     "type = float" \
     "whatis float"
@@ -194,12 +189,6 @@ gdb_test "whatis v_unsigned_long_array" \
     "type = (unsigned (int|long|long int)|long unsigned int) \\\[2\\\]" \
     "whatis unsigned long array"
 
-if ![target_info exists no_long_long] {
-    gdb_test "whatis v_unsigned_long_long_array" \
-	"type = (unsigned long long|long long unsigned int) \\\[2\\\]" \
-	"whatis unsigned long array"
-}
-
 gdb_test "whatis v_float_array" \
     "type = float \\\[2\\\]" \
     "whatis float array"
@@ -262,20 +251,6 @@ gdb_test "whatis v_signed_long_pointer" \
 gdb_test "whatis v_unsigned_long_pointer" \
     "type = (unsigned (int|long|long int)|long unsigned int) \\*" \
     "whatis unsigned long pointer"
-
-if ![target_info exists no_long_long] {
-    gdb_test "whatis v_long_long_pointer" \
-	"type = long long(| int) \\*" \
-	"whatis long long pointer"
-
-    gdb_test "whatis v_signed_long_long_pointer" \
-	"type = (signed |)long long(| int) \\*" \
-	"whatis signed long long pointer"
-
-    gdb_test "whatis v_unsigned_long_long_pointer" \
-	"type = (unsigned long long|long long unsigned int) \\*" \
-	"whatis unsigned long long pointer"
-}
 
 gdb_test "whatis v_float_pointer" \
     "type = float \\*" \
@@ -379,20 +354,6 @@ gdb_test "whatis v_unsigned_long_func" \
     "type = (unsigned (int|long|long int)|long unsigned int) \\($void\\)" \
     "whatis unsigned long function"
 
-if ![target_info exists no_long_long] {
-    gdb_test "whatis v_long_long_func" \
-	"type = long long(| int) \\($void\\)" \
-	"whatis long long function"
-
-    gdb_test "whatis v_signed_long_long_func" \
-	"type = (signed |)long long(| int) \\($void\\)" \
-	"whatis signed long long function"
-
-    gdb_test "whatis v_unsigned_long_long_func" \
-	"type = (unsigned long long(| int)|long long unsigned int) \\($void\\)" \
-	"whatis unsigned long long function"
-}
-
 # Sun /bin/cc calls this a function returning double.
 if {!$gcc_compiled} then {setup_xfail "*-sun-sunos4*"}
 gdb_test "whatis v_float_func" \
@@ -464,45 +425,3 @@ gdb_test "whatis char_addr" \
 gdb_test "whatis a_char_addr" \
     "type = char_addr" \
     "whatis applied to variable defined by typedef"
-
-# Regression tests for PR 9514.
-
-gdb_test "whatis void (**)()" \
-  "type = void \\(\\*\\*\\)\\(\\)" \
-  "whatis applied to pointer to pointer to function"
-
-gdb_test "whatis void (** const)()" \
-  "type = void \\(\\*\\* const\\)\\(\\)" \
-  "whatis applied to const pointer to pointer to function"
-
-gdb_test "whatis void (* const *)()" \
-  "type = void \\(\\* const \\*\\)\\(\\)" \
-  "whatis applied to pointer to const pointer to function"
-
-gdb_test "whatis int *(*)()" \
-    "type = int \\*\\(\\*\\)\\(\\)" \
-    "whatis applied to pointer to function returning pointer to int"
-
-gdb_test "whatis int *(**)()" \
-    "type = int \\*\\(\\*\\*\\)\\(\\)" \
-    "whatis applied to pointer to pointer to function returning pointer to int"
-
-gdb_test "whatis char (*(*)())\[23\]" \
-    "type = char \\(\\*\\(\\*\\)\\(\\)\\)\\\[23\\\]" \
-    "whatis applied to pointer to function returning pointer to array"
-
-gdb_test "whatis int (*)(int, int)" \
-    "type = int \\(\\*\\)\\(int, int\\)" \
-    "whatis applied to pointer to function taking int,int and returning int"
-
-gdb_test "whatis int (*)(const int *, ...)" \
-    "type = int \\(\\*\\)\\(const int \\*, \\.\\.\\.\\)" \
-    "whatis applied to pointer to function taking const int ptr and varargs and returning int"
-
-gdb_test "whatis int (*)(void, int, int)" \
-    "parameter types following 'void'" \
-    "whatis applied to function with types trailing 'void'"
-
-gdb_test "whatis int (*)(int, void, int)" \
-    "'void' invalid as parameter type" \
-    "whatis applied to function with 'void' parameter type"

@@ -1,11 +1,12 @@
 /* Common target dependent code for GDB on Alpha systems.
-   Copyright (C) 1993-2013 Free Software Foundation, Inc.
+   Copyright (C) 1993, 1994, 1995, 1996, 1998, 1999, 2000, 2002, 2003 Free
+   Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -14,12 +15,12 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #ifndef ALPHA_TDEP_H
 #define ALPHA_TDEP_H
-
-struct regcache;
 
 /* Say how long (ordinary) registers are.  This is a piece of bogosity
    used in push_word and a few other places; register_size() is the
@@ -28,6 +29,10 @@ struct regcache;
 
 /* Number of machine registers.  */
 #define ALPHA_NUM_REGS 67
+
+/* Total amount of space needed to store our copies of the machine's
+   register state.  */
+#define ALPHA_REGISTER_BYTES (ALPHA_NUM_REGS * 8)
 
 /* Register numbers of various important registers.  Note that most of
    these values are "real" register numbers, and correspond to the
@@ -57,9 +62,9 @@ struct regcache;
    
    The virtual argument pointer is pointing to the bottom of the argument
    transfer area, which is located immediately below the virtual frame
-   pointer.  Its size is fixed for the native compiler, it is either zero
+   pointer. Its size is fixed for the native compiler, it is either zero
    (for the no arguments case) or large enough to hold all argument registers.
-   gcc uses a variable sized argument transfer area.  As it has
+   gcc uses a variable sized argument transfer area. As it has
    to stay compatible with the native debugging tools it has to use the same
    virtual argument pointer and adjust the argument offsets accordingly.
    
@@ -75,7 +80,7 @@ struct gdbarch_tdep
   /* If PC is inside a dynamically-generated signal trampoline function
      (i.e. one copied onto the user stack at run-time), return how many
      bytes PC is beyond the start of that function.  Otherwise, return -1.  */
-  LONGEST (*dynamic_sigtramp_offset) (struct gdbarch *, CORE_ADDR);
+  LONGEST (*dynamic_sigtramp_offset) (CORE_ADDR);
 
   /* Translate a signal handler stack base address into the address of
      the sigcontext structure for that signal handler.  */
@@ -85,8 +90,7 @@ struct gdbarch_tdep
   /* NOTE: cagney/2004-04-30: Do not copy/clone this code.  Instead
      look at tramp-frame.h and other simplier per-architecture
      sigtramp unwinders.  */
-  int (*pc_in_sigtramp) (struct gdbarch *gdbarch, CORE_ADDR pc,
-			 const char *name);
+  int (*pc_in_sigtramp) (CORE_ADDR pc, char *name);
 
   /* If TYPE will be returned in memory, return true.  */
   int (*return_in_memory) (struct type *type);
@@ -99,23 +103,20 @@ struct gdbarch_tdep
   int jb_pc;			/* Offset to PC value in jump buffer.
 				   If htis is negative, longjmp support
 				   will be disabled.  */
-  size_t jb_elt_size;		/* And the size of each entry in the buf.  */
+  size_t jb_elt_size;		/* And the size of each entry in the buf. */
 };
 
-extern unsigned int alpha_read_insn (struct gdbarch *gdbarch, CORE_ADDR pc);
-extern int alpha_software_single_step (struct frame_info *frame);
+extern unsigned int alpha_read_insn (CORE_ADDR pc);
+extern void alpha_software_single_step (enum target_signal, int);
 extern CORE_ADDR alpha_after_prologue (CORE_ADDR pc);
 
 extern void alpha_mdebug_init_abi (struct gdbarch_info, struct gdbarch *);
 extern void alpha_dwarf2_init_abi (struct gdbarch_info, struct gdbarch *);
 
-extern void alpha_supply_int_regs (struct regcache *, int, const void *,
-				   const void *, const void *);
-extern void alpha_fill_int_regs (const struct regcache *, int,
-				 void *, void *, void *);
-extern void alpha_supply_fp_regs (struct regcache *, int,
-				  const void *, const void *);
-extern void alpha_fill_fp_regs (const struct regcache *,
-				int, void *, void *);
+extern void alpha_supply_int_regs (int, const void *, const void *,
+				   const void *);
+extern void alpha_fill_int_regs (int, void *, void *, void *);
+extern void alpha_supply_fp_regs (int, const void *, const void *);
+extern void alpha_fill_fp_regs (int, void *, void *);
 
 #endif /* ALPHA_TDEP_H */

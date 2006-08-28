@@ -1,17 +1,19 @@
-# Copyright 1997-2013 Free Software Foundation, Inc.
+# Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004
+# Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 # written by Elena Zannoni (elz@apollo.hp.com)
 #
@@ -23,9 +25,15 @@
 #           const pointers to const vars
 # with mixed types
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 #
 # test running programs
 #
+set prms_id 0
+set bug_id 0
 
 set testfile "constvars"
 set srcfile ${testfile}.c
@@ -33,7 +41,7 @@ set binfile ${objdir}/${subdir}/${testfile}
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 
@@ -85,26 +93,52 @@ proc local_compiler_xfail_check_2 { } {
     }
 }
 
-gdb_test "break marker1" "Breakpoint $decimal at .*" 
+send_gdb "break marker1\n" ; gdb_expect -re ".*$gdb_prompt $"
 
-gdb_test_multiple "cont" "up from marker1" {
-    -re "Break.* marker1 \\(\\) at .*:$decimal.*$gdb_prompt $" {
-	pass "continue to marker1"
-	gdb_test "up" " main .*" "up from marker1"
+    send_gdb "cont\n"
+    gdb_expect {
+        -re "Break.* marker1 \\(\\) at .*:$decimal.*$gdb_prompt $" {
+            send_gdb "up\n"
+            gdb_expect {
+		-re ".*main.*$gdb_prompt $" {
+		    pass "up from marker1"
+		}
+                -re ".*$gdb_prompt $" {
+		    fail "up from marker1"
+		}
+                timeout { fail "up from marker1 (timeout)" }
+            }
+        }
+        -re "Break.* marker1__.* \\(\\) at .*:$decimal.*$gdb_prompt $" {
+	    fail "continue to marker1 (demangling)"
+            send_gdb "up\n"
+            gdb_expect {
+		-re ".*main.*$gdb_prompt $" {
+		    pass "up from marker1"
+		}
+                -re ".*$gdb_prompt $" {
+		    fail "up from marker1"
+		}
+                timeout { fail "up from marker1 (timeout)" }
+            }
+        }
+        -re "$gdb_prompt $" { fail "continue to marker1"  }
+        timeout { fail "(timeout) continue to marker1"  }
     }
-    -re "Break.* marker1__.* \\(\\) at .*:$decimal.*$gdb_prompt $" {
-	fail "continue to marker1 (demangling)"
-	gdb_test "up" " main .*" "up from marker1"
-    }
-}
 
 # test function parameters
 
 local_compiler_xfail_check
 local_compiler_xfail_check_2
 
-gdb_test "ptype qux1" \
-    "type = int \\(const char, const char, const char \\*, char \\* const\\).*"
+send_gdb "ptype qux1\n"
+gdb_expect {
+    -re "type = int \\(const char, const char, const char \\*, char \\* const\\).*$gdb_prompt $" {
+        pass "ptype qux1"
+    }
+    -re ".*$gdb_prompt $" { fail "ptype qux1" }
+    timeout           { fail "(timeout) ptype qux1" }
+}   
 
 # test vars and pointers
 
@@ -246,23 +280,6 @@ proc do_constvar_tests {} {
     gdb_test "print *locust" " = 70"
     local_compiler_xfail_check
     gdb_test "ptype locust" "type = double \\* const"
-
-    local_compiler_xfail_check
-    gdb_test "ptype logical" "type = const char \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lugged" "type = const unsigned char \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype luck" "type = const short( int)? \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lunar" "type = const (unsigned short|short unsigned)( int)? \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lumen" "type = const long( int)? \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lurk" "type = const (unsigned long|long unsigned)( int)? \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lush" "type = const float \\\[2\\\]"
-    local_compiler_xfail_check
-    gdb_test "ptype lynx" "type = const double \\\[2\\\]"
 
     local_compiler_xfail_check
     local_compiler_xfail_check_2

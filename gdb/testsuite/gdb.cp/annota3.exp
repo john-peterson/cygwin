@@ -1,31 +1,40 @@
-# Copyright 2003-2013 Free Software Foundation, Inc.
+# Copyright 2003, 2004 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Elena Zannoni (ezannoni@cygnus.com)
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 
 #
 # test running programs
 #
+set prms_id 0
+set bug_id 0
 
 if { [skip_cplus_tests] } { continue }
 
-standard_testfile .cc
+set testfile "annota3"
+set srcfile ${testfile}.cc
+set binfile ${objdir}/${subdir}/${testfile}
 
-if {[prepare_for_testing $testfile.exp $testfile $srcfile \
-	 {debug c++ nowarnings}]} {
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++ nowarnings}] != "" } {
+    untested annota3.exp
     return -1
 }
 
@@ -38,6 +47,16 @@ if [is_remote target] then {
     return 0
 }
 
+
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
+
+if [target_info exists gdb_stub] {
+    gdb_step_for_stub;
+}
+
 #
 # line number where we need to stop in main
 #
@@ -45,7 +64,8 @@ set main_line 25
 
 # The commands we test here produce many lines of output; disable "press 
 # <return> to continue" prompts.
-gdb_test_no_output "set height 0"
+send_gdb "set height 0\n"
+gdb_expect -re "$gdb_prompt $"
 
 #
 # break at main
@@ -99,14 +119,16 @@ gdb_expect_list "print class" "$gdb_prompt$" {
 # annotate-exited
 #
 send_gdb "continue\n"
-gdb_expect_list "continue to exit" "$gdb_prompt$" [concat {
+gdb_expect_list "continue to exit" "$gdb_prompt$" {
     "\r\n\032\032post-prompt\r\n"
     "Continuing.\r\n"
     "\r\n\032\032starting\r\n"
     "a.x is 1\r\n"
-    "\r\n\032\032exited 0\r\n"} [list "$inferior_exited_re normally.\r\n"] {
+    "\r\n\032\032exited 0\r\n"
+    "\r\n"
+    "Program exited normally.\r\n"
     "\r\n\032\032stopped\r\n"
-}]
+}
 
 #
 # delete all breakpoints
@@ -165,12 +187,19 @@ gdb_expect_list "set watch on a.x" "$gdb_prompt$" {
 # do a next, so that the watchpoint triggers. This will test:
 # annotate-watchpoint
 #
-gdb_test_multiple "next" "watch triggered on a.x" {
-    -re "\r\n\032\032post-prompt\r\n\r\n\032\032starting\r\n\r\n\032\032watchpoint 3\r\n.*atchpoint 3: a.x\r\n\r\nOld value = 0\r\nNew value = 1\r\n\r\n(\032\032frame-begin 0 0x\[0-9a-z\]+\r\n|)main \\(\\) at .*$srcfile:$decimal\r\n\r\n\032\032source .*$srcfile.*beg:$hex\r\n\r\n\032\032stopped\r\n.*$gdb_prompt$" { 
+send_gdb "next\n"
+gdb_expect {
+    -re "\r\n\032\032post-prompt\r\n\r\n\032\032starting\r\n\r\n\032\032watchpoint 3\r\n.*atchpoint 3: a.x\r\n\r\nOld value = 0\r\nNew value = 1\r\nmain \\(\\) at .*$srcfile:$decimal\r\n\r\n\032\032source .*$srcfile.*beg:$hex\r\n\r\n\032\032stopped\r\n.*$gdb_prompt$" { 
 	pass "watch triggered on a.x"
     }
     -re "\r\n\032\032post-prompt\r\n\r\n\032\032starting\r\n\r\n\032\032source .*$srcfile.*beg:$hex\r\n\r\n\032\032stopped\r\n$gdb_prompt$" {
 	kfail "gdb/38" "watch triggered on a.x"
+    }
+    -re ".*$gdb_prompt$" {
+	fail "watch triggered on a.x"
+    }
+    timeout {
+	fail "watch triggered on a.x (timeout)"
     }
 }
 
@@ -179,6 +208,8 @@ gdb_test_multiple "next" "watch triggered on a.x" {
 # and annotate-quit is tested
 # test:
 # annotate-quit
+#
+# This test sometimes fails, but not reproducibly.  See gdb/544.
 #
 send_gdb "\003"
 gdb_expect_list "annotate-quit" "$gdb_prompt$" {

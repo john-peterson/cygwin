@@ -1,18 +1,22 @@
-# Copyright 1999-2013 Free Software Foundation, Inc.
+# Copyright 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+#
 # Test essential Machine interface (MI) operations
 #
 # Verify that, using the MI, we can run a simple program and look at registers.
@@ -30,17 +34,22 @@ if [mi_gdb_start] {
     continue
 }
 
-standard_testfile basics.c
-
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+set testfile "basics"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-DFAKEARGV}] != "" } {
      untested mi-regs.exp
      return -1
 }
 
+mi_delete_breakpoints
+mi_gdb_reinitialize_dir $srcdir/$subdir
+mi_gdb_load ${binfile}
+
 proc sparc_register_tests_no_exec { } {
 	# Test the generic IDT chip.
 	mi_gdb_test "111-data-list-register-values" \
-		".*111\\^error,msg=\"-data-list-register-values: Usage: -data-list-register-values <format> \\\[<regnum1>...<regnumN>\\\]\"" \
+		".*111\\^error,msg=\"mi_cmd_data_list_register_values: Usage: -data-list-register-values <format> \\\[<regnum1>...<regnumN>\\\]\"" \
 		"wrong arguments"
 
 	mi_gdb_test "111-data-list-register-values x" \

@@ -1,12 +1,13 @@
 /* Native-dependent code for Alpha BSD's.
 
-   Copyright (C) 2000-2013 Free Software Foundation, Inc.
+   Copyright (C) 2000, 2001, 2002, 2004, 2005, 2006
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "inferior.h"
@@ -47,28 +50,27 @@ typedef struct fpreg fpregset_t;
    supply/fill routines.  */
 
 void
-supply_gregset (struct regcache *regcache, const gregset_t *gregsetp)
+supply_gregset (gregset_t *gregsetp)
 {
-  alphabsd_supply_reg (regcache, (const char *) gregsetp, -1);
+  alphabsd_supply_reg ((char *) gregsetp, -1);
 }
 
 void
-fill_gregset (const struct regcache *regcache, gregset_t *gregsetp, int regno)
+fill_gregset (gregset_t *gregsetp, int regno)
 {
-  alphabsd_fill_reg (regcache, (char *) gregsetp, regno);
+  alphabsd_fill_reg ((char *) gregsetp, regno);
 }
 
 void
-supply_fpregset (struct regcache *regcache, const fpregset_t *fpregsetp)
+supply_fpregset (fpregset_t *fpregsetp)
 {
-  alphabsd_supply_fpreg (regcache, (const char *) fpregsetp, -1);
+  alphabsd_supply_fpreg ((char *) fpregsetp, -1);
 }
 
 void
-fill_fpregset (const struct regcache *regcache,
-	       fpregset_t *fpregsetp, int regno)
+fill_fpregset (fpregset_t *fpregsetp, int regno)
 {
-  alphabsd_fill_fpreg (regcache, (char *) fpregsetp, regno);
+  alphabsd_fill_fpreg ((char *) fpregsetp, regno);
 }
 
 /* Determine if PT_GETREGS fetches this register.  */
@@ -84,8 +86,7 @@ getregs_supplies (int regno)
    for all registers (including the floating point registers).  */
 
 static void
-alphabsd_fetch_inferior_registers (struct target_ops *ops,
-				   struct regcache *regcache, int regno)
+alphabsd_fetch_inferior_registers (int regno)
 {
   if (regno == -1 || getregs_supplies (regno))
     {
@@ -95,13 +96,12 @@ alphabsd_fetch_inferior_registers (struct target_ops *ops,
 		  (PTRACE_TYPE_ARG3) &gregs, 0) == -1)
 	perror_with_name (_("Couldn't get registers"));
 
-      alphabsd_supply_reg (regcache, (char *) &gregs, regno);
+      alphabsd_supply_reg ((char *) &gregs, regno);
       if (regno != -1)
 	return;
     }
 
-  if (regno == -1
-      || regno >= gdbarch_fp0_regnum (get_regcache_arch (regcache)))
+  if (regno == -1 || regno >= FP0_REGNUM)
     {
       struct fpreg fpregs;
 
@@ -109,7 +109,7 @@ alphabsd_fetch_inferior_registers (struct target_ops *ops,
 		  (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	perror_with_name (_("Couldn't get floating point status"));
 
-      alphabsd_supply_fpreg (regcache, (char *) &fpregs, regno);
+      alphabsd_supply_fpreg ((char *) &fpregs, regno);
     }
 }
 
@@ -117,8 +117,7 @@ alphabsd_fetch_inferior_registers (struct target_ops *ops,
    this for all registers (including the floating point registers).  */
 
 static void
-alphabsd_store_inferior_registers (struct target_ops *ops,
-				   struct regcache *regcache, int regno)
+alphabsd_store_inferior_registers (int regno)
 {
   if (regno == -1 || getregs_supplies (regno))
     {
@@ -127,7 +126,7 @@ alphabsd_store_inferior_registers (struct target_ops *ops,
                   (PTRACE_TYPE_ARG3) &gregs, 0) == -1)
         perror_with_name (_("Couldn't get registers"));
 
-      alphabsd_fill_reg (regcache, (char *) &gregs, regno);
+      alphabsd_fill_reg ((char *) &gregs, regno);
 
       if (ptrace (PT_SETREGS, PIDGET (inferior_ptid),
                   (PTRACE_TYPE_ARG3) &gregs, 0) == -1)
@@ -137,8 +136,7 @@ alphabsd_store_inferior_registers (struct target_ops *ops,
 	return;
     }
 
-  if (regno == -1
-      || regno >= gdbarch_fp0_regnum (get_regcache_arch (regcache)))
+  if (regno == -1 || regno >= FP0_REGNUM)
     {
       struct fpreg fpregs;
 
@@ -146,7 +144,7 @@ alphabsd_store_inferior_registers (struct target_ops *ops,
 		  (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	perror_with_name (_("Couldn't get floating point status"));
 
-      alphabsd_fill_fpreg (regcache, (char *) &fpregs, regno);
+      alphabsd_fill_fpreg ((char *) &fpregs, regno);
 
       if (ptrace (PT_SETFPREGS, PIDGET (inferior_ptid),
 		  (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)

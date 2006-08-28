@@ -1,23 +1,30 @@
-# Copyright 1997-2013 Free Software Foundation, Inc.
+# Copyright 1997, 1998, 1999, 2003, 2004 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 if [target_info exists gdb,nosignals] {
     verbose "Skipping signals.exp because of nosignals."
     continue
 }
 
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 set testfile signals
 set srcfile ${testfile}.c
@@ -29,7 +36,7 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {deb
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 
@@ -43,31 +50,22 @@ gdb_exit
 gdb_start
 
 # This will need to be updated as the exact list of signals changes,
-# but I want to test that GDB_SIGNAL_0, GDB_SIGNAL_DEFAULT, and
-# GDB_SIGNAL_UNKNOWN are skipped.
+# but I want to test that TARGET_SIGNAL_0, TARGET_SIGNAL_DEFAULT, and
+# TARGET_SIGNAL_UNKNOWN are skipped.
 
 proc test_handle_all_print {} {
     global timeout
     # Increase timeout and expect input buffer for large output from gdb.
     # Allow blank or TAB as whitespace characters.
     set oldtimeout $timeout
-    set timeout [expr "$timeout + 60"]
+    set timeout [expr "$timeout + 360"]
     verbose "Timeout is now $timeout seconds" 2
     if { ![istarget "*-*-linux*"]
          && ( [istarget "*-*-gnu*"]
               || [istarget "*-*-mach*"] ) } {
-	gdb_test_sequence "handle all print" "" \
-	    {
-		"Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup"
-		"SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63"
-		"EXC_BREAKPOINT\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Breakpoint"
-	    }
+	gdb_test "handle all print" "Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup.*SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63.*EXC_BREAKPOINT\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Breakpoint"
     } else {
-	gdb_test_sequence "handle all print" "" \
-	    {
-		"Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup"
-		"SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63"
-	    }
+	gdb_test "handle all print" "Signal\[ 	\]+Stop\[ 	\]+Print\[ 	\]+Pass to program\[ 	\]+Description\r\nSIGHUP\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Hangup.*SIG63\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Yes\[ 	\]+Real-time event 63.*"
     }
     set timeout $oldtimeout
     verbose "Timeout restored to $timeout seconds" 2
@@ -84,7 +82,7 @@ if [runto_main] then {
     # Since count is a static variable outside main, runto_main is no
     # guarantee that count will be 0 at this point.
 
-    gdb_test_no_output "set variable count = 0"
+    gdb_test "set variable count = 0" ""
 
     # Test an inferior function call that takes a signal that hits a
     # breakpoint (with a false condition).  When GDB tries to run the
@@ -95,7 +93,7 @@ if [runto_main] then {
     # ...setup an always false conditional breakpoint
 
     gdb_test "break handler if 0" "Breakpoint \[0-9\]+ .*"
-    gdb_test_no_output "set \$handler_breakpoint_number = \$bpnum"
+    gdb_test "set \$handler_breakpoint_number = \$bpnum" ""
 
     # ...setup the signal
 
@@ -250,7 +248,7 @@ The program being debugged stopped while in a function called from GDB.*" \
 	    gdb_test_multiple "n" "$test" {
 		-re "Not confirmed, unchanged.*Signal.*$gdb_prompt $"  {
 		    # "Signal ..." should not be in the output.
-		    fail gdb/8812 "$test"
+		    kfail gdb/1707 "$test"
 		}
 		-re "Not confirmed, unchanged.*$gdb_prompt $" {
 		    pass "$test"

@@ -1,12 +1,14 @@
 /* General utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995,
+   1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,22 +17,16 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
-#include "dyn-string.h"
 #include "gdb_assert.h"
 #include <ctype.h>
 #include "gdb_string.h"
-#include "gdb_wait.h"
 #include "event-top.h"
 #include "exceptions.h"
-#include "gdbthread.h"
-#include "fnmatch.h"
-#include "gdb_bfd.h"
-#ifdef HAVE_SYS_RESOURCE_H
-#include <sys/resource.h>
-#endif /* HAVE_SYS_RESOURCE_H */
 
 #ifdef TUI
 #include "tui/tui.h"		/* For tui_get_command_dimension.   */
@@ -40,18 +36,17 @@
 #include <pc.h>
 #endif
 
-/* SunOS's curses.h has a '#define reg register' in it.  Thank you Sun.  */
+/* SunOS's curses.h has a '#define reg register' in it.  Thank you Sun. */
 #ifdef reg
 #undef reg
 #endif
 
 #include <signal.h>
-#include "timeval-utils.h"
 #include "gdbcmd.h"
 #include "serial.h"
 #include "bfd.h"
 #include "target.h"
-#include "gdb-demangle.h"
+#include "demangle.h"
 #include "expression.h"
 #include "language.h"
 #include "charset.h"
@@ -59,10 +54,7 @@
 #include "filenames.h"
 #include "symfile.h"
 #include "gdb_obstack.h"
-#include "gdbcore.h"
 #include "top.h"
-#include "main.h"
-#include "solist.h"
 
 #include "inferior.h"		/* for signed_pointer_to_address */
 
@@ -72,18 +64,11 @@
 
 #include "readline/readline.h"
 
-#include <sys/time.h>
-#include <time.h>
-
-#include "gdb_usleep.h"
-#include "interps.h"
-#include "gdb_regex.h"
-
 #if !HAVE_DECL_MALLOC
-extern PTR malloc ();		/* ARI: PTR */
+extern PTR malloc ();		/* OK: PTR */
 #endif
 #if !HAVE_DECL_REALLOC
-extern PTR realloc ();		/* ARI: PTR */
+extern PTR realloc ();		/* OK: PTR */
 #endif
 #if !HAVE_DECL_FREE
 extern void free ();
@@ -97,36 +82,41 @@ void (*deprecated_error_begin_hook) (void);
 /* Prototypes for local functions */
 
 static void vfprintf_maybe_filtered (struct ui_file *, const char *,
-				     va_list, int) ATTRIBUTE_PRINTF (2, 0);
+				     va_list, int) ATTR_FORMAT (printf, 2, 0);
 
 static void fputs_maybe_filtered (const char *, struct ui_file *, int);
+
+static void do_my_cleanups (struct cleanup **, struct cleanup *);
 
 static void prompt_for_continue (void);
 
 static void set_screen_size (void);
 static void set_width (void);
 
-/* Time spent in prompt_for_continue in the currently executing command
-   waiting for user to respond.
-   Initialized in make_command_stats_cleanup.
-   Modified in prompt_for_continue and defaulted_query.
-   Used in report_command_stats.  */
+/* Chain of cleanup actions established with make_cleanup,
+   to be executed if an error happens.  */
 
-static struct timeval prompt_for_continue_wait_time;
+static struct cleanup *cleanup_chain;	/* cleaned up after a failed command */
+static struct cleanup *final_cleanup_chain;	/* cleaned up when gdb exits */
+static struct cleanup *run_cleanup_chain;	/* cleaned up on each 'run' */
+static struct cleanup *exec_cleanup_chain;	/* cleaned up on each execution command */
+/* cleaned up on each error from within an execution command */
+static struct cleanup *exec_error_cleanup_chain;
 
-/* A flag indicating whether to timestamp debugging messages.  */
+/* Pointer to what is left to do for an execution command after the
+   target stops. Used only in asynchronous mode, by targets that
+   support async execution.  The finish and until commands use it. So
+   does the target extended-remote command. */
+struct continuation *cmd_continuation;
+struct continuation *intermediate_continuation;
 
-static int debug_timestamp = 0;
-
-/* Nonzero if we have job control.  */
+/* Nonzero if we have job control. */
 
 int job_control;
 
-#ifndef HAVE_PYTHON
 /* Nonzero means a quit has been requested.  */
 
 int quit_flag;
-#endif /* HAVE_PYTHON */
 
 /* Nonzero means quit immediately if Control-C is typed now, rather
    than waiting until QUIT is executed.  Be careful in setting this;
@@ -141,40 +131,32 @@ int quit_flag;
 
 int immediate_quit;
 
-#ifndef HAVE_PYTHON
+/* Nonzero means that encoded C++/ObjC names should be printed out in their
+   C++/ObjC form rather than raw.  */
 
-/* Clear the quit flag.  */
-
-void
-clear_quit_flag (void)
+int demangle = 1;
+static void
+show_demangle (struct ui_file *file, int from_tty,
+	       struct cmd_list_element *c, const char *value)
 {
-  quit_flag = 0;
+  fprintf_filtered (file, _("\
+Demangling of encoded C++/ObjC names when displaying symbols is %s.\n"),
+		    value);
 }
 
-/* Set the quit flag.  */
+/* Nonzero means that encoded C++/ObjC names should be printed out in their
+   C++/ObjC form even in assembler language displays.  If this is set, but
+   DEMANGLE is zero, names are printed raw, i.e. DEMANGLE controls.  */
 
-void
-set_quit_flag (void)
+int asm_demangle = 0;
+static void
+show_asm_demangle (struct ui_file *file, int from_tty,
+		   struct cmd_list_element *c, const char *value)
 {
-  quit_flag = 1;
+  fprintf_filtered (file, _("\
+Demangling of C++/ObjC names in disassembly listings is %s.\n"),
+		    value);
 }
-
-/* Return true if the quit flag has been set, false otherwise.  */
-
-int
-check_quit_flag (void)
-{
-  /* This is written in a particular way to avoid races.  */
-  if (quit_flag)
-    {
-      quit_flag = 0;
-      return 1;
-    }
-
-  return 0;
-}
-
-#endif /* HAVE_PYTHON */
 
 /* Nonzero means that strings with character values >0x7F should be printed
    as octal escapes.  Zero means just print the value (e.g. it's an
@@ -185,8 +167,8 @@ static void
 show_sevenbit_strings (struct ui_file *file, int from_tty,
 		       struct cmd_list_element *c, const char *value)
 {
-  fprintf_filtered (file, _("Printing of 8-bit characters "
-			    "in strings as \\nnn is %s.\n"),
+  fprintf_filtered (file, _("\
+Printing of 8-bit characters in strings as \\nnn is %s.\n"),
 		    value);
 }
 
@@ -211,11 +193,41 @@ show_pagination_enabled (struct ui_file *file, int from_tty,
 }
 
 
-/* Cleanup utilities.
 
-   These are not defined in cleanups.c (nor declared in cleanups.h)
-   because while they use the "cleanup API" they are not part of the
-   "cleanup API".  */
+/* Add a new cleanup to the cleanup_chain,
+   and return the previous chain pointer
+   to be passed later to do_cleanups or discard_cleanups.
+   Args are FUNCTION to clean up with, and ARG to pass to it.  */
+
+struct cleanup *
+make_cleanup (make_cleanup_ftype *function, void *arg)
+{
+  return make_my_cleanup (&cleanup_chain, function, arg);
+}
+
+struct cleanup *
+make_final_cleanup (make_cleanup_ftype *function, void *arg)
+{
+  return make_my_cleanup (&final_cleanup_chain, function, arg);
+}
+
+struct cleanup *
+make_run_cleanup (make_cleanup_ftype *function, void *arg)
+{
+  return make_my_cleanup (&run_cleanup_chain, function, arg);
+}
+
+struct cleanup *
+make_exec_cleanup (make_cleanup_ftype *function, void *arg)
+{
+  return make_my_cleanup (&exec_cleanup_chain, function, arg);
+}
+
+struct cleanup *
+make_exec_error_cleanup (make_cleanup_ftype *function, void *arg)
+{
+  return make_my_cleanup (&exec_error_cleanup_chain, function, arg);
+}
 
 static void
 do_freeargv (void *arg)
@@ -226,29 +238,17 @@ do_freeargv (void *arg)
 struct cleanup *
 make_cleanup_freeargv (char **arg)
 {
-  return make_cleanup (do_freeargv, arg);
-}
-
-static void
-do_dyn_string_delete (void *arg)
-{
-  dyn_string_delete ((dyn_string_t) arg);
-}
-
-struct cleanup *
-make_cleanup_dyn_string_delete (dyn_string_t arg)
-{
-  return make_cleanup (do_dyn_string_delete, arg);
+  return make_my_cleanup (&cleanup_chain, do_freeargv, arg);
 }
 
 static void
 do_bfd_close_cleanup (void *arg)
 {
-  gdb_bfd_unref (arg);
+  bfd_close (arg);
 }
 
 struct cleanup *
-make_cleanup_bfd_unref (bfd *abfd)
+make_cleanup_bfd_close (bfd *abfd)
 {
   return make_cleanup (do_bfd_close_cleanup, abfd);
 }
@@ -257,53 +257,16 @@ static void
 do_close_cleanup (void *arg)
 {
   int *fd = arg;
-
   close (*fd);
+  xfree (fd);
 }
 
 struct cleanup *
 make_cleanup_close (int fd)
 {
   int *saved_fd = xmalloc (sizeof (fd));
-
   *saved_fd = fd;
-  return make_cleanup_dtor (do_close_cleanup, saved_fd, xfree);
-}
-
-/* Helper function which does the work for make_cleanup_fclose.  */
-
-static void
-do_fclose_cleanup (void *arg)
-{
-  FILE *file = arg;
-
-  fclose (file);
-}
-
-/* Return a new cleanup that closes FILE.  */
-
-struct cleanup *
-make_cleanup_fclose (FILE *file)
-{
-  return make_cleanup (do_fclose_cleanup, file);
-}
-
-/* Helper function which does the work for make_cleanup_obstack_free.  */
-
-static void
-do_obstack_free (void *arg)
-{
-  struct obstack *ob = arg;
-
-  obstack_free (ob, NULL);
-}
-
-/* Return a new cleanup that frees OBSTACK.  */
-
-struct cleanup *
-make_cleanup_obstack_free (struct obstack *obstack)
-{
-  return make_cleanup (do_obstack_free, obstack);
+  return make_cleanup (do_close_cleanup, saved_fd);
 }
 
 static void
@@ -315,27 +278,7 @@ do_ui_file_delete (void *arg)
 struct cleanup *
 make_cleanup_ui_file_delete (struct ui_file *arg)
 {
-  return make_cleanup (do_ui_file_delete, arg);
-}
-
-/* Helper function for make_cleanup_ui_out_redirect_pop.  */
-
-static void
-do_ui_out_redirect_pop (void *arg)
-{
-  struct ui_out *uiout = arg;
-
-  if (ui_out_redirect (uiout, NULL) < 0)
-    warning (_("Cannot restore redirection of the current output protocol"));
-}
-
-/* Return a new cleanup that pops the last redirection by ui_out_redirect
-   with NULL parameter.  */
-
-struct cleanup *
-make_cleanup_ui_out_redirect_pop (struct ui_out *uiout)
-{
-  return make_cleanup (do_ui_out_redirect_pop, uiout);
+  return make_my_cleanup (&cleanup_chain, do_ui_file_delete, arg);
 }
 
 static void
@@ -347,182 +290,144 @@ do_free_section_addr_info (void *arg)
 struct cleanup *
 make_cleanup_free_section_addr_info (struct section_addr_info *addrs)
 {
-  return make_cleanup (do_free_section_addr_info, addrs);
+  return make_my_cleanup (&cleanup_chain, do_free_section_addr_info, addrs);
 }
 
-struct restore_integer_closure
+
+struct cleanup *
+make_my_cleanup (struct cleanup **pmy_chain, make_cleanup_ftype *function,
+		 void *arg)
 {
-  int *variable;
-  int value;
-};
+  struct cleanup *new
+    = (struct cleanup *) xmalloc (sizeof (struct cleanup));
+  struct cleanup *old_chain = *pmy_chain;
+
+  new->next = *pmy_chain;
+  new->function = function;
+  new->arg = arg;
+  *pmy_chain = new;
+
+  return old_chain;
+}
+
+/* Discard cleanups and do the actions they describe
+   until we get back to the point OLD_CHAIN in the cleanup_chain.  */
+
+void
+do_cleanups (struct cleanup *old_chain)
+{
+  do_my_cleanups (&cleanup_chain, old_chain);
+}
+
+void
+do_final_cleanups (struct cleanup *old_chain)
+{
+  do_my_cleanups (&final_cleanup_chain, old_chain);
+}
+
+void
+do_run_cleanups (struct cleanup *old_chain)
+{
+  do_my_cleanups (&run_cleanup_chain, old_chain);
+}
+
+void
+do_exec_cleanups (struct cleanup *old_chain)
+{
+  do_my_cleanups (&exec_cleanup_chain, old_chain);
+}
+
+void
+do_exec_error_cleanups (struct cleanup *old_chain)
+{
+  do_my_cleanups (&exec_error_cleanup_chain, old_chain);
+}
 
 static void
-restore_integer (void *p)
+do_my_cleanups (struct cleanup **pmy_chain,
+		struct cleanup *old_chain)
 {
-  struct restore_integer_closure *closure = p;
-
-  *(closure->variable) = closure->value;
+  struct cleanup *ptr;
+  while ((ptr = *pmy_chain) != old_chain)
+    {
+      *pmy_chain = ptr->next;	/* Do this first incase recursion */
+      (*ptr->function) (ptr->arg);
+      xfree (ptr);
+    }
 }
 
-/* Remember the current value of *VARIABLE and make it restored when
-   the cleanup is run.  */
+/* Discard cleanups, not doing the actions they describe,
+   until we get back to the point OLD_CHAIN in the cleanup_chain.  */
+
+void
+discard_cleanups (struct cleanup *old_chain)
+{
+  discard_my_cleanups (&cleanup_chain, old_chain);
+}
+
+void
+discard_final_cleanups (struct cleanup *old_chain)
+{
+  discard_my_cleanups (&final_cleanup_chain, old_chain);
+}
+
+void
+discard_exec_error_cleanups (struct cleanup *old_chain)
+{
+  discard_my_cleanups (&exec_error_cleanup_chain, old_chain);
+}
+
+void
+discard_my_cleanups (struct cleanup **pmy_chain,
+		     struct cleanup *old_chain)
+{
+  struct cleanup *ptr;
+  while ((ptr = *pmy_chain) != old_chain)
+    {
+      *pmy_chain = ptr->next;
+      xfree (ptr);
+    }
+}
+
+/* Set the cleanup_chain to 0, and return the old cleanup chain.  */
+struct cleanup *
+save_cleanups (void)
+{
+  return save_my_cleanups (&cleanup_chain);
+}
 
 struct cleanup *
-make_cleanup_restore_integer (int *variable)
+save_final_cleanups (void)
 {
-  struct restore_integer_closure *c =
-    xmalloc (sizeof (struct restore_integer_closure));
-
-  c->variable = variable;
-  c->value = *variable;
-
-  return make_cleanup_dtor (restore_integer, (void *) c, xfree);
+  return save_my_cleanups (&final_cleanup_chain);
 }
-
-/* Remember the current value of *VARIABLE and make it restored when
-   the cleanup is run.  */
 
 struct cleanup *
-make_cleanup_restore_uinteger (unsigned int *variable)
+save_my_cleanups (struct cleanup **pmy_chain)
 {
-  return make_cleanup_restore_integer ((int *) variable);
+  struct cleanup *old_chain = *pmy_chain;
+
+  *pmy_chain = 0;
+  return old_chain;
 }
 
-/* Helper for make_cleanup_unpush_target.  */
-
-static void
-do_unpush_target (void *arg)
+/* Restore the cleanup chain from a previously saved chain.  */
+void
+restore_cleanups (struct cleanup *chain)
 {
-  struct target_ops *ops = arg;
-
-  unpush_target (ops);
+  restore_my_cleanups (&cleanup_chain, chain);
 }
 
-/* Return a new cleanup that unpushes OPS.  */
-
-struct cleanup *
-make_cleanup_unpush_target (struct target_ops *ops)
+void
+restore_final_cleanups (struct cleanup *chain)
 {
-  return make_cleanup (do_unpush_target, ops);
+  restore_my_cleanups (&final_cleanup_chain, chain);
 }
 
-/* Helper for make_cleanup_htab_delete compile time checking the types.  */
-
-static void
-do_htab_delete_cleanup (void *htab_voidp)
+void
+restore_my_cleanups (struct cleanup **pmy_chain, struct cleanup *chain)
 {
-  htab_t htab = htab_voidp;
-
-  htab_delete (htab);
-}
-
-/* Return a new cleanup that deletes HTAB.  */
-
-struct cleanup *
-make_cleanup_htab_delete (htab_t htab)
-{
-  return make_cleanup (do_htab_delete_cleanup, htab);
-}
-
-struct restore_ui_file_closure
-{
-  struct ui_file **variable;
-  struct ui_file *value;
-};
-
-static void
-do_restore_ui_file (void *p)
-{
-  struct restore_ui_file_closure *closure = p;
-
-  *(closure->variable) = closure->value;
-}
-
-/* Remember the current value of *VARIABLE and make it restored when
-   the cleanup is run.  */
-
-struct cleanup *
-make_cleanup_restore_ui_file (struct ui_file **variable)
-{
-  struct restore_ui_file_closure *c = XNEW (struct restore_ui_file_closure);
-
-  c->variable = variable;
-  c->value = *variable;
-
-  return make_cleanup_dtor (do_restore_ui_file, (void *) c, xfree);
-}
-
-/* Helper for make_cleanup_value_free_to_mark.  */
-
-static void
-do_value_free_to_mark (void *value)
-{
-  value_free_to_mark ((struct value *) value);
-}
-
-/* Free all values allocated since MARK was obtained by value_mark
-   (except for those released) when the cleanup is run.  */
-
-struct cleanup *
-make_cleanup_value_free_to_mark (struct value *mark)
-{
-  return make_cleanup (do_value_free_to_mark, mark);
-}
-
-/* Helper for make_cleanup_value_free.  */
-
-static void
-do_value_free (void *value)
-{
-  value_free (value);
-}
-
-/* Free VALUE.  */
-
-struct cleanup *
-make_cleanup_value_free (struct value *value)
-{
-  return make_cleanup (do_value_free, value);
-}
-
-/* Helper for make_cleanup_free_so.  */
-
-static void
-do_free_so (void *arg)
-{
-  struct so_list *so = arg;
-
-  free_so (so);
-}
-
-/* Make cleanup handler calling free_so for SO.  */
-
-struct cleanup *
-make_cleanup_free_so (struct so_list *so)
-{
-  return make_cleanup (do_free_so, so);
-}
-
-/* Helper for make_cleanup_restore_current_language.  */
-
-static void
-do_restore_current_language (void *p)
-{
-  enum language saved_lang = (uintptr_t) p;
-
-  set_language (saved_lang);
-}
-
-/* Remember the current value of CURRENT_LANGUAGE and make it restored when
-   the cleanup is run.  */
-
-struct cleanup *
-make_cleanup_restore_current_language (void)
-{
-  enum language saved_lang = current_language->la_language;
-
-  return make_cleanup (do_restore_current_language,
-		       (void *) (uintptr_t) saved_lang);
+  *pmy_chain = chain;
 }
 
 /* This function is useful for cleanups.
@@ -537,7 +442,6 @@ void
 free_current_contents (void *ptr)
 {
   void **location = ptr;
-
   if (location == NULL)
     internal_error (__FILE__, __LINE__,
 		    _("free_current_contents: NULL pointer"));
@@ -548,115 +452,142 @@ free_current_contents (void *ptr)
     }
 }
 
-/* If nonzero, display time usage both at startup and for each command.  */
+/* Provide a known function that does nothing, to use as a base for
+   for a possibly long chain of cleanups.  This is useful where we
+   use the cleanup chain for handling normal cleanups as well as dealing
+   with cleanups that need to be done as a result of a call to error().
+   In such cases, we may not be certain where the first cleanup is, unless
+   we have a do-nothing one to always use as the base. */
 
-static int display_time;
-
-/* If nonzero, display space usage both at startup and for each command.  */
-
-static int display_space;
-
-/* Records a run time and space usage to be used as a base for
-   reporting elapsed time or change in space.  In addition,
-   the msg_type field indicates whether the saved time is from the
-   beginning of GDB execution (0) or the beginning of an individual 
-   command execution (1).  */
-struct cmd_stats 
-{
-  int msg_type;
-  long start_cpu_time;
-  struct timeval start_wall_time;
-  long start_space;
-};
-
-/* Set whether to display time statistics to NEW_VALUE (non-zero 
-   means true).  */
 void
-set_display_time (int new_value)
+null_cleanup (void *arg)
 {
-  display_time = new_value;
 }
 
-/* Set whether to display space statistics to NEW_VALUE (non-zero
-   means true).  */
+/* Add a continuation to the continuation list, the global list
+   cmd_continuation. The new continuation will be added at the front.*/
 void
-set_display_space (int new_value)
+add_continuation (void (*continuation_hook) (struct continuation_arg *),
+		  struct continuation_arg *arg_list)
 {
-  display_space = new_value;
+  struct continuation *continuation_ptr;
+
+  continuation_ptr =
+    (struct continuation *) xmalloc (sizeof (struct continuation));
+  continuation_ptr->continuation_hook = continuation_hook;
+  continuation_ptr->arg_list = arg_list;
+  continuation_ptr->next = cmd_continuation;
+  cmd_continuation = continuation_ptr;
 }
 
-/* As indicated by display_time and display_space, report GDB's elapsed time
-   and space usage from the base time and space provided in ARG, which
-   must be a pointer to a struct cmd_stat.  This function is intended
-   to be called as a cleanup.  */
-static void
-report_command_stats (void *arg)
+/* Walk down the cmd_continuation list, and execute all the
+   continuations. There is a problem though. In some cases new
+   continuations may be added while we are in the middle of this
+   loop. If this happens they will be added in the front, and done
+   before we have a chance of exhausting those that were already
+   there. We need to then save the beginning of the list in a pointer
+   and do the continuations from there on, instead of using the
+   global beginning of list as our iteration pointer.  */
+void
+do_all_continuations (void)
 {
-  struct cmd_stats *start_stats = (struct cmd_stats *) arg;
-  int msg_type = start_stats->msg_type;
+  struct continuation *continuation_ptr;
+  struct continuation *saved_continuation;
 
-  if (display_time)
+  /* Copy the list header into another pointer, and set the global
+     list header to null, so that the global list can change as a side
+     effect of invoking the continuations and the processing of
+     the preexisting continuations will not be affected. */
+  continuation_ptr = cmd_continuation;
+  cmd_continuation = NULL;
+
+  /* Work now on the list we have set aside.  */
+  while (continuation_ptr)
     {
-      long cmd_time = get_run_time () - start_stats->start_cpu_time;
-      struct timeval now_wall_time, delta_wall_time;
-
-      gettimeofday (&now_wall_time, NULL);
-      timeval_sub (&delta_wall_time,
-		   &now_wall_time, &start_stats->start_wall_time);
-
-      /* Subtract time spend in prompt_for_continue from walltime.  */
-      timeval_sub (&delta_wall_time,
-                   &delta_wall_time, &prompt_for_continue_wait_time);
-
-      printf_unfiltered (msg_type == 0
-			 ? _("Startup time: %ld.%06ld (cpu), %ld.%06ld (wall)\n")
-			 : _("Command execution time: %ld.%06ld (cpu), %ld.%06ld (wall)\n"),
-			 cmd_time / 1000000, cmd_time % 1000000,
-			 (long) delta_wall_time.tv_sec,
-			 (long) delta_wall_time.tv_usec);
-    }
-
-  if (display_space)
-    {
-#ifdef HAVE_SBRK
-      char *lim = (char *) sbrk (0);
-
-      long space_now = lim - lim_at_start;
-      long space_diff = space_now - start_stats->start_space;
-
-      printf_unfiltered (msg_type == 0
-			 ? _("Space used: %ld (%s%ld during startup)\n")
-			 : _("Space used: %ld (%s%ld for this command)\n"),
-			 space_now,
-			 (space_diff >= 0 ? "+" : ""),
-			 space_diff);
-#endif
+      (continuation_ptr->continuation_hook) (continuation_ptr->arg_list);
+      saved_continuation = continuation_ptr;
+      continuation_ptr = continuation_ptr->next;
+      xfree (saved_continuation);
     }
 }
 
-/* Create a cleanup that reports time and space used since its
-   creation.  Precise messages depend on MSG_TYPE:
-      0:  Initial time/space
-      1:  Individual command time/space.  */
-struct cleanup *
-make_command_stats_cleanup (int msg_type)
+/* Walk down the cmd_continuation list, and get rid of all the
+   continuations. */
+void
+discard_all_continuations (void)
 {
-  static const struct timeval zero_timeval = { 0 };
-  struct cmd_stats *new_stat = XMALLOC (struct cmd_stats);
-  
-#ifdef HAVE_SBRK
-  char *lim = (char *) sbrk (0);
-  new_stat->start_space = lim - lim_at_start;
-#endif
+  struct continuation *continuation_ptr;
 
-  new_stat->msg_type = msg_type;
-  new_stat->start_cpu_time = get_run_time ();
-  gettimeofday (&new_stat->start_wall_time, NULL);
+  while (cmd_continuation)
+    {
+      continuation_ptr = cmd_continuation;
+      cmd_continuation = continuation_ptr->next;
+      xfree (continuation_ptr);
+    }
+}
 
-  /* Initalize timer to keep track of how long we waited for the user.  */
-  prompt_for_continue_wait_time = zero_timeval;
+/* Add a continuation to the continuation list, the global list
+   intermediate_continuation.  The new continuation will be added at
+   the front.  */
+void
+add_intermediate_continuation (void (*continuation_hook)
+			       (struct continuation_arg *),
+			       struct continuation_arg *arg_list)
+{
+  struct continuation *continuation_ptr;
 
-  return make_cleanup_dtor (report_command_stats, new_stat, xfree);
+  continuation_ptr =
+    (struct continuation *) xmalloc (sizeof (struct continuation));
+  continuation_ptr->continuation_hook = continuation_hook;
+  continuation_ptr->arg_list = arg_list;
+  continuation_ptr->next = intermediate_continuation;
+  intermediate_continuation = continuation_ptr;
+}
+
+/* Walk down the cmd_continuation list, and execute all the
+   continuations. There is a problem though. In some cases new
+   continuations may be added while we are in the middle of this
+   loop. If this happens they will be added in the front, and done
+   before we have a chance of exhausting those that were already
+   there. We need to then save the beginning of the list in a pointer
+   and do the continuations from there on, instead of using the
+   global beginning of list as our iteration pointer.*/
+void
+do_all_intermediate_continuations (void)
+{
+  struct continuation *continuation_ptr;
+  struct continuation *saved_continuation;
+
+  /* Copy the list header into another pointer, and set the global
+     list header to null, so that the global list can change as a side
+     effect of invoking the continuations and the processing of
+     the preexisting continuations will not be affected. */
+  continuation_ptr = intermediate_continuation;
+  intermediate_continuation = NULL;
+
+  /* Work now on the list we have set aside.  */
+  while (continuation_ptr)
+    {
+      (continuation_ptr->continuation_hook) (continuation_ptr->arg_list);
+      saved_continuation = continuation_ptr;
+      continuation_ptr = continuation_ptr->next;
+      xfree (saved_continuation);
+    }
+}
+
+/* Walk down the cmd_continuation list, and get rid of all the
+   continuations. */
+void
+discard_all_intermediate_continuations (void)
+{
+  struct continuation *continuation_ptr;
+
+  while (intermediate_continuation)
+    {
+      continuation_ptr = intermediate_continuation;
+      intermediate_continuation = continuation_ptr->next;
+      xfree (continuation_ptr);
+    }
 }
 
 
@@ -675,7 +606,7 @@ vwarning (const char *string, va_list args)
   else
     {
       target_terminal_ours ();
-      wrap_here ("");		/* Force out any buffered output.  */
+      wrap_here ("");		/* Force out any buffered output */
       gdb_flush (gdb_stdout);
       if (warning_pre_print)
 	fputs_unfiltered (warning_pre_print, gdb_stderr);
@@ -695,7 +626,6 @@ void
 warning (const char *string, ...)
 {
   va_list args;
-
   va_start (args, string);
   vwarning (string, args);
   va_end (args);
@@ -705,17 +635,16 @@ warning (const char *string, ...)
    The first argument STRING is the error message, used as a fprintf string,
    and the remaining args are passed as arguments to it.  */
 
-void
+NORETURN void
 verror (const char *string, va_list args)
 {
   throw_verror (GENERIC_ERROR, string, args);
 }
 
-void
+NORETURN void
 error (const char *string, ...)
 {
   va_list args;
-
   va_start (args, string);
   throw_verror (GENERIC_ERROR, string, args);
   va_end (args);
@@ -725,101 +654,48 @@ error (const char *string, ...)
    The first argument STRING is the error message, used as a fprintf string,
    and the remaining args are passed as arguments to it.  */
 
-void
+NORETURN void
 vfatal (const char *string, va_list args)
 {
   throw_vfatal (string, args);
 }
 
-void
+NORETURN void
 fatal (const char *string, ...)
 {
   va_list args;
-
   va_start (args, string);
   throw_vfatal (string, args);
   va_end (args);
 }
 
-void
+NORETURN void
 error_stream (struct ui_file *stream)
 {
-  char *message = ui_file_xstrdup (stream, NULL);
-
+  long len;
+  char *message = ui_file_xstrdup (stream, &len);
   make_cleanup (xfree, message);
   error (("%s"), message);
 }
 
-/* Dump core trying to increase the core soft limit to hard limit first.  */
-
-static void
-dump_core (void)
-{
-#ifdef HAVE_SETRLIMIT
-  struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
-
-  setrlimit (RLIMIT_CORE, &rlim);
-#endif /* HAVE_SETRLIMIT */
-
-  abort ();		/* NOTE: GDB has only three calls to abort().  */
-}
-
-/* Check whether GDB will be able to dump core using the dump_core
-   function.  */
-
-static int
-can_dump_core (const char *reason)
-{
-#ifdef HAVE_GETRLIMIT
-  struct rlimit rlim;
-
-  /* Be quiet and assume we can dump if an error is returned.  */
-  if (getrlimit (RLIMIT_CORE, &rlim) != 0)
-    return 1;
-
-  if (rlim.rlim_max == 0)
-    {
-      fprintf_unfiltered (gdb_stderr,
-			  _("%s\nUnable to dump core, use `ulimit -c"
-			    " unlimited' before executing GDB next time.\n"),
-			  reason);
-      return 0;
-    }
-#endif /* HAVE_GETRLIMIT */
-
-  return 1;
-}
-
-/* Allow the user to configure the debugger behavior with respect to
-   what to do when an internal problem is detected.  */
-
-const char internal_problem_ask[] = "ask";
-const char internal_problem_yes[] = "yes";
-const char internal_problem_no[] = "no";
-static const char *const internal_problem_modes[] =
-{
-  internal_problem_ask,
-  internal_problem_yes,
-  internal_problem_no,
-  NULL
-};
-
-/* Print a message reporting an internal error/warning.  Ask the user
+/* Print a message reporting an internal error/warning. Ask the user
    if they want to continue, dump core, or just exit.  Return
    something to indicate a quit.  */
 
 struct internal_problem
 {
   const char *name;
-  const char *should_quit;
-  const char *should_dump_core;
+  /* FIXME: cagney/2002-08-15: There should be ``maint set/show''
+     commands available for controlling these variables.  */
+  enum auto_boolean should_quit;
+  enum auto_boolean should_dump_core;
 };
 
 /* Report a problem, internal to GDB, to the user.  Once the problem
    has been reported, and assuming GDB didn't quit, the caller can
    either allow execution to resume or throw an error.  */
 
-static void ATTRIBUTE_PRINTF (4, 0)
+static void ATTR_FORMAT (printf, 4, 0)
 internal_vproblem (struct internal_problem *problem,
 		   const char *file, int line, const char *fmt, va_list ap)
 {
@@ -831,7 +707,6 @@ internal_vproblem (struct internal_problem *problem,
   /* Don't allow infinite error/warning recursion.  */
   {
     static char msg[] = "Recursive internal problem.\n";
-
     switch (dejavu)
       {
       case 0:
@@ -843,13 +718,7 @@ internal_vproblem (struct internal_problem *problem,
 	abort ();	/* NOTE: GDB has only three calls to abort().  */
       default:
 	dejavu = 3;
-        /* Newer GLIBC versions put the warn_unused_result attribute
-           on write, but this is one of those rare cases where
-           ignoring the return value is correct.  Casting to (void)
-           does not fix this problem.  This is the solution suggested
-           at http://gcc.gnu.org/bugzilla/show_bug.cgi?id=25509.  */
-	if (write (STDERR_FILENO, msg, sizeof (msg)) != sizeof (msg))
-          abort (); /* NOTE: GDB has only three calls to abort().  */
+	write (STDERR_FILENO, msg, sizeof (msg));
 	exit (1);
       }
   }
@@ -865,61 +734,56 @@ internal_vproblem (struct internal_problem *problem,
      so that the user knows that they are living on the edge.  */
   {
     char *msg;
-
     msg = xstrvprintf (fmt, ap);
-    reason = xstrprintf ("%s:%d: %s: %s\n"
-			 "A problem internal to GDB has been detected,\n"
-			 "further debugging may prove unreliable.",
-			 file, line, problem->name, msg);
+    reason = xstrprintf ("\
+%s:%d: %s: %s\n\
+A problem internal to GDB has been detected,\n\
+further debugging may prove unreliable.", file, line, problem->name, msg);
     xfree (msg);
     make_cleanup (xfree, reason);
   }
 
-  if (problem->should_quit == internal_problem_ask)
+  switch (problem->should_quit)
     {
+    case AUTO_BOOLEAN_AUTO:
       /* Default (yes/batch case) is to quit GDB.  When in batch mode
-	 this lessens the likelihood of GDB going into an infinite
-	 loop.  */
-      if (!confirm)
-        {
-          /* Emit the message and quit.  */
-          fputs_unfiltered (reason, gdb_stderr);
-          fputs_unfiltered ("\n", gdb_stderr);
-          quit_p = 1;
-        }
-      else
-        quit_p = query (_("%s\nQuit this debugging session? "), reason);
+         this lessens the likelhood of GDB going into an infinate
+         loop.  */
+      quit_p = query (_("%s\nQuit this debugging session? "), reason);
+      break;
+    case AUTO_BOOLEAN_TRUE:
+      quit_p = 1;
+      break;
+    case AUTO_BOOLEAN_FALSE:
+      quit_p = 0;
+      break;
+    default:
+      internal_error (__FILE__, __LINE__, _("bad switch"));
     }
-  else if (problem->should_quit == internal_problem_yes)
-    quit_p = 1;
-  else if (problem->should_quit == internal_problem_no)
-    quit_p = 0;
-  else
-    internal_error (__FILE__, __LINE__, _("bad switch"));
 
-  if (problem->should_dump_core == internal_problem_ask)
+  switch (problem->should_dump_core)
     {
-      if (!can_dump_core (reason))
-	dump_core_p = 0;
-      else
-	{
-	  /* Default (yes/batch case) is to dump core.  This leaves a GDB
-	     `dropping' so that it is easier to see that something went
-	     wrong in GDB.  */
-	  dump_core_p = query (_("%s\nCreate a core file of GDB? "), reason);
-	}
+    case AUTO_BOOLEAN_AUTO:
+      /* Default (yes/batch case) is to dump core.  This leaves a GDB
+         `dropping' so that it is easier to see that something went
+         wrong in GDB.  */
+      dump_core_p = query (_("%s\nCreate a core file of GDB? "), reason);
+      break;
+      break;
+    case AUTO_BOOLEAN_TRUE:
+      dump_core_p = 1;
+      break;
+    case AUTO_BOOLEAN_FALSE:
+      dump_core_p = 0;
+      break;
+    default:
+      internal_error (__FILE__, __LINE__, _("bad switch"));
     }
-  else if (problem->should_dump_core == internal_problem_yes)
-    dump_core_p = can_dump_core (reason);
-  else if (problem->should_dump_core == internal_problem_no)
-    dump_core_p = 0;
-  else
-    internal_error (__FILE__, __LINE__, _("bad switch"));
 
   if (quit_p)
     {
       if (dump_core_p)
-	dump_core ();
+	abort ();		/* NOTE: GDB has only three calls to abort().  */
       else
 	exit (1);
     }
@@ -929,7 +793,7 @@ internal_vproblem (struct internal_problem *problem,
 	{
 #ifdef HAVE_WORKING_FORK
 	  if (fork () == 0)
-	    dump_core ();
+	    abort ();		/* NOTE: GDB has only three calls to abort().  */
 #endif
 	}
     }
@@ -938,28 +802,27 @@ internal_vproblem (struct internal_problem *problem,
 }
 
 static struct internal_problem internal_error_problem = {
-  "internal-error", internal_problem_ask, internal_problem_ask
+  "internal-error", AUTO_BOOLEAN_AUTO, AUTO_BOOLEAN_AUTO
 };
 
-void
+NORETURN void
 internal_verror (const char *file, int line, const char *fmt, va_list ap)
 {
   internal_vproblem (&internal_error_problem, file, line, fmt, ap);
   deprecated_throw_reason (RETURN_ERROR);
 }
 
-void
+NORETURN void
 internal_error (const char *file, int line, const char *string, ...)
 {
   va_list ap;
-
   va_start (ap, string);
   internal_verror (file, line, string, ap);
   va_end (ap);
 }
 
 static struct internal_problem internal_warning_problem = {
-  "internal-warning", internal_problem_ask, internal_problem_ask
+  "internal-warning", AUTO_BOOLEAN_AUTO, AUTO_BOOLEAN_AUTO
 };
 
 void
@@ -972,118 +835,16 @@ void
 internal_warning (const char *file, int line, const char *string, ...)
 {
   va_list ap;
-
   va_start (ap, string);
   internal_vwarning (file, line, string, ap);
   va_end (ap);
-}
-
-/* Dummy functions to keep add_prefix_cmd happy.  */
-
-static void
-set_internal_problem_cmd (char *args, int from_tty)
-{
-}
-
-static void
-show_internal_problem_cmd (char *args, int from_tty)
-{
-}
-
-/* When GDB reports an internal problem (error or warning) it gives
-   the user the opportunity to quit GDB and/or create a core file of
-   the current debug session.  This function registers a few commands
-   that make it possible to specify that GDB should always or never
-   quit or create a core file, without asking.  The commands look
-   like:
-
-   maint set PROBLEM-NAME quit ask|yes|no
-   maint show PROBLEM-NAME quit
-   maint set PROBLEM-NAME corefile ask|yes|no
-   maint show PROBLEM-NAME corefile
-
-   Where PROBLEM-NAME is currently "internal-error" or
-   "internal-warning".  */
-
-static void
-add_internal_problem_command (struct internal_problem *problem)
-{
-  struct cmd_list_element **set_cmd_list;
-  struct cmd_list_element **show_cmd_list;
-  char *set_doc;
-  char *show_doc;
-
-  set_cmd_list = xmalloc (sizeof (*set_cmd_list));
-  show_cmd_list = xmalloc (sizeof (*set_cmd_list));
-  *set_cmd_list = NULL;
-  *show_cmd_list = NULL;
-
-  set_doc = xstrprintf (_("Configure what GDB does when %s is detected."),
-			problem->name);
-
-  show_doc = xstrprintf (_("Show what GDB does when %s is detected."),
-			 problem->name);
-
-  add_prefix_cmd ((char*) problem->name,
-		  class_maintenance, set_internal_problem_cmd, set_doc,
-		  set_cmd_list,
-		  concat ("maintenance set ", problem->name, " ",
-			  (char *) NULL),
-		  0/*allow-unknown*/, &maintenance_set_cmdlist);
-
-  add_prefix_cmd ((char*) problem->name,
-		  class_maintenance, show_internal_problem_cmd, show_doc,
-		  show_cmd_list,
-		  concat ("maintenance show ", problem->name, " ",
-			  (char *) NULL),
-		  0/*allow-unknown*/, &maintenance_show_cmdlist);
-
-  set_doc = xstrprintf (_("Set whether GDB should quit "
-			  "when an %s is detected"),
-			problem->name);
-  show_doc = xstrprintf (_("Show whether GDB will quit "
-			   "when an %s is detected"),
-			 problem->name);
-  add_setshow_enum_cmd ("quit", class_maintenance,
-			internal_problem_modes,
-			&problem->should_quit,
-			set_doc,
-			show_doc,
-			NULL, /* help_doc */
-			NULL, /* setfunc */
-			NULL, /* showfunc */
-			set_cmd_list,
-			show_cmd_list);
-
-  xfree (set_doc);
-  xfree (show_doc);
-
-  set_doc = xstrprintf (_("Set whether GDB should create a core "
-			  "file of GDB when %s is detected"),
-			problem->name);
-  show_doc = xstrprintf (_("Show whether GDB will create a core "
-			   "file of GDB when %s is detected"),
-			 problem->name);
-  add_setshow_enum_cmd ("corefile", class_maintenance,
-			internal_problem_modes,
-			&problem->should_dump_core,
-			set_doc,
-			show_doc,
-			NULL, /* help_doc */
-			NULL, /* setfunc */
-			NULL, /* showfunc */
-			set_cmd_list,
-			show_cmd_list);
-
-  xfree (set_doc);
-  xfree (show_doc);
 }
 
 /* Print the system error message for errno, and also mention STRING
    as the file name for which the error was encountered.
    Then return to command level.  */
 
-void
+NORETURN void
 perror_with_name (const char *string)
 {
   char *err;
@@ -1097,7 +858,7 @@ perror_with_name (const char *string)
 
   /* I understand setting these is a matter of taste.  Still, some people
      may clear errno but not know about bfd_error.  Doing this here is not
-     unreasonable.  */
+     unreasonable. */
   bfd_set_error (bfd_error_no_error);
   errno = 0;
 
@@ -1145,12 +906,24 @@ quit (void)
 #endif
 }
 
+/* Control C comes here */
+void
+request_quit (int signo)
+{
+  quit_flag = 1;
+  /* Restore the signal handler.  Harmless with BSD-style signals,
+     needed for System V-style signals.  */
+  signal (signo, request_quit);
+
+  if (immediate_quit)
+    quit ();
+}
 
 /* Called when a memory allocation fails, with the number of bytes of
-   memory requested in SIZE.  */
+   memory requested in SIZE. */
 
-void
-malloc_failure (long size)
+NORETURN void
+nomem (long size)
 {
   if (size > 0)
     {
@@ -1162,6 +935,143 @@ malloc_failure (long size)
     {
       internal_error (__FILE__, __LINE__, _("virtual memory exhausted."));
     }
+}
+
+/* The xmalloc() (libiberty.h) family of memory management routines.
+
+   These are like the ISO-C malloc() family except that they implement
+   consistent semantics and guard against typical memory management
+   problems.  */
+
+/* NOTE: These are declared using PTR to ensure consistency with
+   "libiberty.h".  xfree() is GDB local.  */
+
+PTR				/* OK: PTR */
+xmalloc (size_t size)
+{
+  void *val;
+
+  /* See libiberty/xmalloc.c.  This function need's to match that's
+     semantics.  It never returns NULL.  */
+  if (size == 0)
+    size = 1;
+
+  val = malloc (size);		/* OK: malloc */
+  if (val == NULL)
+    nomem (size);
+
+  return (val);
+}
+
+void *
+xzalloc (size_t size)
+{
+  return xcalloc (1, size);
+}
+
+PTR				/* OK: PTR */
+xrealloc (PTR ptr, size_t size)	/* OK: PTR */
+{
+  void *val;
+
+  /* See libiberty/xmalloc.c.  This function need's to match that's
+     semantics.  It never returns NULL.  */
+  if (size == 0)
+    size = 1;
+
+  if (ptr != NULL)
+    val = realloc (ptr, size);	/* OK: realloc */
+  else
+    val = malloc (size);		/* OK: malloc */
+  if (val == NULL)
+    nomem (size);
+
+  return (val);
+}
+
+PTR				/* OK: PTR */
+xcalloc (size_t number, size_t size)
+{
+  void *mem;
+
+  /* See libiberty/xmalloc.c.  This function need's to match that's
+     semantics.  It never returns NULL.  */
+  if (number == 0 || size == 0)
+    {
+      number = 1;
+      size = 1;
+    }
+
+  mem = calloc (number, size);		/* OK: xcalloc */
+  if (mem == NULL)
+    nomem (number * size);
+
+  return mem;
+}
+
+void
+xfree (void *ptr)
+{
+  if (ptr != NULL)
+    free (ptr);		/* OK: free */
+}
+
+
+/* Like asprintf/vasprintf but get an internal_error if the call
+   fails. */
+
+char *
+xstrprintf (const char *format, ...)
+{
+  char *ret;
+  va_list args;
+  va_start (args, format);
+  ret = xstrvprintf (format, args);
+  va_end (args);
+  return ret;
+}
+
+void
+xasprintf (char **ret, const char *format, ...)
+{
+  va_list args;
+  va_start (args, format);
+  (*ret) = xstrvprintf (format, args);
+  va_end (args);
+}
+
+void
+xvasprintf (char **ret, const char *format, va_list ap)
+{
+  (*ret) = xstrvprintf (format, ap);
+}
+
+char *
+xstrvprintf (const char *format, va_list ap)
+{
+  char *ret = NULL;
+  int status = vasprintf (&ret, format, ap);
+  /* NULL is returned when there was a memory allocation problem, or
+     any other error (for instance, a bad format string).  A negative
+     status (the printed length) with a non-NULL buffer should never
+     happen, but just to be sure.  */
+  if (ret == NULL || status < 0)
+    internal_error (__FILE__, __LINE__, _("vasprintf call failed"));
+  return ret;
+}
+
+int
+xsnprintf (char *str, size_t size, const char *format, ...)
+{
+  va_list args;
+  int ret;
+
+  va_start (args, format);
+  ret = vsnprintf (str, size, format, args);
+  gdb_assert (ret < size);
+  va_end (args);
+
+  return ret;
 }
 
 /* My replacement for the read system call.
@@ -1185,7 +1095,7 @@ myread (int desc, char *addr, int len)
     }
   return orglen;
 }
-
+
 /* Make a copy of the string at PTR with SIZE characters
    (and add a null character at the end in the copy).
    Uses malloc to get the space.  Returns the address of the copy.  */
@@ -1194,7 +1104,6 @@ char *
 savestring (const char *ptr, size_t size)
 {
   char *p = (char *) xmalloc (size + 1);
-
   memcpy (p, ptr, size);
   p[size] = 0;
   return p;
@@ -1211,52 +1120,105 @@ print_spaces (int n, struct ui_file *file)
 void
 gdb_print_host_address (const void *addr, struct ui_file *stream)
 {
-  fprintf_filtered (stream, "%s", host_address_to_string (addr));
+
+  /* We could use the %p conversion specifier to fprintf if we had any
+     way of knowing whether this host supports it.  But the following
+     should work on the Alpha and on 32 bit machines.  */
+
+  fprintf_filtered (stream, "0x%lx", (unsigned long) addr);
+}
+
+/* Ask user a y-or-n question and return 1 iff answer is yes.
+   Takes three args which are given to printf to print the question.
+   The first, a control string, should end in "? ".
+   It should not say how to answer, because we do that.  */
+
+/* VARARGS */
+int
+query (const char *ctlstr, ...)
+{
+  va_list args;
+  int answer;
+  int ans2;
+  int retval;
+
+  /* Automatically answer "yes" if input is not from the user
+     directly, or if the user did not want prompts.  */
+  if (!input_from_terminal_p () || !caution)
+    return 1;
+
+  if (deprecated_query_hook)
+    {
+      va_start (args, ctlstr);
+      return deprecated_query_hook (ctlstr, args);
+    }
+
+  while (1)
+    {
+      wrap_here ("");		/* Flush any buffered output */
+      gdb_flush (gdb_stdout);
+
+      if (annotation_level > 1)
+	printf_filtered (("\n\032\032pre-query\n"));
+
+      va_start (args, ctlstr);
+      vfprintf_filtered (gdb_stdout, ctlstr, args);
+      va_end (args);
+      printf_filtered (_("(y or n) "));
+
+      if (annotation_level > 1)
+	printf_filtered (("\n\032\032query\n"));
+
+      wrap_here ("");
+      gdb_flush (gdb_stdout);
+
+      answer = fgetc (stdin);
+      clearerr (stdin);		/* in case of C-d */
+      if (answer == EOF)	/* C-d */
+	{
+	  retval = 1;
+	  break;
+	}
+      /* Eat rest of input line, to EOF or newline */
+      if (answer != '\n')
+	do
+	  {
+	    ans2 = fgetc (stdin);
+	    clearerr (stdin);
+	  }
+	while (ans2 != EOF && ans2 != '\n' && ans2 != '\r');
+
+      if (answer >= 'a')
+	answer -= 040;
+      if (answer == 'Y')
+	{
+	  retval = 1;
+	  break;
+	}
+      if (answer == 'N')
+	{
+	  retval = 0;
+	  break;
+	}
+      printf_filtered (_("Please answer y or n.\n"));
+    }
+
+  if (annotation_level > 1)
+    printf_filtered (("\n\032\032post-query\n"));
+  return retval;
 }
 
 
-/* A cleanup function that calls regfree.  */
-
-static void
-do_regfree_cleanup (void *r)
-{
-  regfree (r);
-}
-
-/* Create a new cleanup that frees the compiled regular expression R.  */
-
-struct cleanup *
-make_regfree_cleanup (regex_t *r)
-{
-  return make_cleanup (do_regfree_cleanup, r);
-}
-
-/* Return an xmalloc'd error message resulting from a regular
-   expression compilation failure.  */
-
-char *
-get_regcomp_error (int code, regex_t *rx)
-{
-  size_t length = regerror (code, rx, NULL, 0);
-  char *result = xmalloc (length);
-
-  regerror (code, rx, result, length);
-  return result;
-}
-
-
-
-/* This function supports the query, nquery, and yquery functions.
+/* This function supports the nquery() and yquery() functions.
    Ask user a y-or-n question and return 0 if answer is no, 1 if
-   answer is yes, or default the answer to the specified default
-   (for yquery or nquery).  DEFCHAR may be 'y' or 'n' to provide a
-   default answer, or '\0' for no default.
+   answer is yes, or default the answer to the specified default.
+   DEFCHAR is either 'y' or 'n' and refers to the default answer.
    CTLSTR is the control string and should end in "? ".  It should
    not say how to answer, because we do that.
    ARGS are the arguments passed along with the CTLSTR argument to
    printf.  */
 
-static int ATTRIBUTE_PRINTF (1, 0)
+static int ATTR_FORMAT (printf, 1, 0)
 defaulted_query (const char *ctlstr, const char defchar, va_list args)
 {
   int answer;
@@ -1264,21 +1226,10 @@ defaulted_query (const char *ctlstr, const char defchar, va_list args)
   int retval;
   int def_value;
   char def_answer, not_def_answer;
-  char *y_string, *n_string, *question;
-  /* Used to add duration we waited for user to respond to
-     prompt_for_continue_wait_time.  */
-  struct timeval prompt_started, prompt_ended, prompt_delta;
+  char *y_string, *n_string;
 
   /* Set up according to which answer is the default.  */
-  if (defchar == '\0')
-    {
-      def_value = 1;
-      def_answer = 'Y';
-      not_def_answer = 'N';
-      y_string = "y";
-      n_string = "n";
-    }
-  else if (defchar == 'y')
+  if (defchar == 'y')
     {
       def_value = 1;
       def_answer = 'Y';
@@ -1295,48 +1246,25 @@ defaulted_query (const char *ctlstr, const char defchar, va_list args)
       n_string = "[n]";
     }
 
-  /* Automatically answer the default value if the user did not want
-     prompts or the command was issued with the server prefix.  */
-  if (!confirm || server_command)
+  /* Automatically answer the default value if input is not from the user
+     directly, or if the user did not want prompts.  */
+  if (!input_from_terminal_p () || !caution)
     return def_value;
-
-  /* If input isn't coming from the user directly, just say what
-     question we're asking, and then answer the default automatically.  This
-     way, important error messages don't get lost when talking to GDB
-     over a pipe.  */
-  if (! input_from_terminal_p ())
-    {
-      wrap_here ("");
-      vfprintf_filtered (gdb_stdout, ctlstr, args);
-
-      printf_filtered (_("(%s or %s) [answered %c; "
-			 "input not from terminal]\n"),
-		       y_string, n_string, def_answer);
-      gdb_flush (gdb_stdout);
-
-      return def_value;
-    }
 
   if (deprecated_query_hook)
     {
       return deprecated_query_hook (ctlstr, args);
     }
 
-  /* Format the question outside of the loop, to avoid reusing args.  */
-  question = xstrvprintf (ctlstr, args);
-
-  /* Used for calculating time spend waiting for user.  */
-  gettimeofday (&prompt_started, NULL);
-
   while (1)
     {
-      wrap_here ("");		/* Flush any buffered output.  */
+      wrap_here ("");		/* Flush any buffered output */
       gdb_flush (gdb_stdout);
 
       if (annotation_level > 1)
 	printf_filtered (("\n\032\032pre-query\n"));
 
-      fputs_filtered (question, gdb_stdout);
+      vfprintf_filtered (gdb_stdout, ctlstr, args);
       printf_filtered (_("(%s or %s) "), y_string, n_string);
 
       if (annotation_level > 1)
@@ -1346,33 +1274,13 @@ defaulted_query (const char *ctlstr, const char defchar, va_list args)
       gdb_flush (gdb_stdout);
 
       answer = fgetc (stdin);
-
-      /* We expect fgetc to block until a character is read.  But
-         this may not be the case if the terminal was opened with
-         the NONBLOCK flag.  In that case, if there is nothing to
-         read on stdin, fgetc returns EOF, but also sets the error
-         condition flag on stdin and errno to EAGAIN.  With a true
-         EOF, stdin's error condition flag is not set.
-
-         A situation where this behavior was observed is a pseudo
-         terminal on AIX.  */
-      while (answer == EOF && ferror (stdin) && errno == EAGAIN)
-        {
-          /* Not a real EOF.  Wait a little while and try again until
-             we read something.  */
-          clearerr (stdin);
-          gdb_usleep (10000);
-          answer = fgetc (stdin);
-        }
-
       clearerr (stdin);		/* in case of C-d */
       if (answer == EOF)	/* C-d */
 	{
-	  printf_filtered ("EOF [assumed %c]\n", def_answer);
 	  retval = def_value;
 	  break;
 	}
-      /* Eat rest of input line, to EOF or newline.  */
+      /* Eat rest of input line, to EOF or newline */
       if (answer != '\n')
 	do
 	  {
@@ -1390,12 +1298,10 @@ defaulted_query (const char *ctlstr, const char defchar, va_list args)
 	  retval = !def_value;
 	  break;
 	}
-      /* Otherwise, if a default was specified, the user may either
-         specify the required input or have it default by entering
-         nothing.  */
-      if (answer == def_answer
-	  || (defchar != '\0' &&
-	      (answer == '\n' || answer == '\r' || answer == EOF)))
+      /* Otherwise, for the default, the user may either specify
+         the required input or have it default by entering nothing.  */
+      if (answer == def_answer || answer == '\n' || 
+	  answer == '\r' || answer == EOF)
 	{
 	  retval = def_value;
 	  break;
@@ -1405,13 +1311,6 @@ defaulted_query (const char *ctlstr, const char defchar, va_list args)
 		       y_string, n_string);
     }
 
-  /* Add time spend in this routine to prompt_for_continue_wait_time.  */
-  gettimeofday (&prompt_ended, NULL);
-  timeval_sub (&prompt_delta, &prompt_ended, &prompt_started);
-  timeval_add (&prompt_for_continue_wait_time,
-               &prompt_for_continue_wait_time, &prompt_delta);
-
-  xfree (question);
   if (annotation_level > 1)
     printf_filtered (("\n\032\032post-query\n"));
   return retval;
@@ -1428,12 +1327,10 @@ int
 nquery (const char *ctlstr, ...)
 {
   va_list args;
-  int ret;
 
   va_start (args, ctlstr);
-  ret = defaulted_query (ctlstr, 'n', args);
+  return defaulted_query (ctlstr, 'n', args);
   va_end (args);
-  return ret;
 }
 
 /* Ask user a y-or-n question and return 0 if answer is no, 1 if
@@ -1446,58 +1343,27 @@ int
 yquery (const char *ctlstr, ...)
 {
   va_list args;
-  int ret;
 
   va_start (args, ctlstr);
-  ret = defaulted_query (ctlstr, 'y', args);
+  return defaulted_query (ctlstr, 'y', args);
   va_end (args);
-  return ret;
 }
 
-/* Ask user a y-or-n question and return 1 iff answer is yes.
-   Takes three args which are given to printf to print the question.
-   The first, a control string, should end in "? ".
-   It should not say how to answer, because we do that.  */
-
-int
-query (const char *ctlstr, ...)
+/* Print an error message saying that we couldn't make sense of a
+   \^mumble sequence in a string or character constant.  START and END
+   indicate a substring of some larger string that contains the
+   erroneous backslash sequence, missing the initial backslash.  */
+static NORETURN int
+no_control_char_error (const char *start, const char *end)
 {
-  va_list args;
-  int ret;
+  int len = end - start;
+  char *copy = alloca (end - start + 1);
 
-  va_start (args, ctlstr);
-  ret = defaulted_query (ctlstr, '\0', args);
-  va_end (args);
-  return ret;
-}
+  memcpy (copy, start, len);
+  copy[len] = '\0';
 
-/* A helper for parse_escape that converts a host character to a
-   target character.  C is the host character.  If conversion is
-   possible, then the target character is stored in *TARGET_C and the
-   function returns 1.  Otherwise, the function returns 0.  */
-
-static int
-host_char_to_target (struct gdbarch *gdbarch, int c, int *target_c)
-{
-  struct obstack host_data;
-  char the_char = c;
-  struct cleanup *cleanups;
-  int result = 0;
-
-  obstack_init (&host_data);
-  cleanups = make_cleanup_obstack_free (&host_data);
-
-  convert_between_encodings (target_charset (gdbarch), host_charset (),
-			     &the_char, 1, 1, &host_data, translit_none);
-
-  if (obstack_object_size (&host_data) == 1)
-    {
-      result = 1;
-      *target_c = *(char *) obstack_base (&host_data);
-    }
-
-  do_cleanups (cleanups);
-  return result;
+  error (_("There is no control character `\\%s' in the `%s' character set."),
+	 copy, target_charset ());
 }
 
 /* Parse a C escape sequence.  STRING_PTR points to a variable
@@ -1516,18 +1382,57 @@ host_char_to_target (struct gdbarch *gdbarch, int c, int *target_c)
    after the zeros.  A value of 0 does not mean end of string.  */
 
 int
-parse_escape (struct gdbarch *gdbarch, char **string_ptr)
+parse_escape (char **string_ptr)
 {
-  int target_char = -2;	/* Initialize to avoid GCC warnings.  */
+  int target_char;
   int c = *(*string_ptr)++;
-
-  switch (c)
-    {
+  if (c_parse_backslash (c, &target_char))
+    return target_char;
+  else
+    switch (c)
+      {
       case '\n':
 	return -2;
       case 0:
 	(*string_ptr)--;
 	return 0;
+      case '^':
+	{
+	  /* Remember where this escape sequence started, for reporting
+	     errors.  */
+	  char *sequence_start_pos = *string_ptr - 1;
+
+	  c = *(*string_ptr)++;
+
+	  if (c == '?')
+	    {
+	      /* XXXCHARSET: What is `delete' in the host character set?  */
+	      c = 0177;
+
+	      if (!host_char_to_target (c, &target_char))
+		error (_("There is no character corresponding to `Delete' "
+		       "in the target character set `%s'."), host_charset ());
+
+	      return target_char;
+	    }
+	  else if (c == '\\')
+	    target_char = parse_escape (string_ptr);
+	  else
+	    {
+	      if (!host_char_to_target (c, &target_char))
+		no_control_char_error (sequence_start_pos, *string_ptr);
+	    }
+
+	  /* Now target_char is something like `c', and we want to find
+	     its control-character equivalent.  */
+	  if (!target_char_to_control_char (target_char, &target_char))
+	    no_control_char_error (sequence_start_pos, *string_ptr);
+
+	  return target_char;
+	}
+
+	/* XXXCHARSET: we need to use isdigit and value-of-digit
+	   methods of the host character set here.  */
 
       case '0':
       case '1':
@@ -1538,16 +1443,16 @@ parse_escape (struct gdbarch *gdbarch, char **string_ptr)
       case '6':
       case '7':
 	{
-	  int i = host_hex_value (c);
+	  int i = c - '0';
 	  int count = 0;
 	  while (++count < 3)
 	    {
 	      c = (**string_ptr);
-	      if (isdigit (c) && c != '8' && c != '9')
+	      if (c >= '0' && c <= '7')
 		{
 		  (*string_ptr)++;
 		  i *= 8;
-		  i += host_hex_value (c);
+		  i += c - '0';
 		}
 	      else
 		{
@@ -1556,50 +1461,27 @@ parse_escape (struct gdbarch *gdbarch, char **string_ptr)
 	    }
 	  return i;
 	}
-
-    case 'a':
-      c = '\a';
-      break;
-    case 'b':
-      c = '\b';
-      break;
-    case 'f':
-      c = '\f';
-      break;
-    case 'n':
-      c = '\n';
-      break;
-    case 'r':
-      c = '\r';
-      break;
-    case 't':
-      c = '\t';
-      break;
-    case 'v':
-      c = '\v';
-      break;
-
-    default:
-      break;
-    }
-
-  if (!host_char_to_target (gdbarch, c, &target_char))
-    error (_("The escape sequence `\\%c' is equivalent to plain `%c',"
-	     " which has no equivalent\nin the `%s' character set."),
-	   c, c, target_charset (gdbarch));
-  return target_char;
+      default:
+	if (!host_char_to_target (c, &target_char))
+	  error
+	    ("The escape sequence `\%c' is equivalent to plain `%c', which"
+	     " has no equivalent\n" "in the `%s' character set.", c, c,
+	     target_charset ());
+	return target_char;
+      }
 }
 
 /* Print the character C on STREAM as part of the contents of a literal
    string whose delimiter is QUOTER.  Note that this routine should only
    be call for printing things which are independent of the language
-   of the program being debugged.  */
+   of the program being debugged. */
 
 static void
 printchar (int c, void (*do_fputs) (const char *, struct ui_file *),
 	   void (*do_fprintf) (struct ui_file *, const char *, ...)
 	   ATTRIBUTE_FPTR_PRINTF_2, struct ui_file *stream, int quoter)
 {
+
   c &= 0xFF;			/* Avoid sign bit follies */
 
   if (c < 0x20 ||		/* Low control chars */
@@ -1645,7 +1527,7 @@ printchar (int c, void (*do_fputs) (const char *, struct ui_file *),
 /* Print the character C on STREAM as part of the contents of a
    literal string whose delimiter is QUOTER.  Note that these routines
    should only be call for printing things which are independent of
-   the language of the program being debugged.  */
+   the language of the program being debugged. */
 
 void
 fputstr_filtered (const char *str, int quoter, struct ui_file *stream)
@@ -1666,7 +1548,6 @@ fputstrn_filtered (const char *str, int n, int quoter,
 		   struct ui_file *stream)
 {
   int i;
-
   for (i = 0; i < n; i++)
     printchar (str[i], fputs_filtered, fprintf_filtered, stream, quoter);
 }
@@ -1676,7 +1557,6 @@ fputstrn_unfiltered (const char *str, int n, int quoter,
 		     struct ui_file *stream)
 {
   int i;
-
   for (i = 0; i < n; i++)
     printchar (str[i], fputs_unfiltered, fprintf_unfiltered, stream, quoter);
 }
@@ -1688,8 +1568,8 @@ static void
 show_lines_per_page (struct ui_file *file, int from_tty,
 		     struct cmd_list_element *c, const char *value)
 {
-  fprintf_filtered (file,
-		    _("Number of lines gdb thinks are in a page is %s.\n"),
+  fprintf_filtered (file, _("\
+Number of lines gdb thinks are in a page is %s.\n"),
 		    value);
 }
 
@@ -1699,9 +1579,8 @@ static void
 show_chars_per_line (struct ui_file *file, int from_tty,
 		     struct cmd_list_element *c, const char *value)
 {
-  fprintf_filtered (file,
-		    _("Number of characters gdb thinks "
-		      "are in a line is %s.\n"),
+  fprintf_filtered (file, _("\
+Number of characters gdb thinks are in a line is %s.\n"),
 		    value);
 }
 
@@ -1738,12 +1617,6 @@ static int wrap_column;
 void
 init_page_info (void)
 {
-  if (batch_flag)
-    {
-      lines_per_page = UINT_MAX;
-      chars_per_line = UINT_MAX;
-    }
-  else
 #if defined(TUI)
   if (!tui_get_command_dimension (&chars_per_line, &lines_per_page))
 #endif
@@ -1773,6 +1646,11 @@ init_page_info (void)
 	  lines_per_page = UINT_MAX;
 	}
 
+      /* FIXME: Get rid of this junk.  */
+#if defined(SIGWINCH) && defined(SIGWINCH_HANDLER)
+      SIGWINCH_HANDLER (SIGWINCH);
+#endif
+
       /* If the output is not a terminal, don't paginate it.  */
       if (!ui_file_isatty (gdb_stdout))
 	lines_per_page = UINT_MAX;
@@ -1781,44 +1659,6 @@ init_page_info (void)
 
   set_screen_size ();
   set_width ();
-}
-
-/* Helper for make_cleanup_restore_page_info.  */
-
-static void
-do_restore_page_info_cleanup (void *arg)
-{
-  set_screen_size ();
-  set_width ();
-}
-
-/* Provide cleanup for restoring the terminal size.  */
-
-struct cleanup *
-make_cleanup_restore_page_info (void)
-{
-  struct cleanup *back_to;
-
-  back_to = make_cleanup (do_restore_page_info_cleanup, NULL);
-  make_cleanup_restore_uinteger (&lines_per_page);
-  make_cleanup_restore_uinteger (&chars_per_line);
-
-  return back_to;
-}
-
-/* Temporarily set BATCH_FLAG and the associated unlimited terminal size.
-   Provide cleanup for restoring the original state.  */
-
-struct cleanup *
-set_batch_flag_and_make_cleanup_restore_page_info (void)
-{
-  struct cleanup *back_to = make_cleanup_restore_page_info ();
-  
-  make_cleanup_restore_integer (&batch_flag);
-  batch_flag = 1;
-  init_page_info ();
-
-  return back_to;
 }
 
 /* Set the screen size based on LINES_PER_PAGE and CHARS_PER_LINE.  */
@@ -1833,7 +1673,7 @@ set_screen_size (void)
     rows = INT_MAX;
 
   if (cols <= 0)
-    cols = INT_MAX;
+    rl_get_screen_size (NULL, &cols);
 
   /* Update Readline's idea of the terminal size.  */
   rl_set_screen_size (rows, cols);
@@ -1879,11 +1719,6 @@ prompt_for_continue (void)
 {
   char *ignore;
   char cont_prompt[120];
-  /* Used to add duration we waited for user to respond to
-     prompt_for_continue_wait_time.  */
-  struct timeval prompt_started, prompt_ended, prompt_delta;
-
-  gettimeofday (&prompt_started, NULL);
 
   if (annotation_level > 1)
     printf_unfiltered (("\n\032\032pre-prompt-for-continue\n"));
@@ -1899,7 +1734,6 @@ prompt_for_continue (void)
   reinitialize_more_filter ();
 
   immediate_quit++;
-  QUIT;
   /* On a real operating system, the user can quit with SIGINT.
      But not on GO32.
 
@@ -1912,23 +1746,16 @@ prompt_for_continue (void)
      out to DOS.  */
   ignore = gdb_readline_wrapper (cont_prompt);
 
-  /* Add time spend in this routine to prompt_for_continue_wait_time.  */
-  gettimeofday (&prompt_ended, NULL);
-  timeval_sub (&prompt_delta, &prompt_ended, &prompt_started);
-  timeval_add (&prompt_for_continue_wait_time,
-               &prompt_for_continue_wait_time, &prompt_delta);
-
   if (annotation_level > 1)
     printf_unfiltered (("\n\032\032post-prompt-for-continue\n"));
 
   if (ignore)
     {
       char *p = ignore;
-
       while (*p == ' ' || *p == '\t')
 	++p;
       if (p[0] == 'q')
-	quit ();
+	async_request_quit (0);
       xfree (ignore);
     }
   immediate_quit--;
@@ -1937,7 +1764,7 @@ prompt_for_continue (void)
      need to save the ---Type <return>--- line at the top of the screen.  */
   reinitialize_more_filter ();
 
-  dont_repeat ();		/* Forget prev cmd -- CR won't repeat it.  */
+  dont_repeat ();		/* Forget prev cmd -- CR won't repeat it. */
 }
 
 /* Reinitialize filter; ie. tell it to reset to original values.  */
@@ -1950,7 +1777,7 @@ reinitialize_more_filter (void)
 }
 
 /* Indicate that if the next sequence of characters overflows the line,
-   a newline should be inserted here rather than when it hits the end.
+   a newline should be inserted here rather than when it hits the end. 
    If INDENT is non-null, it is a string to be printed to indent the
    wrapped part on the next line.  INDENT must remain accessible until
    the next call to wrap_here() or until a newline is printed through
@@ -1973,10 +1800,9 @@ reinitialize_more_filter (void)
 void
 wrap_here (char *indent)
 {
-  /* This should have been allocated, but be paranoid anyway.  */
+  /* This should have been allocated, but be paranoid anyway. */
   if (!wrap_buffer)
-    internal_error (__FILE__, __LINE__,
-		    _("failed internal consistency check"));
+    internal_error (__FILE__, __LINE__, _("failed internal consistency check"));
 
   if (wrap_buffer[0])
     {
@@ -1985,7 +1811,7 @@ wrap_here (char *indent)
     }
   wrap_pointer = wrap_buffer;
   wrap_buffer[0] = '\0';
-  if (chars_per_line == UINT_MAX)	/* No line overflow checking.  */
+  if (chars_per_line == UINT_MAX)	/* No line overflow checking */
     {
       wrap_column = 0;
     }
@@ -2007,11 +1833,11 @@ wrap_here (char *indent)
 }
 
 /* Print input string to gdb_stdout, filtered, with wrap, 
-   arranging strings in columns of n chars.  String can be
+   arranging strings in columns of n chars. String can be
    right or left justified in the column.  Never prints 
    trailing spaces.  String should never be longer than
    width.  FIXME: this could be useful for the EXAMINE 
-   command, which currently doesn't tabulate very well.  */
+   command, which currently doesn't tabulate very well */
 
 void
 puts_filtered_tabular (char *string, int width, int right)
@@ -2052,9 +1878,9 @@ puts_filtered_tabular (char *string, int width, int right)
 
 
 /* Ensure that whatever gets printed next, using the filtered output
-   commands, starts at the beginning of the line.  I.e. if there is
+   commands, starts at the beginning of the line.  I.E. if there is
    any pending output for the current line, flush it and start a new
-   line.  Otherwise do nothing.  */
+   line.  Otherwise do nothing. */
 
 void
 begin_line (void)
@@ -2089,12 +1915,8 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
     return;
 
   /* Don't do any filtering if it is disabled.  */
-  if (stream != gdb_stdout
-      || !pagination_enabled
-      || batch_flag
-      || (lines_per_page == UINT_MAX && chars_per_line == UINT_MAX)
-      || top_level_interpreter () == NULL
-      || ui_out_is_mi_like_p (interp_ui_out (top_level_interpreter ())))
+  if ((stream != gdb_stdout) || !pagination_enabled
+      || (lines_per_page == UINT_MAX && chars_per_line == UINT_MAX))
     {
       fputs_unfiltered (linebuffer, stream);
       return;
@@ -2152,16 +1974,16 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
 	      if (lines_printed >= lines_per_page - 1)
 		prompt_for_continue ();
 
-	      /* Now output indentation and wrapped string.  */
+	      /* Now output indentation and wrapped string */
 	      if (wrap_column)
 		{
 		  fputs_unfiltered (wrap_indent, stream);
-		  *wrap_pointer = '\0';	/* Null-terminate saved stuff, */
-		  fputs_unfiltered (wrap_buffer, stream); /* and eject it.  */
+		  *wrap_pointer = '\0';	/* Null-terminate saved stuff */
+		  fputs_unfiltered (wrap_buffer, stream);	/* and eject it */
 		  /* FIXME, this strlen is what prevents wrap_indent from
 		     containing tabs.  However, if we recurse to print it
 		     and count its chars, we risk trouble if wrap_indent is
-		     longer than (the user settable) chars_per_line.
+		     longer than (the user settable) chars_per_line. 
 		     Note also that this can set chars_printed > chars_per_line
 		     if we are printing a long string.  */
 		  chars_printed = strlen (wrap_indent)
@@ -2176,8 +1998,7 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
       if (*lineptr == '\n')
 	{
 	  chars_printed = 0;
-	  wrap_here ((char *) 0);	/* Spit out chars, cancel
-					   further wraps.  */
+	  wrap_here ((char *) 0);	/* Spit out chars, cancel further wraps */
 	  lines_printed++;
 	  fputc_unfiltered ('\n', stream);
 	  lineptr++;
@@ -2195,7 +2016,6 @@ int
 putchar_unfiltered (int c)
 {
   char buf = c;
-
   ui_file_write (gdb_stdout, &buf, 1);
   return c;
 }
@@ -2213,7 +2033,6 @@ int
 fputc_unfiltered (int c, struct ui_file *stream)
 {
   char buf = c;
-
   ui_file_write (stream, &buf, 1);
   return c;
 }
@@ -2356,26 +2175,7 @@ vfprintf_unfiltered (struct ui_file *stream, const char *format, va_list args)
 
   linebuffer = xstrvprintf (format, args);
   old_cleanups = make_cleanup (xfree, linebuffer);
-  if (debug_timestamp && stream == gdb_stdlog)
-    {
-      struct timeval tm;
-      char *timestamp;
-      int len, need_nl;
-
-      gettimeofday (&tm, NULL);
-
-      len = strlen (linebuffer);
-      need_nl = (len > 0 && linebuffer[len - 1] != '\n');
-
-      timestamp = xstrprintf ("%ld:%ld %s%s",
-			      (long) tm.tv_sec, (long) tm.tv_usec,
-			      linebuffer,
-			      need_nl ? "\n": "");
-      make_cleanup (xfree, timestamp);
-      fputs_unfiltered (timestamp, stream);
-    }
-  else
-    fputs_unfiltered (linebuffer, stream);
+  fputs_unfiltered (linebuffer, stream);
   do_cleanups (old_cleanups);
 }
 
@@ -2395,7 +2195,6 @@ void
 fprintf_filtered (struct ui_file *stream, const char *format, ...)
 {
   va_list args;
-
   va_start (args, format);
   vfprintf_filtered (stream, format, args);
   va_end (args);
@@ -2405,7 +2204,6 @@ void
 fprintf_unfiltered (struct ui_file *stream, const char *format, ...)
 {
   va_list args;
-
   va_start (args, format);
   vfprintf_unfiltered (stream, format, args);
   va_end (args);
@@ -2419,7 +2217,6 @@ fprintfi_filtered (int spaces, struct ui_file *stream, const char *format,
 		   ...)
 {
   va_list args;
-
   va_start (args, format);
   print_spaces_filtered (spaces, stream);
 
@@ -2432,7 +2229,6 @@ void
 printf_filtered (const char *format, ...)
 {
   va_list args;
-
   va_start (args, format);
   vfprintf_filtered (gdb_stdout, format, args);
   va_end (args);
@@ -2443,7 +2239,6 @@ void
 printf_unfiltered (const char *format, ...)
 {
   va_list args;
-
   va_start (args, format);
   vfprintf_unfiltered (gdb_stdout, format, args);
   va_end (args);
@@ -2456,7 +2251,6 @@ void
 printfi_filtered (int spaces, const char *format, ...)
 {
   va_list args;
-
   va_start (args, format);
   print_spaces_filtered (spaces, gdb_stdout);
   vfprintf_filtered (gdb_stdout, format, args);
@@ -2515,10 +2309,10 @@ print_spaces_filtered (int n, struct ui_file *stream)
 /* fprintf_symbol_filtered attempts to demangle NAME, a symbol in language
    LANG, using demangling args ARG_MODE, and print it filtered to STREAM.
    If the name is not mangled, or the language for the name is unknown, or
-   demangling is off, the name is printed in its "raw" form.  */
+   demangling is off, the name is printed in its "raw" form. */
 
 void
-fprintf_symbol_filtered (struct ui_file *stream, const char *name,
+fprintf_symbol_filtered (struct ui_file *stream, char *name,
 			 enum language lang, int arg_mode)
 {
   char *demangled;
@@ -2549,7 +2343,7 @@ fprintf_symbol_filtered (struct ui_file *stream, const char *name,
    As an extra hack, string1=="FOO(ARGS)" matches string2=="FOO".
    This "feature" is useful when searching for matching C++ function names
    (such as if the user types 'break FOO', where FOO is a mangled C++
-   function).  */
+   function). */
 
 int
 strcmp_iw (const char *string1, const char *string2)
@@ -2564,12 +2358,10 @@ strcmp_iw (const char *string1, const char *string2)
 	{
 	  string2++;
 	}
-      if (case_sensitivity == case_sensitive_on && *string1 != *string2)
-	break;
-      if (case_sensitivity == case_sensitive_off
-	  && (tolower ((unsigned char) *string1)
-	      != tolower ((unsigned char) *string2)))
-	break;
+      if (*string1 != *string2)
+	{
+	  break;
+	}
       if (*string1 != '\0')
 	{
 	  string1++;
@@ -2589,10 +2381,6 @@ strcmp_iw (const char *string1, const char *string2)
    find names in the list that match some fixed NAME according to
    strcmp_iw(LIST_ELT, NAME), then the place to start looking is right
    where this function would put NAME.
-
-   This function must be neutral to the CASE_SENSITIVITY setting as the user
-   may choose it during later lookup.  Therefore this function always sorts
-   primarily case-insensitively and secondarily case-sensitively.
 
    Here are some examples of why using strcmp to sort is a bad idea:
 
@@ -2619,78 +2407,47 @@ strcmp_iw (const char *string1, const char *string2)
 int
 strcmp_iw_ordered (const char *string1, const char *string2)
 {
-  const char *saved_string1 = string1, *saved_string2 = string2;
-  enum case_sensitivity case_pass = case_sensitive_off;
-
-  for (;;)
+  while ((*string1 != '\0') && (*string2 != '\0'))
     {
-      /* C1 and C2 are valid only if *string1 != '\0' && *string2 != '\0'.
-	 Provide stub characters if we are already at the end of one of the
-	 strings.  */
-      char c1 = 'X', c2 = 'X';
-
-      while (*string1 != '\0' && *string2 != '\0')
+      while (isspace (*string1))
 	{
-	  while (isspace (*string1))
-	    string1++;
-	  while (isspace (*string2))
-	    string2++;
-
-	  switch (case_pass)
-	  {
-	    case case_sensitive_off:
-	      c1 = tolower ((unsigned char) *string1);
-	      c2 = tolower ((unsigned char) *string2);
-	      break;
-	    case case_sensitive_on:
-	      c1 = *string1;
-	      c2 = *string2;
-	      break;
-	  }
-	  if (c1 != c2)
-	    break;
-
-	  if (*string1 != '\0')
-	    {
-	      string1++;
-	      string2++;
-	    }
+	  string1++;
 	}
-
-      switch (*string1)
+      while (isspace (*string2))
 	{
-	  /* Characters are non-equal unless they're both '\0'; we want to
-	     make sure we get the comparison right according to our
-	     comparison in the cases where one of them is '\0' or '('.  */
-	case '\0':
-	  if (*string2 == '\0')
-	    break;
-	  else
-	    return -1;
-	case '(':
-	  if (*string2 == '\0')
-	    return 1;
-	  else
-	    return -1;
-	default:
-	  if (*string2 == '\0' || *string2 == '(')
-	    return 1;
-	  else if (c1 > c2)
-	    return 1;
-	  else if (c1 < c2)
-	    return -1;
-	  /* PASSTHRU */
+	  string2++;
 	}
+      if (*string1 != *string2)
+	{
+	  break;
+	}
+      if (*string1 != '\0')
+	{
+	  string1++;
+	  string2++;
+	}
+    }
 
-      if (case_pass == case_sensitive_on)
+  switch (*string1)
+    {
+      /* Characters are non-equal unless they're both '\0'; we want to
+	 make sure we get the comparison right according to our
+	 comparison in the cases where one of them is '\0' or '('.  */
+    case '\0':
+      if (*string2 == '\0')
 	return 0;
-      
-      /* Otherwise the strings were equal in case insensitive way, make
-	 a more fine grained comparison in a case sensitive way.  */
-
-      case_pass = case_sensitive_on;
-      string1 = saved_string1;
-      string2 = saved_string2;
+      else
+	return -1;
+    case '(':
+      if (*string2 == '\0')
+	return 1;
+      else
+	return -1;
+    default:
+      if (*string2 == '(')
+	return 1;
+      else
+	return *string1 - *string2;
     }
 }
 
@@ -2713,7 +2470,6 @@ int
 subset_compare (char *string_to_compare, char *template_string)
 {
   int match;
-
   if (template_string != (char *) NULL && string_to_compare != (char *) NULL
       && strlen (string_to_compare) <= strlen (template_string))
     match =
@@ -2724,30 +2480,27 @@ subset_compare (char *string_to_compare, char *template_string)
   return match;
 }
 
+
+static void pagination_on_command (char *arg, int from_tty);
 static void
 pagination_on_command (char *arg, int from_tty)
 {
   pagination_enabled = 1;
 }
 
+static void pagination_on_command (char *arg, int from_tty);
 static void
 pagination_off_command (char *arg, int from_tty)
 {
   pagination_enabled = 0;
-}
-
-static void
-show_debug_timestamp (struct ui_file *file, int from_tty,
-		      struct cmd_list_element *c, const char *value)
-{
-  fprintf_filtered (file, _("Timestamping debugging messages is %s.\n"),
-		    value);
 }
 
 
 void
 initialize_utils (void)
 {
+  struct cmd_list_element *c;
+
   add_setshow_uinteger_cmd ("width", class_support, &chars_per_line, _("\
 Set number of characters gdb thinks are in a line."), _("\
 Show number of characters gdb thinks are in a line."), NULL,
@@ -2763,6 +2516,13 @@ Show number of lines gdb thinks are in a page."), NULL,
 			    &setlist, &showlist);
 
   init_page_info ();
+
+  add_setshow_boolean_cmd ("demangle", class_support, &demangle, _("\
+Set demangling of encoded C++/ObjC names when displaying symbols."), _("\
+Show demangling of encoded C++/ObjC names when displaying symbols."), NULL,
+			   NULL,
+			   show_demangle,
+			   &setprintlist, &showprintlist);
 
   add_setshow_boolean_cmd ("pagination", class_support,
 			   &pagination_enabled, _("\
@@ -2788,18 +2548,21 @@ Show printing of 8-bit characters in strings as \\nnn."), NULL,
 			   show_sevenbit_strings,
 			   &setprintlist, &showprintlist);
 
-  add_setshow_boolean_cmd ("timestamp", class_maintenance,
-			    &debug_timestamp, _("\
-Set timestamping of debugging messages."), _("\
-Show timestamping of debugging messages."), _("\
-When set, debugging messages will be marked with seconds and microseconds."),
+  add_setshow_boolean_cmd ("asm-demangle", class_support, &asm_demangle, _("\
+Set demangling of C++/ObjC names in disassembly listings."), _("\
+Show demangling of C++/ObjC names in disassembly listings."), NULL,
 			   NULL,
-			   show_debug_timestamp,
-			   &setdebuglist, &showdebuglist);
+			   show_asm_demangle,
+			   &setprintlist, &showprintlist);
 }
 
-/* Print routines to handle variable size regs, etc.  */
-/* Temporary storage using circular buffer.  */
+/* Machine specific function to handle SIGWINCH signal. */
+
+#ifdef  SIGWINCH_HANDLER_BODY
+SIGWINCH_HANDLER_BODY
+#endif
+/* print routines to handle variable size regs, etc. */
+/* temporary storage using circular buffer */
 #define NUMCELLS 16
 #define CELLSIZE 50
 static char *
@@ -2807,80 +2570,57 @@ get_cell (void)
 {
   static char buf[NUMCELLS][CELLSIZE];
   static int cell = 0;
-
   if (++cell >= NUMCELLS)
     cell = 0;
   return buf[cell];
 }
 
+int
+strlen_paddr (void)
+{
+  return (TARGET_ADDR_BIT / 8 * 2);
+}
+
+char *
+paddr (CORE_ADDR addr)
+{
+  return phex (addr, TARGET_ADDR_BIT / 8);
+}
+
+char *
+paddr_nz (CORE_ADDR addr)
+{
+  return phex_nz (addr, TARGET_ADDR_BIT / 8);
+}
+
 const char *
-paddress (struct gdbarch *gdbarch, CORE_ADDR addr)
+paddress (CORE_ADDR addr)
 {
   /* Truncate address to the size of a target address, avoiding shifts
      larger or equal than the width of a CORE_ADDR.  The local
      variable ADDR_BIT stops the compiler reporting a shift overflow
-     when it won't occur.  */
+     when it won't occur. */
   /* NOTE: This assumes that the significant address information is
      kept in the least significant bits of ADDR - the upper bits were
-     either zero or sign extended.  Should gdbarch_address_to_pointer or
+     either zero or sign extended.  Should ADDRESS_TO_POINTER() or
      some ADDRESS_TO_PRINTABLE() be used to do the conversion?  */
 
-  int addr_bit = gdbarch_addr_bit (gdbarch);
+  int addr_bit = TARGET_ADDR_BIT;
 
   if (addr_bit < (sizeof (CORE_ADDR) * HOST_CHAR_BIT))
     addr &= ((CORE_ADDR) 1 << addr_bit) - 1;
   return hex_string (addr);
 }
 
-/* This function is described in "defs.h".  */
-
-const char *
-print_core_address (struct gdbarch *gdbarch, CORE_ADDR address)
-{
-  int addr_bit = gdbarch_addr_bit (gdbarch);
-
-  if (addr_bit < (sizeof (CORE_ADDR) * HOST_CHAR_BIT))
-    address &= ((CORE_ADDR) 1 << addr_bit) - 1;
-
-  /* FIXME: cagney/2002-05-03: Need local_address_string() function
-     that returns the language localized string formatted to a width
-     based on gdbarch_addr_bit.  */
-  if (addr_bit <= 32)
-    return hex_string_custom (address, 8);
-  else
-    return hex_string_custom (address, 16);
-}
-
-/* Callback hash_f for htab_create_alloc or htab_create_alloc_ex.  */
-
-hashval_t
-core_addr_hash (const void *ap)
-{
-  const CORE_ADDR *addrp = ap;
-
-  return *addrp;
-}
-
-/* Callback eq_f for htab_create_alloc or htab_create_alloc_ex.  */
-
-int
-core_addr_eq (const void *ap, const void *bp)
-{
-  const CORE_ADDR *addr_ap = ap;
-  const CORE_ADDR *addr_bp = bp;
-
-  return *addr_ap == *addr_bp;
-}
-
 static char *
 decimal2str (char *sign, ULONGEST addr, int width)
 {
   /* Steal code from valprint.c:print_decimal().  Should this worry
-     about the real size of addr as the above does?  */
+     about the real size of addr as the above does? */
   unsigned long temp[3];
   char *str = get_cell ();
-  int i = 0;
 
+  int i = 0;
   do
     {
       temp[i] = addr % (1000 * 1000 * 1000);
@@ -2920,8 +2660,8 @@ octal2str (ULONGEST addr, int width)
 {
   unsigned long temp[3];
   char *str = get_cell ();
-  int i = 0;
 
+  int i = 0;
   do
     {
       temp[i] = addr % (0100000 * 0100000);
@@ -2959,18 +2699,18 @@ octal2str (ULONGEST addr, int width)
 }
 
 char *
-pulongest (ULONGEST u)
+paddr_u (CORE_ADDR addr)
 {
-  return decimal2str ("", u, 0);
+  return decimal2str ("", addr, 0);
 }
 
 char *
-plongest (LONGEST l)
+paddr_d (LONGEST addr)
 {
-  if (l < 0)
-    return decimal2str ("-", -l, 0);
+  if (addr < 0)
+    return decimal2str ("-", -addr, 0);
   else
-    return decimal2str ("", l, 0);
+    return decimal2str ("", addr, 0);
 }
 
 /* Eliminate warning from compiler on 32-bit systems.  */
@@ -3015,7 +2755,6 @@ phex_nz (ULONGEST l, int sizeof_l)
     case 8:
       {
 	unsigned long high = (unsigned long) (l >> thirty_two);
-
 	str = get_cell ();
 	if (high == 0)
 	  xsnprintf (str, CELLSIZE, "%lx",
@@ -3047,7 +2786,6 @@ char *
 hex_string (LONGEST num)
 {
   char *result = get_cell ();
-
   xsnprintf (result, CELLSIZE, "0x%s", phex_nz (num, sizeof (num)));
   return result;
 }
@@ -3067,8 +2805,8 @@ hex_string_custom (LONGEST num, int width)
   if (hex_len > width)
     width = hex_len;
   if (width + 2 >= CELLSIZE)
-    internal_error (__FILE__, __LINE__, _("\
-hex_string_custom: insufficient space to store result"));
+    internal_error (__FILE__, __LINE__,
+		    _("hex_string_custom: insufficient space to store result"));
 
   strcpy (result_end - width - 2, "0x");
   memset (result_end - width, '0', width);
@@ -3081,7 +2819,7 @@ hex_string_custom: insufficient space to store result"));
  * otherwise VAL is interpreted as unsigned.  If WIDTH is supplied, 
  * it is the minimum width (0-padded if needed).  USE_C_FORMAT means
  * to use C format in all cases.  If it is false, then 'x' 
- * and 'o' formats do not include a prefix (0x or leading 0).  */
+ * and 'o' formats do not include a prefix (0x or leading 0). */
 
 char *
 int_string (LONGEST val, int radix, int is_signed, int width, 
@@ -3092,7 +2830,6 @@ int_string (LONGEST val, int radix, int is_signed, int width,
     case 16:
       {
 	char *result;
-
 	if (width == 0)
 	  result = hex_string (val);
 	else
@@ -3111,7 +2848,6 @@ int_string (LONGEST val, int radix, int is_signed, int width,
     case 8:
       {
 	char *result = octal2str (val, width);
-
 	if (use_c_format || val == 0)
 	  return result;
 	else
@@ -3128,7 +2864,6 @@ const char *
 core_addr_to_string (const CORE_ADDR addr)
 {
   char *str = get_cell ();
-
   strcpy (str, "0x");
   strcat (str, phex (addr, sizeof (addr)));
   return str;
@@ -3138,7 +2873,6 @@ const char *
 core_addr_to_string_nz (const CORE_ADDR addr)
 {
   char *str = get_cell ();
-
   strcpy (str, "0x");
   strcat (str, phex_nz (addr, sizeof (addr)));
   return str;
@@ -3149,12 +2883,10 @@ CORE_ADDR
 string_to_core_addr (const char *my_string)
 {
   CORE_ADDR addr = 0;
-
   if (my_string[0] == '0' && tolower (my_string[1]) == 'x')
     {
-      /* Assume that it is in hex.  */
+      /* Assume that it is in decimal.  */
       int i;
-
       for (i = 2; my_string[i] != '\0'; i++)
 	{
 	  if (isdigit (my_string[i]))
@@ -3162,33 +2894,22 @@ string_to_core_addr (const char *my_string)
 	  else if (isxdigit (my_string[i]))
 	    addr = (tolower (my_string[i]) - 'a' + 0xa) + (addr * 16);
 	  else
-	    error (_("invalid hex \"%s\""), my_string);
+	    internal_error (__FILE__, __LINE__, _("invalid hex"));
 	}
     }
   else
     {
       /* Assume that it is in decimal.  */
       int i;
-
       for (i = 0; my_string[i] != '\0'; i++)
 	{
 	  if (isdigit (my_string[i]))
 	    addr = (my_string[i] - '0') + (addr * 10);
 	  else
-	    error (_("invalid decimal \"%s\""), my_string);
+	    internal_error (__FILE__, __LINE__, _("invalid decimal"));
 	}
     }
-
   return addr;
-}
-
-const char *
-host_address_to_string (const void *addr)
-{
-  char *str = get_cell ();
-
-  xsnprintf (str, CELLSIZE, "0x%s", phex_nz ((uintptr_t) addr, sizeof (addr)));
-  return str;
 }
 
 char *
@@ -3209,7 +2930,6 @@ gdb_realpath (const char *filename)
 # endif
 # if defined (USE_REALPATH)
     const char *rp = realpath (filename, buf);
-
     if (rp == NULL)
       rp = filename;
     return xstrdup (rp);
@@ -3223,7 +2943,6 @@ gdb_realpath (const char *filename)
 #if defined(HAVE_CANONICALIZE_FILE_NAME)
   {
     char *rp = canonicalize_file_name (filename);
-
     if (rp == NULL)
       return xstrdup (filename);
     else
@@ -3234,7 +2953,7 @@ gdb_realpath (const char *filename)
   /* FIXME: cagney/2002-11-13:
 
      Method 2a: Use realpath() with a NULL buffer.  Some systems, due
-     to the problems described in method 3, have modified their
+     to the problems described in in method 3, have modified their
      realpath() implementation so that it will allocate a buffer when
      NULL is passed in.  Before this can be used, though, some sort of
      configure time test would need to be added.  Otherwize the code
@@ -3251,34 +2970,13 @@ gdb_realpath (const char *filename)
   {
     /* Find out the max path size.  */
     long path_max = pathconf ("/", _PC_PATH_MAX);
-
     if (path_max > 0)
       {
 	/* PATH_MAX is bounded.  */
 	char *buf = alloca (path_max);
 	char *rp = realpath (filename, buf);
-
 	return xstrdup (rp ? rp : filename);
       }
-  }
-#endif
-
-  /* The MS Windows method.  If we don't have realpath, we assume we
-     don't have symlinks and just canonicalize to a Windows absolute
-     path.  GetFullPath converts ../ and ./ in relative paths to
-     absolute paths, filling in current drive if one is not given
-     or using the current directory of a specified drive (eg, "E:foo").
-     It also converts all forward slashes to back slashes.  */
-  /* The file system is case-insensitive but case-preserving.
-     So we do not lowercase the path.  Otherwise, we might not
-     be able to display the original casing in a given path.  */
-#if defined (_WIN32)
-  {
-    char buf[MAX_PATH];
-    DWORD len = GetFullPathName (filename, MAX_PATH, buf, NULL);
-
-    if (len > 0 && len < MAX_PATH)
-      return xstrdup (buf);
   }
 #endif
 
@@ -3298,14 +2996,14 @@ xfullpath (const char *filename)
   char *result;
 
   /* Extract the basename of filename, and return immediately 
-     a copy of filename if it does not contain any directory prefix.  */
+     a copy of filename if it does not contain any directory prefix. */
   if (base_name == filename)
     return xstrdup (filename);
 
   dir_name = alloca ((size_t) (base_name - filename + 2));
   /* Allocate enough space to store the dir_name + plus one extra
      character sometimes needed under Windows (see below), and
-     then the closing \000 character.  */
+     then the closing \000 character */
   strncpy (dir_name, filename, base_name - filename);
   dir_name[base_name - filename] = '\000';
 
@@ -3320,16 +3018,87 @@ xfullpath (const char *filename)
 #endif
 
   /* Canonicalize the directory prefix, and build the resulting
-     filename.  If the dirname realpath already contains an ending
+     filename. If the dirname realpath already contains an ending
      directory separator, avoid doubling it.  */
   real_path = gdb_realpath (dir_name);
   if (IS_DIR_SEPARATOR (real_path[strlen (real_path) - 1]))
-    result = concat (real_path, base_name, (char *) NULL);
+    result = concat (real_path, base_name, (char *)NULL);
   else
-    result = concat (real_path, SLASH_STRING, base_name, (char *) NULL);
+    result = concat (real_path, SLASH_STRING, base_name, (char *)NULL);
 
   xfree (real_path);
   return result;
+}
+
+
+/* This is the 32-bit CRC function used by the GNU separate debug
+   facility.  An executable may contain a section named
+   .gnu_debuglink, which holds the name of a separate executable file
+   containing its debug info, and a checksum of that file's contents,
+   computed using this function.  */
+unsigned long
+gnu_debuglink_crc32 (unsigned long crc, unsigned char *buf, size_t len)
+{
+  static const unsigned long crc32_table[256] = {
+    0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419,
+    0x706af48f, 0xe963a535, 0x9e6495a3, 0x0edb8832, 0x79dcb8a4,
+    0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07,
+    0x90bf1d91, 0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de,
+    0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7, 0x136c9856,
+    0x646ba8c0, 0xfd62f97a, 0x8a65c9ec, 0x14015c4f, 0x63066cd9,
+    0xfa0f3d63, 0x8d080df5, 0x3b6e20c8, 0x4c69105e, 0xd56041e4,
+    0xa2677172, 0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
+    0x35b5a8fa, 0x42b2986c, 0xdbbbc9d6, 0xacbcf940, 0x32d86ce3,
+    0x45df5c75, 0xdcd60dcf, 0xabd13d59, 0x26d930ac, 0x51de003a,
+    0xc8d75180, 0xbfd06116, 0x21b4f4b5, 0x56b3c423, 0xcfba9599,
+    0xb8bda50f, 0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924,
+    0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d, 0x76dc4190,
+    0x01db7106, 0x98d220bc, 0xefd5102a, 0x71b18589, 0x06b6b51f,
+    0x9fbfe4a5, 0xe8b8d433, 0x7807c9a2, 0x0f00f934, 0x9609a88e,
+    0xe10e9818, 0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
+    0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e, 0x6c0695ed,
+    0x1b01a57b, 0x8208f4c1, 0xf50fc457, 0x65b0d9c6, 0x12b7e950,
+    0x8bbeb8ea, 0xfcb9887c, 0x62dd1ddf, 0x15da2d49, 0x8cd37cf3,
+    0xfbd44c65, 0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2,
+    0x4adfa541, 0x3dd895d7, 0xa4d1c46d, 0xd3d6f4fb, 0x4369e96a,
+    0x346ed9fc, 0xad678846, 0xda60b8d0, 0x44042d73, 0x33031de5,
+    0xaa0a4c5f, 0xdd0d7cc9, 0x5005713c, 0x270241aa, 0xbe0b1010,
+    0xc90c2086, 0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
+    0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4, 0x59b33d17,
+    0x2eb40d81, 0xb7bd5c3b, 0xc0ba6cad, 0xedb88320, 0x9abfb3b6,
+    0x03b6e20c, 0x74b1d29a, 0xead54739, 0x9dd277af, 0x04db2615,
+    0x73dc1683, 0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8,
+    0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1, 0xf00f9344,
+    0x8708a3d2, 0x1e01f268, 0x6906c2fe, 0xf762575d, 0x806567cb,
+    0x196c3671, 0x6e6b06e7, 0xfed41b76, 0x89d32be0, 0x10da7a5a,
+    0x67dd4acc, 0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
+    0xd6d6a3e8, 0xa1d1937e, 0x38d8c2c4, 0x4fdff252, 0xd1bb67f1,
+    0xa6bc5767, 0x3fb506dd, 0x48b2364b, 0xd80d2bda, 0xaf0a1b4c,
+    0x36034af6, 0x41047a60, 0xdf60efc3, 0xa867df55, 0x316e8eef,
+    0x4669be79, 0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236,
+    0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f, 0xc5ba3bbe,
+    0xb2bd0b28, 0x2bb45a92, 0x5cb36a04, 0xc2d7ffa7, 0xb5d0cf31,
+    0x2cd99e8b, 0x5bdeae1d, 0x9b64c2b0, 0xec63f226, 0x756aa39c,
+    0x026d930a, 0x9c0906a9, 0xeb0e363f, 0x72076785, 0x05005713,
+    0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38, 0x92d28e9b,
+    0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21, 0x86d3d2d4, 0xf1d4e242,
+    0x68ddb3f8, 0x1fda836e, 0x81be16cd, 0xf6b9265b, 0x6fb077e1,
+    0x18b74777, 0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c,
+    0x8f659eff, 0xf862ae69, 0x616bffd3, 0x166ccf45, 0xa00ae278,
+    0xd70dd2ee, 0x4e048354, 0x3903b3c2, 0xa7672661, 0xd06016f7,
+    0x4969474d, 0x3e6e77db, 0xaed16a4a, 0xd9d65adc, 0x40df0b66,
+    0x37d83bf0, 0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
+    0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605,
+    0xcdd70693, 0x54de5729, 0x23d967bf, 0xb3667a2e, 0xc4614ab8,
+    0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b,
+    0x2d02ef8d
+  };
+  unsigned char *end;
+
+  crc = ~crc & 0xffffffff;
+  for (end = buf + len; buf < end; ++buf)
+    crc = crc32_table[(crc ^ *buf) & 0xff] ^ (crc >> 8);
+  return ~crc & 0xffffffff;;
 }
 
 ULONGEST
@@ -3356,7 +3125,6 @@ hashtab_obstack_allocate (void *data, size_t size, size_t count)
 {
   unsigned int total = size * count;
   void *ptr = obstack_alloc ((struct obstack *) data, total);
-
   memset (ptr, 0, total);
   return ptr;
 }
@@ -3370,479 +3138,4 @@ void
 dummy_obstack_deallocate (void *object, void *data)
 {
   return;
-}
-
-/* The bit offset of the highest byte in a ULONGEST, for overflow
-   checking.  */
-
-#define HIGH_BYTE_POSN ((sizeof (ULONGEST) - 1) * HOST_CHAR_BIT)
-
-/* True (non-zero) iff DIGIT is a valid digit in radix BASE,
-   where 2 <= BASE <= 36.  */
-
-static int
-is_digit_in_base (unsigned char digit, int base)
-{
-  if (!isalnum (digit))
-    return 0;
-  if (base <= 10)
-    return (isdigit (digit) && digit < base + '0');
-  else
-    return (isdigit (digit) || tolower (digit) < base - 10 + 'a');
-}
-
-static int
-digit_to_int (unsigned char c)
-{
-  if (isdigit (c))
-    return c - '0';
-  else
-    return tolower (c) - 'a' + 10;
-}
-
-/* As for strtoul, but for ULONGEST results.  */
-
-ULONGEST
-strtoulst (const char *num, const char **trailer, int base)
-{
-  unsigned int high_part;
-  ULONGEST result;
-  int minus = 0;
-  int i = 0;
-
-  /* Skip leading whitespace.  */
-  while (isspace (num[i]))
-    i++;
-
-  /* Handle prefixes.  */
-  if (num[i] == '+')
-    i++;
-  else if (num[i] == '-')
-    {
-      minus = 1;
-      i++;
-    }
-
-  if (base == 0 || base == 16)
-    {
-      if (num[i] == '0' && (num[i + 1] == 'x' || num[i + 1] == 'X'))
-	{
-	  i += 2;
-	  if (base == 0)
-	    base = 16;
-	}
-    }
-
-  if (base == 0 && num[i] == '0')
-    base = 8;
-
-  if (base == 0)
-    base = 10;
-
-  if (base < 2 || base > 36)
-    {
-      errno = EINVAL;
-      return 0;
-    }
-
-  result = high_part = 0;
-  for (; is_digit_in_base (num[i], base); i += 1)
-    {
-      result = result * base + digit_to_int (num[i]);
-      high_part = high_part * base + (unsigned int) (result >> HIGH_BYTE_POSN);
-      result &= ((ULONGEST) 1 << HIGH_BYTE_POSN) - 1;
-      if (high_part > 0xff)
-	{
-	  errno = ERANGE;
-	  result = ~ (ULONGEST) 0;
-	  high_part = 0;
-	  minus = 0;
-	  break;
-	}
-    }
-
-  if (trailer != NULL)
-    *trailer = &num[i];
-
-  result = result + ((ULONGEST) high_part << HIGH_BYTE_POSN);
-  if (minus)
-    return -result;
-  else
-    return result;
-}
-
-/* Simple, portable version of dirname that does not modify its
-   argument.  */
-
-char *
-ldirname (const char *filename)
-{
-  const char *base = lbasename (filename);
-  char *dirname;
-
-  while (base > filename && IS_DIR_SEPARATOR (base[-1]))
-    --base;
-
-  if (base == filename)
-    return NULL;
-
-  dirname = xmalloc (base - filename + 2);
-  memcpy (dirname, filename, base - filename);
-
-  /* On DOS based file systems, convert "d:foo" to "d:.", so that we
-     create "d:./bar" later instead of the (different) "d:/bar".  */
-  if (base - filename == 2 && IS_ABSOLUTE_PATH (base)
-      && !IS_DIR_SEPARATOR (filename[0]))
-    dirname[base++ - filename] = '.';
-
-  dirname[base - filename] = '\0';
-  return dirname;
-}
-
-/* Call libiberty's buildargv, and return the result.
-   If buildargv fails due to out-of-memory, call nomem.
-   Therefore, the returned value is guaranteed to be non-NULL,
-   unless the parameter itself is NULL.  */
-
-char **
-gdb_buildargv (const char *s)
-{
-  char **argv = buildargv (s);
-
-  if (s != NULL && argv == NULL)
-    malloc_failure (0);
-  return argv;
-}
-
-int
-compare_positive_ints (const void *ap, const void *bp)
-{
-  /* Because we know we're comparing two ints which are positive,
-     there's no danger of overflow here.  */
-  return * (int *) ap - * (int *) bp;
-}
-
-/* String compare function for qsort.  */
-
-int
-compare_strings (const void *arg1, const void *arg2)
-{
-  const char **s1 = (const char **) arg1;
-  const char **s2 = (const char **) arg2;
-
-  return strcmp (*s1, *s2);
-}
-
-#define AMBIGUOUS_MESS1	".\nMatching formats:"
-#define AMBIGUOUS_MESS2	\
-  ".\nUse \"set gnutarget format-name\" to specify the format."
-
-const char *
-gdb_bfd_errmsg (bfd_error_type error_tag, char **matching)
-{
-  char *ret, *retp;
-  int ret_len;
-  char **p;
-
-  /* Check if errmsg just need simple return.  */
-  if (error_tag != bfd_error_file_ambiguously_recognized || matching == NULL)
-    return bfd_errmsg (error_tag);
-
-  ret_len = strlen (bfd_errmsg (error_tag)) + strlen (AMBIGUOUS_MESS1)
-            + strlen (AMBIGUOUS_MESS2);
-  for (p = matching; *p; p++)
-    ret_len += strlen (*p) + 1;
-  ret = xmalloc (ret_len + 1);
-  retp = ret;
-  make_cleanup (xfree, ret);
-
-  strcpy (retp, bfd_errmsg (error_tag));
-  retp += strlen (retp);
-
-  strcpy (retp, AMBIGUOUS_MESS1);
-  retp += strlen (retp);
-
-  for (p = matching; *p; p++)
-    {
-      sprintf (retp, " %s", *p);
-      retp += strlen (retp);
-    }
-  xfree (matching);
-
-  strcpy (retp, AMBIGUOUS_MESS2);
-
-  return ret;
-}
-
-/* Return ARGS parsed as a valid pid, or throw an error.  */
-
-int
-parse_pid_to_attach (char *args)
-{
-  unsigned long pid;
-  char *dummy;
-
-  if (!args)
-    error_no_arg (_("process-id to attach"));
-
-  dummy = args;
-  pid = strtoul (args, &dummy, 0);
-  /* Some targets don't set errno on errors, grrr!  */
-  if ((pid == 0 && dummy == args) || dummy != &args[strlen (args)])
-    error (_("Illegal process-id: %s."), args);
-
-  return pid;
-}
-
-/* Helper for make_bpstat_clear_actions_cleanup.  */
-
-static void
-do_bpstat_clear_actions_cleanup (void *unused)
-{
-  bpstat_clear_actions ();
-}
-
-/* Call bpstat_clear_actions for the case an exception is throw.  You should
-   discard_cleanups if no exception is caught.  */
-
-struct cleanup *
-make_bpstat_clear_actions_cleanup (void)
-{
-  return make_cleanup (do_bpstat_clear_actions_cleanup, NULL);
-}
-
-/* Check for GCC >= 4.x according to the symtab->producer string.  Return minor
-   version (x) of 4.x in such case.  If it is not GCC or it is GCC older than
-   4.x return -1.  If it is GCC 5.x or higher return INT_MAX.  */
-
-int
-producer_is_gcc_ge_4 (const char *producer)
-{
-  const char *cs;
-  int major, minor;
-
-  if (producer == NULL)
-    {
-      /* For unknown compilers expect their behavior is not compliant.  For GCC
-	 this case can also happen for -gdwarf-4 type units supported since
-	 gcc-4.5.  */
-
-      return -1;
-    }
-
-  /* Skip any identifier after "GNU " - such as "C++" or "Java".  */
-
-  if (strncmp (producer, "GNU ", strlen ("GNU ")) != 0)
-    {
-      /* For non-GCC compilers expect their behavior is not compliant.  */
-
-      return -1;
-    }
-  cs = &producer[strlen ("GNU ")];
-  while (*cs && !isdigit (*cs))
-    cs++;
-  if (sscanf (cs, "%d.%d", &major, &minor) != 2)
-    {
-      /* Not recognized as GCC.  */
-
-      return -1;
-    }
-
-  if (major < 4)
-    return -1;
-  if (major > 4)
-    return INT_MAX;
-  return minor;
-}
-
-/* Helper for make_cleanup_free_char_ptr_vec.  */
-
-static void
-do_free_char_ptr_vec (void *arg)
-{
-  VEC (char_ptr) *char_ptr_vec = arg;
-
-  free_char_ptr_vec (char_ptr_vec);
-}
-
-/* Make cleanup handler calling xfree for each element of CHAR_PTR_VEC and
-   final VEC_free for CHAR_PTR_VEC itself.
-
-   You must not modify CHAR_PTR_VEC after this cleanup registration as the
-   CHAR_PTR_VEC base address may change on its updates.  Contrary to VEC_free
-   this function does not (cannot) clear the pointer.  */
-
-struct cleanup *
-make_cleanup_free_char_ptr_vec (VEC (char_ptr) *char_ptr_vec)
-{
-  return make_cleanup (do_free_char_ptr_vec, char_ptr_vec);
-}
-
-/* Substitute all occurences of string FROM by string TO in *STRINGP.  *STRINGP
-   must come from xrealloc-compatible allocator and it may be updated.  FROM
-   needs to be delimited by IS_DIR_SEPARATOR or DIRNAME_SEPARATOR (or be
-   located at the start or end of *STRINGP.  */
-
-void
-substitute_path_component (char **stringp, const char *from, const char *to)
-{
-  char *string = *stringp, *s;
-  const size_t from_len = strlen (from);
-  const size_t to_len = strlen (to);
-
-  for (s = string;;)
-    {
-      s = strstr (s, from);
-      if (s == NULL)
-	break;
-
-      if ((s == string || IS_DIR_SEPARATOR (s[-1])
-	   || s[-1] == DIRNAME_SEPARATOR)
-          && (s[from_len] == '\0' || IS_DIR_SEPARATOR (s[from_len])
-	      || s[from_len] == DIRNAME_SEPARATOR))
-	{
-	  char *string_new;
-
-	  string_new = xrealloc (string, (strlen (string) + to_len + 1));
-
-	  /* Relocate the current S pointer.  */
-	  s = s - string + string_new;
-	  string = string_new;
-
-	  /* Replace from by to.  */
-	  memmove (&s[to_len], &s[from_len], strlen (&s[from_len]) + 1);
-	  memcpy (s, to, to_len);
-
-	  s += to_len;
-	}
-      else
-	s++;
-    }
-
-  *stringp = string;
-}
-
-#ifdef HAVE_WAITPID
-
-#ifdef SIGALRM
-
-/* SIGALRM handler for waitpid_with_timeout.  */
-
-static void
-sigalrm_handler (int signo)
-{
-  /* Nothing to do.  */
-}
-
-#endif
-
-/* Wrapper to wait for child PID to die with TIMEOUT.
-   TIMEOUT is the time to stop waiting in seconds.
-   If TIMEOUT is zero, pass WNOHANG to waitpid.
-   Returns PID if it was successfully waited for, otherwise -1.
-
-   Timeouts are currently implemented with alarm and SIGALRM.
-   If the host does not support them, this waits "forever".
-   It would be odd though for a host to have waitpid and not SIGALRM.  */
-
-pid_t
-wait_to_die_with_timeout (pid_t pid, int *status, int timeout)
-{
-  pid_t waitpid_result;
-
-  gdb_assert (pid > 0);
-  gdb_assert (timeout >= 0);
-
-  if (timeout > 0)
-    {
-#ifdef SIGALRM
-#if defined (HAVE_SIGACTION) && defined (SA_RESTART)
-      struct sigaction sa, old_sa;
-
-      sa.sa_handler = sigalrm_handler;
-      sigemptyset (&sa.sa_mask);
-      sa.sa_flags = 0;
-      sigaction (SIGALRM, &sa, &old_sa);
-#else
-      void (*ofunc) ();
-
-      ofunc = (void (*)()) signal (SIGALRM, sigalrm_handler);
-#endif
-
-      alarm (timeout);
-#endif
-
-      waitpid_result = waitpid (pid, status, 0);
-
-#ifdef SIGALRM
-      alarm (0);
-#if defined (HAVE_SIGACTION) && defined (SA_RESTART)
-      sigaction (SIGALRM, &old_sa, NULL);
-#else
-      signal (SIGALRM, ofunc);
-#endif
-#endif
-    }
-  else
-    waitpid_result = waitpid (pid, status, WNOHANG);
-
-  if (waitpid_result == pid)
-    return pid;
-  else
-    return -1;
-}
-
-#endif /* HAVE_WAITPID */
-
-/* Provide fnmatch compatible function for FNM_FILE_NAME matching of host files.
-   Both FNM_FILE_NAME and FNM_NOESCAPE must be set in FLAGS.
-
-   It handles correctly HAVE_DOS_BASED_FILE_SYSTEM and
-   HAVE_CASE_INSENSITIVE_FILE_SYSTEM.  */
-
-int
-gdb_filename_fnmatch (const char *pattern, const char *string, int flags)
-{
-  gdb_assert ((flags & FNM_FILE_NAME) != 0);
-
-  /* It is unclear how '\' escaping vs. directory separator should coexist.  */
-  gdb_assert ((flags & FNM_NOESCAPE) != 0);
-
-#ifdef HAVE_DOS_BASED_FILE_SYSTEM
-  {
-    char *pattern_slash, *string_slash;
-
-    /* Replace '\' by '/' in both strings.  */
-
-    pattern_slash = alloca (strlen (pattern) + 1);
-    strcpy (pattern_slash, pattern);
-    pattern = pattern_slash;
-    for (; *pattern_slash != 0; pattern_slash++)
-      if (IS_DIR_SEPARATOR (*pattern_slash))
-	*pattern_slash = '/';
-
-    string_slash = alloca (strlen (string) + 1);
-    strcpy (string_slash, string);
-    string = string_slash;
-    for (; *string_slash != 0; string_slash++)
-      if (IS_DIR_SEPARATOR (*string_slash))
-	*string_slash = '/';
-  }
-#endif /* HAVE_DOS_BASED_FILE_SYSTEM */
-
-#ifdef HAVE_CASE_INSENSITIVE_FILE_SYSTEM
-  flags |= FNM_CASEFOLD;
-#endif /* HAVE_CASE_INSENSITIVE_FILE_SYSTEM */
-
-  return fnmatch (pattern, string, flags);
-}
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_utils;
-
-void
-_initialize_utils (void)
-{
-  add_internal_problem_command (&internal_error_problem);
-  add_internal_problem_command (&internal_warning_problem);
 }

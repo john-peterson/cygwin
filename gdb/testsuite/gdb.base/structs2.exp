@@ -1,17 +1,28 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998, 1999 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+
+if $tracelevel then {
+	strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 set prototypes 1
 set testfile "structs2"
@@ -20,7 +31,7 @@ set binfile ${objdir}/${subdir}/${testfile}
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 
@@ -41,13 +52,16 @@ gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 gdb_load ${binfile}
 
-gdb_test_no_output "set width 0"
+gdb_test "set width 0" ""
 
 if { ![runto_main] } then {
     gdb_suppress_tests
 }
 
 # Ok, we're finally ready to actually do our tests.
+
+set prms_id 13536
+set bug_id 0
 
 gdb_test "f" \
     ".*bkpt = 0.*" \

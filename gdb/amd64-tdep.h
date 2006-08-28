@@ -1,13 +1,13 @@
 /* Target-dependent definitions for AMD64.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2003, 2004 Free Software Foundation, Inc.
    Contributed by Jiri Smid, SuSE Labs.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -16,7 +16,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #ifndef AMD64_TDEP_H
 #define AMD64_TDEP_H
@@ -39,14 +41,8 @@ enum amd64_regnum
   AMD64_RDI_REGNUM,		/* %rdi */
   AMD64_RBP_REGNUM,		/* %rbp */
   AMD64_RSP_REGNUM,		/* %rsp */
-  AMD64_R8_REGNUM,		/* %r8 */
-  AMD64_R9_REGNUM,		/* %r9 */
-  AMD64_R10_REGNUM,		/* %r10 */
-  AMD64_R11_REGNUM,		/* %r11 */
-  AMD64_R12_REGNUM,		/* %r12 */
-  AMD64_R13_REGNUM,		/* %r13 */
-  AMD64_R14_REGNUM,		/* %r14 */
-  AMD64_R15_REGNUM,		/* %r15 */
+  AMD64_R8_REGNUM = 8,		/* %r8 */
+  AMD64_R15_REGNUM = 15,	/* %r15 */
   AMD64_RIP_REGNUM,		/* %rip */
   AMD64_EFLAGS_REGNUM,		/* %eflags */
   AMD64_CS_REGNUM,		/* %cs */
@@ -56,33 +52,23 @@ enum amd64_regnum
   AMD64_FS_REGNUM,		/* %fs */
   AMD64_GS_REGNUM,		/* %gs */
   AMD64_ST0_REGNUM = 24,	/* %st0 */
-  AMD64_ST1_REGNUM,		/* %st1 */
   AMD64_FCTRL_REGNUM = AMD64_ST0_REGNUM + 8,
   AMD64_FSTAT_REGNUM = AMD64_ST0_REGNUM + 9,
-  AMD64_FTAG_REGNUM = AMD64_ST0_REGNUM + 10,
   AMD64_XMM0_REGNUM = 40,	/* %xmm0 */
   AMD64_XMM1_REGNUM,		/* %xmm1 */
-  AMD64_MXCSR_REGNUM = AMD64_XMM0_REGNUM + 16,
-  AMD64_YMM0H_REGNUM,		/* %ymm0h */
-  AMD64_YMM15H_REGNUM = AMD64_YMM0H_REGNUM + 15
+  AMD64_MXCSR_REGNUM = AMD64_XMM0_REGNUM + 16
 };
 
 /* Number of general purpose registers.  */
 #define AMD64_NUM_GREGS		24
 
-#define AMD64_NUM_REGS		(AMD64_YMM15H_REGNUM + 1)
-
-extern struct displaced_step_closure *amd64_displaced_step_copy_insn
-  (struct gdbarch *gdbarch, CORE_ADDR from, CORE_ADDR to,
-   struct regcache *regs);
-extern void amd64_displaced_step_fixup (struct gdbarch *gdbarch,
-					struct displaced_step_closure *closure,
-					CORE_ADDR from, CORE_ADDR to,
-					struct regcache *regs);
-
 extern void amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch);
-extern void amd64_x32_init_abi (struct gdbarch_info info,
-				struct gdbarch *gdbarch);
+
+/* Functions from amd64-tdep.c which may be needed on architectures
+   with extra registers.  */
+
+extern const char *amd64_register_name (int regnum);
+extern struct type *amd64_register_type (struct gdbarch *gdbarch, int regnum);
 
 /* Fill register REGNUM in REGCACHE with the appropriate
    floating-point or SSE register value from *FXSAVE.  If REGNUM is
@@ -92,10 +78,6 @@ extern void amd64_x32_init_abi (struct gdbarch_info info,
 extern void amd64_supply_fxsave (struct regcache *regcache, int regnum,
 				 const void *fxsave);
 
-/* Similar to amd64_supply_fxsave, but use XSAVE extended state.  */
-extern void amd64_supply_xsave (struct regcache *regcache, int regnum,
-				const void *xsave);
-
 /* Fill register REGNUM (if it is a floating-point or SSE register) in
    *FXSAVE with the value from REGCACHE.  If REGNUM is -1, do this for
    all registers.  This function doesn't touch any of the reserved
@@ -103,17 +85,7 @@ extern void amd64_supply_xsave (struct regcache *regcache, int regnum,
 
 extern void amd64_collect_fxsave (const struct regcache *regcache, int regnum,
 				  void *fxsave);
-
-/* Similar to amd64_collect_fxsave, but use XSAVE extended state.  */
-extern void amd64_collect_xsave (const struct regcache *regcache,
-				 int regnum, void *xsave, int gcore);
-
-void amd64_classify (struct type *type, enum amd64_reg_class class[2]);
-
 
-
-/* Variables exported from amd64-linux-tdep.c.  */
-extern int amd64_linux_gregset_reg_offset[];
 
 /* Variables exported from amd64nbsd-tdep.c.  */
 extern int amd64nbsd_r_reg_offset[];

@@ -1,36 +1,51 @@
-# Copyright 2003-2013 Free Software Foundation, Inc.
+# Copyright 2003, 2004 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+
+if $tracelevel then {
+    strace $tracelevel
+    }
 
 if { [skip_cplus_tests] } { continue }
 
+set prms_id 0
+set bug_id 0
 
-standard_testfile .cc
+set testfile "class2"
+set srcfile ${testfile}.cc
+set binfile ${objdir}/${subdir}/${testfile}
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info "c++"] {
+if [get_compiler_info ${binfile} "c++"] {
     return -1
 }
 
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
+if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++}] != "" } {
+    untested class2.exp
     return -1
 }
+
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 # Start with "set print object off".
 
-gdb_test_no_output "set print object off"
+gdb_test "set print object off" ""
 
 if ![runto_main] then {
     perror "couldn't run to main"
@@ -103,10 +118,3 @@ gdb_test "print * (B *) abp" \
 # Printing the value of an object containing no data fields:
 
 gdb_test "p e" "= \{<No data fields>\}" "print object with no data fields"
-
-# Printing NULL pointers with "set print object on"
-
-gdb_test_no_output "set print object on"
-gdb_test "p acp" "= \\(C \\*\\) ${hex}"
-gdb_test "p acp->c1" "\\(A \\*\\) 0x0"
-gdb_test "p acp->c2" "\\(A \\*\\) ${hex}f"

@@ -1,17 +1,19 @@
-# Copyright 1992-2013 Free Software Foundation, Inc.
+# Copyright 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2001, 2002, 2003,
+# 2004, 2006 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Fred Fish. (fnf@cygnus.com)
 # And rewritten by Michael Chastain. (mec.gnu@mindspring.com)
@@ -20,14 +22,21 @@ set ws  "\[\r\n\t \]+"
 set nl  "\[\r\n\]+"
 set vhn "\\$\[0-9\]+"
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 if { [skip_cplus_tests] } { continue }
 
 load_lib "cp-support.exp"
 
-standard_testfile misc.cc
+set testfile "inherit"
+set srcfile misc.cc
+set binfile ${objdir}/${subdir}/${testfile}
 
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
-    return -1
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++}] != "" } {
+     untested inherit.exp
+     return -1
 }
 
 # Single inheritance, print type definitions.
@@ -40,37 +49,37 @@ proc test_ptype_si { } {
     # A simple class.
 
     cp_test_ptype_class \
-	"A" "ptype A (FIXME)" "class" "A" \
+	"ptype A" "ptype A (FIXME)" "class" "A" \
 	{
 	    { field public "int a;" }
 	    { field public "int x;" }
 	}
-    cp_test_ptype_class "class A" "ptype class A (FIXME)" "class" "A" ibid
-    cp_test_ptype_class "g_A" "ptype g_A (FIXME)" "class" "A" ibid
+    cp_test_ptype_class "ptype class A" "ptype class A (FIXME)" "class" "A" ibid
+    cp_test_ptype_class "ptype g_A" "ptype g_A (FIXME)" "class" "A" ibid
 
     # A derived class.
 
     cp_test_ptype_class \
-	"B" "" "class" "B" \
+	"ptype B" "" "class" "B" \
 	{
 	    { base         "public A" }
 	    { field public "int b;" }
 	    { field public "int x;" }
 	}
-    cp_test_ptype_class "class B" "" "class" "B" ibid
-    cp_test_ptype_class "g_B" "" "class" "B" ibid
+    cp_test_ptype_class "ptype class B" "" "class" "B" ibid
+    cp_test_ptype_class "ptype g_B" "" "class" "B" ibid
 
     # Another derived class.
 
     cp_test_ptype_class \
-	"C" "" "class" "C" \
+	"ptype C" "" "class" "C" \
 	{
 	    { base         "public A" }
 	    { field public "int c;" }
 	    { field public "int x;" }
 	}
-    cp_test_ptype_class "class C" "" "class" "C" ibid
-    cp_test_ptype_class "g_C" "" "class" "C" ibid
+    cp_test_ptype_class "ptype class C" "" "class" "C" ibid
+    cp_test_ptype_class "ptype g_C" "" "class" "C" ibid
 
     # A structure with no tag.
     # TODO: move this mess into a separate file, and re-specify
@@ -106,11 +115,6 @@ proc test_ptype_si { } {
 	    # gcc 3.4.1 -gstabs+
 	    pass "$name"
 	}
-	-re "No symbol \"tagless_struct\" in current context.$nl$gdb_prompt $" {
-	    # Several GCC 4.x versions provide neither a DW_TAG_typedef DIE
-	    # nor use the typedef name as struct tag name.
-	    xfail "$name"
-	}
     }
 
     set name "ptype variable of type tagless struct"
@@ -145,27 +149,27 @@ proc test_ptype_mi { } {
     # A class with two bases.
 
     cp_test_ptype_class \
-	"D" "" "class" "D" \
+	"ptype D" "" "class" "D" \
 	{
 	    { base         "public B" }
 	    { base         "public C" }
 	    { field public "int d;" }
 	    { field public "int x;" }
 	}
-    cp_test_ptype_class "class D" "" "class" "D" ibid
-    cp_test_ptype_class "g_D" "" "class" "D" ibid
+    cp_test_ptype_class "ptype class D" "" "class" "D" ibid
+    cp_test_ptype_class "ptype g_D" "" "class" "D" ibid
 
     # A class derived from the previous class.
 
     cp_test_ptype_class \
-	"E" "" "class" "E" \
+	"ptype E" "" "class" "E" \
 	{
 	    { base         "public D" }
 	    { field public "int e;" }
 	    { field public "int x;" }
 	}
-    cp_test_ptype_class "class E" "" "class" "E" ibid
-    cp_test_ptype_class "g_E" "" "class" "E" ibid
+    cp_test_ptype_class "ptype class E" "" "class" "E" ibid
+    cp_test_ptype_class "ptype g_E" "" "class" "E" ibid
 }
 
 # Single virtual inheritance, print type definitions.
@@ -175,39 +179,39 @@ proc test_ptype_vi { } {
     # class vA
 
     cp_test_ptype_class \
-	"vA" "" "class" "vA" \
+	"ptype vA" "" "class" "vA" \
 	{
 	    { field public "int va;" }
 	    { field public "int vx;" }
 	}
-    cp_test_ptype_class "class vA" "" "class" "vA" ibid
-    cp_test_ptype_class "g_vA" "" "class" "vA" ibid
+    cp_test_ptype_class "ptype class vA" "" "class" "vA" ibid
+    cp_test_ptype_class "ptype g_vA" "" "class" "vA" ibid
 
     # class vB
 
     cp_test_ptype_class \
-	"vB" "" "class" "vB" \
+	"ptype vB" "" "class" "vB" \
 	{
 	    { base         "public virtual vA" }
 	    { vbase        "vA" }
 	    { field public "int vb;" }
 	    { field public "int vx;" }
 	}
-    cp_test_ptype_class "class vB" "" "class" "vB" ibid
-    cp_test_ptype_class "g_vB" "" "class" "vB" ibid
+    cp_test_ptype_class "ptype class vB" "" "class" "vB" ibid
+    cp_test_ptype_class "ptype g_vB" "" "class" "vB" ibid
 
     # class vC
 
     cp_test_ptype_class \
-	"vC" "" "class" "vC" \
+	"ptype vC" "" "class" "vC" \
 	{
 	    { base         "public virtual vA" }
 	    { vbase        "vA" }
 	    { field public "int vc;" }
 	    { field public "int vx;" }
 	}
-    cp_test_ptype_class "class vC" "" "class" "vC" ibid
-    cp_test_ptype_class "g_vC" "" "class" "vC" ibid
+    cp_test_ptype_class "ptype class vC" "" "class" "vC" ibid
+    cp_test_ptype_class "ptype g_vC" "" "class" "vC" ibid
 
 }
 
@@ -218,7 +222,7 @@ proc test_ptype_mvi { } {
     # class vD
 
     cp_test_ptype_class \
-	"vD" "" "class" "vD" \
+	"ptype vD" "" "class" "vD" \
 	{
 	    { base         "public virtual vB" }
 	    { base         "public virtual vC" }
@@ -227,21 +231,21 @@ proc test_ptype_mvi { } {
 	    { field public "int vd;" }
 	    { field public "int vx;" }
 	}
-    cp_test_ptype_class "class vD" "" "class" "vD" ibid
-    cp_test_ptype_class "g_vD" "" "class" "vD" ibid
+    cp_test_ptype_class "ptype class vD" "" "class" "vD" ibid
+    cp_test_ptype_class "ptype g_vD" "" "class" "vD" ibid
 
     # class vE
 
     cp_test_ptype_class \
-	"vE" "" "class" "vE" \
+	"ptype vE" "" "class" "vE" \
 	{
 	    { base         "public virtual vD" }
 	    { vbase        "vD" }
 	    { field public "int ve;" }
 	    { field public "int vx;" }
 	}
-    cp_test_ptype_class "class vE" "" "class" "vE" ibid
-    cp_test_ptype_class "g_vE" "" "class" "vE" ibid
+    cp_test_ptype_class "ptype class vE" "" "class" "vE" ibid
+    cp_test_ptype_class "ptype g_vE" "" "class" "vE" ibid
 
 }
 
@@ -317,11 +321,25 @@ proc test_print_mi_members {} {
 
     # Print all members of g_D.
     #
-    # g_D.A::a and g_D.A::x are ambiguous member accesses.
-    gdb_test "print g_D.A::a" "base class 'A' is ambiguous in type 'D'"
-    gdb_test "print g_D.C::a" "$vhn = 15"
-    gdb_test "print g_D.B::a" "$vhn = 11"
-    gdb_test "print g_D.A::x" "base class 'A' is ambiguous in type 'D'"
+    # g_D.A::a and g_D.A::x are ambiguous member accesses, and gdb
+    # should detect these.  There are no ways to PASS these tests
+    # because I don't know what the gdb message will be.  -- chastain
+    # 2004-01-27.
+
+    set name "print g_D.A::a"
+    gdb_test_multiple "print g_D.A::a" $name {
+	-re "$vhn = (15|11)$nl$gdb_prompt $" {
+	    kfail "gdb/68" "print g_D.A::a"
+	}
+    }
+
+    set name "print g_D.A::x"
+    gdb_test_multiple "print g_D.A::x" $name {
+	-re "$vhn = (16|12)$nl$gdb_prompt $" {
+	    kfail "gdb/68" "print g_D.A::x"
+	}
+    }
+
     gdb_test "print g_D.B::b" "$vhn = 13"
     gdb_test "print g_D.B::x" "$vhn = 14"
     gdb_test "print g_D.C::c" "$vhn = 17"
@@ -332,8 +350,20 @@ proc test_print_mi_members {} {
     # Print all members of g_E.
     # g_E.A::a and g_E.A::x are ambiguous.
 
-    gdb_test "print g_E.A::a" "base class 'A' is ambiguous in type 'E'"
-    gdb_test "print g_E.A::x" "base class 'A' is ambiguous in type 'E'"
+    set name "print g_E.A::a"
+    gdb_test_multiple "print g_E.A::a" $name {
+	-re "$vhn = (21|25)$nl$gdb_prompt $" {
+	    kfail "gdb/68" "print g_E.A::a"
+	}
+    }
+
+    set name "print g_E.A::x"
+    gdb_test_multiple "print g_E.A::x" $name {
+	-re "$vhn = (26|22)$nl$gdb_prompt $" {
+	    kfail "gdb/68" "print g_E.A::x"
+	}
+    }
+
     gdb_test "print g_E.B::b" "$vhn = 23"
     gdb_test "print g_E.B::x" "$vhn = 24"
     gdb_test "print g_E.C::c" "$vhn = 27"
@@ -359,46 +389,109 @@ proc test_print_mi_member_types {} {
     # Print the types of qualified members; none of these tests pass today.
 
     # Print all members of g_A.
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_A.A::a" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_A.A::x" "type = int"
 
     # Print all members of g_B.
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_B.A::a" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_B.A::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_B.B::b" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_B.B::x" "type = int"
 
     # Print all members of g_C.
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_C.A::a" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_C.A::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_C.C::c" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_C.C::x" "type = int"
 
     # Print all members of g_D.
     #
-    # g_D.A::a and g_D.A::x are ambiguous member accesses.
+    # g_D.A::a and g_D.A::x are ambiguous member accesses, and gdb
+    # should detect these.  There are no ways to PASS these tests
+    # because I don't know what the gdb message will be.  -- chastain
+    # 2004-01-27.
 
-    gdb_test "ptype g_D.A::a" "base class 'A' is ambiguous in type 'D'"
-    gdb_test "ptype g_D.A::x" "base class 'A' is ambiguous in type 'D'"
+    set name "ptype g_D.A::a"
+    gdb_test_multiple "ptype g_D.A::a" $name {
+	-re "Attempt to take address of non-lval$nl$gdb_prompt $" {
+	    kfail "gdb/2092" "$name"
+	}
+	-re "type = int$nl$gdb_prompt $" {
+	    kfail "gdb/68" "ptype g_D.A::a"
+	}
+    }
+
+    set name "ptype g_D.A::x"
+    gdb_test_multiple "ptype g_D.A::x" $name {
+	-re "Attempt to take address of non-lval$nl$gdb_prompt $" {
+	    kfail "gdb/2092" "$name"
+	}
+	-re "type = int$nl$gdb_prompt $" {
+	    kfail "gdb/68" "ptype g_D.A::x"
+	}
+    }
+
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.B::b" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.B::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.C::c" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.C::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.D::d" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_D.D::x" "type = int"
 
     # Print all members of g_E.
     # g_E.A::a and g_E.A::x are ambiguous.
 
-    gdb_test "ptype g_E.A::a" "base class 'A' is ambiguous in type 'E'"
-    gdb_test "ptype g_E.A::x" "base class 'A' is ambiguous in type 'E'"
+    set name "ptype g_E.A::a"
+    gdb_test_multiple "ptype g_E.A::a" $name {
+	-re "Attempt to take address of non-lval$nl$gdb_prompt $" {
+	    kfail "gdb/2092" "$name"
+	}
+	-re "type = int$nl$gdb_prompt $" {
+	    kfail "gdb/68" "ptype g_E.A::a"
+	}
+    }
+
+    set name "ptype g_E.A::x"
+    gdb_test_multiple "ptype g_E.A::x" $name {
+	-re "Attempt to take address of non-lval$nl$gdb_prompt $" {
+	    kfail "gdb/2092" "$name"
+	}
+	-re "type = int$nl$gdb_prompt $" {
+	    kfail "gdb/68" "ptype g_E.A::x"
+	}
+    }
+
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.B::b" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.B::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.C::c" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.C::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.D::d" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.D::x" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.E::e" "type = int"
+    setup_kfail "gdb/2092" "*-*-*"
     gdb_test "ptype g_E.E::x" "type = int"
 }
 
@@ -434,20 +527,25 @@ proc test_print_anon_union {} {
 
     set name "print variable of type anonymous union"
     gdb_test_multiple "print g_anon_union" $name {
-	-re "$vhn = \{one = 1, \{a = 2, b = \[0-9\]+\}\}$nl$gdb_prompt $" {
+	-re "$vhn = \{one = 1, \{a = 2, b = 2\}\}$nl$gdb_prompt $" {
 	    pass $name
 	}
     }
 
-    set name "print type of anonymous union"
-    set re_tag "class_with_anon_union"
-    set re_class "(class $re_tag \{${ws}public:|struct $re_tag \{)"
-    set re_fields "int one;${ws}union \{${ws}int a;${ws}long( int)? b;${ws}\};"
-    gdb_test_multiple "ptype g_anon_union" $name {
-	-re "type = $re_class${ws}$re_fields$nl\}$nl$gdb_prompt $" {
-	    pass $name
+    # The nested union prints as a multi-line field, but the class body
+    # scanner is inherently line-oriented.  This is ugly but it works.
+
+    cp_test_ptype_class \
+	"ptype g_anon_union" "print type of anonymous union" \
+	"class" "class_with_anon_union" \
+	{
+	    { field public "int one;" }
+	    { field public "union \{" }
+	    { field public "int a;" }
+	    { field public "long int b;" }
+	    { field public "\};" }
 	}
-    }
+
 }
 
 
@@ -613,7 +711,7 @@ proc test_print_mvi_classes { } {
 	    # gcc 2.95.3 -gstabs+
 	    pass $name
 	}
-	-re "$vhn = \{<vB> = \{<vA> = \{va = 19, vx = 20\}, $re_vbptr_3_vB = ${hex}( <vtable for vD.*>)?, vb = 21, vx = 22\}, <vC> = \{$re_vbptr_3_vC = ${hex}( <vtable for vC.*>)?, vc = 23, vx = 24\}, $re_vbptr_3_vD = ${hex}( <vtable for vD.*>)?, vd = 25, vx = 26\}$nl$gdb_prompt $" {
+	-re "$vhn = \{<vB> = \{<vA> = \{va = 19, vx = 20\}, $re_vbptr_3_vB = $hex, vb = 21, vx = 22\}, <vC> = \{$re_vbptr_3_vC = $hex, vc = 23, vx = 24\}, $re_vbptr_3_vD = $hex, vd = 25, vx = 26\}$nl$gdb_prompt $" {
 	    # gcc 3.3.2 -gdwarf-2
 	    # gcc HEAD 2004-01-21 -gdwarf-2
 	    # gcc HEAD 2004-01-21 -gstabs+
@@ -634,7 +732,7 @@ proc test_print_mvi_classes { } {
 	    # gcc 2.95.3 -gstabs+
 	    pass $name
 	}
-	-re "$vhn = \{<vD> = \{<vB> = \{<vA> = \{va = 0, vx = 0\}, $re_vbptr_3_vB = ${hex}( <vtable for vE.*>)?, vb = 0, vx = 0\}, <vC> = \{$re_vbptr_3_vC = ${hex}( <vtable for vE.*>)?, vc = 0, vx = 0\}, $re_vbptr_3_vD = ${hex}( <vtable for vE.*>)?, vd = 0, vx = 0\}, $re_vbptr_3_vE = ${hex}( <vtable for vE.*>)?, ve = 27, vx = 28\}$nl$gdb_prompt $" {
+	-re "$vhn = \{<vD> = \{<vB> = \{<vA> = \{va = 0, vx = 0\}, $re_vbptr_3_vB = $hex, vb = 0, vx = 0\}, <vC> = \{$re_vbptr_3_vC = $hex, vc = 0, vx = 0\}, $re_vbptr_3_vD = $hex, vd = 0, vx = 0\}, $re_vbptr_3_vE = $hex, ve = 27, vx = 28\}$nl$gdb_prompt $" {
 	    # gcc 3.3.4 -gdwarf-2
 	    # gcc 3.3.4 -gstabs+
 	    # gcc 3.4.1 -gdwarf-2
@@ -654,14 +752,31 @@ proc test_print_mvi_classes { } {
 }
 
 proc do_tests { } {
-    gdb_test_no_output "set width 0"
+    global prms_id
+    global bug_id
+    global subdir
+    global objdir
+    global srcdir
+    global binfile
+
+    set prms_id 0
+    set bug_id 0
+
+    # Start with a fresh gdb.
+
+    gdb_exit
+    gdb_start
+    gdb_reinitialize_dir $srcdir/$subdir
+    gdb_load $binfile
+
+    gdb_test "set language c++" ""
+    gdb_test "set width 0" ""
 
     if { ![runto_main] } then {
 	perror "couldn't run to main"
 	return
     }
 
-    gdb_test_no_output "set language c++"
     test_ptype_si
     test_ptype_mi
     test_ptype_vi

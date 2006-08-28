@@ -1,12 +1,12 @@
 /* Target-dependent code for ARM BSD's.
 
-   Copyright (C) 2006-2013 Free Software Foundation, Inc.
+   Copyright (C) 2006 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "osabi.h"
@@ -35,7 +37,7 @@
 /* Sizeof `struct fpreg' in <machine/reg.h.  */
 #define ARMBSD_SIZEOF_FPREGS	((1 + (8 * 3)) * 4)
 
-static int
+int
 armbsd_fpreg_offset (int regnum)
 {
   if (regnum == ARM_FPS_REGNUM)

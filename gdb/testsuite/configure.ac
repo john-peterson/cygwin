@@ -1,12 +1,13 @@
 #                                                       -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-# Copyright 2002-2013 Free Software Foundation, Inc.
+# Copyright 2002, 2003, 2004, 2005
+# Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -14,7 +15,9 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+# 02111-1307, USA.
 
 AC_PREREQ(2.59)
 AC_INIT(gdb.base)
@@ -25,21 +28,41 @@ AC_CANONICAL_TARGET
 
 ACX_NONCANONICAL_TARGET
 
-# Check for the 'make' the user wants to use.
-AC_CHECK_PROGS(MAKE, make)
-MAKE_IS_GNU=
-case "`$MAKE --version 2>&1 | sed 1q`" in
-  *GNU*)
-    MAKE_IS_GNU=yes
-    ;;
+# Add HP-specific tests when appropriate.
+case $target in
+  hppa*-*-hpux*)
+    AC_CONFIG_SUBDIRS(gdb.hp) ;;
 esac
-AM_CONDITIONAL(GMAKE, test "$MAKE_IS_GNU" = yes)
-AC_PROG_MAKE_SET
+
+# With stabs.
+AC_ARG_WITH(stabs,
+[  --with-stabs            arrange to use stabs instead of host debug format],,
+[# We enable stabs tests by default on selected targets.
+case $target in
+   powerpc-*-aix* \
+ | rs6000-*-aix*  \
+ | *-*-*bsd*      \
+ | *-*-go32*      \
+ | *-*-linux*     \
+ | *-*-lynxos*    \
+ | *-sun-*        \
+ | hppa*-*-*      \
+ | *-*-elf*       \
+ )
+    with_stabs=yes ;;
+ *)
+    with_stabs=no ;;
+esac])
+
+# Add stabs tests when appropriate.
+if test $with_stabs = yes; then
+   AC_CONFIG_SUBDIRS(gdb.stabs)
+fi
 
 # Enable gdbtk.
 AC_ARG_ENABLE(gdbtk,
 [  --enable-gtk            enable gdbtk graphical user interface (GUI)],,
-  [if test -d $srcdir/../gdbtk && test -d $srcdir/gdb.gdbtk; then
+  [if test -d $srcdir/gdb.gdbtk; then
     enable_gdbtk=yes
   else
     enable_gdbtk=no
@@ -90,12 +113,7 @@ AC_EXEEXT
 AC_OUTPUT([Makefile \
   gdb.ada/Makefile \
   gdb.arch/Makefile gdb.asm/Makefile gdb.base/Makefile \
-  gdb.cell/Makefile gdb.cp/Makefile gdb.disasm/Makefile gdb.dwarf2/Makefile \
-  gdb.fortran/Makefile gdb.go/Makefile gdb.server/Makefile gdb.java/Makefile \
-  gdb.hp/Makefile gdb.hp/gdb.objdbg/Makefile gdb.hp/gdb.base-hp/Makefile \
-  gdb.hp/gdb.aCC/Makefile gdb.hp/gdb.compat/Makefile \
-  gdb.hp/gdb.defects/Makefile gdb.linespec/Makefile \
-  gdb.mi/Makefile gdb.modula2/Makefile gdb.multi/Makefile \
-  gdb.objc/Makefile gdb.opencl/Makefile gdb.opt/Makefile gdb.pascal/Makefile \
-  gdb.python/Makefile gdb.reverse/Makefile gdb.stabs/Makefile \
-  gdb.threads/Makefile gdb.trace/Makefile gdb.xml/Makefile])
+  gdb.cp/Makefile gdb.disasm/Makefile gdb.dwarf2/Makefile \
+  gdb.fortran/Makefile gdb.server/Makefile \
+  gdb.java/Makefile gdb.mi/Makefile \
+  gdb.objc/Makefile gdb.threads/Makefile gdb.trace/Makefile])

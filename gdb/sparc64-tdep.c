@@ -1,12 +1,12 @@
 /* Target-dependent code for UltraSPARC.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2004, 2005, 2006 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +15,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 #include "defs.h"
 #include "arch-utils.h"
@@ -39,7 +41,7 @@
 
 #include "sparc64-tdep.h"
 
-/* This file implements the SPARC 64-bit ABI as defined by the
+/* This file implements the The SPARC 64-bit ABI as defined by the
    section "Low-Level System Information" of the SPARC Compliance
    Definition (SCD) 2.4.1, which is the 64-bit System V psABI for
    SPARC.  */
@@ -102,31 +104,7 @@ sparc64_floating_p (const struct type *type)
   return 0;
 }
 
-/* Check whether TYPE is "Complex Floating".  */
-
-static int
-sparc64_complex_floating_p (const struct type *type)
-{
-  switch (TYPE_CODE (type))
-    {
-    case TYPE_CODE_COMPLEX:
-      {
-	int len = TYPE_LENGTH (type);
-	gdb_assert (len == 8 || len == 16 || len == 32);
-      }
-      return 1;
-    default:
-      break;
-    }
-
-  return 0;
-}
-
-/* Check whether TYPE is "Structure or Union".
-
-   In terms of Ada subprogram calls, arrays are treated the same as
-   struct and union types.  So this function also returns non-zero
-   for array types.  */
+/* Check whether TYPE is "Structure or Union".  */
 
 static int
 sparc64_structure_or_union_p (const struct type *type)
@@ -135,7 +113,6 @@ sparc64_structure_or_union_p (const struct type *type)
     {
     case TYPE_CODE_STRUCT:
     case TYPE_CODE_UNION:
-    case TYPE_CODE_ARRAY:
       return 1;
     default:
       break;
@@ -145,246 +122,299 @@ sparc64_structure_or_union_p (const struct type *type)
 }
 
 
+/* Type for %pstate.  */
+struct type *sparc64_pstate_type;
+
+/* Type for %fsr.  */
+struct type *sparc64_fsr_type;
+
+/* Type for %fprs.  */
+struct type *sparc64_fprs_type;
+
 /* Construct types for ISA-specific registers.  */
 
-static struct type *
-sparc64_pstate_type (struct gdbarch *gdbarch)
+static void
+sparc64_init_types (void)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+  struct type *type;
 
-  if (!tdep->sparc64_pstate_type)
-    {
-      struct type *type;
+  type = init_flags_type ("builtin_type_sparc64_pstate", 8);
+  append_flags_type_flag (type, 0, "AG");
+  append_flags_type_flag (type, 1, "IE");
+  append_flags_type_flag (type, 2, "PRIV");
+  append_flags_type_flag (type, 3, "AM");
+  append_flags_type_flag (type, 4, "PEF");
+  append_flags_type_flag (type, 5, "RED");
+  append_flags_type_flag (type, 8, "TLE");
+  append_flags_type_flag (type, 9, "CLE");
+  append_flags_type_flag (type, 10, "PID0");
+  append_flags_type_flag (type, 11, "PID1");
+  sparc64_pstate_type = type;
 
-      type = arch_flags_type (gdbarch, "builtin_type_sparc64_pstate", 8);
-      append_flags_type_flag (type, 0, "AG");
-      append_flags_type_flag (type, 1, "IE");
-      append_flags_type_flag (type, 2, "PRIV");
-      append_flags_type_flag (type, 3, "AM");
-      append_flags_type_flag (type, 4, "PEF");
-      append_flags_type_flag (type, 5, "RED");
-      append_flags_type_flag (type, 8, "TLE");
-      append_flags_type_flag (type, 9, "CLE");
-      append_flags_type_flag (type, 10, "PID0");
-      append_flags_type_flag (type, 11, "PID1");
+  type = init_flags_type ("builtin_type_sparc64_fsr", 8);
+  append_flags_type_flag (type, 0, "NXA");
+  append_flags_type_flag (type, 1, "DZA");
+  append_flags_type_flag (type, 2, "UFA");
+  append_flags_type_flag (type, 3, "OFA");
+  append_flags_type_flag (type, 4, "NVA");
+  append_flags_type_flag (type, 5, "NXC");
+  append_flags_type_flag (type, 6, "DZC");
+  append_flags_type_flag (type, 7, "UFC");
+  append_flags_type_flag (type, 8, "OFC");
+  append_flags_type_flag (type, 9, "NVC");
+  append_flags_type_flag (type, 22, "NS");
+  append_flags_type_flag (type, 23, "NXM");
+  append_flags_type_flag (type, 24, "DZM");
+  append_flags_type_flag (type, 25, "UFM");
+  append_flags_type_flag (type, 26, "OFM");
+  append_flags_type_flag (type, 27, "NVM");
+  sparc64_fsr_type = type;
 
-      tdep->sparc64_pstate_type = type;
-    }
-
-  return tdep->sparc64_pstate_type;
+  type = init_flags_type ("builtin_type_sparc64_fprs", 8);
+  append_flags_type_flag (type, 0, "DL");
+  append_flags_type_flag (type, 1, "DU");
+  append_flags_type_flag (type, 2, "FEF");
+  sparc64_fprs_type = type;
 }
-
-static struct type *
-sparc64_fsr_type (struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
-  if (!tdep->sparc64_fsr_type)
-    {
-      struct type *type;
-
-      type = arch_flags_type (gdbarch, "builtin_type_sparc64_fsr", 8);
-      append_flags_type_flag (type, 0, "NXA");
-      append_flags_type_flag (type, 1, "DZA");
-      append_flags_type_flag (type, 2, "UFA");
-      append_flags_type_flag (type, 3, "OFA");
-      append_flags_type_flag (type, 4, "NVA");
-      append_flags_type_flag (type, 5, "NXC");
-      append_flags_type_flag (type, 6, "DZC");
-      append_flags_type_flag (type, 7, "UFC");
-      append_flags_type_flag (type, 8, "OFC");
-      append_flags_type_flag (type, 9, "NVC");
-      append_flags_type_flag (type, 22, "NS");
-      append_flags_type_flag (type, 23, "NXM");
-      append_flags_type_flag (type, 24, "DZM");
-      append_flags_type_flag (type, 25, "UFM");
-      append_flags_type_flag (type, 26, "OFM");
-      append_flags_type_flag (type, 27, "NVM");
-
-      tdep->sparc64_fsr_type = type;
-    }
-
-  return tdep->sparc64_fsr_type;
-}
-
-static struct type *
-sparc64_fprs_type (struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
-  if (!tdep->sparc64_fprs_type)
-    {
-      struct type *type;
-
-      type = arch_flags_type (gdbarch, "builtin_type_sparc64_fprs", 8);
-      append_flags_type_flag (type, 0, "DL");
-      append_flags_type_flag (type, 1, "DU");
-      append_flags_type_flag (type, 2, "FEF");
-
-      tdep->sparc64_fprs_type = type;
-    }
-
-  return tdep->sparc64_fprs_type;
-}
-
 
 /* Register information.  */
 
-static const char *sparc64_register_names[] =
+struct sparc64_register_info
 {
-  "g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7",
-  "o0", "o1", "o2", "o3", "o4", "o5", "sp", "o7",
-  "l0", "l1", "l2", "l3", "l4", "l5", "l6", "l7",
-  "i0", "i1", "i2", "i3", "i4", "i5", "fp", "i7",
+  char *name;
+  struct type **type;
+};
 
-  "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7",
-  "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15",
-  "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23",
-  "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31",
-  "f32", "f34", "f36", "f38", "f40", "f42", "f44", "f46",
-  "f48", "f50", "f52", "f54", "f56", "f58", "f60", "f62",
+static struct sparc64_register_info sparc64_register_info[] =
+{
+  { "g0", &builtin_type_int64 },
+  { "g1", &builtin_type_int64 },
+  { "g2", &builtin_type_int64 },
+  { "g3", &builtin_type_int64 },
+  { "g4", &builtin_type_int64 },
+  { "g5", &builtin_type_int64 },
+  { "g6", &builtin_type_int64 },
+  { "g7", &builtin_type_int64 },
 
-  "pc", "npc",
+  { "o0", &builtin_type_int64 },
+  { "o1", &builtin_type_int64 },
+  { "o2", &builtin_type_int64 },
+  { "o3", &builtin_type_int64 },
+  { "o4", &builtin_type_int64 },
+  { "o5", &builtin_type_int64 },
+  { "sp", &builtin_type_void_data_ptr },
+  { "o7", &builtin_type_int64 },
+
+  { "l0", &builtin_type_int64 },
+  { "l1", &builtin_type_int64 },
+  { "l2", &builtin_type_int64 },
+  { "l3", &builtin_type_int64 },
+  { "l4", &builtin_type_int64 },
+  { "l5", &builtin_type_int64 },
+  { "l6", &builtin_type_int64 },
+  { "l7", &builtin_type_int64 },
+
+  { "i0", &builtin_type_int64 },
+  { "i1", &builtin_type_int64 },
+  { "i2", &builtin_type_int64 },
+  { "i3", &builtin_type_int64 },
+  { "i4", &builtin_type_int64 },
+  { "i5", &builtin_type_int64 },
+  { "fp", &builtin_type_void_data_ptr },
+  { "i7", &builtin_type_int64 },
+
+  { "f0", &builtin_type_float },
+  { "f1", &builtin_type_float },
+  { "f2", &builtin_type_float },
+  { "f3", &builtin_type_float },
+  { "f4", &builtin_type_float },
+  { "f5", &builtin_type_float },
+  { "f6", &builtin_type_float },
+  { "f7", &builtin_type_float },
+  { "f8", &builtin_type_float },
+  { "f9", &builtin_type_float },
+  { "f10", &builtin_type_float },
+  { "f11", &builtin_type_float },
+  { "f12", &builtin_type_float },
+  { "f13", &builtin_type_float },
+  { "f14", &builtin_type_float },
+  { "f15", &builtin_type_float },
+  { "f16", &builtin_type_float },
+  { "f17", &builtin_type_float },
+  { "f18", &builtin_type_float },
+  { "f19", &builtin_type_float },
+  { "f20", &builtin_type_float },
+  { "f21", &builtin_type_float },
+  { "f22", &builtin_type_float },
+  { "f23", &builtin_type_float },
+  { "f24", &builtin_type_float },
+  { "f25", &builtin_type_float },
+  { "f26", &builtin_type_float },
+  { "f27", &builtin_type_float },
+  { "f28", &builtin_type_float },
+  { "f29", &builtin_type_float },
+  { "f30", &builtin_type_float },
+  { "f31", &builtin_type_float },
+  { "f32", &builtin_type_double },
+  { "f34", &builtin_type_double },
+  { "f36", &builtin_type_double },
+  { "f38", &builtin_type_double },
+  { "f40", &builtin_type_double },
+  { "f42", &builtin_type_double },
+  { "f44", &builtin_type_double },
+  { "f46", &builtin_type_double },
+  { "f48", &builtin_type_double },
+  { "f50", &builtin_type_double },
+  { "f52", &builtin_type_double },
+  { "f54", &builtin_type_double },
+  { "f56", &builtin_type_double },
+  { "f58", &builtin_type_double },
+  { "f60", &builtin_type_double },
+  { "f62", &builtin_type_double },
+
+  { "pc", &builtin_type_void_func_ptr },
+  { "npc", &builtin_type_void_func_ptr },
   
-  /* FIXME: Give "state" a name until we start using register groups.  */
-  "state",
-  "fsr",
-  "fprs",
-  "y",
+  /* This raw register contains the contents of %cwp, %pstate, %asi
+     and %ccr as laid out in a %tstate register.  */
+  /* FIXME: Give it a name until we start using register groups.  */
+  { "state", &builtin_type_int64 },
+
+  { "fsr", &sparc64_fsr_type },
+  { "fprs", &sparc64_fprs_type },
+
+  /* "Although Y is a 64-bit register, its high-order 32 bits are
+     reserved and always read as 0."  */
+  { "y", &builtin_type_int64 }
 };
 
 /* Total number of registers.  */
-#define SPARC64_NUM_REGS ARRAY_SIZE (sparc64_register_names)
+#define SPARC64_NUM_REGS ARRAY_SIZE (sparc64_register_info)
 
 /* We provide the aliases %d0..%d62 and %q0..%q60 for the floating
    registers as "psuedo" registers.  */
 
-static const char *sparc64_pseudo_register_names[] =
+static struct sparc64_register_info sparc64_pseudo_register_info[] =
 {
-  "cwp", "pstate", "asi", "ccr",
+  { "cwp", &builtin_type_int64 },
+  { "pstate", &sparc64_pstate_type },
+  { "asi", &builtin_type_int64 },
+  { "ccr", &builtin_type_int64 },
 
-  "d0", "d2", "d4", "d6", "d8", "d10", "d12", "d14",
-  "d16", "d18", "d20", "d22", "d24", "d26", "d28", "d30",
-  "d32", "d34", "d36", "d38", "d40", "d42", "d44", "d46",
-  "d48", "d50", "d52", "d54", "d56", "d58", "d60", "d62",
+  { "d0", &builtin_type_double },
+  { "d2", &builtin_type_double },
+  { "d4", &builtin_type_double },
+  { "d6", &builtin_type_double },
+  { "d8", &builtin_type_double },
+  { "d10", &builtin_type_double },
+  { "d12", &builtin_type_double },
+  { "d14", &builtin_type_double },
+  { "d16", &builtin_type_double },
+  { "d18", &builtin_type_double },
+  { "d20", &builtin_type_double },
+  { "d22", &builtin_type_double },
+  { "d24", &builtin_type_double },
+  { "d26", &builtin_type_double },
+  { "d28", &builtin_type_double },
+  { "d30", &builtin_type_double },
+  { "d32", &builtin_type_double },
+  { "d34", &builtin_type_double },
+  { "d36", &builtin_type_double },
+  { "d38", &builtin_type_double },
+  { "d40", &builtin_type_double },
+  { "d42", &builtin_type_double },
+  { "d44", &builtin_type_double },
+  { "d46", &builtin_type_double },
+  { "d48", &builtin_type_double },
+  { "d50", &builtin_type_double },
+  { "d52", &builtin_type_double },
+  { "d54", &builtin_type_double },
+  { "d56", &builtin_type_double },
+  { "d58", &builtin_type_double },
+  { "d60", &builtin_type_double },
+  { "d62", &builtin_type_double },
 
-  "q0", "q4", "q8", "q12", "q16", "q20", "q24", "q28",
-  "q32", "q36", "q40", "q44", "q48", "q52", "q56", "q60",
+  { "q0", &builtin_type_long_double },
+  { "q4", &builtin_type_long_double },
+  { "q8", &builtin_type_long_double },
+  { "q12", &builtin_type_long_double },
+  { "q16", &builtin_type_long_double },
+  { "q20", &builtin_type_long_double },
+  { "q24", &builtin_type_long_double },
+  { "q28", &builtin_type_long_double },
+  { "q32", &builtin_type_long_double },
+  { "q36", &builtin_type_long_double },
+  { "q40", &builtin_type_long_double },
+  { "q44", &builtin_type_long_double },
+  { "q48", &builtin_type_long_double },
+  { "q52", &builtin_type_long_double },
+  { "q56", &builtin_type_long_double },
+  { "q60", &builtin_type_long_double }
 };
 
 /* Total number of pseudo registers.  */
-#define SPARC64_NUM_PSEUDO_REGS ARRAY_SIZE (sparc64_pseudo_register_names)
+#define SPARC64_NUM_PSEUDO_REGS ARRAY_SIZE (sparc64_pseudo_register_info)
 
 /* Return the name of register REGNUM.  */
 
 static const char *
-sparc64_register_name (struct gdbarch *gdbarch, int regnum)
+sparc64_register_name (int regnum)
 {
   if (regnum >= 0 && regnum < SPARC64_NUM_REGS)
-    return sparc64_register_names[regnum];
+    return sparc64_register_info[regnum].name;
 
   if (regnum >= SPARC64_NUM_REGS
       && regnum < SPARC64_NUM_REGS + SPARC64_NUM_PSEUDO_REGS)
-    return sparc64_pseudo_register_names[regnum - SPARC64_NUM_REGS];
+    return sparc64_pseudo_register_info[regnum - SPARC64_NUM_REGS].name;
 
   return NULL;
 }
 
 /* Return the GDB type object for the "standard" data type of data in
-   register REGNUM.  */
+   register REGNUM. */
 
 static struct type *
 sparc64_register_type (struct gdbarch *gdbarch, int regnum)
 {
-  /* Raw registers.  */
+  if (regnum >= SPARC64_NUM_REGS
+      && regnum < SPARC64_NUM_REGS + SPARC64_NUM_PSEUDO_REGS)
+    return *sparc64_pseudo_register_info[regnum - SPARC64_NUM_REGS].type;
 
-  if (regnum == SPARC_SP_REGNUM || regnum == SPARC_FP_REGNUM)
-    return builtin_type (gdbarch)->builtin_data_ptr;
-  if (regnum >= SPARC_G0_REGNUM && regnum <= SPARC_I7_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-  if (regnum >= SPARC_F0_REGNUM && regnum <= SPARC_F31_REGNUM)
-    return builtin_type (gdbarch)->builtin_float;
-  if (regnum >= SPARC64_F32_REGNUM && regnum <= SPARC64_F62_REGNUM)
-    return builtin_type (gdbarch)->builtin_double;
-  if (regnum == SPARC64_PC_REGNUM || regnum == SPARC64_NPC_REGNUM)
-    return builtin_type (gdbarch)->builtin_func_ptr;
-  /* This raw register contains the contents of %cwp, %pstate, %asi
-     and %ccr as laid out in a %tstate register.  */
-  if (regnum == SPARC64_STATE_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-  if (regnum == SPARC64_FSR_REGNUM)
-    return sparc64_fsr_type (gdbarch);
-  if (regnum == SPARC64_FPRS_REGNUM)
-    return sparc64_fprs_type (gdbarch);
-  /* "Although Y is a 64-bit register, its high-order 32 bits are
-     reserved and always read as 0."  */
-  if (regnum == SPARC64_Y_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-
-  /* Pseudo registers.  */
-
-  if (regnum == SPARC64_CWP_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-  if (regnum == SPARC64_PSTATE_REGNUM)
-    return sparc64_pstate_type (gdbarch);
-  if (regnum == SPARC64_ASI_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-  if (regnum == SPARC64_CCR_REGNUM)
-    return builtin_type (gdbarch)->builtin_int64;
-  if (regnum >= SPARC64_D0_REGNUM && regnum <= SPARC64_D62_REGNUM)
-    return builtin_type (gdbarch)->builtin_double;
-  if (regnum >= SPARC64_Q0_REGNUM && regnum <= SPARC64_Q60_REGNUM)
-    return builtin_type (gdbarch)->builtin_long_double;
-
-  internal_error (__FILE__, __LINE__, _("invalid regnum"));
+  gdb_assert (regnum >= 0 && regnum < SPARC64_NUM_REGS);
+  return *sparc64_register_info[regnum].type;
 }
 
-static enum register_status
+static void
 sparc64_pseudo_register_read (struct gdbarch *gdbarch,
 			      struct regcache *regcache,
 			      int regnum, gdb_byte *buf)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  enum register_status status;
-
   gdb_assert (regnum >= SPARC64_NUM_REGS);
 
   if (regnum >= SPARC64_D0_REGNUM && regnum <= SPARC64_D30_REGNUM)
     {
       regnum = SPARC_F0_REGNUM + 2 * (regnum - SPARC64_D0_REGNUM);
-      status = regcache_raw_read (regcache, regnum, buf);
-      if (status == REG_VALID)
-	status = regcache_raw_read (regcache, regnum + 1, buf + 4);
-      return status;
+      regcache_raw_read (regcache, regnum, buf);
+      regcache_raw_read (regcache, regnum + 1, buf + 4);
     }
   else if (regnum >= SPARC64_D32_REGNUM && regnum <= SPARC64_D62_REGNUM)
     {
       regnum = SPARC64_F32_REGNUM + (regnum - SPARC64_D32_REGNUM);
-      return regcache_raw_read (regcache, regnum, buf);
+      regcache_raw_read (regcache, regnum, buf);
     }
   else if (regnum >= SPARC64_Q0_REGNUM && regnum <= SPARC64_Q28_REGNUM)
     {
       regnum = SPARC_F0_REGNUM + 4 * (regnum - SPARC64_Q0_REGNUM);
-
-      status = regcache_raw_read (regcache, regnum, buf);
-      if (status == REG_VALID)
-	status = regcache_raw_read (regcache, regnum + 1, buf + 4);
-      if (status == REG_VALID)
-	status = regcache_raw_read (regcache, regnum + 2, buf + 8);
-      if (status == REG_VALID)
-	status = regcache_raw_read (regcache, regnum + 3, buf + 12);
-
-      return status;
+      regcache_raw_read (regcache, regnum, buf);
+      regcache_raw_read (regcache, regnum + 1, buf + 4);
+      regcache_raw_read (regcache, regnum + 2, buf + 8);
+      regcache_raw_read (regcache, regnum + 3, buf + 12);
     }
   else if (regnum >= SPARC64_Q32_REGNUM && regnum <= SPARC64_Q60_REGNUM)
     {
       regnum = SPARC64_F32_REGNUM + 2 * (regnum - SPARC64_Q32_REGNUM);
-
-      status = regcache_raw_read (regcache, regnum, buf);
-      if (status == REG_VALID)
-	status = regcache_raw_read (regcache, regnum + 1, buf + 8);
-
-      return status;
+      regcache_raw_read (regcache, regnum, buf);
+      regcache_raw_read (regcache, regnum + 1, buf + 8);
     }
   else if (regnum == SPARC64_CWP_REGNUM
 	   || regnum == SPARC64_PSTATE_REGNUM
@@ -393,10 +423,7 @@ sparc64_pseudo_register_read (struct gdbarch *gdbarch,
     {
       ULONGEST state;
 
-      status = regcache_raw_read_unsigned (regcache, SPARC64_STATE_REGNUM, &state);
-      if (status != REG_VALID)
-	return status;
-
+      regcache_raw_read_unsigned (regcache, SPARC64_STATE_REGNUM, &state);
       switch (regnum)
 	{
 	case SPARC64_CWP_REGNUM:
@@ -412,10 +439,8 @@ sparc64_pseudo_register_read (struct gdbarch *gdbarch,
 	  state = (state >> 32) & ((1 << 8) - 1);
 	  break;
 	}
-      store_unsigned_integer (buf, 8, byte_order, state);
+      store_unsigned_integer (buf, 8, state);
     }
-
-  return REG_VALID;
 }
 
 static void
@@ -423,7 +448,6 @@ sparc64_pseudo_register_write (struct gdbarch *gdbarch,
 			       struct regcache *regcache,
 			       int regnum, const gdb_byte *buf)
 {
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   gdb_assert (regnum >= SPARC64_NUM_REGS);
 
   if (regnum >= SPARC64_D0_REGNUM && regnum <= SPARC64_D30_REGNUM)
@@ -459,7 +483,7 @@ sparc64_pseudo_register_write (struct gdbarch *gdbarch,
       ULONGEST state, bits;
 
       regcache_raw_read_unsigned (regcache, SPARC64_STATE_REGNUM, &state);
-      bits = extract_unsigned_integer (buf, 8, byte_order);
+      bits = extract_unsigned_integer (buf, 8);
       switch (regnum)
 	{
 	case SPARC64_CWP_REGNUM:
@@ -484,7 +508,7 @@ sparc64_pseudo_register_write (struct gdbarch *gdbarch,
    START_PC.  */
 
 static CORE_ADDR
-sparc64_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
+sparc64_skip_prologue (CORE_ADDR start_pc)
 {
   struct symtab_and_line sal;
   CORE_ADDR func_start, func_end;
@@ -501,24 +525,23 @@ sparc64_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
 	return sal.end;
     }
 
-  return sparc_analyze_prologue (gdbarch, start_pc, 0xffffffffffffffffULL,
-				 &cache);
+  return sparc_analyze_prologue (start_pc, 0xffffffffffffffffULL, &cache);
 }
 
 /* Normal frames.  */
 
 static struct sparc_frame_cache *
-sparc64_frame_cache (struct frame_info *this_frame, void **this_cache)
+sparc64_frame_cache (struct frame_info *next_frame, void **this_cache)
 {
-  return sparc_frame_cache (this_frame, this_cache);
+  return sparc_frame_cache (next_frame, this_cache);
 }
 
 static void
-sparc64_frame_this_id (struct frame_info *this_frame, void **this_cache,
+sparc64_frame_this_id (struct frame_info *next_frame, void **this_cache,
 		       struct frame_id *this_id)
 {
   struct sparc_frame_cache *cache =
-    sparc64_frame_cache (this_frame, this_cache);
+    sparc64_frame_cache (next_frame, this_cache);
 
   /* This marks the outermost frame.  */
   if (cache->base == 0)
@@ -527,74 +550,107 @@ sparc64_frame_this_id (struct frame_info *this_frame, void **this_cache,
   (*this_id) = frame_id_build (cache->base, cache->pc);
 }
 
-static struct value *
-sparc64_frame_prev_register (struct frame_info *this_frame, void **this_cache,
-			     int regnum)
+static void
+sparc64_frame_prev_register (struct frame_info *next_frame, void **this_cache,
+			     int regnum, int *optimizedp,
+			     enum lval_type *lvalp, CORE_ADDR *addrp,
+			     int *realnump, gdb_byte *valuep)
 {
-  struct gdbarch *gdbarch = get_frame_arch (this_frame);
   struct sparc_frame_cache *cache =
-    sparc64_frame_cache (this_frame, this_cache);
+    sparc64_frame_cache (next_frame, this_cache);
 
   if (regnum == SPARC64_PC_REGNUM || regnum == SPARC64_NPC_REGNUM)
     {
-      CORE_ADDR pc = (regnum == SPARC64_NPC_REGNUM) ? 4 : 0;
+      *optimizedp = 0;
+      *lvalp = not_lval;
+      *addrp = 0;
+      *realnump = -1;
+      if (valuep)
+	{
+	  CORE_ADDR pc = (regnum == SPARC64_NPC_REGNUM) ? 4 : 0;
 
-      regnum =
-	(cache->copied_regs_mask & 0x80) ? SPARC_I7_REGNUM : SPARC_O7_REGNUM;
-      pc += get_frame_register_unsigned (this_frame, regnum) + 8;
-      return frame_unwind_got_constant (this_frame, regnum, pc);
+	  regnum = cache->frameless_p ? SPARC_O7_REGNUM : SPARC_I7_REGNUM;
+	  pc += frame_unwind_register_unsigned (next_frame, regnum) + 8;
+	  store_unsigned_integer (valuep, 8, pc);
+	}
+      return;
     }
 
   /* Handle StackGhost.  */
   {
-    ULONGEST wcookie = sparc_fetch_wcookie (gdbarch);
+    ULONGEST wcookie = sparc_fetch_wcookie ();
 
     if (wcookie != 0 && !cache->frameless_p && regnum == SPARC_I7_REGNUM)
       {
-        CORE_ADDR addr = cache->base + (regnum - SPARC_L0_REGNUM) * 8;
-        ULONGEST i7;
+	*optimizedp = 0;
+	*lvalp = not_lval;
+	*addrp = 0;
+	*realnump = -1;
+	if (valuep)
+	  {
+	    CORE_ADDR addr = cache->base + (regnum - SPARC_L0_REGNUM) * 8;
+	    ULONGEST i7;
 
-        /* Read the value in from memory.  */
-        i7 = get_frame_memory_unsigned (this_frame, addr, 8);
-        return frame_unwind_got_constant (this_frame, regnum, i7 ^ wcookie);
+	    /* Read the value in from memory.  */
+	    i7 = get_frame_memory_unsigned (next_frame, addr, 8);
+	    store_unsigned_integer (valuep, 8, i7 ^ wcookie);
+	  }
+	return;
       }
   }
 
-  /* The previous frame's `local' and `in' registers may have been saved
+  /* The previous frame's `local' and `in' registers have been saved
      in the register save area.  */
-  if (regnum >= SPARC_L0_REGNUM && regnum <= SPARC_I7_REGNUM
-      && (cache->saved_regs_mask & (1 << (regnum - SPARC_L0_REGNUM))))
+  if (!cache->frameless_p
+      && regnum >= SPARC_L0_REGNUM && regnum <= SPARC_I7_REGNUM)
     {
-      CORE_ADDR addr = cache->base + (regnum - SPARC_L0_REGNUM) * 8;
+      *optimizedp = 0;
+      *lvalp = lval_memory;
+      *addrp = cache->base + (regnum - SPARC_L0_REGNUM) * 8;
+      *realnump = -1;
+      if (valuep)
+	{
+	  struct gdbarch *gdbarch = get_frame_arch (next_frame);
 
-      return frame_unwind_got_memory (this_frame, regnum, addr);
+	  /* Read the value in from memory.  */
+	  read_memory (*addrp, valuep, register_size (gdbarch, regnum));
+	}
+      return;
     }
 
-  /* The previous frame's `out' registers may be accessible as the current
-     frame's `in' registers.  */
-  if (regnum >= SPARC_O0_REGNUM && regnum <= SPARC_O7_REGNUM
-      && (cache->copied_regs_mask & (1 << (regnum - SPARC_O0_REGNUM))))
+  /* The previous frame's `out' registers are accessable as the
+     current frame's `in' registers.  */
+  if (!cache->frameless_p
+      && regnum >= SPARC_O0_REGNUM && regnum <= SPARC_O7_REGNUM)
     regnum += (SPARC_I0_REGNUM - SPARC_O0_REGNUM);
 
-  return frame_unwind_got_register (this_frame, regnum, regnum);
+  *optimizedp = 0;
+  *lvalp = lval_register;
+  *addrp = 0;
+  *realnump = regnum;
+  if (valuep)
+    frame_unwind_register (next_frame, regnum, valuep);
 }
 
 static const struct frame_unwind sparc64_frame_unwind =
 {
   NORMAL_FRAME,
-  default_frame_unwind_stop_reason,
   sparc64_frame_this_id,
-  sparc64_frame_prev_register,
-  NULL,
-  default_frame_sniffer
+  sparc64_frame_prev_register
 };
+
+static const struct frame_unwind *
+sparc64_frame_sniffer (struct frame_info *next_frame)
+{
+  return &sparc64_frame_unwind;
+}
 
 
 static CORE_ADDR
-sparc64_frame_base_address (struct frame_info *this_frame, void **this_cache)
+sparc64_frame_base_address (struct frame_info *next_frame, void **this_cache)
 {
   struct sparc_frame_cache *cache =
-    sparc64_frame_cache (this_frame, this_cache);
+    sparc64_frame_cache (next_frame, this_cache);
 
   return cache->base;
 }
@@ -641,13 +697,11 @@ static void
 sparc64_store_floating_fields (struct regcache *regcache, struct type *type,
 			       const gdb_byte *valbuf, int element, int bitpos)
 {
-  int len = TYPE_LENGTH (type);
-
   gdb_assert (element < 16);
 
-  if (sparc64_floating_p (type)
-      || (sparc64_complex_floating_p (type) && len <= 16))
+  if (sparc64_floating_p (type))
     {
+      int len = TYPE_LENGTH (type);
       int regnum;
 
       if (len == 16)
@@ -765,7 +819,6 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 			 struct value **args, CORE_ADDR sp,
 			 int struct_return, CORE_ADDR struct_addr)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
   /* Number of extended words in the "parameter array".  */
   int num_elements = 0;
   int element = 0;
@@ -785,8 +838,7 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
       struct type *type = value_type (args[i]);
       int len = TYPE_LENGTH (type);
 
-      if (sparc64_structure_or_union_p (type)
-	  || (sparc64_complex_floating_p (type) && len == 32))
+      if (sparc64_structure_or_union_p (type))
 	{
 	  /* Structure or Union arguments.  */
 	  if (len <= 16)
@@ -817,9 +869,10 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 	      num_elements++;
 	    }
 	}
-      else if (sparc64_floating_p (type) || sparc64_complex_floating_p (type))
+      else if (sparc64_floating_p (type))
 	{
 	  /* Floating arguments.  */
+
 	  if (len == 16)
 	    {
 	      /* The psABI says that "Each quad-precision parameter
@@ -847,8 +900,7 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 	     caller to an extended word according to the signed-ness
 	     of the argument type."  */
 	  if (len < 8)
-	    args[i] = value_cast (builtin_type (gdbarch)->builtin_int64,
-				  args[i]);
+	    args[i] = value_cast (builtin_type_int64, args[i]);
 	  num_elements++;
 	}
     }
@@ -887,8 +939,7 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
       int regnum = -1;
       gdb_byte buf[16];
 
-      if (sparc64_structure_or_union_p (type)
-	  || (sparc64_complex_floating_p (type) && len == 32))
+      if (sparc64_structure_or_union_p (type))
 	{
 	  /* Structure or Union arguments.  */
 	  gdb_assert (len <= 16);
@@ -908,7 +959,7 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 	  if (element < 16)
 	    sparc64_store_floating_fields (regcache, type, valbuf, element, 0);
 	}
-      else if (sparc64_floating_p (type) || sparc64_complex_floating_p (type))
+      else if (sparc64_floating_p (type))
 	{
 	  /* Floating arguments.  */
 	  if (len == 16)
@@ -923,12 +974,12 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 	      if (element < 16)
 		regnum = SPARC64_D0_REGNUM + element;
 	    }
-	  else if (len == 4)
+	  else
 	    {
 	      /* The psABI says "Each single-precision parameter value
                  will be assigned to one extended word in the
                  parameter array, and right-justified within that
-                 word; the left half (even float register) is
+                 word; the left half (even floatregister) is
                  undefined."  Even though the psABI says that "the
                  left half is undefined", set it to zero here.  */
 	      memset (buf, 0, 4);
@@ -961,7 +1012,7 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
 	    }
 	  else if (regnum >= SPARC64_Q0_REGNUM && regnum <= SPARC64_Q8_REGNUM)
 	    {
-	      gdb_assert (element < 5);
+	      gdb_assert (element < 6);
 	      regnum = SPARC_O0_REGNUM + element;
 	      regcache_cooked_write (regcache, regnum, valbuf);
 	      regcache_cooked_write (regcache, regnum + 1, valbuf + 8);
@@ -978,13 +1029,6 @@ sparc64_store_arguments (struct regcache *regcache, int nargs,
   /* Take BIAS into account.  */
   sp -= BIAS;
   return sp;
-}
-
-static CORE_ADDR
-sparc64_frame_align (struct gdbarch *gdbarch, CORE_ADDR address)
-{
-  /* The ABI requires 16-byte alignment.  */
-  return address & ~0xf;
 }
 
 static CORE_ADDR
@@ -1035,20 +1079,11 @@ sparc64_extract_return_value (struct type *type, struct regcache *regcache,
 	sparc64_extract_floating_fields (regcache, type, buf, 0);
       memcpy (valbuf, buf, len);
     }
-  else if (sparc64_floating_p (type) || sparc64_complex_floating_p (type))
+  else if (sparc64_floating_p (type))
     {
       /* Floating return values.  */
       for (i = 0; i < len / 4; i++)
 	regcache_cooked_read (regcache, SPARC_F0_REGNUM + i, buf + i * 4);
-      memcpy (valbuf, buf, len);
-    }
-  else if (TYPE_CODE (type) == TYPE_CODE_ARRAY)
-    {
-      /* Small arrays are returned the same way as small structures.  */
-      gdb_assert (len <= 32);
-
-      for (i = 0; i < ((len + 7) / 8); i++)
-	regcache_cooked_read (regcache, SPARC_O0_REGNUM + i, buf + i * 8);
       memcpy (valbuf, buf, len);
     }
   else
@@ -1089,22 +1124,12 @@ sparc64_store_return_value (struct type *type, struct regcache *regcache,
       if (TYPE_CODE (type) != TYPE_CODE_UNION)
 	sparc64_store_floating_fields (regcache, type, buf, 0, 0);
     }
-  else if (sparc64_floating_p (type) || sparc64_complex_floating_p (type))
+  else if (sparc64_floating_p (type))
     {
       /* Floating return values.  */
       memcpy (buf, valbuf, len);
       for (i = 0; i < len / 4; i++)
 	regcache_cooked_write (regcache, SPARC_F0_REGNUM + i, buf + i * 4);
-    }
-  else if (TYPE_CODE (type) == TYPE_CODE_ARRAY)
-    {
-      /* Small arrays are returned the same way as small structures.  */
-      gdb_assert (len <= 32);
-
-      memset (buf, 0, sizeof (buf));
-      memcpy (buf, valbuf, len);
-      for (i = 0; i < ((len + 7) / 8); i++)
-	regcache_cooked_write (regcache, SPARC_O0_REGNUM + i, buf + i * 8);
     }
   else
     {
@@ -1119,9 +1144,9 @@ sparc64_store_return_value (struct type *type, struct regcache *regcache,
 }
 
 static enum return_value_convention
-sparc64_return_value (struct gdbarch *gdbarch, struct value *function,
-		      struct type *type, struct regcache *regcache,
-		      gdb_byte *readbuf, const gdb_byte *writebuf)
+sparc64_return_value (struct gdbarch *gdbarch, struct type *type,
+		      struct regcache *regcache, gdb_byte *readbuf,
+		      const gdb_byte *writebuf)
 {
   if (TYPE_LENGTH (type) > 32)
     return RETURN_VALUE_STRUCT_CONVENTION;
@@ -1138,7 +1163,7 @@ sparc64_return_value (struct gdbarch *gdbarch, struct value *function,
 static void
 sparc64_dwarf2_frame_init_reg (struct gdbarch *gdbarch, int regnum,
 			       struct dwarf2_frame_state_reg *reg,
-			       struct frame_info *this_frame)
+			       struct frame_info *next_frame)
 {
   switch (regnum)
     {
@@ -1186,7 +1211,6 @@ sparc64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   set_gdbarch_pc_regnum (gdbarch, SPARC64_PC_REGNUM); /* %pc */
 
   /* Call dummy code.  */
-  set_gdbarch_frame_align (gdbarch, sparc64_frame_align);
   set_gdbarch_call_dummy_location (gdbarch, AT_ENTRY_POINT);
   set_gdbarch_push_dummy_code (gdbarch, NULL);
   set_gdbarch_push_dummy_call (gdbarch, sparc64_push_dummy_call);
@@ -1202,7 +1226,7 @@ sparc64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   /* FIXME: kettenis/20050423: Don't enable the unwinder until the
      StackGhost issues have been resolved.  */
 
-  frame_unwind_append_unwinder (gdbarch, &sparc64_frame_unwind);
+  frame_unwind_append_sniffer (gdbarch, sparc64_frame_sniffer);
   frame_base_set_default (gdbarch, &sparc64_frame_base);
 }
 
@@ -1225,11 +1249,8 @@ sparc64_supply_gregset (const struct sparc_gregset *gregset,
 			struct regcache *regcache,
 			int regnum, const void *gregs)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  int sparc32 = (gdbarch_ptr_bit (gdbarch) == 32);
+  int sparc32 = (gdbarch_ptr_bit (current_gdbarch) == 32);
   const gdb_byte *regs = gregs;
-  gdb_byte zero[8] = { 0 };
   int i;
 
   if (sparc32)
@@ -1240,10 +1261,10 @@ sparc64_supply_gregset (const struct sparc_gregset *gregset,
 	  ULONGEST tstate, psr;
 	  gdb_byte buf[4];
 
-	  tstate = extract_unsigned_integer (regs + offset, 8, byte_order);
+	  tstate = extract_unsigned_integer (regs + offset, 8);
 	  psr = ((tstate & TSTATE_CWP) | PSR_S | ((tstate & TSTATE_ICC) >> 12)
 		 | ((tstate & TSTATE_XCC) >> 20) | PSR_V8PLUS);
-	  store_unsigned_integer (buf, 4, byte_order, psr);
+	  store_unsigned_integer (buf, 4, psr);
 	  regcache_raw_supply (regcache, SPARC32_PSR_REGNUM, buf);
 	}
 
@@ -1292,7 +1313,7 @@ sparc64_supply_gregset (const struct sparc_gregset *gregset,
     }
 
   if (regnum == SPARC_G0_REGNUM || regnum == -1)
-    regcache_raw_supply (regcache, SPARC_G0_REGNUM, &zero);
+    regcache_raw_supply (regcache, SPARC_G0_REGNUM, NULL);
 
   if ((regnum >= SPARC_G1_REGNUM && regnum <= SPARC_O7_REGNUM) || regnum == -1)
     {
@@ -1342,9 +1363,7 @@ sparc64_collect_gregset (const struct sparc_gregset *gregset,
 			 const struct regcache *regcache,
 			 int regnum, void *gregs)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  int sparc32 = (gdbarch_ptr_bit (gdbarch) == 32);
+  int sparc32 = (gdbarch_ptr_bit (current_gdbarch) == 32);
   gdb_byte *regs = gregs;
   int i;
 
@@ -1356,13 +1375,13 @@ sparc64_collect_gregset (const struct sparc_gregset *gregset,
 	  ULONGEST tstate, psr;
 	  gdb_byte buf[8];
 
-	  tstate = extract_unsigned_integer (regs + offset, 8, byte_order);
+	  tstate = extract_unsigned_integer (regs + offset, 8);
 	  regcache_raw_collect (regcache, SPARC32_PSR_REGNUM, buf);
-	  psr = extract_unsigned_integer (buf, 4, byte_order);
+	  psr = extract_unsigned_integer (buf, 4);
 	  tstate |= (psr & PSR_ICC) << 12;
 	  if ((psr & (PSR_VERS | PSR_IMPL)) == PSR_V8PLUS)
 	    tstate |= (psr & PSR_XCC) << 20;
-	  store_unsigned_integer (buf, 8, byte_order, tstate);
+	  store_unsigned_integer (buf, 8, tstate);
 	  memcpy (regs + offset, buf, 8);
 	}
 
@@ -1448,26 +1467,24 @@ sparc64_collect_gregset (const struct sparc_gregset *gregset,
 }
 
 void
-sparc64_supply_fpregset (const struct sparc_fpregset *fpregset,
-			 struct regcache *regcache,
+sparc64_supply_fpregset (struct regcache *regcache,
 			 int regnum, const void *fpregs)
 {
-  int sparc32 = (gdbarch_ptr_bit (get_regcache_arch (regcache)) == 32);
+  int sparc32 = (gdbarch_ptr_bit (current_gdbarch) == 32);
   const gdb_byte *regs = fpregs;
   int i;
 
   for (i = 0; i < 32; i++)
     {
       if (regnum == (SPARC_F0_REGNUM + i) || regnum == -1)
-	regcache_raw_supply (regcache, SPARC_F0_REGNUM + i,
-			     regs + fpregset->r_f0_offset + (i * 4));
+	regcache_raw_supply (regcache, SPARC_F0_REGNUM + i, regs + (i * 4));
     }
 
   if (sparc32)
     {
       if (regnum == SPARC32_FSR_REGNUM || regnum == -1)
 	regcache_raw_supply (regcache, SPARC32_FSR_REGNUM,
-			     regs + fpregset->r_fsr_offset);
+			     regs + (32 * 4) + (16 * 8) + 4);
     }
   else
     {
@@ -1475,37 +1492,34 @@ sparc64_supply_fpregset (const struct sparc_fpregset *fpregset,
 	{
 	  if (regnum == (SPARC64_F32_REGNUM + i) || regnum == -1)
 	    regcache_raw_supply (regcache, SPARC64_F32_REGNUM + i,
-				 (regs + fpregset->r_f0_offset
-				  + (32 * 4) + (i * 8)));
+				 regs + (32 * 4) + (i * 8));
 	}
 
       if (regnum == SPARC64_FSR_REGNUM || regnum == -1)
 	regcache_raw_supply (regcache, SPARC64_FSR_REGNUM,
-			     regs + fpregset->r_fsr_offset);
+			     regs + (32 * 4) + (16 * 8));
     }
 }
 
 void
-sparc64_collect_fpregset (const struct sparc_fpregset *fpregset,
-			  const struct regcache *regcache,
+sparc64_collect_fpregset (const struct regcache *regcache,
 			  int regnum, void *fpregs)
 {
-  int sparc32 = (gdbarch_ptr_bit (get_regcache_arch (regcache)) == 32);
+  int sparc32 = (gdbarch_ptr_bit (current_gdbarch) == 32);
   gdb_byte *regs = fpregs;
   int i;
 
   for (i = 0; i < 32; i++)
     {
       if (regnum == (SPARC_F0_REGNUM + i) || regnum == -1)
-	regcache_raw_collect (regcache, SPARC_F0_REGNUM + i,
-			      regs + fpregset->r_f0_offset + (i * 4));
+	regcache_raw_collect (regcache, SPARC_F0_REGNUM + i, regs + (i * 4));
     }
 
   if (sparc32)
     {
       if (regnum == SPARC32_FSR_REGNUM || regnum == -1)
 	regcache_raw_collect (regcache, SPARC32_FSR_REGNUM,
-			      regs + fpregset->r_fsr_offset);
+			      regs + (32 * 4) + (16 * 8) + 4);
     }
   else
     {
@@ -1513,18 +1527,22 @@ sparc64_collect_fpregset (const struct sparc_fpregset *fpregset,
 	{
 	  if (regnum == (SPARC64_F32_REGNUM + i) || regnum == -1)
 	    regcache_raw_collect (regcache, SPARC64_F32_REGNUM + i,
-				  (regs + fpregset->r_f0_offset
-				   + (32 * 4) + (i * 8)));
+				  regs + (32 * 4) + (i * 8));
 	}
 
       if (regnum == SPARC64_FSR_REGNUM || regnum == -1)
 	regcache_raw_collect (regcache, SPARC64_FSR_REGNUM,
-			      regs + fpregset->r_fsr_offset);
+			      regs + (32 * 4) + (16 * 8));
     }
 }
 
-const struct sparc_fpregset sparc64_bsd_fpregset =
+
+/* Provide a prototype to silence -Wmissing-prototypes.  */
+void _initialize_sparc64_tdep (void);
+
+void
+_initialize_sparc64_tdep (void)
 {
-  0 * 8,			/* %f0 */
-  32 * 8,			/* %fsr */
-};
+  /* Initialize the UltraSPARC-specific register types.  */
+  sparc64_init_types();
+}

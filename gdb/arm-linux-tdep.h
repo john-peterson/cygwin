@@ -1,12 +1,13 @@
 /* GNU/Linux on ARM target support, prototypes.
 
-   Copyright (C) 2006-2013 Free Software Foundation, Inc.
+   Copyright (C) 2006
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,17 +16,18 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 struct regset;
 struct regcache;
 
+#define		ARM_CPSR_REGNUM		16
+
 #define ARM_LINUX_SIZEOF_NWFPE (8 * FP_REGISTER_SIZE \
 				+ 2 * INT_REGISTER_SIZE \
 				+ 8 + INT_REGISTER_SIZE)
-
-/* The index to access CSPR in user_regs defined in GLIBC.  */
-#define ARM_CPSR_GREGNUM 16
 
 /* Support for register format used by the NWFPE FPA emulator.  Each
    register takes three words, where either the first one, two, or
@@ -58,12 +60,3 @@ void arm_linux_supply_nwfpe (const struct regset *regset,
 void arm_linux_collect_nwfpe (const struct regset *regset,
 			      const struct regcache *regcache,
 			      int regnum, void *regs_buf, size_t len);
-
-/* ARM GNU/Linux HWCAP values.  These are in defined in
-   <asm/elf.h> in current kernels.  */
-#define HWCAP_VFP       64
-#define HWCAP_IWMMXT    512
-#define HWCAP_NEON      4096
-#define HWCAP_VFPv3     8192
-#define HWCAP_VFPv3D16  16384
-

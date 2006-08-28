@@ -1,20 +1,26 @@
 # This testcase is part of GDB, the GNU debugger.
 
-# Copyright 1997-2013 Free Software Foundation, Inc.
+# Copyright 1997, 1998, 1999, 2000, 2002, 2001, 2003, 2004 Free
+# Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 # step-test.exp -- Expect script to test stepping in gdb
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 set testfile step-test
 set srcfile ${testfile}.c
@@ -123,11 +129,8 @@ proc test_i {name command here there} {
 test_i "stepi to next line" "stepi" \
        ".*${decimal}.*a.*5.* = a.*3" \
        ".*${decimal}.*callee.*STEPI"
-
-# Continue to step until we enter the function.  Also keep stepping
-# if this passes through a (useless) PLT entry.
 test_i "stepi into function" "stepi" \
-       "(.*${decimal}.*callee.*STEPI|.* in callee@plt)" \
+       ".*${decimal}.*callee.*STEPI" \
        ".*callee \\(\\) at .*step-test\\.c" 
 
 # Continue to step until we reach the function's body.  This makes it
@@ -145,7 +148,7 @@ gdb_test_multiple "finish" "$test" {
     -re ".*${decimal}.*callee.*NEXTI.*$gdb_prompt $" {
 	pass "$test"
     }
-    -re ".*(Program received|$inferior_exited_re).*$gdb_prompt $" {
+    -re ".*(Program received|Program exited).*$gdb_prompt $" {
 	# Oops... We ran to the end of the program...  Better reset     
 	if {![runto_main]} then {
 	    fail "$test (Can't run to main)"

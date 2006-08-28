@@ -1,38 +1,46 @@
-# Copyright 1992-2013 Free Software Foundation, Inc.
+# Copyright 1992, 2004, 2005 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
 # Test case for CLLbs15503
 # This file was written by Sue Kimura (sue_kimura@hp.com)
 # Rewritten by Michael Chastain (mec.gnu@mindspring.com)
 
-if { [skip_stl_tests] } { continue }
-
-# On SPU this test fails because the executable exceeds local storage size.
-if { [istarget "spu*-*-*"] } {
-        return 0
+if $tracelevel {
+    strace $tracelevel
 }
 
-standard_testfile .cc
+if { [skip_cplus_tests] } { continue }
 
-if [get_compiler_info] {
+set testfile "bs15503"
+set srcfile ${testfile}.cc
+set binfile ${objdir}/${subdir}/${testfile}
+
+if [get_compiler_info ${binfile}] {
     return -1
 }
 
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
+if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable "debug c++"] != "" } {
+    perror "Couldn't compile ${srcfile}"
     return -1
 }
+
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 if ![runto_main] then {
     perror "couldn't run to breakpoint"

@@ -1,8 +1,8 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998, 1999, 2001 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -11,8 +11,16 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+
+
+if $tracelevel then {
+        strace $tracelevel
+}
 
 set testfile1 "average"
 set testfile2 "sum"
@@ -44,11 +52,11 @@ if  { [gdb_compile "${binfile1}.o ${binfile2}.o" ${binfile} executable {debug}] 
 proc dbx_gdb_start { } {
     global verbose
     global GDB
-    global INTERNAL_GDBFLAGS GDBFLAGS
+    global GDBFLAGS
     global prompt
     global spawn_id
     global timeout
-    verbose "Spawning $GDB -dbx $INTERNAL_GDBFLAGS $GDBFLAGS"
+    verbose "Spawning $GDB -nw $GDBFLAGS"
 
     if { [which $GDB] == 0 } then {
         perror "$GDB does not exist."
@@ -57,7 +65,7 @@ proc dbx_gdb_start { } {
 
     set oldtimeout $timeout
     set timeout [expr "$timeout + 60"]
-    eval "spawn $GDB -dbx $INTERNAL_GDBFLAGS $GDBFLAGS"
+    eval "spawn $GDB -nw -dbx $GDBFLAGS"
     gdb_expect {
         -re ".*\r\n$gdb_prompt $" {
             verbose "GDB initialized."
@@ -176,9 +184,6 @@ proc gdb_file_cmd {arg} {
     global gdb_prompt
     global spawn_id
     upvar timeout timeout
-    global last_loaded_file
-
-    set last_loaded_file $arg
 
     if [is_remote host] {
         set arg [remote_download host $arg];
@@ -261,8 +266,8 @@ proc gdb_file_cmd {arg} {
 proc test_breakpoints { } {
     gdb_test "stop in main" "Breakpoint.*at.*: file.*average\.c, line 38\."
     gdb_test "status" "Num.*Type.*Disp.*Enb.*Address.*What\r\n1\[ \r\]+breakpoint\[ \r\]+keep y.*in main at.*average\.c:38.*"
-    gdb_test "stop at average.c:43" "Breakpoint.*at.*: file.*average\.c, line 43.*"
-    gdb_test "stop in average.c:43" "Usage: stop in <function . address>"
+    gdb_test "stop at 43" "Breakpoint.*at.*: file.*average\.c, line 43.*"
+    gdb_test "stop in 43" "Usage: stop in <function . address>"
     gdb_test "stop at main" "Usage: stop at <line>"
 }
 
@@ -283,7 +288,7 @@ proc test_assign { } {
     send_gdb "assign first=1\n"
     gdb_expect {
       -re "No symbol \"first\" in current context.*$" { fail "assign first" }
-      -re "$gdb_prompt $" { pass "assign first" }
+      "$gdb_prompt $" { pass "assign first" }
       timeout { fail "assign first (timeout)" }
     }
     gdb_test "print first" ".1 = 1"
@@ -300,13 +305,13 @@ proc test_whereis { } {
 #test_func
 #
 proc test_func { } {
-    gdb_test "cont" ".*" "cont 1"
-    gdb_test "step" ".*"
+    gdb_test "cont" "" "cont 1"
+    gdb_test "step" ""
     # This always fails, but it's not clear why. -sts 1999-08-17
     setup_xfail "*-*-*"
     gdb_test "func sum" "'sum' not within current stack frame\."
     gdb_test "stop in sum" "Breakpoint.*at.*: file.*sum\.c, line 11\."
-    gdb_test "cont" ".*" "cont 2"
+    gdb_test "cont" "" "cont 2"
     # This always fails, but it's not clear why. -sts 1999-08-17
     setup_xfail "*-*-*"
     gdb_test "func print_average" ".*in print_average.*\\(list=.*, low=0, high=6\\).*at.*average\.c:24\r\n24\[ \t\]+total = sum\\(list, low, high\\);"

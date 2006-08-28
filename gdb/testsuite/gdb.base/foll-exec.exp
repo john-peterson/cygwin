@@ -1,27 +1,32 @@
-#   Copyright 1997-2013 Free Software Foundation, Inc.
+#   Copyright 1997, 1999 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
-if { [is_remote target] || ![isnative] } then {
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
+
+if $tracelevel then {
+	strace $tracelevel
+	}
+
+if { ![isnative] } then {
     continue
 }
 
-# Until "catch exec" is implemented on other targets...
-#
-if {![istarget "hppa*-hp-hpux*"] && ![istarget "*-linux*"]} then {
-    continue
-}
+set prms_id 0
+set bug_id 0
 
 set testfile "foll-exec"
 set testfile2 "execd-prog"
@@ -41,6 +46,13 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {deb
      return -1
 }
 
+
+# Until "catch exec" is implemented on other targets...
+#
+if ![istarget "hppa*-hp-hpux*"] then {
+    continue
+}
+
 proc zap_session {} {
    global gdb_prompt
    global binfile
@@ -48,7 +60,7 @@ proc zap_session {} {
    send_gdb "kill\n"
    gdb_expect {
      -re ".*Kill the program being debugged.*y or n. $" {
-       gdb_test_no_output "y" ""
+       send_gdb "y\n"
        send_gdb "file $binfile\n"
        gdb_expect {
          -re ".*Load new symbol table from.*y or n. $" {
@@ -74,33 +86,6 @@ proc do_exec_tests {} {
    global srcfile2
    global testfile
    global testfile2
-
-   # Start the program running, and stop at main.
-   #
-   if ![runto_main] then {
-     perror "Couldn't run ${testfile}"
-     return
-   }
-
-   # Verify that the system supports "catch exec".
-   gdb_test "catch exec" "Catchpoint \[0-9\]* \\(exec\\)" "insert first exec catchpoint"
-   set has_exec_catchpoints 0
-   gdb_test_multiple "continue" "continue to first exec catchpoint" {
-     -re ".*Your system does not support this type\r\nof catchpoint.*$gdb_prompt $" {
-       unsupported "continue to first exec catchpoint"
-     }
-     -re ".*Catchpoint.*$gdb_prompt $" {
-       set has_exec_catchpoints 1
-       pass "continue to first exec catchpoint"
-     }
-   }
-
-   if {$has_exec_catchpoints == 0} {
-     unsupported "exec catchpoints"
-     return
-   }
-
-   zap_session
 
    # Start the program running, and stop at main.
    #
@@ -148,7 +133,7 @@ proc do_exec_tests {} {
    #
    send_gdb "next\n"
    gdb_expect {
-     -re ".*xecuting new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
+     -re "Executing new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
                      {pass "step through execlp call"}
      -re "$gdb_prompt $" {fail "step through execlp call"}
      timeout         {fail "(timeout) step through execlp call"}
@@ -213,11 +198,14 @@ proc do_exec_tests {} {
    # Verify that the catchpoint is mentioned in an "info breakpoints",
    # and further that the catchpoint mentions no program name.
    #
-   set msg "info shows catchpoint without exec pathname"
-   gdb_test_multiple "info breakpoints" $msg {
-       -re ".*catchpoint.*keep y.*exec\[\n\r\]+$gdb_prompt $" {
-           pass $msg
-       }
+   send_gdb "info breakpoints\n"
+   gdb_expect {
+     -re ".*catch exec.*keep y.*$gdb_prompt $"\
+                     {pass "info shows catchpoint without exec pathname"}
+     -re ".*catch exec.*program \"\".*$gdb_prompt $"\
+                     {fail "info shows catchpoint without exec pathname"}
+     -re "$gdb_prompt $" {fail "info shows catchpoint without exec pathname"}
+     timeout         {fail "(timeout) info shows catchpoint without exec pathname"}
    }
 
    # DTS CLLbs16760
@@ -226,7 +214,7 @@ proc do_exec_tests {} {
    setup_xfail hppa2.0w-hp-hpux* CLLbs16760
    send_gdb "continue\n"
    gdb_expect {
-     -re ".*xecuting new program:.*${testfile2}.*Catchpoint .*(exec\'d .*${testfile2}).*in .*$gdb_prompt $"\
+     -re ".*Executing new program:.*${testfile2}.*Catchpoint .*(exec\'d .*${testfile2}).*in .START..*$gdb_prompt $"\
                      {pass "hit catch exec"}
      -re "$gdb_prompt $" {fail "hit catch exec"}
      timeout         {fail "(timeout) hit catch exec"}
@@ -241,11 +229,12 @@ proc do_exec_tests {} {
    # and further that the catchpoint managed to capture the exec'd
    # program's name.
    #
-   set msg "info shows catchpoint exec pathname"
-   gdb_test_multiple "info breakpoints" $msg {
-       -re ".*catchpoint.*keep y.*exec, program \".*${testfile2}\".*$gdb_prompt $" {
-           pass $msg
-       }
+   send_gdb "info breakpoints\n"
+   gdb_expect {
+     -re ".*catch exec .*program \".*${testfile2}\".*$gdb_prompt $"\
+                     {pass "info shows catchpoint exec pathname"}
+     -re "$gdb_prompt $" {fail "info shows catchpoint exec pathname"}
+     timeout         {fail "(timeout) info shows catchpoint exec pathname"}
    }
 
    # Verify that we can continue from the catchpoint, and land in the
@@ -275,7 +264,7 @@ proc do_exec_tests {} {
    #
    send_gdb "tbreak 27\n"
    gdb_expect {
-     -re "Temporary breakpoint .*file .*${srcfile}, line 27.*$gdb_prompt $"\
+     -re "Breakpoint .*file .*${srcfile}, line 27.*$gdb_prompt $"\
                      {pass "prepare to jump to execl call"}
      -re "$gdb_prompt $" {fail "prepare to jump to execl call"}
      timeout         {fail "(timeout) prepare to jump to execl call"}
@@ -295,7 +284,7 @@ proc do_exec_tests {} {
    #
    send_gdb "next 2\n"
    gdb_expect {
-     -re ".*xecuting new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
+     -re "Executing new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
                      {pass "step through execl call"}
      -re "$gdb_prompt $" {fail "step through execl call"}
      timeout         {fail "(timeout) step through execl call"}
@@ -335,7 +324,7 @@ proc do_exec_tests {} {
    #
    send_gdb "tbreak 41\n"
    gdb_expect {
-     -re "Temporary breakpoint .*file .*${srcfile}, line 41.*$gdb_prompt $"\
+     -re "Breakpoint .*file .*${srcfile}, line 41.*$gdb_prompt $"\
                      {pass "prepare to jump to execv call"}
      -re "$gdb_prompt $" {fail "prepare to jump to execv call"}
      timeout         {fail "(timeout) prepare to jump to execv call"}
@@ -349,7 +338,7 @@ proc do_exec_tests {} {
    }
    send_gdb "next\n"
    gdb_expect {
-     -re ".*xecuting new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
+     -re "Executing new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
                      {pass "step through execv call"}
      -re "$gdb_prompt $" {fail "step through execv call"}
      timeout         {fail "(timeout) step through execv call"}
@@ -390,7 +379,7 @@ proc do_exec_tests {} {
    #
    send_gdb "continue\n"
    gdb_expect {
-     -re ".*xecuting new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
+     -re "Executing new program: .*${testfile2}.*${srcfile2}:23.*int  local_j = argc;.*$gdb_prompt $"\
                      {pass "continue through exec"}
      -re "$gdb_prompt $" {fail "continue through exec"}
      timeout         {fail "(timeout) continue through exec"}

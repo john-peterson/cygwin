@@ -1,12 +1,14 @@
 /* Machine independent variables that describe the core file under GDB.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1987, 1989, 1990, 1991, 1992, 1993, 1994, 1995,
+   1996, 1997, 1998, 1999, 2000, 2001, 2004 Free Software Foundation,
+   Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -15,7 +17,9 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 /* Interface routines for core, executable, etc.  */
 
@@ -23,10 +27,8 @@
 #define GDBCORE_H 1
 
 struct type;
-struct regcache;
 
 #include "bfd.h"
-#include "exec.h"
 
 /* Return the name of the executable file as a string.
    ERR nonzero means get error if there is none specified;
@@ -38,42 +40,44 @@ extern char *get_exec_file (int err);
 
 extern int have_core_file_p (void);
 
+/* Read "memory data" from whatever target or inferior we have.
+   Returns zero if successful, errno value if not.  EIO is used for
+   address out of bounds.  If breakpoints are inserted, returns shadow
+   contents, not the breakpoints themselves.  From breakpoint.c.  */
+
+/* NOTE: cagney/2004-06-10: Code reading from a live inferior can use
+   the get_frame_memory methods, code reading from an exec can use the
+   target methods.  */
+
+extern int read_memory_nobpt (CORE_ADDR memaddr, gdb_byte *myaddr,
+			      unsigned len);
+
 /* Report a memory error with error().  */
 
 extern void memory_error (int status, CORE_ADDR memaddr);
 
 /* Like target_read_memory, but report an error if can't read.  */
 
-extern void read_memory (CORE_ADDR memaddr, gdb_byte *myaddr, ssize_t len);
-
-/* Like target_read_stack, but report an error if can't read.  */
-
-extern void read_stack (CORE_ADDR memaddr, gdb_byte *myaddr, ssize_t len);
+extern void read_memory (CORE_ADDR memaddr, gdb_byte *myaddr, int len);
 
 /* Read an integer from debugged memory, given address and number of
    bytes.  */
 
-extern LONGEST read_memory_integer (CORE_ADDR memaddr,
-				    int len, enum bfd_endian byte_order);
-extern int safe_read_memory_integer (CORE_ADDR memaddr, int len,
-				     enum bfd_endian byte_order,
-				     LONGEST *return_value);
+extern LONGEST read_memory_integer (CORE_ADDR memaddr, int len);
+extern int safe_read_memory_integer (CORE_ADDR memaddr, int len, LONGEST *return_value);
 
 /* Read an unsigned integer from debugged memory, given address and
    number of bytes.  */
 
-extern ULONGEST read_memory_unsigned_integer (CORE_ADDR memaddr,
-					      int len,
-					      enum bfd_endian byte_order);
+extern ULONGEST read_memory_unsigned_integer (CORE_ADDR memaddr, int len);
 
-/* Read a null-terminated string from the debuggee's memory, given
-   address, a buffer into which to place the string, and the maximum
-   available space.  */
+/* Read a null-terminated string from the debuggee's memory, given address,
+ * a buffer into which to place the string, and the maximum available space */
 
 extern void read_memory_string (CORE_ADDR, char *, int);
 
 /* Read the pointer of type TYPE at ADDR, and return the address it
-   represents.  */
+   represents. */
 
 CORE_ADDR read_memory_typed_address (CORE_ADDR addr, struct type *type);
 
@@ -82,24 +86,20 @@ CORE_ADDR read_memory_typed_address (CORE_ADDR addr, struct type *type);
    byteswapping, alignment, different sizes for host vs. target types,
    etc.  */
 
-extern void write_memory (CORE_ADDR memaddr, const gdb_byte *myaddr,
-			  ssize_t len);
-
-/* Same as write_memory, but notify 'memory_changed' observers.  */
-
-extern void write_memory_with_notification (CORE_ADDR memaddr,
-					    const bfd_byte *myaddr,
-					    ssize_t len);
+extern void write_memory (CORE_ADDR memaddr, const gdb_byte *myaddr, int len);
 
 /* Store VALUE at ADDR in the inferior as a LEN-byte unsigned integer.  */
 extern void write_memory_unsigned_integer (CORE_ADDR addr, int len,
-                                           enum bfd_endian byte_order,
-					   ULONGEST value);
+                                           ULONGEST value);
 
 /* Store VALUE at ADDR in the inferior as a LEN-byte unsigned integer.  */
 extern void write_memory_signed_integer (CORE_ADDR addr, int len,
-                                         enum bfd_endian byte_order,
                                          LONGEST value);
+
+extern void generic_search (int len, char *data, char *mask,
+			    CORE_ADDR startaddr, int increment,
+			    CORE_ADDR lorange, CORE_ADDR hirange,
+			    CORE_ADDR * addr_found, char *data_found);
 
 /* Hook for `exec_file_command' command to call.  */
 
@@ -112,11 +112,10 @@ extern void (*deprecated_file_changed_hook) (char *filename);
 
 extern void specify_exec_file_hook (void (*hook) (char *filename));
 
-/* Binary File Diddler for the core file.  */
+/* Binary File Diddlers for the exec and core files.  */
 
 extern bfd *core_bfd;
-
-extern struct target_ops *core_target;
+extern bfd *exec_bfd;
 
 /* Whether to open exec and core files read-only or read-write.  */
 
@@ -129,6 +128,17 @@ extern void exec_file_attach (char *filename, int from_tty);
 extern void exec_file_clear (int from_tty);
 
 extern void validate_files (void);
+
+extern CORE_ADDR register_addr (int regno, CORE_ADDR blockend);
+
+#if !defined (KERNEL_U_ADDR)
+extern CORE_ADDR kernel_u_addr;
+#define KERNEL_U_ADDR kernel_u_addr
+#endif
+
+/* The target vector for core files. */
+
+extern struct target_ops core_ops;
 
 /* The current default bfd target.  */
 
@@ -145,7 +155,7 @@ struct core_fns
     /* BFD flavour that a core file handler is prepared to read.  This
        can be used by the handler's core tasting function as a first
        level filter to reject BFD's that don't have the right
-       flavour.  */
+       flavour. */
 
     enum bfd_flavour core_flavour;
 
@@ -154,18 +164,18 @@ struct core_fns
        into the BFD model, or may require other resources to identify
        them, that simply aren't available to BFD (such as symbols from
        another file).  Returns nonzero if the handler recognizes the
-       format, zero otherwise.  */
+       format, zero otherwise. */
 
     int (*check_format) (bfd *);
 
     /* Core file handler function to call to ask if it can handle a
        given core file format or not.  Returns zero if it can't,
-       nonzero otherwise.  */
+       nonzero otherwise. */
 
     int (*core_sniffer) (struct core_fns *, bfd *);
 
-    /* Extract the register values out of the core file and supply them
-       into REGCACHE.
+    /* Extract the register values out of the core file and store them where
+       `read_register' will find them.
 
        CORE_REG_SECT points to the register values themselves, read into
        memory.
@@ -183,10 +193,9 @@ struct core_fns
        REG_ADDR is the offset from u.u_ar0 to the register values relative to
        core_reg_sect.  This is used with old-fashioned core files to locate the
        registers in a large upage-plus-stack ".reg" section.  Original upage
-       address X is at location core_reg_sect+x+reg_addr.  */
+       address X is at location core_reg_sect+x+reg_addr. */
 
-    void (*core_read_registers) (struct regcache *regcache,
-				 char *core_reg_sect,
+    void (*core_read_registers) (char *core_reg_sect,
 				 unsigned core_reg_size,
 				 int which, CORE_ADDR reg_addr);
 
@@ -204,7 +213,5 @@ struct core_fns
 extern void deprecated_add_core_fns (struct core_fns *cf);
 extern int default_core_sniffer (struct core_fns *cf, bfd * abfd);
 extern int default_check_format (bfd * abfd);
-
-struct target_section *deprecated_core_resize_section_table (int num_added);
 
 #endif /* !defined (GDBCORE_H) */

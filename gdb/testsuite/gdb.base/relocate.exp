@@ -1,20 +1,28 @@
-# Copyright 2002-2013 Free Software Foundation, Inc.
+# Copyright 2002, 2003, 2005 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
+
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 
 # relocate.exp -- Expect script to test loading symbols from unrelocated
 #		  object files.
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 set testfile relocate
 set srcfile ${testfile}.c
@@ -27,24 +35,29 @@ if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" object {debug}] 
 }
 
 proc get_var_address { var } {
-    global gdb_prompt hex
+  global gdb_prompt hex
 
-    # Match output like:
-    # $1 = (int *) 0x0
-    # $5 = (int (*)()) 0
-    # $6 = (int (*)()) 0x24 <function_bar>
-
-    gdb_test_multiple "print &${var}" "get address of ${var}" {
-	-re "\\\$\[0-9\]+ = \\(.*\\) (0|$hex)( <${var}>)?\[\r\n\]+${gdb_prompt} $" {
-	    pass "get address of ${var}"
-	    if { $expect_out(1,string) == "0" } {
-		return "0x0"
-	    } else {
-		return $expect_out(1,string)
-	    }
+  send_gdb "print &${var}\n"
+  # Match output like:
+  # $1 = (int *) 0x0
+  # $5 = (int (*)()) 0
+  # $6 = (int (*)()) 0x24 <function_bar>
+  gdb_expect {
+    -re "\\\$\[0-9\]+ = \\(.*\\) (0|$hex)( <${var}>)?\[\r\n\]+${gdb_prompt} $"
+	{
+	  pass "get address of ${var}"
+	  if { $expect_out(1,string) == "0" } {
+	    return "0x0"
+	  } else {
+	    return $expect_out(1,string)
+	  }
 	}
-    }
-    return ""
+    -re "${gdb_prompt} $"
+	{ fail "get address of ${var} (unknown output)" }
+    timeout
+	{ fail "get address of ${var} (timeout)" }
+  }
+  return ""
 }
 
 
@@ -100,7 +113,7 @@ gdb_exit
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
 
-gdb_test_no_output "set \$offset = 0x10000"
+gdb_test "set \$offset = 0x10000" ""
 
 # Load the object file.
 gdb_test "add-symbol-file ${binfile} \$offset" \

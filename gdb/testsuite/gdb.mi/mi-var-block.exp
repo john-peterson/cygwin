@@ -1,8 +1,8 @@
-# Copyright 1999-2013 Free Software Foundation, Inc.
+# Copyright 1999, 2000, 2001, 2002, 2004 Free Software Foundation, Inc.
 #
-# This program is free software; you can redistribute it and/or modify
+# This Program Is Free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 #
 # This program is distributed in the hope that it will be useful,
@@ -11,7 +11,8 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 # Test essential Machine interface (MI) operations
 #
@@ -27,9 +28,10 @@ if [mi_gdb_start] {
     continue
 }
 
-standard_testfile var-cmd.c
-
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+set testfile "var-cmd"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-DFAKEARGV}] != "" } {
     untested mi-var-block.exp
     return -1
 }
@@ -42,56 +44,64 @@ mi_runto do_block_tests
 
 # Test: c_variable-3.2
 # Desc: create cb and foo
-mi_create_varobj "cb" "cb" "create local variable cb"
+mi_gdb_test "-var-create cb * cb" \
+	"\\^done,name=\"cb\",numchild=\"0\",type=\"int\"" \
+	"create local variable cb"
 
 mi_gdb_test "-var-create foo * foo" \
-       "\\^error,msg=\"-var-create: unable to create variable object\"" \
-       "try to create local variable foo"
+	"&\"mi_cmd_var_create: unable to create variable object\\\\n\".*\\^error,msg=\"mi_cmd_var_create: unable to create variable object\"" \
+	"create local variable foo"
 
 # step to "foo = 123;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "foo = 123;"] \
-    "step at do_block_test 1"
+    "step at do_block_test"
 
 
 # Be paranoid and assume 3.2 created foo
 mi_gdb_test "-var-delete foo" \
-	"\\^error,msg=\"Variable object not found\"" \
-	"delete var foo 1"
+	"&\"Variable object not found\\\\n\".*\\^error,msg=\"Variable object not found\"" \
+	"delete var foo"
 
 
 # Test: c_variable-3.3
 # Desc: create foo
-mi_create_varobj "foo" "foo" "create local variable foo"
+mi_gdb_test "-var-create foo * foo" \
+	"\\^done,name=\"foo\",numchild=\"0\",type=\"int\"" \
+	"create local variable foo"
 
 # step to "foo2 = 123;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "foo2 = 123;"] \
-    "step at do_block_test 2"
+    "step at do_block_test"
 
 # Test: c_variable-3.4
 # Desc: check foo, cb changed
 mi_gdb_test "-var-update *" \
-	"\\^done,changelist=\\\[\{name=\"foo\",in_scope=\"true\",type_changed=\"false\",has_more=\"0\"\},\{name=\"cb\",in_scope=\"true\",type_changed=\"false\",has_more=\"0\"\}\\\]" \
+	"\\^done,changelist=\\\[\{name=\"foo\",in_scope=\"true\",type_changed=\"false\"\},\{name=\"cb\",in_scope=\"true\",type_changed=\"false\"\}\\\]" \
 	"update all vars: cb foo changed"
 
 # step to "foo = 321;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "foo = 321;"] \
-    "step at do_block_test 3"
+    "step at do_block_test"
 
 # Test: c_variable-3.5
 # Desc: create inner block foo
-mi_create_varobj "inner_foo" "foo" "create local variable inner_foo"
+mi_gdb_test "-var-create inner_foo * foo" \
+	"\\^done,name=\"inner_foo\",numchild=\"0\",type=\"int\"" \
+	"create local variable inner_foo"
 
 # step to "foo2 = 0;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "foo2 = 0;"] \
-    "step at do_block_test 4"
+    "step at do_block_test"
 
 # Test: c_variable-3.6
 # Desc: create foo2
-mi_create_varobj "foo2" "foo2" "create local variable foo2"
+mi_gdb_test "-var-create foo2 * foo2" \
+	"\\^done,name=\"foo2\",numchild=\"0\",type=\"int\"" \
+	"create local variable foo2"
 
 # Test: c_variable-3.7
 # Desc: check that outer foo in scope and inner foo out of scope
@@ -119,7 +129,7 @@ mi_gdb_test "-var-delete inner_foo" \
 # step to "foo = 0;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "foo = 0;"] \
-    "step at do_block_test 5"
+    "step at do_block_test"
 
 # Test: c_variable-3.8
 # Desc: check that foo2 out of scope (known gdb problem)
@@ -132,7 +142,7 @@ clear_xfail *-*-*
 # step to "cb = 21;"
 mi_step_to "do_block_tests" "" "var-cmd.c" \
     [gdb_get_line_number "cb = 21;"] \
-    "step at do_block_test 6"
+    "step at do_block_test"
 
 # Test: c_variable-3.9
 # Desc: check that only cb is in scope (known gdb problem)
@@ -159,7 +169,7 @@ mi_gdb_test "-var-update cb" \
 # Done with block tests
 mi_gdb_test "-var-delete foo" \
 	"\\^done,ndeleted=\"1\"" \
-	"delete var foo 2"
+	"delete var foo"
 
 mi_gdb_test "-var-delete foo2" \
 	"\\^done,ndeleted=\"1\"" \

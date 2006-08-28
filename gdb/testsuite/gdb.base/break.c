@@ -1,19 +1,24 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 1992-2013 Free Software Foundation, Inc.
+   Copyright 1992, 1993, 1994, 1995, 1999, 2002, 2003 Free Software
+   Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+ 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+   Please email any bugs, comments, and/or additions to this file to:
+   bug-gdb@prep.ai.mit.edu  */
 
 #ifdef vxworks
 
@@ -61,13 +66,6 @@ extern void marker3 ();
 extern void marker4 ();
 #endif
 
-/* We're used by a test that requires malloc, so make sure it is in
-   the executable.  */
-void *need_malloc ()
-{
-  return malloc (1);
-}
-
 /*
  *	This simple classical example of recursion is useful for
  *	testing stack backtraces and such.
@@ -85,6 +83,10 @@ int argc;
 char *argv[], **envp;
 #endif
 {
+#ifdef usestubs
+    set_debug_traps();  /* set breakpoint 5 here */
+    breakpoint();
+#endif
     if (argc == 12345) {  /* an unlikely value < 2^16, in case uninited */ /* set breakpoint 6 here */
 	fprintf (stderr, "usage:  factorial <number>\n");
 	return 1;
@@ -95,10 +97,6 @@ char *argv[], **envp;
     marker2 (43); /* set breakpoint 20 here */
     marker3 ("stack", "trace"); /* set breakpoint 21 here */
     marker4 (177601976L);
-    /* We're used by a test that requires malloc, so make sure it is
-       in the executable.  */
-    (void)malloc (1);
-
     argc = (argc == 12345); /* This is silly, but we can step off of it */ /* set breakpoint 2 here */
     return argc;  /* set breakpoint 10 here */
 } /* set breakpoint 10a here */
