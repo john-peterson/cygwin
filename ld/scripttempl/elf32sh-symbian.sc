@@ -8,7 +8,6 @@
 #	OTHER_TEXT_SECTIONS - these get put in .text when relocating
 #	OTHER_READWRITE_SECTIONS - other than .data .bss .ctors .sdata ...
 #		(e.g., .PARISC.global)
-#	ATTRS_SECTIONS - at the end
 #	OTHER_SECTIONS - at the end
 #	EXECUTABLE_SYMBOLS - symbols that must be defined for an
 #		executable (e.g., _DYNAMIC_LINK)
@@ -72,7 +71,6 @@ test -z "${ALIGNMENT}" && ALIGNMENT="${ELFSIZE} / 8"
 test "$LD_FLAG" = "N" && DATA_ADDR=.
 test -n "$CREATE_SHLIB$CREATE_PIE" && test -n "$SHLIB_DATA_ADDR" && COMMONPAGESIZE=""
 test -z "$CREATE_SHLIB$CREATE_PIE" && test -n "$DATA_ADDR" && COMMONPAGESIZE=""
-test -z "$ATTRS_SECTIONS" && ATTRS_SECTIONS=".gnu.attributes 0 : { KEEP (*(.gnu.attributes)) }"
 DATA_SEGMENT_ALIGN="ALIGN(${SEGMENT_SIZE}) + (. & (${MAXPAGESIZE} - 1))"
 DATA_SEGMENT_END=""
 if test -n "${COMMONPAGESIZE}"; then
@@ -83,22 +81,8 @@ fi
     PLT=".plt            : { *(.plt) } :dynamic :dyn"
 DYNAMIC=".dynamic        : { *(.dynamic) } :dynamic :dyn"
  RODATA=".rodata    ALIGN(4) : { *(.rodata${RELOCATING+ .rodata.* .gnu.linkonce.r.*}) }"
-DISCARDED="/DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink) *(.directive)  *(.gnu.lto_*) }"
+STACKNOTE="/DISCARD/ : { *(.note.GNU-stack)  *(.directive) }"
 test -z "$GOT" && GOT=".got          ${RELOCATING-0} : { *(.got.plt) *(.got) } :dynamic :dyn"
-INIT_ARRAY=".init_array   ${RELOCATING-0} :
-  {
-     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_start = .);}}
-     KEEP (*(SORT(.init_array.*)))
-     KEEP (*(.init_array))
-     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_end = .);}}
-  }"
-FINI_ARRAY=".fini_array   ${RELOCATING-0} :
-  {
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_start = .);}}
-    KEEP (*(SORT(.fini_array.*)))
-    KEEP (*(.fini_array))
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_end = .);}}
-  }"
 CTOR=".ctors     ALIGN(4) : 
   {
     ${CONSTRUCTING+${CTOR_START}}
@@ -152,7 +136,7 @@ cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+/* Do we need any of these for elf?
@@ -228,8 +212,20 @@ SECTIONS
     KEEP (*(.preinit_array))
     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__preinit_array_end = .);}}
   }
-  ${RELOCATING+${INIT_ARRAY}}
-  ${RELOCATING+${FINI_ARRAY}}
+  .init_array   ${RELOCATING-0} :
+  {
+     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_start = .);}}
+     KEEP (*(SORT(.init_array.*)))
+     KEEP (*(.init_array))
+     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_end = .);}}
+  }
+  .fini_array   ${RELOCATING-0} :
+  {
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_start = .);}}
+    KEEP (*(.fini_array))
+    KEEP (*(SORT(.fini_array.*)))
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_end = .);}}
+  }
 
   ${CREATE_SHLIB-${CREATE_PIE-${RELOCATING+. = ${DATA_ADDR-${DATA_SEGMENT_ALIGN}};}}}
   ${CREATE_SHLIB+${RELOCATING+. = ${SHLIB_DATA_ADDR-${DATA_SEGMENT_ALIGN}};}}
@@ -378,17 +374,9 @@ cat <<EOF
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
 
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
-
   ${STACK_ADDR+${STACK}}
-  ${ATTRS_SECTIONS}
   ${OTHER_SECTIONS}
   ${RELOCATING+${OTHER_SYMBOLS}}
-  ${RELOCATING+${DISCARDED}}
+  ${RELOCATING+${STACKNOTE}}
 }
 EOF

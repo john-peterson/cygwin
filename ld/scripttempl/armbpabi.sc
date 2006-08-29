@@ -29,8 +29,8 @@ fi
 INTERP=".interp       0 : { *(.interp) }"
 PLT=".plt          ${RELOCATING-0} : { *(.plt) }"
 RODATA=".rodata       ${RELOCATING-0} : { *(.rodata${RELOCATING+ .rodata.* .gnu.linkonce.r.*}) }"
-DATARELRO=".data.rel.ro : { *(.data.rel.ro.local) *(.data.rel.ro .data.rel.ro.*) }"
-DISCARDED="/DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink)  *(.gnu.lto_*) }"
+DATARELRO=".data.rel.ro : { *(.data.rel.ro.local) *(.data.rel.ro*) }"
+STACKNOTE="/DISCARD/ : { *(.note.GNU-stack) }"
 if test -z "${NO_SMALL_DATA}"; then
   SBSS=".sbss         ${RELOCATING-0} :
   {
@@ -64,24 +64,6 @@ else
   NO_SMALL_DATA=" "
 fi
 test -n "$SEPARATE_GOTPLT" && SEPARATE_GOTPLT=" "
-INIT_ARRAY=".init_array   ${RELOCATING-0} :
-  {
-    /* SymbianOS uses this symbol.  */
-    ${RELOCATING+PROVIDE (SHT\$\$INIT_ARRAY\$\$Base = .);}
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_start = .);}}
-    KEEP (*(SORT(.init_array.*)))
-    KEEP (*(.init_array))
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_end = .);}}
-    /* SymbianOS uses this symbol.  */
-    ${RELOCATING+PROVIDE (SHT\$\$INIT_ARRAY\$\$Limit = .);}
-  }"
-FINI_ARRAY=".fini_array   ${RELOCATING-0} :
-  {
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_start = .);}}
-    KEEP (*(SORT(.fini_array.*)))
-    KEEP (*(.fini_array))
-    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_end = .);}}
-  }"
 CTOR=".ctors        ${CONSTRUCTING-0} : 
   {
     ${CONSTRUCTING+${CTOR_START}}
@@ -142,7 +124,7 @@ cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+/* Do we need any of these for elf?
@@ -201,6 +183,7 @@ cat <<EOF
   {
     ${RELOCATING+${TEXT_START_SYMBOLS}}
     *(.text .stub${RELOCATING+ .text.* .gnu.linkonce.t.*})
+    KEEP (*(.text.*personality*))
     /* .gnu.warning sections are handled specially by elf32.em.  */
     *(.gnu.warning)
     ${RELOCATING+${OTHER_TEXT_SECTIONS}}
@@ -236,8 +219,24 @@ cat <<EOF
     KEEP (*(.preinit_array))
     ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__preinit_array_end = .);}}
   }
-  ${RELOCATING+${INIT_ARRAY}}
-  ${RELOCATING+${FINI_ARRAY}}
+  .init_array   ${RELOCATING-0} :
+  {
+    /* SymbianOS uses this symbol.  */
+    ${RELOCATING+PROVIDE (SHT\$\$INIT_ARRAY\$\$Base = .);}
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_start = .);}}
+    KEEP (*(SORT(.init_array.*)))
+    KEEP (*(.init_array))
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__init_array_end = .);}}
+    /* SymbianOS uses this symbol.  */
+    ${RELOCATING+PROVIDE (SHT\$\$INIT_ARRAY\$\$Limit = .);}
+  }
+  .fini_array   ${RELOCATING-0} :
+  {
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_start = .);}}
+    KEEP (*(.fini_array))
+    KEEP (*(SORT(.fini_array.*)))
+    ${RELOCATING+${CREATE_SHLIB-PROVIDE_HIDDEN (__fini_array_end = .);}}
+  }
 
   ${OTHER_READONLY_SECTIONS}
   .eh_frame_hdr : { *(.eh_frame_hdr) }
@@ -272,6 +271,7 @@ cat <<EOF
   {
     ${RELOCATING+${DATA_START_SYMBOLS}}
     *(.data${RELOCATING+ .data.* .gnu.linkonce.d.*})
+    KEEP (*(.gnu.linkonce.d.*personality*))
     ${CONSTRUCTING+SORT(CONSTRUCTORS)}
   }
   .data1        ${RELOCATING-0} : { *(.data1) }
@@ -357,17 +357,10 @@ cat <<EOF
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
 
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
-
   ${STACK_ADDR+${STACK}}
   ${OTHER_SECTIONS}
   ${RELOCATING+${OTHER_SYMBOLS}}
-  ${RELOCATING+${DISCARDED}}
+  ${RELOCATING+${STACKNOTE}}
 EOF
 
 # These relocations sections are part of the read-only segment in SVR4
@@ -387,8 +380,8 @@ eval $COMBRELOCCAT <<EOF
   .rel.rodata   0 : { *(.rel.rodata${RELOCATING+ .rel.rodata.* .rel.gnu.linkonce.r.*}) }
   .rela.rodata  0 : { *(.rela.rodata${RELOCATING+ .rela.rodata.* .rela.gnu.linkonce.r.*}) }
   ${OTHER_READONLY_RELOC_SECTIONS}
-  .rel.data.rel.ro 0 : { *(.rel.data.rel.ro${RELOCATING+ .rel.data.rel.ro.*}) }
-  .rela.data.rel.ro 0 : { *(.rela.data.rel.ro${RELOCATING+ .rela.data.rel.ro.*}) }
+  .rel.data.rel.ro 0 : { *(.rel.data.rel.ro${RELOCATING+*}) }
+  .rela.data.rel.ro 0 : { *(.rel.data.rel.ro${RELOCATING+*}) }
   .rel.data     0 : { *(.rel.data${RELOCATING+ .rel.data.* .rel.gnu.linkonce.d.*}) }
   .rela.data    0 : { *(.rela.data${RELOCATING+ .rela.data.* .rela.gnu.linkonce.d.*}) }
   .rel.tdata	0 : { *(.rel.tdata${RELOCATING+ .rel.tdata.* .rel.gnu.linkonce.td.*}) }

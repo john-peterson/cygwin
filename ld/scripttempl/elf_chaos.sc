@@ -10,7 +10,6 @@
 #	OTHER_TEXT_SECTIONS - these get put in .text when relocating
 #	OTHER_READWRITE_SECTIONS - other than .data .bss .ctors .sdata ...
 #		(e.g., .PARISC.global)
-#	ATTRS_SECTIONS - at the end
 #	OTHER_SECTIONS - at the end
 #	EXECUTABLE_SYMBOLS - symbols that must be defined for an
 #		executable (e.g., _DYNAMIC_LINK)
@@ -69,7 +68,6 @@ test -z "${LITTLE_OUTPUT_FORMAT}" && LITTLE_OUTPUT_FORMAT=${OUTPUT_FORMAT}
 if [ -z "$MACHINE" ]; then OUTPUT_ARCH=${ARCH}; else OUTPUT_ARCH=${ARCH}:${MACHINE}; fi
 test -z "${ELFSIZE}" && ELFSIZE=32
 test -z "${ALIGNMENT}" && ALIGNMENT="${ELFSIZE} / 8"
-test -z "$ATTRS_SECTIONS" && ATTRS_SECTIONS=".gnu.attributes 0 : { KEEP (*(.gnu.attributes)) }"
 test "$LD_FLAG" = "N" && DATA_ADDR=.
 INTERP=".interp       ${RELOCATING-0} : { *(.interp) }"
 PLT=".plt          ${RELOCATING-0} : { *(.plt) }"
@@ -151,7 +149,7 @@ cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+/* Do we need any of these for elf?
@@ -350,11 +348,7 @@ cat <<EOF
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
 
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
-  
   ${STACK_ADDR+${STACK}}
-  ${ATTRS_SECTIONS}
   ${OTHER_SECTIONS}
   ${RELOCATING+${OTHER_SYMBOLS}}
 }

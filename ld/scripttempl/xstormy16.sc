@@ -96,7 +96,7 @@ cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}", "${BIG_OUTPUT_FORMAT}",
 	      "${LITTLE_OUTPUT_FORMAT}")
 OUTPUT_ARCH(${OUTPUT_ARCH})
-${RELOCATING+ENTRY(${ENTRY})}
+ENTRY(${ENTRY})
 
 ${RELOCATING+${LIB_SEARCH_DIRS}}
 ${RELOCATING+${EXECUTABLE_SYMBOLS}}
@@ -160,7 +160,7 @@ SECTIONS
   ${RELOCATING+${DTOR}}
   .jcr : { KEEP (*(.jcr)) } ${RELOCATING+> ROM}
   .eh_frame : { KEEP (*(.eh_frame)) } ${RELOCATING+> ROM}
-  .gcc_except_table : { *(.gcc_except_table) *(.gcc_except_table.*) } ${RELOCATING+> ROM}
+  .gcc_except_table : { *(.gcc_except_table) } ${RELOCATING+> ROM}
   .plt : { *(.plt) } ${RELOCATING+> ROM}
 
   .text    ${RELOCATING-0} :
@@ -232,13 +232,6 @@ SECTIONS
   .debug_funcnames 0 : { *(.debug_funcnames) }
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 
   ${RELOCATING+${OTHER_RELOCATING_SECTIONS}}
 
