@@ -5,60 +5,15 @@
 
 #include <stdlib.h>
 #include <reent.h>
-#include <sys/lock.h>
 #include "atexit.h"
-
-/* Make this a weak reference to avoid pulling in free.  */
-void free(void *) _ATTRIBUTE((__weak__));
-
-#ifndef __SINGLE_THREAD__
-extern _LOCK_RECURSIVE_T __atexit_lock;
-#endif
-
-#ifdef _WANT_REGISTER_FINI
-
-/* If "__libc_fini" is defined, finalizers (either
-   "__libc_fini_array", or "_fini", as appropriate) will be run after
-   all user-specified atexit handlers.  For example, you can define
-   "__libc_fini" to "_fini" in your linker script if you want the C
-   library, rather than startup code, to register finalizers.  If you
-   do that, then your startup code need not contain references to
-   "atexit" or "exit".  As a result, only applications that reference
-   "exit" explicitly will pull in finalization code.
-
-   The choice of whether to register finalizers from libc or from
-   startup code is deferred to link-time, rather than being a
-   configure-time option, so that the same C library binary can be
-   used with multiple BSPs, some of which register finalizers from
-   startup code, while others defer to the C library.  */
-extern char __libc_fini __attribute__((weak));
-
-/* Register the application finalization function with atexit.  These
-   finalizers should run last.  Therefore, we want to call atexit as
-   soon as possible.  */
-static void 
-register_fini(void) __attribute__((constructor (0)));
-
-static void 
-register_fini(void)
-{
-  if (&__libc_fini) {
-#ifdef HAVE_INITFINI_ARRAY
-    extern void __libc_fini_array (void);
-    atexit (__libc_fini_array);
-#else
-    extern void _fini (void);
-    atexit (_fini);
-#endif
-  }
-}
-
-#endif /* _WANT_REGISTER_FINI  */
 
 /*
  * Call registered exit handlers.  If D is null then all handlers are called,
  * otherwise only the handlers from that DSO are called.
  */
+
+/* Make this a weak reference to avoid pulling in malloc.  */
+void free(void *) __attribute__((weak));
 
 void 
 _DEFUN (__call_exitprocs, (code, d),
@@ -71,13 +26,6 @@ _DEFUN (__call_exitprocs, (code, d),
   int i;
   void (*fn) (void);
 
-
-#ifndef __SINGLE_THREAD__
-  __lock_acquire_recursive(__atexit_lock);
-#endif
-
- restart:
-
   p = _GLOBAL_REENT->_atexit;
   lastp = &_GLOBAL_REENT->_atexit;
   while (p)
@@ -89,8 +37,6 @@ _DEFUN (__call_exitprocs, (code, d),
 #endif
       for (n = p->_ind - 1; n >= 0; n--)
 	{
-	  int ind;
-
 	  i = 1 << n;
 
 	  /* Skip functions not from this dso.  */
@@ -109,8 +55,6 @@ _DEFUN (__call_exitprocs, (code, d),
 	  if (!fn)
 	    continue;
 
-	  ind = p->_ind;
-
 	  /* Call the function.  */
 	  if (!args || (args->_fntypes & i) == 0)
 	    fn ();
@@ -118,19 +62,8 @@ _DEFUN (__call_exitprocs, (code, d),
 	    (*((void (*)(int, _PTR)) fn))(code, args->_fnargs[n]);
 	  else
 	    (*((void (*)(_PTR)) fn))(args->_fnargs[n]);
-
-	  /* The function we called call atexit and registered another
-	     function (or functions).  Call these new functions before
-	     continuing with the already registered functions.  */
-	  if (ind != p->_ind || *lastp != p)
-	    goto restart;
 	}
 
-#ifndef _ATEXIT_DYNAMIC_ALLOC
-      break;
-#else
-      /* Don't dynamically free the atexit array if free is not
-	 available.  */
       if (!free)
 	break;
 
@@ -152,10 +85,5 @@ _DEFUN (__call_exitprocs, (code, d),
 	  lastp = &p->_next;
 	  p = p->_next;
 	}
-#endif
     }
-#ifndef __SINGLE_THREAD__
-  __lock_release_recursive(__atexit_lock);
-#endif
-
 }

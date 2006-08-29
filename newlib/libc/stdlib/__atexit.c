@@ -9,8 +9,7 @@
 #include "atexit.h"
 
 /* Make this a weak reference to avoid pulling in malloc.  */
-void * malloc(size_t) _ATTRIBUTE((__weak__));
-__LOCK_INIT_RECURSIVE(, __atexit_lock);
+void * malloc(size_t) __attribute__((weak));
 
 /*
  * Register a function to be performed at exit or on shared library unload.
@@ -28,7 +27,9 @@ _DEFUN (__register_exitproc,
   register struct _atexit *p;
 
 #ifndef __SINGLE_THREAD__
-  __lock_acquire_recursive(__atexit_lock);
+  __LOCK_INIT(static, lock);
+
+  __lock_acquire(lock);
 #endif
 
   p = _GLOBAL_REENT->_atexit;
@@ -36,19 +37,13 @@ _DEFUN (__register_exitproc,
     _GLOBAL_REENT->_atexit = p = &_GLOBAL_REENT->_atexit0;
   if (p->_ind >= _ATEXIT_SIZE)
     {
-#ifndef _ATEXIT_DYNAMIC_ALLOC
-      return -1;
-#else
-      /* Don't dynamically allocate the atexit array if malloc is not
-	 available.  */
       if (!malloc)
 	return -1;
-
       p = (struct _atexit *) malloc (sizeof *p);
       if (p == NULL)
 	{
 #ifndef __SINGLE_THREAD__
-	  __lock_release_recursive(__atexit_lock);
+	  __lock_release(lock);
 #endif
 	  return -1;
 	}
@@ -59,7 +54,6 @@ _DEFUN (__register_exitproc,
       p->_on_exit_args._fntypes = 0;
       p->_on_exit_args._is_cxa = 0;
 #endif
-#endif
     }
 
   if (type != __et_atexit)
@@ -68,13 +62,11 @@ _DEFUN (__register_exitproc,
       args = p->_on_exit_args_ptr;
       if (args == NULL)
 	{
-	  if (malloc)
-	    args = malloc (sizeof * p->_on_exit_args_ptr);
-
+	  args = malloc (sizeof * p->_on_exit_args_ptr);
 	  if (args == NULL)
 	    {
 #ifndef __SINGLE_THREAD__
-	      __lock_release(__atexit_lock);
+	      __lock_release(lock);
 #endif
 	      return -1;
 	    }
@@ -93,7 +85,7 @@ _DEFUN (__register_exitproc,
     }
   p->_fns[p->_ind++] = fn;
 #ifndef __SINGLE_THREAD__
-  __lock_release_recursive(__atexit_lock);
+  __lock_release(lock);
 #endif
   return 0;
 }

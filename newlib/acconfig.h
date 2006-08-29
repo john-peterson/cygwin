@@ -9,10 +9,6 @@
 /* Newlib version */
 #undef _NEWLIB_VERSION
 
-/* C99 formats support (such as %a, %zu, ...) in IO functions like
- * printf/scanf enabled */
-#undef _WANT_IO_C99_FORMATS
-
 /* long long type support in IO functions like printf/scanf enabled */
 #undef _WANT_IO_LONG_LONG
 
@@ -21,10 +17,6 @@
 
 /* Positional argument support in printf functions enabled.  */
 #undef _WANT_IO_POS_ARGS
-
-/* Optional reentrant struct support.  Used mostly on platforms with
-   very restricted storage.  */
-#undef _WANT_REENT_SMALL
 
 /* Multibyte supported */
 #undef _MB_CAPABLE
@@ -42,19 +34,8 @@
  * sections.  */
 #undef  HAVE_INITFINI_ARRAY
 
-/* True if atexit() may dynamically allocate space for cleanup
-   functions.  */
-#undef  _ATEXIT_DYNAMIC_ALLOC
-
 /* Define if the compiler supports aliasing an array to an address.  */
 #undef  _HAVE_ARRAY_ALIASING
-
-/* Define if the platform supports long double type.  */
-#undef  _HAVE_LONG_DOUBLE
-
-/* Define if the platform long double type is equal to double.  */
-#undef  _LDBL_EQ_DBL
-
 @BOTTOM@
 /*
  * Iconv encodings enabled ("to" direction)
@@ -165,3 +146,4 @@
 #undef _ICONV_FROM_ENCODING_WIN_1258
 
 #endif /* !__NEWLIB_H__ */
+
