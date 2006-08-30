@@ -1,5 +1,4 @@
 #include "newlib.h"
-#include "arm.h"
 #include "swi.h"
 
 /* ANSI concatenation macros.  */
@@ -17,34 +16,10 @@
 #define _fini	__libc_fini_array
 #endif
 
-#if defined(__ARM_EABI__) && defined(__thumb__) && !defined(__thumb2__)
-/* For Thumb1 we need to force the architecture to be sure that we get the
-   correct attributes on the object file; otherwise the assembler will get
-   confused and mark the object as being v6T2.  */
-#if defined(__ARM_ARCH_4T__)
-	.arch armv4t
-#elif defined(__ARM_ARCH_5T__) || defined(__ARM_ARCH_5TE__)
-	/* Nothing in this object requires higher than v5.  */
-	.arch armv5t
-#elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) \
-	|| defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) \
-	|| defined(__ARM_ARCH_6ZK__)
-	/* Nothing in this object requires higher than v6.  */
-	.arch armv6
-#elif defined(__ARM_ARCH_6M__)
-#ifdef ARM_RDP_MONITOR
-	/* Object file uses SVC, so mark as v6s-m.  */
-	.arch armv6s-m
-#else
-	.arch armv6-m
-#endif
-#endif
-#endif
-
 /* .text is used instead of .section .text so it works with arm-aout too.  */
 	.text
+#if defined(__thumb2__)
 	.syntax unified
-#ifdef THUMB_V7_V6M
 	.thumb
 .macro FUNC_START name
 	.global \name
@@ -58,16 +33,6 @@
 \name:
 .endm
 #endif
-
-.macro indirect_call reg
-#ifdef HAVE_CALL_INDIRECT
-	blx \reg
-#else
-	mov	lr, pc
-	mov	pc, \reg
-#endif
-.endm
-
 	.align 	0
 
 	FUNC_START	_mainCRTStartup
@@ -78,74 +43,54 @@
 	.fnstart
 #endif
 
-/* Start by setting up a stack */
-#ifdef ARM_RDP_MONITOR
+	/* Start by setting up a stack */
+#ifdef _ARM_V7M
+	/* Copy .data into ram.  */
+	ldr	r0, =__data_load
+	ldr	r1, =__data_start
+	cmp	r0, r1 /* If LMA == VMA we are running from ram.  */
+	beq	2f
+	ldr	r2, =_edata
+	/* When running from ROM the stack pointer is set up at CPU reset.  */
+	/* Copy .data into RAM.  */
+1:
+	ldr	r3, [r0], #4
+	str	r3, [r1], #4
+	cmp	r1, r2
+	blt	1b
+	b	3f
+2:
+	/* Set the stack pointer when running from RAM.  */
+	ldr	r0, .Lstack
+	cmp	r0, #0
+	beq	3f
+	mov	sp, r0
+3:
+#else
+# ifdef ARM_RDP_MONITOR
 	/*  Issue Demon SWI to read stack info */
 	swi	SWI_GetEnv	/*  Returns command line in r0 */
 	mov	sp,r1		/*  and the highest memory address in r1 */
-
-	/*  stack limit is at end of data */
-	/*  allow slop for stack overflow handling and small frames */
-#ifdef __ARM_ARCH_6M__
-	ldr	r0, .LC2
-	adds	r0, #128
-	adds	r0, #128
-	mov	sl, r0
-#else
-	ldr	sl, .LC2
-	add	sl, sl, #256
-#endif
-#else
-#ifdef ARM_RDI_MONITOR
+	ldr	sl, .LC2	/*  stack limit is at end of data */
+	add	sl, sl, #256	/*  allow slop for stack overflow handling */
+				/*  and small frames */
+# else
+#  ifdef ARM_RDI_MONITOR
 	/*  Issue Angel SWI to read stack info */
-	movs	r0, #AngelSWI_Reason_HeapInfo
+	mov	r0, #AngelSWI_Reason_HeapInfo
 	adr	r1, .LC0	/*  point at ptr to 4 words to receive data */
-#ifdef THUMB_V7M_V6M
+#   if defined(__thumb2__)
 	bkpt	AngelSWI
-#elif defined(__thumb2__)
-	/*  We are in thumb mode for startup on armv7 architectures. */
-	AngelSWIAsm	AngelSWI
-#else
-	/*  We are always in ARM mode for startup on pre armv7 archs. */
+#   else
+	/*  We are always in ARM mode for startup */
 	AngelSWIAsm	AngelSWI_ARM
-#endif
+#   endif
 	ldr	r0, .LC0	/*  point at values read */
-
-	ldr     r1, [r0, #0]
-	cmp     r1, #0
-	bne     .LC32
-	/* If the heap base value [r0, #0] is 0 then the heap base is actually 
-	   at the end of program data (i.e. __end__). See:
-           http://infocenter.arm.com/help/topic/com.arm.doc.dui0471-/Bacbefaa.html
-	   for more information.  */
-	ldr     r1, .LC31
-	str     r1, [r0, #0]
-.LC32:	
-	ldr	r1, [r0, #8]
-	ldr	r2, [r0, #12]
-	/*  We skip setting sp/sl if 0 returned from semihosting. 
-	    - According to semihosting docs, if 0 returned from semihosting,
-	      the system was unable to calculate the real value, so it's ok
-	      to skip setting sp/sl to 0 here.
-	    - Considering M-profile processors, We might want to initialize
-	      sp by the first entry of vector table and return 0 to SYS_HEAPINFO
-	      semihosting call, which will be skipped here. */
-	cmp	r1, #0
-	beq	.LC26
-	mov	sp, r1
-.LC26:
-	cmp	r2, #0
-	beq	.LC27
-	/*  allow slop for stack overflow handling and small frames */
-#ifdef __ARM_ARCH_6M__
-	adds	r2, #128
-	adds	r2, #128
-	mov	sl, r2
-#else
-	add	sl, r2, #256
-#endif
-.LC27:
-#else
+	ldr	sp, [r0, #8]
+	ldr	sl, [r0, #12]
+	add	sl, sl, #256	/*  allow slop for stack overflow handling */
+				/*  and small frames */
+#  else
 	/*  Set up the stack pointer to a fixed value */
 	/*  Changes by toralf:
 	    - Allow linker script to provide stack via __stack symbol - see
@@ -160,24 +105,12 @@
 
 	ldr	r3, .Lstack
 	cmp	r3, #0
-#ifdef __thumb2__
-	it	eq
-#endif	
-#ifdef __ARM_ARCH_6M__
-	bne	.LC28
-	ldr	r3, .LC0
-.LC28:
-#else
 	ldreq	r3, .LC0
-#endif
 	/* Note: This 'mov' is essential when starting in User, and ensures we
 		 always get *some* sp value for the initial mode, even if we 
 		 have somehow missed it below (in which case it gets the same
 		 value as FIQ - not ideal, but better than nothing.) */
 	mov	sp, r3
-#ifdef THUMB_V7_V6M
-	/* XXX Fill in stack assignments for interrupt modes.  */
-#else
 	mrs	r2, CPSR
 	tst	r2, #0x0F	/* Test mode bits - in User of all are 0 */
 	beq	.LC23		/* "eq" means r2 AND #0x0F is 0 */
@@ -199,7 +132,6 @@
 	sub	r3, r3, #0x2000
 		
 	msr     CPSR_c, #0xD3	/* Supervisory mode, interrupts disabled */
-
 	mov	sp, r3
 	sub	r3, r3, #0x8000	/* Min size 32k */
 	bic	r3, r3, #0x00FF	/* Align with current 64k block */
@@ -207,9 +139,9 @@
 
 	str	r3, [r3, #-4]	/* Move value into user mode sp without */ 
 	ldmdb	r3, {sp}^       /* changing modes, via '^' form of ldm */ 
+	
 	orr	r2, r2, #0xC0	/* Back to original mode, presumably SVC, */
 	msr	CPSR_c, r2	/* with FIQ/IRQ disable bits forced to 1 */
-#endif	
 .LC23:
 	/* Setup a default stack-limit in-case the code has been
 	   compiled with "-mapcs-stack-check".  Hard-wiring this value
@@ -218,27 +150,22 @@
 	   this default 64k is enough for the program being executed.
 	   However, it ensures that this simple crt0 world will not
 	   immediately cause an overflow event:  */
-#ifdef __ARM_ARCH_6M__
-	movs	r2, #64
-	lsls	r2, r2, #10
-	subs	r2, r3, r2
-	mov	sl, r2
-#else
-	sub	sl, r3, #64 << 10	/* Still assumes 256bytes below sl */
+	sub	sl, sp, #64 << 10	/* Still assumes 256bytes below sl */
+#  endif
+# endif
 #endif
-#endif
-#endif
+	
 	/* Zero the memory in the .bss section.  */
-	movs 	a2, #0			/* Second arg: fill value */
+	mov 	a2, #0			/* Second arg: fill value */
 	mov	fp, a2			/* Null frame pointer */
 	mov	r7, a2			/* Null frame pointer for Thumb */
 	
 	ldr	a1, .LC1		/* First arg: start of memory block */
 	ldr	a3, .LC2	
-	subs	a3, a3, a1		/* Third arg: length of block */
+	sub	a3, a3, a1		/* Third arg: length of block */
 	
 
-#if defined(__thumb__) && !defined(THUMB_V7_V6M)
+#if defined(__thumb__) && !defined(__thumb2__)
 	/* Enter Thumb mode.... */
 	add	a4, pc, #1	/* Get the address of the Thumb block */
 	bx	a4		/* Go there and start Thumb decoding  */
@@ -250,7 +177,11 @@ __change_mode:
 #endif
 	
 	bl	FUNCTION (memset)
-#if !defined (ARM_RDP_MONITOR) && !defined (ARM_RDI_MONITOR)
+        /* For ARM V7M, we do not want to have semihosting traps in
+   	   crt0.o, so that people can use the same programs both with
+	   and without semihosting.  */   
+#if ((!defined (ARM_RDP_MONITOR) && !defined (ARM_RDI_MONITOR)) \
+     || defined (_ARM_V7M))
 /* Changes by toralf: Taken from libgloss/m68k/crt0.S
  * initialize target specific stuff. Only execute these
  * functions it they exist.
@@ -258,45 +189,43 @@ __change_mode:
 	ldr	r3, .Lhwinit
 	cmp	r3, #0
 	beq	.LC24
-	indirect_call r3
+	mov	lr, pc
+	mov	pc, r3
 .LC24:	
 	ldr	r3, .Lswinit
 	cmp	r3, #0
 	beq	.LC25
-	indirect_call r3
-
+	mov	lr, pc
+	mov	pc, r3
 .LC25:	
-	movs	r0, #0		/*  no arguments  */
-	movs	r1, #0		/*  no argv either */
+	mov	r0, #0		/*  no arguments  */
+	mov	r1, #0		/*  no argv either */
 #else
-	/* Need to set up standard file handles */
-	bl	FUNCTION (initialise_monitor_handles)
-	
-#ifdef ARM_RDP_MONITOR
+# ifdef ARM_RDP_MONITOR
 	swi	SWI_GetEnv	/*  sets r0 to point to the command line */
-	movs	r1, r0
-#else
-	movs	r0, #AngelSWI_Reason_GetCmdLine
+	mov	r1, r0
+# else
+	mov	r0, #AngelSWI_Reason_GetCmdLine
 	adr	r1, .LC30	/*  Space for command line */
 	AngelSWIAsm	AngelSWI
 	ldr	r1, .LC30
-#endif
+# endif
 	/*  Parse string at r1 */
-	movs	r0, #0		/*  count of arguments so far */
+	mov	r0, #0		/*  count of arguments so far */
 	/* Push a NULL argument onto the end of the list.  */
-#ifdef __thumb__
+# ifdef __thumb__
 	push	{r0}
-#else
+# else
 	stmfd	sp!, {r0}
-#endif
+# endif
 .LC10:
 /*  Skip leading blanks */
-#ifdef __thumb__
+# ifdef __thumb__
 	ldrb	r3, [r1]
-	adds	r1, #1
-#else
+	add	r1, #1
+# else
 	ldrb	r3, [r1], #1
-#endif
+# endif
 	cmp	r3, #0
 	beq	.LC12
 	cmp	r3, #' '
@@ -304,72 +233,72 @@ __change_mode:
 
 /*  See whether we are scanning a string */
 	cmp	r3, #'"'
-#ifdef __thumb__
+# ifdef __thumb__
 	beq	.LC20
 	cmp	r3, #'\''
 	bne	.LC21
 .LC20:
-	movs	r2, r3
+	mov	r2, r3
 	b	.LC22
 
 .LC21:
-	movs	r2, #' '	/*  terminator type */
-	subs	r1, r1, #1	/*  adjust back to point at start char */
+	mov	r2, #' '	/*  terminator type */
+	sub	r1, r1, #1	/*  adjust back to point at start char */
 .LC22:
-#else
+# else
 	cmpne	r3, #'\''
 	moveq	r2, r3
 	movne	r2, #' '	/*  terminator type */
 	subne	r1, r1, #1	/*  adjust back to point at start char */
-#endif
+# endif
 
 /*  Stack a pointer to the current argument */
-#ifdef __thumb__
+# ifdef __thumb__
 	push	{r1}
-#else
+# else
 	stmfd	sp!, {r1}
-#endif
-	adds	r0, r0, #1
+# endif
+	add	r0, r0, #1
 .LC11:
-#ifdef __thumb__
+# ifdef __thumb__
 	ldrb	r3, [r1]
-	adds	r1, #1
-#else
+	add	r1, #1
+# else
 	ldrb	r3, [r1], #1
-#endif
+# endif
 	cmp	r3, #0
 	beq	.LC12
 	cmp	r2, r3		/*  reached terminator? */
 	bne	.LC11
-	movs	r2, #0
-	subs	r3, r1, #1
+	mov	r2, #0
+	sub	r3, r1, #1
 	strb	r2, [r3]	/*  terminate the arg string */
 	b	.LC10
 
 .LC12:
 	mov	r1, sp		/*  point at stacked arg pointers */
 	/* We've now got the stacked args in order reverse the */
-#ifdef __thumb__
-	movs	r2, r0
-	lsls	r2, #2
+# ifdef __thumb__
+	mov	r2, r0
+	lsl	r2, #2
 	add	r2, sp
 	mov	r3, sp
 .LC15:	cmp	r2, r3
 	bls	.LC14
-	subs	r2, #4
+	sub	r2, #4
 	ldr	r4, [r2]
 	ldr	r5, [r3]
 	str	r5, [r2]
 	str	r4, [r3]
-	adds	r3, #4
+	add	r3, #4
 	b	.LC15
 .LC14:	
 	/* Ensure doubleword stack alignment.  */
 	mov	r4, sp
-	movs	r5, #7
-	bics	r4, r5
+	mov	r5, #7
+	bic	r4, r5
 	mov	sp, r4
-#else
+# else
 	add	r2, sp, r0, LSL #2	/* End of args */
 	mov	r3, sp			/* Start of args */
 .LC13:	cmp	r2, r3
@@ -380,7 +309,7 @@ __change_mode:
 	bhi	.LC13
 	/* Ensure doubleword stack alignment.  */
 	bic	sp, sp, #7
-#endif
+# endif
 #endif
 
 #ifdef __USES_INITFINI__
@@ -388,19 +317,19 @@ __change_mode:
 	   to create constructors and destructors, and for these
 	   targets we need to call the _init function and arrange
 	   for _fini to be called at program exit.  */
-	movs	r4, r0
-	movs	r5, r1
+	mov	r4, r0
+	mov	r5, r1
 	ldr	r0, .Lfini
 	bl	FUNCTION (atexit)
 	bl	FUNCTION (_init)
-	movs	r0, r4
-	movs	r1, r5
+	mov	r0, r4
+	mov	r1, r5
 #endif	
 	bl	FUNCTION (main)
 
 	bl	FUNCTION (exit)		/* Should not return.  */
 
-#if defined(__thumb__) && !defined(THUMB_V7_V6M)
+#if defined(__thumb__) && !defined(__thumb2__)
 	/* Come out of Thumb mode.  This code should be redundant.  */
 
 	mov	a4, pc
@@ -420,21 +349,27 @@ change_back:
 	   positive offsets are supported for PC relative addresses.  */
 	
 	.align 0
+#ifndef _ARM_V7M
 .LC0:
-#ifdef ARM_RDI_MONITOR
+# ifdef ARM_RDI_MONITOR
 	.word	HeapBase
-#else
-#ifndef ARM_RDP_MONITOR
+# else
+#  ifndef ARM_RDP_MONITOR
 	/* Changes by toralf: Provide alternative "stack" variable whose value
 	   may be defined externally; .Lstack will be used instead of .LC0 if
 	   it points to a non-0 value. Also set up references to "hooks" that
            may be used by the application to provide additional init code. */
 	
-#ifdef __pe__
+#   ifdef __pe__
 	.word	0x800000
-#else
+#   else
 	.word	0x80000			/* Top of RAM on the PIE board.  */
-#endif
+#   endif
+#  endif
+# endif
+#endif 	
+#if ((!defined (ARM_RDP_MONITOR) && !defined (ARM_RDI_MONITOR)) \
+     || defined (_ARM_V7M))
 .Lstack:	
 	.word	__stack
 .Lhwinit:	
@@ -449,11 +384,17 @@ change_back:
 	   and only if, a normal version of the same symbol isn't provided
 	   e.g. by a linker script or another object file.) */	
 
-	.weak __stack
+	.set FUNCTION (hardware_init_hook), 0
+	.set FUNCTION (software_init_hook), 0
+	
 	.weak FUNCTION (hardware_init_hook) 
 	.weak FUNCTION (software_init_hook)
+
+	/* For ARMV7M we want to error if no stack location is defined.  */
+#if !defined(_ARM_V7M)
+	.set __stack, 0
+	.weak __stack
 #endif
-	
 #endif
 #if defined(__ELF__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 	/* Protect against unhandled exceptions.  */
@@ -468,12 +409,10 @@ change_back:
 .Lfini:
 	.word	FUNCTION(_fini)
 #endif
-#ifdef ARM_RDI_MONITOR
+#if defined(ARM_RDI_MONITOR) && !defined(_ARM_V7M)
 .LC30:
 	.word	CommandLine
 	.word	255
-.LC31:
-	.word	__end__
 
 /*  Workspace for Angel calls.  */
 	.data
@@ -490,3 +429,18 @@ CommandLine:	.space	256,0	/*  Maximum length of 255 chars handled.  */
 	.section .idata$3
 	.long	0,0,0,0,0,0,0,0
 #endif
+
+#ifdef _ARM_V7M
+	/* The hardware uses this vector to handle hardware resets and 
+	   exceptions.  */
+	.section .isr_vector, "a"
+	/* The value for the stack pointer at reset.  */
+	.word	__stack
+	/* The value for the PC at reset.  */
+	.word	_start
+	/* The value for the PC if an NMI occurs.  */
+	.word	_nmi_isr
+	/* The value for the PC if a fault occurs.  */
+	.word	_fault_isr
+#endif /* _ARM_V7M */
+	 
