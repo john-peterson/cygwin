@@ -1,7 +1,7 @@
 /* grp.cc
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005
+   Red Hat, Inc.
 
    Original stubs by Jason Molenda of Cygnus Support, crash@cygnus.com
    First implementation by Gunther Ebert, gunther.ebert@ixos-leipzig.de
@@ -13,17 +13,19 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include <assert.h>
+#include <grp.h>
+#include <wininet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "cygerrno.h"
 #include "pinfo.h"
+#include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
-#include "ntdll.h"
 #include "pwdgrp.h"
+#include "cygtls.h"
 
 static __group32 *group_buf;
 static pwdgrp gr (group_buf);
@@ -32,7 +34,7 @@ static char * NO_COPY null_ptr;
 bool
 pwdgrp::parse_group ()
 {
-  __group32 &grp = (*group_buf)[curr_lines];
+# define grp (*group_buf)[curr_lines]
   grp.gr_name = next_str (':');
   if (!*grp.gr_name)
     return false;
@@ -60,6 +62,7 @@ pwdgrp::parse_group ()
     }
 
   return true;
+# undef grp
 }
 
 /* Cygwin internal */
@@ -73,7 +76,7 @@ pwdgrp::read_group ()
     if ((*group_buf)[i].gr_mem != &null_ptr)
       free ((*group_buf)[i].gr_mem);
 
-  load (L"\\etc\\group");
+  load ("/etc/group");
 
   /* Complete /etc/group in memory if needed */
   if (!internal_getgrgid (myself->gid))
@@ -81,12 +84,15 @@ pwdgrp::read_group ()
       static char linebuf [200];
       char group_name [UNLEN + 1] = "mkgroup";
       char strbuf[128] = "";
-      struct __group32 *gr;
 
-      cygheap->user.groups.pgsid.string (strbuf);
-      if ((gr = internal_getgrsid (cygheap->user.groups.pgsid)))
-	snprintf (group_name, sizeof (group_name),
-		  "passwd/group_GID_clash(%lu/%lu)", myself->gid, gr->gr_gid);
+      if (wincap.has_security ())
+	{
+	  struct __group32 *gr;
+
+	  cygheap->user.groups.pgsid.string (strbuf);
+	  if ((gr = internal_getgrsid (cygheap->user.groups.pgsid)))
+	    strlcpy (group_name, gr->gr_name, sizeof (group_name));
+	}
       if (myself->uid == UNKNOWN_UID)
 	strcpy (group_name, "mkpasswd"); /* Feedback... */
       snprintf (linebuf, sizeof (linebuf), "%s:%s:%lu:%s",
@@ -95,7 +101,8 @@ pwdgrp::read_group ()
       add_line (linebuf);
     }
   static char NO_COPY pretty_ls[] = "????????::-1:";
-  add_line (pretty_ls);
+  if (wincap.has_security ())
+    add_line (pretty_ls);
 }
 
 muto NO_COPY pwdgrp::pglock;
@@ -196,13 +203,20 @@ getgrgid_r (__gid32_t gid, struct __group32 *grp, char *buffer, size_t bufsize,
   /* make a copy of tempgr */
   *result = grp;
   grp->gr_gid = tempgr->gr_gid;
-  buffer = stpcpy (grp->gr_name = buffer, tempgr->gr_name);
-  buffer = stpcpy (grp->gr_passwd = buffer + 1, tempgr->gr_passwd);
-  grp->gr_mem = (char **) (buffer + 1);
-  buffer = (char *) grp->gr_mem + (i + 1) * sizeof (char *);
+  grp->gr_name = buffer;
+  grp->gr_passwd = grp->gr_name + strlen (tempgr->gr_name) + 1;
+  grp->gr_mem = (char **) (grp->gr_passwd + strlen (tempgr->gr_passwd) + 1);
+  char *mem = (char *) grp->gr_mem + (i + 1) * sizeof (char *);
   for (i = 0; tempgr->gr_mem[i]; ++i)
-    buffer = stpcpy (grp->gr_mem[i] = buffer, tempgr->gr_mem[i]) + 1;
+    {
+      grp->gr_mem[i] = mem;
+      mem += strlen (tempgr->gr_mem[i]) + 1;
+    }
   grp->gr_mem[i] = NULL;
+  strcpy (grp->gr_name, tempgr->gr_name);
+  strcpy (grp->gr_passwd, tempgr->gr_passwd);
+  for (i = 0; tempgr->gr_mem[i]; ++i)
+    strcpy (grp->gr_mem[i], tempgr->gr_mem[i]);
   return 0;
 }
 
@@ -246,13 +260,20 @@ getgrnam_r (const char *nam, struct __group32 *grp, char *buffer,
   /* make a copy of tempgr */
   *result = grp;
   grp->gr_gid = tempgr->gr_gid;
-  buffer = stpcpy (grp->gr_name = buffer, tempgr->gr_name);
-  buffer = stpcpy (grp->gr_passwd = buffer + 1, tempgr->gr_passwd);
-  grp->gr_mem = (char **) (buffer + 1);
-  buffer = (char *) grp->gr_mem + (i + 1) * sizeof (char *);
+  grp->gr_name = buffer;
+  grp->gr_passwd = grp->gr_name + strlen (tempgr->gr_name) + 1;
+  grp->gr_mem = (char **) (grp->gr_passwd + strlen (tempgr->gr_passwd) + 1);
+  char *mem = (char *) grp->gr_mem + (i + 1) * sizeof (char *);
   for (i = 0; tempgr->gr_mem[i]; ++i)
-    buffer = stpcpy (grp->gr_mem[i] = buffer, tempgr->gr_mem[i]) + 1;
+    {
+      grp->gr_mem[i] = mem;
+      mem += strlen (tempgr->gr_mem[i]) + 1;
+    }
   grp->gr_mem[i] = NULL;
+  strcpy (grp->gr_name, tempgr->gr_name);
+  strcpy (grp->gr_passwd, tempgr->gr_passwd);
+  for (i = 0; tempgr->gr_mem[i]; ++i)
+    strcpy (grp->gr_mem[i], tempgr->gr_mem[i]);
   return 0;
 }
 
@@ -315,20 +336,21 @@ internal_getgrent (int pos)
 int
 internal_getgroups (int gidsetsize, __gid32_t *grouplist, cygpsid * srchsid)
 {
-  NTSTATUS status;
   HANDLE hToken = NULL;
-  ULONG size;
+  DWORD size;
   int cnt = 0;
   struct __group32 *gr;
+  __gid32_t gid;
+  const char *username;
 
   if (!srchsid && cygheap->user.groups.issetgroups ())
     {
       cygsid sid;
       for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
 	if (sid.getfromgr (gr))
-	  for (int pg = 0; pg < cygheap->user.groups.sgsids.count (); ++pg)
-	    if (sid == cygheap->user.groups.sgsids.sids[pg]
-		&& sid != well_known_world_sid)
+	  for (int pg = 0; pg < cygheap->user.groups.sgsids.count; ++pg)
+	    if (sid == cygheap->user.groups.sgsids.sids[pg] &&
+		sid != well_known_world_sid)
 	      {
 		if (cnt < gidsetsize)
 		  grouplist[cnt] = gr->gr_gid;
@@ -343,47 +365,70 @@ internal_getgroups (int gidsetsize, __gid32_t *grouplist, cygpsid * srchsid)
 
   /* If impersonated, use impersonation token. */
   if (cygheap->user.issetuid ())
-    hToken = cygheap->user.primary_token ();
+    hToken = cygheap->user.token ();
   else
-    hToken = hProcToken;
+    hToken = hProcImpToken;
 
-  status = NtQueryInformationToken (hToken, TokenGroups, NULL, 0, &size);
-  if (NT_SUCCESS (status) || status == STATUS_BUFFER_TOO_SMALL)
+  if (hToken)
     {
-      PTOKEN_GROUPS groups = (PTOKEN_GROUPS) alloca (size);
-
-      status = NtQueryInformationToken (hToken, TokenGroups, groups,
-					size, &size);
-      if (NT_SUCCESS (status))
+      if (GetTokenInformation (hToken, TokenGroups, NULL, 0, &size)
+	  || GetLastError () == ERROR_INSUFFICIENT_BUFFER)
 	{
-	  cygsid sid;
+	  char buf[size];
+	  TOKEN_GROUPS *groups = (TOKEN_GROUPS *) buf;
 
-	  if (srchsid)
+	  if (GetTokenInformation (hToken, TokenGroups, buf, size, &size))
 	    {
-	      for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
-		if ((cnt = (*srchsid == groups->Groups[pg].Sid)))
-		  break;
-	    }
-	  else
-	    for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
-	      if (sid.getfromgr (gr))
-		for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
-		  if (sid == groups->Groups[pg].Sid
-		      && (groups->Groups[pg].Attributes
-			  & (SE_GROUP_ENABLED | SE_GROUP_INTEGRITY_ENABLED))
-		      && sid != well_known_world_sid)
-		    {
-		      if (cnt < gidsetsize)
-			grouplist[cnt] = gr->gr_gid;
-		      ++cnt;
-		      if (gidsetsize && cnt > gidsetsize)
-			goto error;
+	      cygsid sid;
+
+	      if (srchsid)
+		{
+		  for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+		    if ((cnt = (*srchsid == groups->Groups[pg].Sid)))
 		      break;
-		    }
+		}
+	      else
+		for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
+		  if (sid.getfromgr (gr))
+		    for (DWORD pg = 0; pg < groups->GroupCount; ++pg)
+		      if (sid == groups->Groups[pg].Sid &&
+			  sid != well_known_world_sid)
+			{
+			  if (cnt < gidsetsize)
+			    grouplist[cnt] = gr->gr_gid;
+			  ++cnt;
+			  if (gidsetsize && cnt > gidsetsize)
+			    goto error;
+			  break;
+			}
+	    }
 	}
+      else
+	debug_printf ("%d = GetTokenInformation(NULL) %E", size);
+      return cnt;
     }
-  else
-    debug_printf ("%lu = NtQueryInformationToken(NULL) %p", size, status);
+
+  gid = myself->gid;
+  username = cygheap->user.name ();
+  for (int gidx = 0; (gr = internal_getgrent (gidx)); ++gidx)
+    if (gid == gr->gr_gid)
+      {
+	if (cnt < gidsetsize)
+	  grouplist[cnt] = gr->gr_gid;
+	++cnt;
+	if (gidsetsize && cnt > gidsetsize)
+	  goto error;
+      }
+    else if (gr->gr_mem)
+      for (int gi = 0; gr->gr_mem[gi]; ++gi)
+	if (strcasematch (username, gr->gr_mem[gi]))
+	  {
+	    if (cnt < gidsetsize)
+	      grouplist[cnt] = gr->gr_gid;
+	    ++cnt;
+	    if (gidsetsize && cnt > gidsetsize)
+	      goto error;
+	  }
   return cnt;
 
 error:
@@ -419,86 +464,45 @@ getgroups (int gidsetsize, __gid16_t *grouplist)
   return ret;
 }
 
-/* Core functionality of initgroups and getgrouplist. */
-static int
-get_groups (const char *user, gid_t gid, cygsidlist &gsids)
-{
-  int ret = -1;
-
-  cygheap->user.deimpersonate ();
-  struct passwd *pw = internal_getpwnam (user);
-  struct __group32 *gr = internal_getgrgid (gid);
-  cygsid usersid, grpsid;
-  if (!usersid.getfrompw (pw) || !grpsid.getfromgr (gr))
-    set_errno (EINVAL);
-  else if (get_server_groups (gsids, usersid, pw))
-    {
-      gsids += grpsid;
-      ret = 0;
-    }
-  cygheap->user.reimpersonate ();
-  return ret;
-}
-
 extern "C" int
-initgroups32 (const char *user, __gid32_t gid)
+initgroups32 (const char *name, __gid32_t gid)
 {
   int ret;
-
-  assert (user != NULL);
-  cygsidlist tmp_gsids (cygsidlist_auto, 12);
-  if (!(ret = get_groups (user, gid, tmp_gsids)))
+  if (wincap.has_security ())
     {
-      cygsidlist new_gsids (cygsidlist_alloc, tmp_gsids.count ());
-      for (int i = 0; i < tmp_gsids.count (); i++)
+      ret = -1;
+      cygheap->user.deimpersonate ();
+      struct passwd *pw = internal_getpwnam (name);
+      struct __group32 *gr = internal_getgrgid (gid);
+      cygsid usersid, grpsid;
+      if (!usersid.getfrompw (pw) || !grpsid.getfromgr (gr))
+	{
+	  set_errno (EINVAL);
+	  goto out;
+	}
+      cygsidlist tmp_gsids (cygsidlist_auto, 12);
+      if (!get_server_groups (tmp_gsids, usersid, pw))
+	goto out;
+      tmp_gsids += grpsid;
+      cygsidlist new_gsids (cygsidlist_alloc, tmp_gsids.count);
+      for (int i = 0; i < tmp_gsids.count; i++)
 	new_gsids.sids[i] = tmp_gsids.sids[i];
-      new_gsids.count (tmp_gsids.count ());
+      new_gsids.count = tmp_gsids.count;
       cygheap->user.groups.update_supp (new_gsids);
     }
-  syscall_printf ( "%d = initgroups(%s, %u)", ret, user, gid);
+  ret = 0;
+
+ out:
+  if (wincap.has_security ())
+    cygheap->user.reimpersonate ();
+  syscall_printf ( "%d = initgroups (%s, %u)", ret, name, gid);
   return ret;
 }
 
 extern "C" int
-initgroups (const char *user, __gid16_t gid)
+initgroups (const char *name, __gid16_t gid)
 {
-  return initgroups32 (user, gid16togid32(gid));
-}
-
-extern "C" int
-getgrouplist (const char *user, gid_t gid, gid_t *groups, int *ngroups)
-{
-  int ret;
-
-  /* Note that it's not defined if groups or ngroups may be NULL!
-     GLibc does not check the pointers on entry and just uses them.
-     FreeBSD calls assert for ngroups and allows a NULL groups if
-     *ngroups is 0.  We follow FreeBSD's lead here, but always allow
-     a NULL groups pointer. */
-  assert (user != NULL);
-  assert (ngroups != NULL);
-
-  cygsidlist tmp_gsids (cygsidlist_auto, 12);
-  if (!(ret = get_groups (user, gid, tmp_gsids)))
-    {
-      int cnt = 0;
-      for (int i = 0; i < tmp_gsids.count (); i++)
-	{
-	  struct __group32 *gr = internal_getgrsid (tmp_gsids.sids[i]);
-	  if (gr)
-	    {
-	      if (groups && cnt < *ngroups)
-		groups[cnt] = gr->gr_gid;
-	      ++cnt;
-	    }
-	}
-      if (cnt > *ngroups)
-	ret = -1;
-      *ngroups = cnt;
-    }
-  syscall_printf ( "%d = getgrouplist(%s, %u, %p, %d)",
-		  ret, user, gid, groups, *ngroups);
-  return ret;
+  return initgroups32 (name, gid16togid32(gid));
 }
 
 /* setgroups32: standards? */
@@ -511,6 +515,9 @@ setgroups32 (int ngroups, const __gid32_t *grouplist)
       set_errno (EINVAL);
       return -1;
     }
+
+  if (!wincap.has_security ())
+    return 0;
 
   cygsidlist gsids (cygsidlist_alloc, ngroups);
   struct __group32 *gr;
