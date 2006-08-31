@@ -1,30 +1,27 @@
 # Test NOCROSSREFS in a linker script.
 # By Ian Lance Taylor, Cygnus Support.
-#   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2007
+#   Copyright 2000, 2001, 2002, 2003, 2004
 #   Free Software Foundation, Inc.
 #
-# This file is part of the GNU Binutils.
-#
-# This program is free software; you can redistribute it and/or modify
+# This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
-# MA 02110-1301, USA.
+# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.
 
 set test1 "NOCROSSREFS 1"
 set test2 "NOCROSSREFS 2"
 set test3 "NOCROSSREFS 3"
 
-if { ![is_remote host] && [which $CC] == 0 } {
+if { [which $CC] == 0 } {
     untested $test1
     untested $test2
     untested $test3
@@ -45,18 +42,6 @@ if [istarget powerpc64*-*-*] {
     set CFLAGS "$CFLAGS -mcall-aixdesc"
 }
 
-# Prevent the use of the MeP's small data area which references a symbol
-# called __sdabase which will not be defined by our test linker scripts.
-if [istarget mep*-*-elf] {
-    set CFLAGS "-mtiny=0"
-}
-
-# The .dsbt section and __c6xabi_DSBT_BASE are not defined in our test
-# linker scripts.
-if [istarget tic6x*-*-*] {
-    set CFLAGS "-mno-dsbt -msdata=none"
-}
-
 if { ![ld_compile $CC "$srcdir/$subdir/cross1.c" tmpdir/cross1.o] \
      || ![ld_compile $CC "$srcdir/$subdir/cross2.c" tmpdir/cross2.o] } {
     unresolved $test1
@@ -74,7 +59,9 @@ if [istarget sh64*-*-elf] {
 # IA64 has both ordered and unordered sections in an input file.
 setup_xfail ia64-*-*
 
-set exec_output [run_host_cmd "$ld" "$flags -o tmpdir/cross1 -T $srcdir/$subdir/cross1.t tmpdir/cross1.o tmpdir/cross2.o"]
+verbose -log "$ld $flags -o tmpdir/cross1 -T $srcdir/$subdir/cross1.t tmpdir/cross1.o tmpdir/cross2.o"
+
+catch "exec $ld $flags -o tmpdir/cross1 -T $srcdir/$subdir/cross1.t tmpdir/cross1.o tmpdir/cross2.o" exec_output
 
 set exec_output [prune_warnings $exec_output]
 
@@ -98,7 +85,10 @@ if { ![ld_compile $CC "$srcdir/$subdir/cross3.c" tmpdir/cross3.o] } {
     return
 }
 
-set exec_output [run_host_cmd "$ld" "$flags -o tmpdir/cross2 -T $srcdir/$subdir/cross2.t tmpdir/cross3.o"]
+verbose -log "$ld $flags -o tmpdir/cross2 -T $srcdir/$subdir/cross2.t tmpdir/cross3.o"
+
+catch "exec $ld $flags -o tmpdir/cross2 -T $srcdir/$subdir/cross2.t tmpdir/cross3.o" exec_output
+
 set exec_output [prune_warnings $exec_output]
 
 regsub -all "(^|\n)($ld: warning: cannot find entry symbol\[^\n\]*\n?)" $exec_output "\\1" exec_output
@@ -114,6 +104,8 @@ if [string match "" $exec_output] then {
     }
 }
 
+setup_xfail mips*-*-linux*
+
 # Check cross references for ld -r
 
 if { ![ld_compile $CC "$srcdir/$subdir/cross4.c" tmpdir/cross4.o] } {
@@ -126,7 +118,9 @@ if ![ld_relocate $ld tmpdir/cross3-partial.o "tmpdir/cross1.o tmpdir/cross4.o"] 
     return
 }
 
-set exec_output [run_host_cmd "$ld" "$flags -o tmpdir/cross3 -T $srcdir/$subdir/cross3.t tmpdir/cross3-partial.o tmpdir/cross2.o"]
+verbose -log "$ld $flags -o tmpdir/cross3 -T $srcdir/$subdir/cross3.t tmpdir/cross3-partial.o tmpdir/cross2.o"
+
+catch "exec $ld $flags -o tmpdir/cross3 -T $srcdir/$subdir/cross3.t tmpdir/cross3-partial.o tmpdir/cross2.o" exec_output
 
 set exec_output [prune_warnings $exec_output]
 
