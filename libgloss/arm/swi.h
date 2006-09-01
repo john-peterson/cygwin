@@ -1,5 +1,3 @@
-#include "arm.h"
-
 /* SWI numbers for RDP (Demon) monitor.  */
 #define SWI_WriteC                 0x0
 #define SWI_Write0                 0x2
@@ -35,8 +33,8 @@
 #else
 #define AngelSWI 			AngelSWI_ARM
 #endif
-/* For thumb only architectures use the BKPT instruction instead of SWI.  */
-#ifdef THUMB_V7M_V6M
+/* For Thumb-2 code use the BKPT instruction instead of SWI.  */
+#ifdef __thumb2__
 #define AngelSWIInsn			"bkpt"
 #define AngelSWIAsm			bkpt
 #else
