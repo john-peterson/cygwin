@@ -1,7 +1,6 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_PREREQ(2.59)
-AC_INIT([libgloss],[LIBGLOSS_VERSION])
-AC_CONFIG_SRCDIR([libnosys])
+AC_PREREQ(2.7)dnl
+AC_INIT(README)
 
 if test "${enable_shared}" = "yes" ; then
     echo "Shared libraries not supported for cross compiling, ignored"
@@ -21,149 +20,156 @@ AC_CONFIG_AUX_DIR($libgloss_topdir)
 AC_PROG_INSTALL
 
 AC_CANONICAL_SYSTEM
-AM_INIT_AUTOMAKE([cygnus no-define 1.9.5])
 
 if test -z "${with_multisubdir}" ; then
-  AC_CONFIG_SUBDIRS([doc])
+  configdirs="doc libnosys"
+else
+  configdirs="libnosys"
 fi
-
-dnl indicates whether to run configure within the testsuite subdirectory
-config_testsuite=true
-
-dnl indicates whether to run configure within the libnosys subdirectory
-config_libnosys=true
 
 case "${target}" in
-  aarch64*-*-*)
-	AC_CONFIG_SUBDIRS(aarch64)
-	config_testsuite=true
-	;;
-  epiphany-*-*)
-	AC_CONFIG_SUBDIRS(epiphany)
-	config_testsuite=true
-	;;
-  i[[3456]]86-*-elf* | i[[3456]]86-*-coff*)
-	AC_CONFIG_SUBDIRS([i386])
+  i[[3456]]86-*-elf*|i[[3456]]86-*-coff*)
+	configdirs="${configdirs} i386 testsuite";
 	;;
   m32r-*-*)
-	AC_CONFIG_SUBDIRS([m32r])
+	configdirs="${configdirs} m32r testsuite"
 	;;
-  m68hc11-*-* | m6811-*-* | m68hc12-*-* | m6812-*-*)
-	AC_CONFIG_SUBDIRS([m68hc11])
+  m68hc11-*-*|m6811-*-*|m68hc12-*-*|m6812-*-*)
+	configdirs="m68hc11 testsuite"
 	;;
-  fido-*-* | m68*-*-*)
-	AC_CONFIG_SUBDIRS([m68k])
+  m68*-*-*)
+	configdirs="${configdirs} m68k testsuite"
 	;;
   hppa*-*-pro*)
-	AC_CONFIG_SUBDIRS([pa])
+	configdirs="${configdirs} pa testsuite"
 	;;
   i960-*-coff)
-	AC_CONFIG_SUBDIRS([i960])
+	configdirs="${configdirs} i960 testsuite"
 	;;
-  sparc-*leon*-elf* | sparc-*leon*-none*)
-	AC_CONFIG_SUBDIRS([sparc_leon])
-	;; 
-  sparclet-*-aout* | sparc-*-elf* | sparc64-*-elf* | sparc86x-*-* | sparclite-*-*)
-	AC_CONFIG_SUBDIRS([sparc])
+  sparc-*-elf*)
+	configdirs="${configdirs} sparc testsuite"
 	;;
-  sh*-*-pe | mips*-*-pe | *arm*-wince-pe)
-	AC_CONFIG_SUBDIRS([wince])
+  sparc64-*-elf*)
+	configdirs="${configdirs} sparc testsuite"
+	;;
+  sparc86x-*-*)
+	configdirs="${configdirs} sparc testsuite"
+	;;
+  sparclite-*-*)
+	configdirs="${configdirs} sparc testsuite"
+	;;
+  sparclet-*-aout*)
+	configdirs="${configdirs} sparc sparc/libsys testsuite"
+	;;
+  *arm-wince-pe)
+	configdirs="wince"
+	;;
+  *arm-*-*)
+	configdirs="${configdirs} arm"
+	;;
+  sh*-*-pe)
+	configdirs="wince"
+	;;
+  mips*-*-pe)
+	configdirs="wince"
 	;;
   mips*-*-*)
-	AC_CONFIG_SUBDIRS([mips])
+	configdirs="${configdirs} mips testsuite"
 	;;
   powerpc-*-*|powerpcle-*-*)
-	AC_CONFIG_SUBDIRS([rs6000])
+	configdirs="${configdirs} rs6000 testsuite"
 	;;
   mn10200-*-*)
-	AC_CONFIG_SUBDIRS([mn10200])
+	configdirs="${configdirs} mn10200 testsuite"
 	;;
   mn10300-*-*)
-	AC_CONFIG_SUBDIRS([mn10300])
+	configdirs="${configdirs} mn10300 testsuite"
 	;;
-  bfin-*-*)
-	AC_CONFIG_SUBDIRS([bfin])
-	;;
-  cr16-*-*)
-        AC_CONFIG_SUBDIRS([cr16])
-        ;;
   cris-*-* | crisv32-*-*)
-	AC_CONFIG_SUBDIRS([cris])
+	configdirs="${configdirs} cris testsuite"
 	;;
   crx-*-*)
-	AC_CONFIG_SUBDIRS([crx])
+	configdirs="${configdirs} crx"
 	;;
   d30v-*-*)
-	AC_CONFIG_SUBDIRS([d30v])
+	configdirs="${configdirs} d30v testsuite"
 	;;
   fr30-*-*)
-	AC_CONFIG_SUBDIRS([fr30])
+	configdirs="${configdirs} fr30 testsuite"
 	;;
   frv*-*-*)
-	AC_CONFIG_SUBDIRS([frv])
-	;;
-  lm32*-*-*)
-	AC_CONFIG_SUBDIRS([lm32])
+	configdirs="${configdirs} frv testsuite"
 	;;
   mcore-*-*)
-	AC_CONFIG_SUBDIRS([mcore])
-	;;
-  mep-*-*)
-	AC_CONFIG_SUBDIRS([mep])
-	;;
-  moxie-*-*)
-	AC_CONFIG_SUBDIRS([moxie])
-	;;
-  microblaze-*-*)
-	AC_CONFIG_SUBDIRS([microblaze])
+	configdirs="${configdirs} mcore testsuite"
 	;;
   mt-*-*)
-        AC_CONFIG_SUBDIRS([mt])
-	;;
-  v850*-*-*)
-        AC_CONFIG_SUBDIRS([v850])
-        ;;
-  xc16x-*-*)
-	AC_CONFIG_SUBDIRS([xc16x])
-	;;
+        configdirs="${configdirs} mt testsuite";;
   xstormy16-*-*)
-	AC_CONFIG_SUBDIRS([xstormy16])
+	configdirs="${configdirs} xstormy16 testsuite"
 	;;
   m32c-*-*)
-	AC_CONFIG_SUBDIRS([m32c])
+	configdirs="${configdirs} m32c testsuite"
 	;;
-  rl78*-*-elf)
-	AC_CONFIG_SUBDIRS([rl78])
+  strongarm-*-elf | strongarm-*-coff)
+	configdirs="${configdirs} arm testsuite";
 	;;
-  rx*-*-elf)
-	AC_CONFIG_SUBDIRS([rx])
+  arm*-*-elf | arm*-*-coff)
+	configdirs="${configdirs} arm testsuite";
 	;;
-  arm*-*-elf | arm*-*-coff | arm*-*-*)
-	AC_CONFIG_SUBDIRS([arm])
+  ep9312-*-elf | ep9312-*-coff)
+	configdirs="${configdirs} arm testsuite";
 	;;
-  spu-*-elf)
-	AC_CONFIG_SUBDIRS([spu])
-	config_testsuite=false
-	config_libnosys=false
-	;;
-  tic6x-*-*)
-	AC_CONFIG_SUBDIRS(tic6x)
-	config_testsuite=false
+  xscale-*-elf | xscale-*-coff)
+	configdirs="${configdirs} arm testsuite";
 	;;
   iq2000-*-*)
-	AC_CONFIG_SUBDIRS([iq2000])
-	;;
+	configdirs="${configdirs} iq2000 testsuite";;
+
 esac
 
-dnl For now, don't bother configuring testsuite
-dnl
-dnl if test "${config_testsuite}" = "true";
-dnl   then AC_CONFIG_SUBDIRS([testsuite])
-dnl fi
+# temporarily strip out testsuite
+configdirs=`echo $configdirs | sed 's/testsuite//'`
 
-if test "${config_libnosys}" = "true"; then
-  AC_CONFIG_SUBDIRS([libnosys])
+AC_CONFIG_SUBDIRS($configdirs)
+
+# FIXME: We temporarily define our own version of AC_PROG_CC.  This is
+# copied from autoconf 2.12, but does not call AC_PROG_CC_WORKS.  We
+# are probably using a cross compiler, which will not be able to fully
+# link an executable.  This should really be fixed in autoconf
+# itself.
+
+AC_DEFUN(LIB_AC_PROG_CC,
+[AC_BEFORE([$0], [AC_PROG_CPP])dnl
+AC_CHECK_PROG(CC, gcc, gcc)
+if test -z "$CC"; then
+  AC_CHECK_PROG(CC, cc, cc, , , /usr/ucb/cc)
+  test -z "$CC" && AC_MSG_ERROR([no acceptable cc found in \$PATH])
 fi
+
+AC_PROG_CC_GNU
+
+if test $ac_cv_prog_gcc = yes; then
+  GCC=yes
+dnl Check whether -g works, even if CFLAGS is set, in case the package
+dnl plays around with CFLAGS (such as to build both debugging and
+dnl normal versions of a library), tasteless as that idea is.
+  ac_test_CFLAGS="${CFLAGS+set}"
+  ac_save_CFLAGS="$CFLAGS"
+  CFLAGS=
+  AC_PROG_CC_G
+  if test "$ac_test_CFLAGS" = set; then
+    CFLAGS="$ac_save_CFLAGS"
+  elif test $ac_cv_prog_cc_g = yes; then
+    CFLAGS="-g -O2"
+  else
+    CFLAGS="-O2"
+  fi
+else
+  GCC=
+  test "${CFLAGS+set}" = set || CFLAGS="-g"
+fi
+])
 
 LIB_AC_PROG_CC
 AS=${AS-as}
@@ -174,7 +180,31 @@ AC_SUBST(AR)
 LD=${LD-ld}
 AC_SUBST(LD)
 AC_PROG_RANLIB
-LIB_AM_PROG_AS
+
+AC_CACHE_CHECK(for .preinit_array/.init_array/.fini_array support,
+	       libc_cv_initfinit_array, [dnl
+cat > conftest.c <<EOF
+int _start (void) { return 0; }
+int __start (void) { return 0; }
+int foo (void) { return 1; }
+int (*fp) (void) __attribute__ ((section (".init_array"))) = foo;
+EOF
+if AC_TRY_COMMAND([${CC} $CFLAGS $CPPFLAGS $LDFLAGS -o conftest conftest.c
+		   -static -nostartfiles -nostdlib 1>&AS_MESSAGE_LOG_FD])
+then
+  if readelf -S conftest | grep -e INIT_ARRAY > /dev/null; then
+    libc_cv_initfinit_array=yes
+  else
+    libc_cv_initfinit_array=no
+  fi
+else
+  libc_cv_initfinit_array=no
+fi
+rm -f conftest*])
+AC_SUBST(libc_cv_initfinit_array)
+if test $libc_cv_initfinit_array = yes; then
+  AC_DEFINE_UNQUOTED(HAVE_INITFINI_ARRAY)
+fi
 
 host_makefile_frag=${srcdir}/config/default.mh
 
@@ -186,27 +216,16 @@ host_makefile_frag_path=$host_makefile_frag
 AC_SUBST(host_makefile_frag_path)
 AC_SUBST_FILE(host_makefile_frag)
 
-if test "${multilib}" = "yes"; then
-  multilib_arg="--enable-multilib"
-else
-  multilib_arg=
-fi
-
 # for now, only add multilibs for specific targets
-AC_CONFIG_FILES([Makefile],
-[if test -n "$CONFIG_FILES"; then
-  unset ac_file
-  . ${libgloss_topdir}/config-ml.in
-fi],
+AC_OUTPUT(Makefile,
+. ${libgloss_topdir}/config-ml.in,
 srcdir=${srcdir}
 target=${target}
 with_multisubdir=${with_multisubdir}
 ac_configure_args="--enable-multilib ${ac_configure_args}"
 CONFIG_SHELL=${CONFIG_SHELL-/bin/sh}
 libgloss_topdir=${libgloss_topdir}
-CC="${CC}"
-LDFLAGS=${LDFLAGS}
 )
-AC_OUTPUT
+
 
 
