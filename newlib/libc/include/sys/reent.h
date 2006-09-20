@@ -13,8 +13,6 @@ extern "C" {
 #include <_ansi.h>
 #include <sys/_types.h>
 
-#define _NULL 0
-
 #ifndef __Long
 #if __LONG_MAX__ == 2147483647L
 #define __Long long
@@ -34,14 +32,12 @@ typedef unsigned __Long __ULong;
 typedef __uint32_t __ULong;
 #endif
 
-struct _reent;
-
 /*
  * If _REENT_SMALL is defined, we make struct _reent as small as possible,
  * by having nearly everything possible allocated at first use.
  */
 
-struct _Bigint
+struct _Bigint 
 {
   struct _Bigint *_next;
   int _k, _maxwds, _sign, _wds;
@@ -108,6 +104,18 @@ struct __sbuf {
 };
 
 /*
+ * We need fpos_t for the following, but it doesn't have a leading "_",
+ * so we use _fpos_t instead.
+ */
+
+typedef long _fpos_t;		/* XXX must match off_t in <sys/types.h> */
+				/* (and must be `long' for now) */
+
+#ifdef __LARGE64_FILES
+typedef _off64_t _fpos64_t;
+#endif
+
+/*
  * Stdio state variables.
  *
  * The following always hold:
@@ -149,19 +157,8 @@ struct __sFILE_fake {
 
   struct _reent *_data;
 };
-
-/* Following is needed both in libc/stdio and libc/stdlib so we put it
- * here instead of libc/stdio/local.h where it was previously. */
-
-extern _VOID   _EXFUN(__sinit,(struct _reent *));
-
-# define _REENT_SMALL_CHECK_INIT(ptr)		\
-  do						\
-    {						\
-      if ((ptr) && !(ptr)->__sdidinit)		\
-	__sinit (ptr);				\
-    }						\
-  while (0)
+/* CHECK_INIT() comes from stdio/local.h; be sure to include that.  */
+# define _REENT_SMALL_CHECK_INIT(ptr) CHECK_INIT(ptr)
 #else
 # define _REENT_SMALL_CHECK_INIT(ptr) /* nothing */
 #endif
@@ -182,12 +179,11 @@ struct __sFILE {
   /* operations */
   _PTR	_cookie;	/* cookie passed to io functions */
 
-  _READ_WRITE_RETURN_TYPE _EXFNPTR(_read, (struct _reent *, _PTR,
-					   char *, int));
-  _READ_WRITE_RETURN_TYPE _EXFNPTR(_write, (struct _reent *, _PTR,
-					    const char *, int));
-  _fpos_t _EXFNPTR(_seek, (struct _reent *, _PTR, _fpos_t, int));
-  int _EXFNPTR(_close, (struct _reent *, _PTR));
+  _READ_WRITE_RETURN_TYPE _EXFUN((*_read),(_PTR _cookie, char *_buf, int _n));
+  _READ_WRITE_RETURN_TYPE _EXFUN((*_write),(_PTR _cookie, const char *_buf,
+					    int _n));
+  _fpos_t _EXFUN((*_seek),(_PTR _cookie, _fpos_t _offset, int _whence));
+  int	_EXFUN((*_close),(_PTR _cookie));
 
   /* separate buffer for long sequences of ungetc() */
   struct __sbuf _ub;	/* ungetc buffer */
@@ -203,7 +199,7 @@ struct __sFILE {
 
   /* Unix stdio files get aligned to block boundaries on fseek() */
   int	_blksize;	/* stat.st_blksize (may be != _bf._size) */
-  _off_t _offset;	/* current lseek offset */
+  int	_offset;	/* current lseek offset */
 
 #ifndef _REENT_SMALL
   struct _reent *_data;	/* Here for binary compatibility? Remove? */
@@ -212,16 +208,8 @@ struct __sFILE {
 #ifndef __SINGLE_THREAD__
   _flock_t _lock;	/* for thread-safety locking */
 #endif
-  _mbstate_t _mbstate;	/* for wide char stdio functions. */
-  int   _flags2;        /* for future use */
 };
 
-#ifdef __CUSTOM_FILE_IO__
-
-/* Get custom _FILE definition.  */
-#include <sys/custom_file.h>
-
-#else /* !__CUSTOM_FILE_IO__ */
 #ifdef __LARGE64_FILES
 struct __sFILE64 {
   unsigned char *_p;	/* current position in (some) buffer */
@@ -237,12 +225,11 @@ struct __sFILE64 {
   /* operations */
   _PTR	_cookie;	/* cookie passed to io functions */
 
-  _READ_WRITE_RETURN_TYPE _EXFNPTR(_read, (struct _reent *, _PTR,
-					   char *, int));
-  _READ_WRITE_RETURN_TYPE _EXFNPTR(_write, (struct _reent *, _PTR,
-					    const char *, int));
-  _fpos_t _EXFNPTR(_seek, (struct _reent *, _PTR, _fpos_t, int));
-  int _EXFNPTR(_close, (struct _reent *, _PTR));
+  _READ_WRITE_RETURN_TYPE _EXFUN((*_read),(_PTR _cookie, char *_buf, int _n));
+  _READ_WRITE_RETURN_TYPE _EXFUN((*_write),(_PTR _cookie, const char *_buf,
+					    int _n));
+  _fpos_t _EXFUN((*_seek),(_PTR _cookie, _fpos_t _offset, int _whence));
+  int	_EXFUN((*_close),(_PTR _cookie));
 
   /* separate buffer for long sequences of ungetc() */
   struct __sbuf _ub;	/* ungetc buffer */
@@ -261,20 +248,18 @@ struct __sFILE64 {
   int   _flags2;        /* for future use */
 
   _off64_t _offset;     /* current lseek offset */
-  _fpos64_t _EXFNPTR(_seek64, (struct _reent *, _PTR, _fpos64_t, int));
+  _fpos64_t _EXFUN((*_seek64),(_PTR _cookie, _fpos64_t _offset, int _whence));
 
 #ifndef __SINGLE_THREAD__
   _flock_t _lock;	/* for thread-safety locking */
 #endif
-  _mbstate_t _mbstate;	/* for wide char stdio functions. */
 };
 typedef struct __sFILE64 __FILE;
 #else
 typedef struct __sFILE   __FILE;
 #endif /* __LARGE64_FILES */
-#endif /* !__CUSTOM_FILE_IO__ */
 
-struct _glue
+struct _glue 
 {
   struct _glue *_next;
   int _niobs;
@@ -357,27 +342,26 @@ struct _misc_reent
  * ports with 16-bit int's but 32-bit pointers, align nicely.  */
 struct _reent
 {
-  /* As an exception to the above put _errno first for binary
-     compatibility with non _REENT_SMALL targets.  */
-  int _errno;			/* local copy of errno */
 
   /* FILE is a big struct and may change over time.  To try to achieve binary
      compatibility with future versions, put stdin,stdout,stderr here.
      These are pointers into member __sf defined below.  */
   __FILE *_stdin, *_stdout, *_stderr;	/* XXX */
 
+  int _errno;			/* local copy of errno */
+
   int  _inc;			/* used by tmpnam */
 
   char *_emergency;
-
+ 
   int __sdidinit;		/* 1 means stdio has been init'd */
 
-  int _current_category;	/* unused */
-  _CONST char *_current_locale;	/* unused */
+  int _current_category;	/* used by setlocale */
+  _CONST char *_current_locale;
 
   struct _mprec *_mp;
 
-  void _EXFNPTR(__cleanup, (struct _reent *));
+  void _EXFUN((*__cleanup),(struct _reent *));
 
   int _gamma_signgam;
 
@@ -398,19 +382,16 @@ struct _reent
 
   struct _glue __sglue;			/* root of glue chain */
   __FILE *__sf;			        /* file descriptors */
+  struct __sFILE_fake __sf_fake;	/* fake initial stdin/out/err */
   struct _misc_reent *_misc;            /* strtok, multibyte states */
   char *_signal_buf;                    /* strsignal */
 };
 
-extern const struct __sFILE_fake __sf_fake_stdin;
-extern const struct __sFILE_fake __sf_fake_stdout;
-extern const struct __sFILE_fake __sf_fake_stderr;
-
-# define _REENT_INIT(var) \
-  { 0, \
-    (__FILE *)&__sf_fake_stdin, \
-    (__FILE *)&__sf_fake_stdout, \
-    (__FILE *)&__sf_fake_stderr, \
+#define _REENT_INIT(var) \
+  { (__FILE *)&var.__sf_fake, \
+    (__FILE *)&var.__sf_fake, \
+    (__FILE *)&var.__sf_fake, \
+    0, \
     0, \
     _NULL, \
     0, \
@@ -429,52 +410,58 @@ extern const struct __sFILE_fake __sf_fake_stderr;
     {_NULL, 0, {_NULL}, _NULL}, \
     {_NULL, 0, _NULL}, \
     _NULL, \
+    {_NULL, 0, 0, 0, 0, {_NULL, 0}, 0, _NULL}, \
     _NULL, \
     _NULL \
   }
 
 #define _REENT_INIT_PTR(var) \
-  { (var)->_stdin = (__FILE *)&__sf_fake_stdin; \
-    (var)->_stdout = (__FILE *)&__sf_fake_stdout; \
-    (var)->_stderr = (__FILE *)&__sf_fake_stderr; \
-    (var)->_errno = 0; \
-    (var)->_inc = 0; \
-    (var)->_emergency = _NULL; \
-    (var)->__sdidinit = 0; \
-    (var)->_current_category = 0; \
-    (var)->_current_locale = "C"; \
-    (var)->_mp = _NULL; \
-    (var)->__cleanup = _NULL; \
-    (var)->_gamma_signgam = 0; \
-    (var)->_cvtlen = 0; \
-    (var)->_cvtbuf = _NULL; \
-    (var)->_r48 = _NULL; \
-    (var)->_localtime_buf = _NULL; \
-    (var)->_asctime_buf = _NULL; \
-    (var)->_sig_func = _NULL; \
-    (var)->_atexit = _NULL; \
-    (var)->_atexit0._next = _NULL; \
-    (var)->_atexit0._ind = 0; \
-    (var)->_atexit0._fns[0] = _NULL; \
-    (var)->_atexit0._on_exit_args_ptr = _NULL; \
-    (var)->__sglue._next = _NULL; \
-    (var)->__sglue._niobs = 0; \
-    (var)->__sglue._iobs = _NULL; \
-    (var)->__sf = 0; \
-    (var)->_misc = _NULL; \
-    (var)->_signal_buf = _NULL; \
+  { var->_stdin = (__FILE *)&var->__sf_fake; \
+    var->_stdout = (__FILE *)&var->__sf_fake; \
+    var->_stderr = (__FILE *)&var->__sf_fake; \
+    var->_errno = 0; \
+    var->_inc = 0; \
+    var->_emergency = _NULL; \
+    var->__sdidinit = 0; \
+    var->_current_category = 0; \
+    var->_current_locale = "C"; \
+    var->_mp = _NULL; \
+    var->__cleanup = _NULL; \
+    var->_gamma_signgam = 0; \
+    var->_cvtlen = 0; \
+    var->_cvtbuf = _NULL; \
+    var->_r48 = _NULL; \
+    var->_localtime_buf = _NULL; \
+    var->_asctime_buf = _NULL; \
+    var->_sig_func = _NULL; \
+    var->_atexit = _NULL; \
+    var->_atexit0._next = _NULL; \
+    var->_atexit0._ind = 0; \
+    var->_atexit0._fns[0] = _NULL; \
+    var->_atexit0._on_exit_args_ptr = _NULL; \
+    var->__sglue._next = _NULL; \
+    var->__sglue._niobs = 0; \
+    var->__sglue._iobs = _NULL; \
+    var->__sf = 0; \
+    var->__sf_fake._p = _NULL; \
+    var->__sf_fake._r = 0; \
+    var->__sf_fake._w = 0; \
+    var->__sf_fake._flags = 0; \
+    var->__sf_fake._file = 0; \
+    var->__sf_fake._bf._base = _NULL; \
+    var->__sf_fake._bf._size = 0; \
+    var->__sf_fake._lbfsize = 0; \
+    var->__sf_fake._data = _NULL; \
+    var->_misc = _NULL; \
+    var->_signal_buf = _NULL; \
   }
 
 /* Only built the assert() calls if we are built with debugging.  */
-#if DEBUG
+#if DEBUG 
 #include <assert.h>
 #define __reent_assert(x) assert(x)
 #else
 #define __reent_assert(x) ((void)0)
-#endif
-
-#ifdef __CUSTOM_FILE_IO__
-#error Custom FILE I/O and _REENT_SMALL not currently supported.
 #endif
 
 /* Generic _REENT check macro.  */
@@ -505,7 +492,6 @@ extern const struct __sFILE_fake __sf_fake_stderr;
   _r->_r48->_mult[1] = _RAND48_MULT_1; \
   _r->_r48->_mult[2] = _RAND48_MULT_2; \
   _r->_r48->_add = _RAND48_ADD; \
-  _r->_r48->_rand_next = 1; \
 } while (0)
 #define _REENT_CHECK_RAND48(var) \
   _REENT_CHECK(var, _r48, struct _rand48 *, sizeof *((var)->_r48), _REENT_INIT_RAND48((var)))
@@ -588,13 +574,13 @@ struct _reent
 
   int  _inc;			/* used by tmpnam */
   char _emergency[_REENT_EMERGENCY_SIZE];
-
+ 
   int _current_category;	/* used by setlocale */
   _CONST char *_current_locale;
 
   int __sdidinit;		/* 1 means stdio has been init'd */
 
-  void _EXFNPTR(__cleanup, (struct _reent *));
+  void _EXFUN((*__cleanup),(struct _reent *));
 
   /* used by mprec routines */
   struct _Bigint *_result;
@@ -622,17 +608,16 @@ struct _reent
           _mbstate_t _wctomb_state;
           char _l64a_buf[8];
           char _signal_buf[_REENT_SIGNAL_SIZE];
-          int _getdate_err;
+          int _getdate_err;  
           _mbstate_t _mbrlen_state;
           _mbstate_t _mbrtowc_state;
           _mbstate_t _mbsrtowcs_state;
           _mbstate_t _wcrtomb_state;
           _mbstate_t _wcsrtombs_state;
-	  int _h_errno;
         } _reent;
   /* Two next two fields were once used by malloc.  They are no longer
      used. They are used to preserve the space used before so as to
-     allow addition of new reent fields and keep binary compatibility.   */
+     allow addition of new reent fields and keep binary compatibility.   */ 
       struct
         {
 #define _N_LISTS 30
@@ -657,9 +642,9 @@ struct _reent
 
 #define _REENT_INIT(var) \
   { 0, \
-    &(var).__sf[0], \
-    &(var).__sf[1], \
-    &(var).__sf[2], \
+    &var.__sf[0], \
+    &var.__sf[1], \
+    &var.__sf[2], \
     0, \
     "", \
     0, \
@@ -705,65 +690,65 @@ struct _reent
   }
 
 #define _REENT_INIT_PTR(var) \
-  { (var)->_errno = 0; \
-    (var)->_stdin = &(var)->__sf[0]; \
-    (var)->_stdout = &(var)->__sf[1]; \
-    (var)->_stderr = &(var)->__sf[2]; \
-    (var)->_inc = 0; \
-    memset(&(var)->_emergency, 0, sizeof((var)->_emergency)); \
-    (var)->_current_category = 0; \
-    (var)->_current_locale = "C"; \
-    (var)->__sdidinit = 0; \
-    (var)->__cleanup = _NULL; \
-    (var)->_result = _NULL; \
-    (var)->_result_k = 0; \
-    (var)->_p5s = _NULL; \
-    (var)->_freelist = _NULL; \
-    (var)->_cvtlen = 0; \
-    (var)->_cvtbuf = _NULL; \
-    (var)->_new._reent._unused_rand = 0; \
-    (var)->_new._reent._strtok_last = _NULL; \
-    (var)->_new._reent._asctime_buf[0] = 0; \
-    memset(&(var)->_new._reent._localtime_buf, 0, sizeof((var)->_new._reent._localtime_buf)); \
-    (var)->_new._reent._gamma_signgam = 0; \
-    (var)->_new._reent._rand_next = 1; \
-    (var)->_new._reent._r48._seed[0] = _RAND48_SEED_0; \
-    (var)->_new._reent._r48._seed[1] = _RAND48_SEED_1; \
-    (var)->_new._reent._r48._seed[2] = _RAND48_SEED_2; \
-    (var)->_new._reent._r48._mult[0] = _RAND48_MULT_0; \
-    (var)->_new._reent._r48._mult[1] = _RAND48_MULT_1; \
-    (var)->_new._reent._r48._mult[2] = _RAND48_MULT_2; \
-    (var)->_new._reent._r48._add = _RAND48_ADD; \
-    (var)->_new._reent._mblen_state.__count = 0; \
-    (var)->_new._reent._mblen_state.__value.__wch = 0; \
-    (var)->_new._reent._mbtowc_state.__count = 0; \
-    (var)->_new._reent._mbtowc_state.__value.__wch = 0; \
-    (var)->_new._reent._wctomb_state.__count = 0; \
-    (var)->_new._reent._wctomb_state.__value.__wch = 0; \
-    (var)->_new._reent._mbrlen_state.__count = 0; \
-    (var)->_new._reent._mbrlen_state.__value.__wch = 0; \
-    (var)->_new._reent._mbrtowc_state.__count = 0; \
-    (var)->_new._reent._mbrtowc_state.__value.__wch = 0; \
-    (var)->_new._reent._mbsrtowcs_state.__count = 0; \
-    (var)->_new._reent._mbsrtowcs_state.__value.__wch = 0; \
-    (var)->_new._reent._wcrtomb_state.__count = 0; \
-    (var)->_new._reent._wcrtomb_state.__value.__wch = 0; \
-    (var)->_new._reent._wcsrtombs_state.__count = 0; \
-    (var)->_new._reent._wcsrtombs_state.__value.__wch = 0; \
-    (var)->_new._reent._l64a_buf[0] = '\0'; \
-    (var)->_new._reent._signal_buf[0] = '\0'; \
-    (var)->_new._reent._getdate_err = 0; \
-    (var)->_atexit = _NULL; \
-    (var)->_atexit0._next = _NULL; \
-    (var)->_atexit0._ind = 0; \
-    (var)->_atexit0._fns[0] = _NULL; \
-    (var)->_atexit0._on_exit_args._fntypes = 0; \
-    (var)->_atexit0._on_exit_args._fnargs[0] = _NULL; \
-    (var)->_sig_func = _NULL; \
-    (var)->__sglue._next = _NULL; \
-    (var)->__sglue._niobs = 0; \
-    (var)->__sglue._iobs = _NULL; \
-    memset(&(var)->__sf, 0, sizeof((var)->__sf)); \
+  { var->_errno = 0; \
+    var->_stdin = &var->__sf[0]; \
+    var->_stdout = &var->__sf[1]; \
+    var->_stderr = &var->__sf[2]; \
+    var->_inc = 0; \
+    memset(&var->_emergency, 0, sizeof(var->_emergency)); \
+    var->_current_category = 0; \
+    var->_current_locale = "C"; \
+    var->__sdidinit = 0; \
+    var->__cleanup = _NULL; \
+    var->_result = _NULL; \
+    var->_result_k = 0; \
+    var->_p5s = _NULL; \
+    var->_freelist = _NULL; \
+    var->_cvtlen = 0; \
+    var->_cvtbuf = _NULL; \
+    var->_new._reent._unused_rand = 0; \
+    var->_new._reent._strtok_last = _NULL; \
+    var->_new._reent._asctime_buf[0] = 0; \
+    memset(&var->_new._reent._localtime_buf, 0, sizeof(var->_new._reent._localtime_buf)); \
+    var->_new._reent._gamma_signgam = 0; \
+    var->_new._reent._rand_next = 1; \
+    var->_new._reent._r48._seed[0] = _RAND48_SEED_0; \
+    var->_new._reent._r48._seed[1] = _RAND48_SEED_1; \
+    var->_new._reent._r48._seed[2] = _RAND48_SEED_2; \
+    var->_new._reent._r48._mult[0] = _RAND48_MULT_0; \
+    var->_new._reent._r48._mult[1] = _RAND48_MULT_1; \
+    var->_new._reent._r48._mult[2] = _RAND48_MULT_2; \
+    var->_new._reent._r48._add = _RAND48_ADD; \
+    var->_new._reent._mblen_state.__count = 0; \
+    var->_new._reent._mblen_state.__value.__wch = 0; \
+    var->_new._reent._mbtowc_state.__count = 0; \
+    var->_new._reent._mbtowc_state.__value.__wch = 0; \
+    var->_new._reent._wctomb_state.__count = 0; \
+    var->_new._reent._wctomb_state.__value.__wch = 0; \
+    var->_new._reent._mbrlen_state.__count = 0; \
+    var->_new._reent._mbrlen_state.__value.__wch = 0; \
+    var->_new._reent._mbrtowc_state.__count = 0; \
+    var->_new._reent._mbrtowc_state.__value.__wch = 0; \
+    var->_new._reent._mbsrtowcs_state.__count = 0; \
+    var->_new._reent._mbsrtowcs_state.__value.__wch = 0; \
+    var->_new._reent._wcrtomb_state.__count = 0; \
+    var->_new._reent._wcrtomb_state.__value.__wch = 0; \
+    var->_new._reent._wcsrtombs_state.__count = 0; \
+    var->_new._reent._wcsrtombs_state.__value.__wch = 0; \
+    var->_new._reent._l64a_buf[0] = '\0'; \
+    var->_new._reent._signal_buf[0] = '\0'; \
+    var->_new._reent._getdate_err = 0; \
+    var->_atexit = _NULL; \
+    var->_atexit0._next = _NULL; \
+    var->_atexit0._ind = 0; \
+    var->_atexit0._fns[0] = _NULL; \
+    var->_atexit0._on_exit_args._fntypes = 0; \
+    var->_atexit0._on_exit_args._fnargs[0] = _NULL; \
+    var->_sig_func = _NULL; \
+    var->__sglue._next = _NULL; \
+    var->__sglue._niobs = 0; \
+    var->__sglue._iobs = _NULL; \
+    memset(&var->__sf, 0, sizeof(var->__sf)); \
   }
 
 #define _REENT_CHECK_RAND48(ptr)	/* nothing */
@@ -801,10 +786,7 @@ struct _reent
 
 #endif /* !_REENT_SMALL */
 
-/* This value is used in stdlib/misc.c.  reent/reent.c has to know it
-   as well to make sure the freelist is correctly free'd.  Therefore
-   we define it here, rather than in stdlib/misc.c, as before. */
-#define _Kmax (sizeof (size_t) << 3)
+#define _NULL 0
 
 /*
  * All references to struct _reent are via this pointer.
