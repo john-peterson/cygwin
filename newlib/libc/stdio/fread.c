@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1990, 2007 The Regents of the University of California.
+ * Copyright (c) 1990 The Regents of the University of California.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms are permitted
@@ -21,29 +21,15 @@ FUNCTION
 
 INDEX
 	fread
-INDEX
-	_fread_r
 
 ANSI_SYNOPSIS
 	#include <stdio.h>
 	size_t fread(void *<[buf]>, size_t <[size]>, size_t <[count]>,
 		     FILE *<[fp]>);
 
-	#include <stdio.h>
-	size_t _fread_r(struct _reent *<[ptr]>, void *<[buf]>,
-	                size_t <[size]>, size_t <[count]>, FILE *<[fp]>);
-
 TRAD_SYNOPSIS
 	#include <stdio.h>
 	size_t fread(<[buf]>, <[size]>, <[count]>, <[fp]>)
-	char *<[buf]>;
-	size_t <[size]>;
-	size_t <[count]>;
-	FILE *<[fp]>;
-
-	#include <stdio.h>
-	size_t _fread_r(<[ptr]>, <[buf]>, <[size]>, <[count]>, <[fp]>)
-	struct _reent *<[ptr]>;
 	char *<[buf]>;
 	size_t <[size]>;
 	size_t <[count]>;
@@ -57,9 +43,6 @@ starting at <[buf]>.   <<fread>> may copy fewer elements than
 
 <<fread>> also advances the file position indicator (if any) for
 <[fp]> by the number of @emph{characters} actually read.
-
-<<_fread_r>> is simply the reentrant version of <<fread>> that
-takes an additional reentrant structure pointer argument: <[ptr]>.
 
 RETURNS
 The result of <<fread>> is the number of elements it succeeded in
@@ -80,14 +63,13 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 
 #ifdef __SCLE
 static size_t
-_DEFUN(crlf_r, (ptr, fp, buf, count, eof),
-       struct _reent * ptr _AND
+_DEFUN(crlf, (fp, buf, count, eof),
        FILE * fp _AND
        char * buf _AND
        size_t count _AND
        int eof)
 {
-  int r;
+  int newcount = 0, r;
   char *s, *d, *e;
 
   if (count == 0)
@@ -104,7 +86,7 @@ _DEFUN(crlf_r, (ptr, fp, buf, count, eof),
     {
       if (*s == '\r')
         {
-          int c = __sgetc_raw_r (ptr, fp);
+          int c = __sgetc_raw (fp);
           if (c == '\n')
             *s = '\n';
           else
@@ -116,7 +98,7 @@ _DEFUN(crlf_r, (ptr, fp, buf, count, eof),
 
   while (d < e)
     {
-      r = _getc_r (ptr, fp);
+      r = getc (fp);
       if (r == EOF)
         return count - (e-d);
       *d++ = r;
@@ -129,8 +111,7 @@ _DEFUN(crlf_r, (ptr, fp, buf, count, eof),
 #endif
 
 size_t
-_DEFUN(_fread_r, (ptr, buf, size, count, fp),
-       struct _reent * ptr _AND
+_DEFUN(fread, (buf, size, count, fp),
        _PTR buf _AND
        size_t size _AND
        size_t count _AND
@@ -144,10 +125,9 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
   if ((resid = count * size) == 0)
     return 0;
 
-  CHECK_INIT(ptr, fp);
+  CHECK_INIT(_REENT, fp);
 
-  _newlib_flockfile_start (fp);
-  ORIENT (fp, -1);
+  _flockfile (fp);
   if (fp->_r < 0)
     fp->_r = 0;
   total = resid;
@@ -168,7 +148,7 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 
       /* If still more data needed, free any allocated ungetc buffer.  */
       if (HASUB (fp) && resid > 0)
-	FREEUB (ptr, fp);
+	FREEUB (fp);
 
       /* Finally read directly into user's buffer if needed.  */
       while (resid > 0)
@@ -179,10 +159,10 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 	  void * old_p = fp->_p;
 	  int old_size = fp->_bf._size;
 	  /* allow __refill to use user's buffer */
-	  fp->_bf._base = (unsigned char *) p;
+	  fp->_bf._base = p;
 	  fp->_bf._size = resid;
-	  fp->_p = (unsigned char *) p;
-	  rc = __srefill_r (ptr, fp);
+	  fp->_p = p;
+	  rc = __srefill (fp);
 	  /* restore fp buffering back to original state */
 	  fp->_bf._base = old_base;
 	  fp->_bf._size = old_size;
@@ -195,11 +175,11 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 #ifdef __SCLE
               if (fp->_flags & __SCLE)
 	        {
-	          _newlib_flockfile_exit (fp);
-	          return crlf_r (ptr, fp, buf, total-resid, 1) / size;
+	          _funlockfile (fp);
+	          return crlf (fp, buf, total-resid, 1) / size;
 	        }
 #endif
-	      _newlib_flockfile_exit (fp);
+	      _funlockfile (fp);
 	      return (total - resid) / size;
 	    }
 	}
@@ -214,17 +194,17 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 	  /* fp->_r = 0 ... done in __srefill */
 	  p += r;
 	  resid -= r;
-	  if (__srefill_r (ptr, fp))
+	  if (__srefill (fp))
 	    {
 	      /* no more input: return partial result */
 #ifdef __SCLE
 	      if (fp->_flags & __SCLE)
 		{
-		  _newlib_flockfile_exit (fp);
-		  return crlf_r (ptr, fp, buf, total-resid, 1) / size;
+		  _funlockfile (fp);
+		  return crlf (fp, buf, total-resid, 1) / size;
 		}
 #endif
-	      _newlib_flockfile_exit (fp);
+	      _funlockfile (fp);
 	      return (total - resid) / size;
 	    }
 	}
@@ -237,22 +217,10 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 #ifdef __SCLE
   if (fp->_flags & __SCLE)
     {
-      _newlib_flockfile_exit (fp);
-      return crlf_r(ptr, fp, buf, total, 0) / size;
+      _funlockfile (fp);
+      return crlf(fp, buf, total, 0) / size;
     }
 #endif
-  _newlib_flockfile_end (fp);
+  _funlockfile (fp);
   return count;
 }
-
-#ifndef _REENT_ONLY
-size_t
-_DEFUN(fread, (buf, size, count, fp),
-       _PTR buf _AND
-       size_t size _AND
-       size_t count _AND
-       FILE * fp)
-{
-   return _fread_r (_REENT, buf, size, count, fp);
-}
-#endif

@@ -105,13 +105,56 @@ _DEFUN(_ftell_r, (ptr, fp),
 {
   _fpos_t pos;
 
-  pos = _ftello_r (ptr, fp);
-  if ((long)pos != pos)
+  /* Ensure stdio is set up.  */
+
+  CHECK_INIT (ptr, fp);
+
+  _flockfile (fp);
+
+  if (fp->_seek == NULL)
     {
-      pos = -1;
-      ptr->_errno = EOVERFLOW;
+      ptr->_errno = ESPIPE;
+      _funlockfile (fp);
+      return -1L;
     }
-  return (long)pos;
+
+  /* Find offset of underlying I/O object, then
+     adjust for buffered bytes.  */
+  fflush(fp);           /* may adjust seek offset on append stream */
+  if (fp->_flags & __SOFF)
+    pos = fp->_offset;
+  else
+    {
+      pos = (*fp->_seek) (fp->_cookie, (_fpos_t) 0, SEEK_CUR);
+      if (pos == -1L)
+        {
+          _funlockfile (fp);
+          return pos;
+        }
+    }
+  if (fp->_flags & __SRD)
+    {
+      /*
+       * Reading.  Any unread characters (including
+       * those from ungetc) cause the position to be
+       * smaller than that in the underlying object.
+       */
+      pos -= fp->_r;
+      if (HASUB (fp))
+	pos -= fp->_ur;
+    }
+  else if ((fp->_flags & __SWR) && fp->_p != NULL)
+    {
+      /*
+       * Writing.  Any buffered characters cause the
+       * position to be greater than that in the
+       * underlying object.
+       */
+      pos += fp->_p - fp->_bf._base;
+    }
+
+  _funlockfile (fp);
+  return pos;
 }
 
 #ifndef _REENT_ONLY

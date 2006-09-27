@@ -14,48 +14,6 @@
  * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
-/*
-FUNCTION
-<<ungetc>>---push data back into a stream
-
-INDEX
-	ungetc
-INDEX
-	_ungetc_r
-
-ANSI_SYNOPSIS
-	#include <stdio.h>
-	int ungetc(int <[c]>, FILE *<[stream]>);
-
-	int _ungetc_r(struct _reent *<[reent]>, int <[c]>, FILE *<[stream]>);
-
-DESCRIPTION
-<<ungetc>> is used to return bytes back to <[stream]> to be read again.
-If <[c]> is EOF, the stream is unchanged.  Otherwise, the unsigned
-char <[c]> is put back on the stream, and subsequent reads will see
-the bytes pushed back in reverse order.  Pushed byes are lost if the
-stream is repositioned, such as by <<fseek>>, <<fsetpos>>, or
-<<rewind>>.
-
-The underlying file is not changed, but it is possible to push back
-something different than what was originally read.  Ungetting a
-character will clear the end-of-stream marker, and decrement the file
-position indicator.  Pushing back beyond the beginning of a file gives
-unspecified behavior.
-
-The alternate function <<_ungetc_r>> is a reentrant version.  The
-extra argument <[reent]> is a pointer to a reentrancy structure.
-
-RETURNS
-The character pushed back, or <<EOF>> on error.
-
-PORTABILITY
-ANSI C requires <<ungetc>>, but only requires a pushback buffer of one
-byte; although this implementation can handle multiple bytes, not all
-can.  Pushing back a signed char is a common application bug.
-
-Supporting OS subroutines required: <<sbrk>>.
-*/
 
 #if defined(LIBC_SCCS) && !defined(lint)
 static char sccsid[] = "%W% (Berkeley) %G%";
@@ -125,10 +83,8 @@ _DEFUN(_ungetc_r, (rptr, c, fp),
 
   CHECK_INIT (rptr, fp);
 
-  _newlib_flockfile_start (fp);
-
-  ORIENT (fp, -1);
-
+  _flockfile (fp);
+  
   /* After ungetc, we won't be at eof anymore */
   fp->_flags &= ~__SEOF;
 
@@ -140,14 +96,14 @@ _DEFUN(_ungetc_r, (rptr, c, fp),
        */
       if ((fp->_flags & __SRW) == 0)
         {
-          _newlib_flockfile_exit (fp);
+          _funlockfile (fp);
           return EOF;
         }
       if (fp->_flags & __SWR)
 	{
-	  if (_fflush_r (rptr, fp))
+	  if (fflush (fp))
             {
-              _newlib_flockfile_exit (fp);
+              _funlockfile (fp);
               return EOF;
             }
 	  fp->_flags &= ~__SWR;
@@ -167,12 +123,12 @@ _DEFUN(_ungetc_r, (rptr, c, fp),
     {
       if (fp->_r >= fp->_ub._size && __submore (rptr, fp))
         {
-          _newlib_flockfile_exit (fp);
+          _funlockfile (fp);
           return EOF;
         }
       *--fp->_p = c;
       fp->_r++;
-      _newlib_flockfile_exit (fp);
+      _funlockfile (fp);
       return c;
     }
 
@@ -186,7 +142,7 @@ _DEFUN(_ungetc_r, (rptr, c, fp),
     {
       fp->_p--;
       fp->_r++;
-      _newlib_flockfile_exit (fp);
+      _funlockfile (fp);
       return c;
     }
 
@@ -202,7 +158,7 @@ _DEFUN(_ungetc_r, (rptr, c, fp),
   fp->_ubuf[sizeof (fp->_ubuf) - 1] = c;
   fp->_p = &fp->_ubuf[sizeof (fp->_ubuf) - 1];
   fp->_r = 1;
-  _newlib_flockfile_end (fp);
+  _funlockfile (fp);
   return c;
 }
 
@@ -215,3 +171,4 @@ _DEFUN(ungetc, (c, fp),
   return _ungetc_r (_REENT, c, fp);
 }
 #endif /* !_REENT_ONLY */
+

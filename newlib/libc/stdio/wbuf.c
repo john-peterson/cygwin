@@ -22,7 +22,6 @@ static char sccsid[] = "%W% (Berkeley) %G%";
 
 #include <_ansi.h>
 #include <stdio.h>
-#include <errno.h>
 #include "local.h"
 #include "fvwrite.h"
 
@@ -33,8 +32,7 @@ static char sccsid[] = "%W% (Berkeley) %G%";
  */
 
 int
-_DEFUN(__swbuf_r, (ptr, c, fp),
-       struct _reent *ptr _AND
+_DEFUN(__swbuf, (c, fp),
        register int c _AND
        register FILE *fp)
 {
@@ -42,7 +40,7 @@ _DEFUN(__swbuf_r, (ptr, c, fp),
 
   /* Ensure stdio has been initialized.  */
 
-  CHECK_INIT (ptr, fp);
+  CHECK_INIT (_REENT, fp);
 
   /*
    * In case we cannot write, or longjmp takes us out early,
@@ -53,11 +51,9 @@ _DEFUN(__swbuf_r, (ptr, c, fp),
    */
 
   fp->_w = fp->_lbfsize;
-  if (cantwrite (ptr, fp))
+  if (cantwrite (fp))
     return EOF;
   c = (unsigned char) c;
-
-  ORIENT (fp, -1);
 
   /*
    * If it is completely full, flush it out.  Then, in any case,
@@ -72,25 +68,14 @@ _DEFUN(__swbuf_r, (ptr, c, fp),
   n = fp->_p - fp->_bf._base;
   if (n >= fp->_bf._size)
     {
-      if (_fflush_r (ptr, fp))
+      if (fflush (fp))
 	return EOF;
       n = 0;
     }
   fp->_w--;
   *fp->_p++ = c;
   if (++n == fp->_bf._size || (fp->_flags & __SLBF && c == '\n'))
-    if (_fflush_r (ptr, fp))
+    if (fflush (fp))
       return EOF;
   return c;
-}
-
-/* This function isn't any longer declared in stdio.h, but it's
-   required for backward compatibility with applications built against
-   earlier dynamically built newlib libraries. */
-int
-_DEFUN(__swbuf, (c, fp),
-       register int c _AND
-       register FILE *fp)
-{
-  return __swbuf_r (_REENT, c, fp);
 }

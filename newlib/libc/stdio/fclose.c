@@ -33,7 +33,7 @@ TRAD_SYNOPSIS
 	#include <stdio.h>
 	int fclose(<[fp]>)
 	FILE *<[fp]>;
-
+        
 	int fclose(<[fp]>)
         struct _reent *<[reent]>
 	FILE *<[fp]>;
@@ -74,37 +74,27 @@ _DEFUN(_fclose_r, (rptr, fp),
   if (fp == NULL)
     return (0);			/* on NULL */
 
+  __sfp_lock_acquire ();
+
   CHECK_INIT (rptr, fp);
 
-  /* We can't use the _newlib_flockfile_XXX macros here due to the
-     interlocked locking with the sfp_lock. */
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-  int __oldcancel;
-  pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &__oldcancel);
-#endif
   _flockfile (fp);
-
+  
   if (fp->_flags == 0)		/* not open! */
     {
       _funlockfile (fp);
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-      pthread_setcancelstate (__oldcancel, &__oldcancel);
-#endif
+      __sfp_lock_release ();
       return (0);
     }
-  /* Unconditionally flush to allow special handling for seekable read
-     files to reposition file to last byte processed as opposed to
-     last byte read ahead into the buffer.  */
-  r = _fflush_r (rptr, fp);
-  if (fp->_close != NULL && fp->_close (rptr, fp->_cookie) < 0)
+  r = fp->_flags & __SWR ? fflush (fp) : 0;
+  if (fp->_close != NULL && (*fp->_close) (fp->_cookie) < 0)
     r = EOF;
   if (fp->_flags & __SMBF)
     _free_r (rptr, (char *) fp->_bf._base);
   if (HASUB (fp))
-    FREEUB (rptr, fp);
+    FREEUB (fp);
   if (HASLB (fp))
-    FREELB (rptr, fp);
-  __sfp_lock_acquire ();
+    FREELB (fp);
   fp->_flags = 0;		/* release this FILE for reuse */
   _funlockfile (fp);
 #ifndef __SINGLE_THREAD__
@@ -112,9 +102,6 @@ _DEFUN(_fclose_r, (rptr, fp),
 #endif
 
   __sfp_lock_release ();
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-  pthread_setcancelstate (__oldcancel, &__oldcancel);
-#endif
 
   return (r);
 }
@@ -129,3 +116,4 @@ _DEFUN(fclose, (fp),
 }
 
 #endif
+

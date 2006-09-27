@@ -46,21 +46,13 @@ _DEFUN(std, (ptr, flags, file, data),
   ptr->_r = 0;
   ptr->_w = 0;
   ptr->_flags = flags;
-  ptr->_flags2 = 0;
   ptr->_file = file;
   ptr->_bf._base = 0;
   ptr->_bf._size = 0;
   ptr->_lbfsize = 0;
-  memset (&ptr->_mbstate, 0, sizeof (_mbstate_t));
   ptr->_cookie = ptr;
   ptr->_read = __sread;
-#ifndef __LARGE64_FILES
   ptr->_write = __swrite;
-#else /* __LARGE64_FILES */
-  ptr->_write = __swrite64;
-  ptr->_seek64 = __sseek64;
-  ptr->_flags |= __SL64;
-#endif /* __LARGE64_FILES */
   ptr->_seek = __sseek;
   ptr->_close = __sclose;
 #if !defined(__SINGLE_THREAD__) && !defined(_REENT_SMALL)
@@ -108,7 +100,7 @@ _DEFUN(__sfp, (d),
   int n;
   struct _glue *g;
 
-  _newlib_sfp_lock_start ();
+  __sfp_lock_acquire (); 
 
   if (!_GLOBAL_REENT->__sdidinit)
     __sinit (_GLOBAL_REENT);
@@ -121,18 +113,17 @@ _DEFUN(__sfp, (d),
 	  (g->_next = __sfmoreglue (d, NDYNAMIC)) == NULL)
 	break;
     }
-  _newlib_sfp_lock_exit ();
+  __sfp_lock_release (); 
   d->_errno = ENOMEM;
   return NULL;
 
 found:
   fp->_file = -1;		/* no file */
   fp->_flags = 1;		/* reserve this slot; caller sets real flags */
-  fp->_flags2 = 0;
 #ifndef __SINGLE_THREAD__
   __lock_init_recursive (fp->_lock);
 #endif
-  _newlib_sfp_lock_end ();
+  __sfp_lock_release (); 
 
   fp->_p = NULL;		/* no current pointer */
   fp->_w = 0;			/* nothing to read or write */
@@ -140,7 +131,6 @@ found:
   fp->_bf._base = NULL;		/* no buffer */
   fp->_bf._size = 0;
   fp->_lbfsize = 0;		/* not line buffered */
-  memset (&fp->_mbstate, 0, sizeof (_mbstate_t));
   /* fp->_cookie = <any>; */	/* caller sets cookie, _read/_write etc */
   fp->_ub._base = NULL;		/* no ungetc buffer */
   fp->_ub._size = 0;
@@ -192,6 +182,7 @@ _DEFUN(__sinit, (s),
 
   /* make sure we clean up on exit */
   s->__cleanup = _cleanup_r;	/* conservative */
+  s->__sdidinit = 1;
 
   s->__sglue._next = NULL;
 #ifndef _REENT_SMALL
@@ -200,11 +191,6 @@ _DEFUN(__sinit, (s),
 #else
   s->__sglue._niobs = 0;
   s->__sglue._iobs = NULL;
-  /* Avoid infinite recursion when calling __sfp  for _GLOBAL_REENT.  The
-     problem is that __sfp checks for _GLOBAL_REENT->__sdidinit and calls
-     __sinit if it's 0. */
-  if (s == _GLOBAL_REENT)
-    s->__sdidinit = 1;
   s->_stdin = __sfp(s);
   s->_stdout = __sfp(s);
   s->_stderr = __sfp(s);
@@ -212,23 +198,16 @@ _DEFUN(__sinit, (s),
 
   std (s->_stdin,  __SRD, 0, s);
 
-  /* On platforms that have true file system I/O, we can verify
-     whether stdout is an interactive terminal or not, as part of
-     __smakebuf on first use of the stream.  For all other platforms,
-     we will default to line buffered mode here.  Technically, POSIX
-     requires both stdin and stdout to be line-buffered, but tradition
-     leaves stdin alone on systems without fcntl.  */
+  /* on platforms that have true file system I/O, we can verify whether stdout 
+     is an interactive terminal or not.  For all other platforms, we will
+     default to line buffered mode here.  */
 #ifdef HAVE_FCNTL
   std (s->_stdout, __SWR, 1, s);
 #else
   std (s->_stdout, __SWR | __SLBF, 1, s);
 #endif
 
-  /* POSIX requires stderr to be opened for reading and writing, even
-     when the underlying fd 2 is write-only.  */
-  std (s->_stderr, __SRW | __SNBF, 2, s);
-
-  s->__sdidinit = 1;
+  std (s->_stderr, __SWR | __SNBF, 2, s);
 
   __sinit_lock_release ();
 }
@@ -241,25 +220,25 @@ __LOCK_INIT_RECURSIVE(static, __sinit_lock);
 _VOID
 _DEFUN_VOID(__sfp_lock_acquire)
 {
-  __lock_acquire_recursive (__sfp_lock);
+  __lock_acquire_recursive (__sfp_lock); 
 }
 
 _VOID
 _DEFUN_VOID(__sfp_lock_release)
 {
-  __lock_release_recursive (__sfp_lock);
+  __lock_release_recursive (__sfp_lock); 
 }
 
 _VOID
 _DEFUN_VOID(__sinit_lock_acquire)
 {
-  __lock_acquire_recursive (__sinit_lock);
+  __lock_acquire_recursive (__sinit_lock); 
 }
 
 _VOID
 _DEFUN_VOID(__sinit_lock_release)
 {
-  __lock_release_recursive (__sinit_lock);
+  __lock_release_recursive (__sinit_lock); 
 }
 
 /* Walkable file locking routine.  */
@@ -285,7 +264,7 @@ _DEFUN(__fp_unlock, (ptr),
 _VOID
 _DEFUN_VOID(__fp_lock_all)
 {
-  __sfp_lock_acquire ();
+  __sfp_lock_acquire (); 
 
   _CAST_VOID _fwalk (_REENT, __fp_lock);
 }

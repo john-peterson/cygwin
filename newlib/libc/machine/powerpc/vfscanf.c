@@ -208,6 +208,8 @@ typedef union
   float f[4];
 } vec_union;
 
+/*static*/ u_char *__sccl ();
+
 /*
  * vfscanf
  */

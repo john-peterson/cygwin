@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1990 The Regents of the University of California.
+ * Copyright (c) 1990, 2006 The Regents of the University of California.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms are permitted
@@ -28,7 +28,7 @@ ANSI_SYNOPSIS
 	#include <stdio.h>
 	FILE *freopen64(const char *<[file]>, const char *<[mode]>,
 		        FILE *<[fp]>);
-	FILE *_freopen64_r(struct _reent *<[ptr]>, const char *<[file]>,
+	FILE *_freopen64_r(struct _reent *<[ptr]>, const char *<[file]>, 
 		        const char *<[mode]>, FILE *<[fp]>);
 
 TRAD_SYNOPSIS
@@ -78,7 +78,7 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/lock.h>
-#include "local.h"
+#include "local64.h"
 
 /*
  * Re-direct an existing, open (probably) file to some other file.
@@ -97,24 +97,17 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
   int flags, oflags;
   int e = 0;
 
+  __sfp_lock_acquire ();
 
   CHECK_INIT (ptr, fp);
 
-  /* We can't use the _newlib_flockfile_XXX macros here due to the
-     interlocked locking with the sfp_lock. */
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-  int __oldcancel;
-  pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &__oldcancel);
-#endif
-  _flockfile (fp);
+  _flockfile(fp);
 
   if ((flags = __sflags (ptr, mode, &oflags)) == 0)
     {
-      _funlockfile (fp);
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-      pthread_setcancelstate (__oldcancel, &__oldcancel);
-#endif
-      _fclose_r (ptr, fp);
+      _funlockfile(fp);
+      (void) _fclose_r (ptr, fp);
+      __sfp_lock_release ();
       return NULL;
     }
 
@@ -131,13 +124,13 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
   else
     {
       if (fp->_flags & __SWR)
-	_fflush_r (ptr, fp);
+	(void) fflush (fp);
       /*
        * If close is NULL, closing is a no-op, hence pointless.
        * If file is NULL, the file should not be closed.
        */
       if (fp->_close != NULL && file != NULL)
-	fp->_close (ptr, fp->_cookie);
+	(void) (*fp->_close) (fp->_cookie);
     }
 
   /*
@@ -161,10 +154,10 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
        */
       f = fp->_file;
       if ((oldflags = _fcntl_r (ptr, f, F_GETFL, 0)) == -1
-	  || ! ((oldflags & O_ACCMODE) == O_RDWR
-		|| ((oldflags ^ oflags) & O_ACCMODE) == 0)
-	  || _fcntl_r (ptr, f, F_SETFL, oflags) == -1)
-	f = -1;
+          || ! ((oldflags & O_ACCMODE) == O_RDWR
+                || ((oldflags ^ oflags) & O_ACCMODE) == 0)
+          || _fcntl_r (ptr, f, F_SETFL, oflags) == -1)
+        f = -1;
 #else
       /* We cannot modify without fcntl support.  */
       f = -1;
@@ -175,16 +168,16 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
        * F_SETFL doesn't change textmode.  Don't mess with modes of ttys.
        */
       if (0 <= f && ! isatty (f)
-	  && setmode (f, oflags & (O_BINARY | O_TEXT)) == -1)
-	f = -1;
+          && setmode (f, flags & (O_BINARY | O_TEXT)) == -1)
+        f = -1;
 #endif
 
       if (f < 0)
-	{
-	  e = EBADF;
-	  if (fp->_close != NULL)
-	    fp->_close (ptr, fp->_cookie);
-	}
+        {
+          e = EBADF;
+          if (fp->_close != NULL)
+            (void) (*fp->_close) (fp->_cookie);
+        }
     }
 
   /*
@@ -203,25 +196,21 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
   fp->_bf._size = 0;
   fp->_lbfsize = 0;
   if (HASUB (fp))
-    FREEUB (ptr, fp);
+    FREEUB (fp);
   fp->_ub._size = 0;
   if (HASLB (fp))
-    FREELB (ptr, fp);
+    FREELB (fp);
   fp->_lb._size = 0;
 
   if (f < 0)
     {				/* did not get it after all */
-      __sfp_lock_acquire ();
       fp->_flags = 0;		/* set it free */
       ptr->_errno = e;		/* restore in case _close clobbered */
-      _funlockfile (fp);
+      _funlockfile(fp);
 #ifndef __SINGLE_THREAD__
       __lock_close_recursive (fp->_lock);
 #endif
       __sfp_lock_release ();
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-      pthread_setcancelstate (__oldcancel, &__oldcancel);
-#endif
       return NULL;
     }
 
@@ -241,10 +230,8 @@ _DEFUN (_freopen64_r, (ptr, file, mode, fp),
 
   fp->_flags |= __SL64;
 
-  _funlockfile (fp);
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-  pthread_setcancelstate (__oldcancel, &__oldcancel);
-#endif
+  _funlockfile(fp);
+  __sfp_lock_release ();
   return fp;
 }
 

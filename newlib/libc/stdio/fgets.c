@@ -21,26 +21,14 @@ FUNCTION
 
 INDEX
 	fgets
-INDEX
-	_fgets_r
 
 ANSI_SYNOPSIS
         #include <stdio.h>
 	char *fgets(char *<[buf]>, int <[n]>, FILE *<[fp]>);
 
-        #include <stdio.h>
-	char *_fgets_r(struct _reent *<[ptr]>, char *<[buf]>, int <[n]>, FILE *<[fp]>);
-
 TRAD_SYNOPSIS
 	#include <stdio.h>
 	char *fgets(<[buf]>,<[n]>,<[fp]>)
-        char *<[buf]>;
-	int <[n]>;
-	FILE *<[fp]>;
-
-	#include <stdio.h>
-	char *_fgets_r(<[ptr]>, <[buf]>,<[n]>,<[fp]>)
-	struct _reent *<[ptr]>;
         char *<[buf]>;
 	int <[n]>;
 	FILE *<[fp]>;
@@ -50,9 +38,6 @@ DESCRIPTION
 	is found. The characters including to the newline are stored
 	in <[buf]>. The buffer is terminated with a 0.
 
-	The <<_fgets_r>> function is simply the reentrant version of
-	<<fgets>> and is passed an additional reentrancy structure
-	pointer: <[ptr]>.
 
 RETURNS
 	<<fgets>> returns the buffer passed to it, with the data
@@ -81,8 +66,7 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
  */
 
 char *
-_DEFUN(_fgets_r, (ptr, buf, n, fp),
-       struct _reent * ptr _AND
+_DEFUN(fgets, (buf, n, fp),
        char *buf _AND
        int n     _AND
        FILE * fp)
@@ -96,15 +80,15 @@ _DEFUN(_fgets_r, (ptr, buf, n, fp),
 
   s = buf;
 
-  CHECK_INIT(ptr, fp);
+  CHECK_INIT(_REENT, fp);
 
-  _newlib_flockfile_start (fp);
+  _flockfile (fp);
 #ifdef __SCLE
   if (fp->_flags & __SCLE)
     {
-      int c = 0;
+      int c;
       /* Sorry, have to do it the slow way */
-      while (--n > 0 && (c = __sgetc_r (ptr, fp)) != EOF)
+      while (--n > 0 && (c = __sgetc (fp)) != EOF)
 	{
 	  *s++ = c;
 	  if (c == '\n')
@@ -112,11 +96,11 @@ _DEFUN(_fgets_r, (ptr, buf, n, fp),
 	}
       if (c == EOF && s == buf)
         {
-          _newlib_flockfile_exit (fp);
+          _funlockfile (fp);
           return NULL;
         }
       *s = 0;
-      _newlib_flockfile_exit (fp);
+      _funlockfile (fp);
       return buf;
     }
 #endif
@@ -129,12 +113,12 @@ _DEFUN(_fgets_r, (ptr, buf, n, fp),
        */
       if ((len = fp->_r) <= 0)
 	{
-	  if (__srefill_r (ptr, fp))
+	  if (__srefill (fp))
 	    {
 	      /* EOF: stop with partial or no line */
 	      if (s == buf)
                 {
-                  _newlib_flockfile_exit (fp);
+                  _funlockfile (fp);
                   return 0;
                 }
 	      break;
@@ -159,7 +143,7 @@ _DEFUN(_fgets_r, (ptr, buf, n, fp),
 	  fp->_p = t;
 	  _CAST_VOID memcpy ((_PTR) s, (_PTR) p, len);
 	  s[len] = 0;
-          _newlib_flockfile_exit (fp);
+          _funlockfile (fp);
 	  return (buf);
 	}
       fp->_r -= len;
@@ -169,19 +153,6 @@ _DEFUN(_fgets_r, (ptr, buf, n, fp),
     }
   while ((n -= len) != 0);
   *s = 0;
-  _newlib_flockfile_end (fp);
+  _funlockfile (fp);
   return buf;
 }
-
-#ifndef _REENT_ONLY
-
-char *
-_DEFUN(fgets, (buf, n, fp),
-       char *buf _AND
-       int n     _AND
-       FILE * fp)
-{
-  return _fgets_r (_REENT, buf, n, fp);
-}
-
-#endif /* !_REENT_ONLY */

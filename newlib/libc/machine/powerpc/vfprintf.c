@@ -207,8 +207,7 @@ typedef union
  * then reset it so that it can be reused.
  */
 static int
-__sprint_r(rptr, fp, uio)
-	struct _reent *rptr;
+__sprint(fp, uio)
 	FILE *fp;
 	register struct __suio *uio;
 {
@@ -218,7 +217,7 @@ __sprint_r(rptr, fp, uio)
 		uio->uio_iovcnt = 0;
 		return (0);
 	}
-	err = __sfvwrite_r(rptr, fp, uio);
+	err = __sfvwrite(fp, uio);
 	uio->uio_resid = 0;
 	uio->uio_iovcnt = 0;
 	return (err);
@@ -230,8 +229,7 @@ __sprint_r(rptr, fp, uio)
  * worries about ungetc buffers and so forth.
  */
 static int
-__sbprintf_r(rptr, fp, fmt, ap)
-	struct _reent *rptr;
+__sbprintf(fp, fmt, ap)
 	register FILE *fp;
 	const char *fmt;
 	va_list ap;
@@ -252,8 +250,8 @@ __sbprintf_r(rptr, fp, fmt, ap)
 	fake._lbfsize = 0;	/* not actually used, but Just In Case */
 
 	/* do the work, then copy any error status */
-	ret = _VFPRINTF_R(rptr, &fake, fmt, ap);
-	if (ret >= 0 && _fflush_r(rptr, &fake))
+	ret = VFPRINTF(&fake, fmt, ap);
+	if (ret >= 0 && fflush(&fake))
 		ret = EOF;
 	if (fake._flags & __SERR)
 		fp->_flags |= __SERR;
@@ -368,12 +366,13 @@ _DEFUN (_VFPRINTF_R, (data, fp, fmt0, ap),
 #ifndef _NO_LONGLONG
 #define	quad_t	  long long
 #define	u_quad_t  unsigned long long
-#else
-#define quad_t    long
-#define u_quad_t  u_long
 #endif
 
+#ifndef _NO_LONGLONG
 	u_quad_t _uquad;	/* integer arguments %[diouxX] */
+#else
+	u_long _uquad;
+#endif
 	enum { OCT, DEC, HEX } base;/* base for [diouxX] conversion */
 	int dprec;		/* a copy of prec if [diouxX], 0 otherwise */
 	int realsz;		/* field size expanded by dprec */
@@ -411,7 +410,7 @@ _DEFUN (_VFPRINTF_R, (data, fp, fmt0, ap),
 	uio.uio_resid += (len); \
 	iovp++; \
 	if (++uio.uio_iovcnt >= NIOV) { \
-		if (__sprint_r(data, fp, &uio)) \
+		if (__sprint(fp, &uio)) \
 			goto error; \
 		iovp = iov; \
 	} \
@@ -426,7 +425,7 @@ _DEFUN (_VFPRINTF_R, (data, fp, fmt0, ap),
 	} \
 }
 #define	FLUSH() { \
-	if (uio.uio_resid && __sprint_r(data, fp, &uio)) \
+	if (uio.uio_resid && __sprint(fp, &uio)) \
 		goto error; \
 	uio.uio_iovcnt = 0; \
 	iovp = iov; \
@@ -521,15 +520,13 @@ _DEFUN (_VFPRINTF_R, (data, fp, fmt0, ap),
         memset (&state, '\0', sizeof (state));
 
 	/* sorry, fprintf(read_only_file, "") returns EOF, not 0 */
-	if (cantwrite (data, fp)) {
-		_funlockfile (fp);	
+	if (cantwrite(fp))
 		return (EOF);
-	}
 
 	/* optimise fprintf(stderr) (and other unbuffered Unix files) */
 	if ((fp->_flags & (__SNBF|__SWR|__SRW)) == (__SNBF|__SWR) &&
 	    fp->_file >= 0)
-		return (__sbprintf_r(data, fp, fmt0, ap));
+		return (__sbprintf(fp, fmt0, ap));
 
 	fmt = (char *)fmt0;
 	uio.uio_iov = iovp = iov;
@@ -540,10 +537,9 @@ _DEFUN (_VFPRINTF_R, (data, fp, fmt0, ap),
 	/*
 	 * Scan the format for conversions (`%' character).
 	 */
-
 	for (;;) {
 	        cp = fmt;
-	        while ((n = _mbtowc_r(data, &wc, fmt, MB_CUR_MAX, &state)) > 0) {
+	        while ((n = _mbtowc_r(_REENT, &wc, fmt, MB_CUR_MAX, &state)) > 0) {
 			fmt += n;
 			if (wc == '%') {
 				fmt--;
@@ -754,9 +750,14 @@ reswitch:	switch (ch) {
 			  }
 #endif /* __ALTIVEC__ */
 			_uquad = SARG();
+#ifndef _NO_LONGLONG
 			if ((quad_t)_uquad < 0)
+#else
+			if ((long) _uquad < 0)
+#endif
 			{
-				_uquad = -(quad_t)_uquad;
+
+				_uquad = -_uquad;
 				old_sign = sign;
 				sign = '-';
 			}
@@ -902,11 +903,11 @@ reswitch:	switch (ch) {
 			    _uquad = -(quad_t)_uquad;
 			  }
 			if (flags & SHORTINT)
-			  _uquad <<= (sizeof(quad_t) - sizeof(short)) * 8 + 1;
+			  _uquad <<= 49;
 			else if (flags & LONGINT)
 			  _uquad <<= 1;
 			else
-			  _uquad <<= (sizeof(quad_t) - sizeof(long)) * 8 + 1;
+			  _uquad <<= 33;
 
 			if (_uquad == 0 && sign)
 			  {
@@ -922,19 +923,15 @@ reswitch:	switch (ch) {
 		        flags |= FIXEDPOINT;
 		        _uquad = UFPARG();
 			if (flags & SHORTINT)
-			  _uquad <<= (sizeof(quad_t) - sizeof(short)) * 8;
+			  _uquad <<= 48;
 			else if (!(flags & LONGINT))
-			  _uquad <<= (sizeof(quad_t) - sizeof(long)) * 8;
+			  _uquad <<= 32;
 	
 fixed_nosign:
 			if (prec == -1)
 			  prec = DEFPREC;
 
-#ifndef _NO_LONGLONG
 			cp = cvt_ufix64 (data, _uquad, prec, &expt, &ndig);
-#else
-			cp = cvs_ufix32 (data, _uquad, prec, &expt, &ndig);
-#endif
 
 			/* act like %f of format "0.X" */
 			size = prec + 2;

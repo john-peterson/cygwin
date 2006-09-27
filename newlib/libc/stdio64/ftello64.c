@@ -60,7 +60,7 @@ An error occurs if the <[fp]> was not opened via <<fopen64>>.
 RETURNS
 <<ftello64>> returns the file position, if possible.  If it cannot do
 this, it returns <<-1>>.  Failure occurs on streams that do not support
-positioning or not opened via <<fopen64>>; the global <<errno>> indicates
+positioning or not opened via <<fopen64>>; the global <<errno>> indicates 
 this condition with the value <<ESPIPE>>.
 
 PORTABILITY
@@ -80,7 +80,7 @@ static char sccsid[] = "%W% (Berkeley) %G%";
 #include <stdio.h>
 #include <errno.h>
 
-#include "local.h"
+#include "local64.h"
 
 #ifdef __LARGE64_FILES
 
@@ -91,37 +91,30 @@ _DEFUN (_ftello64_r, (ptr, fp),
 {
   _fpos64_t pos;
 
-  /* Only do 64-bit tell on large file.  */
-  if (!(fp->_flags & __SL64))
-    return (_off64_t) _ftello_r (ptr, fp);
-
   /* Ensure stdio is set up.  */
 
   CHECK_INIT (ptr, fp);
 
-  _newlib_flockfile_start(fp);
+  _flockfile(fp);
 
   if (fp->_seek64 == NULL)
     {
       ptr->_errno = ESPIPE;
-      _newlib_flockfile_exit(fp);
+      _funlockfile(fp);
       return -1L;
     }
 
-  /* Find offset of underlying I/O object, then adjust for buffered
-     bytes.  Flush a write stream, since the offset may be altered if
-     the stream is appending.  Do not flush a read stream, since we
-     must not lose the ungetc buffer.  */
-  if (fp->_flags & __SWR)
-    _fflush_r (ptr, fp);
+  /* Find offset of underlying I/O object, then
+     adjust for buffered bytes.  */
+  fflush(fp);           /* may adjust seek offset on append stream */
   if (fp->_flags & __SOFF)
     pos = fp->_offset;
   else
     {
-      pos = fp->_seek64 (ptr, fp->_cookie, (_fpos64_t) 0, SEEK_CUR);
+      pos = (*fp->_seek64) (fp->_cookie, (_fpos64_t) 0, SEEK_CUR);
       if (pos == -1L)
         {
-          _newlib_flockfile_exit(fp);
+          _funlockfile(fp);
           return pos;
         }
     }
@@ -146,7 +139,7 @@ _DEFUN (_ftello64_r, (ptr, fp),
       pos += fp->_p - fp->_bf._base;
     }
 
-  _newlib_flockfile_end(fp);
+  _funlockfile(fp);
   return pos;
 }
 
