@@ -28,12 +28,11 @@
  *   1 : errno
  */
 
-int gettimeofday (struct timeval *tv, void *tzvp)
+int gettimeofday (struct timeval *tv, struct timezone *tz)
 {
 #if HOSTED
   gdb_parambuf_t parameters;
   struct gdb_timeval gtv;
-  struct timezone *tz = tzvp;
   if (!tv)
     return 0;
   if (tz)

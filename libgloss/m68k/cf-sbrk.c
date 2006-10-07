@@ -22,15 +22,14 @@
  */
 
 extern char __end[] __attribute__ ((aligned (4)));
-
-/* End of heap, if non NULL.  */
-extern void *__heap_limit;
+/* Optional explicit end of heap.  */
+extern char __heap_end[] __attribute__ ((aligned (4), weak));
 
 void *
 sbrk (int nbytes)
 {
   static char *heap = __end;
-  char *end = __heap_limit;
+  char *end = __heap_end;
   char *base = heap;
   char *new_heap = heap + nbytes;
   
