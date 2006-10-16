@@ -33,11 +33,11 @@
 #include "sysdep.h"
 #include "bfd.h"
 
+/* Undefine the BFD PACKAGE and VERSION macros before including the
+   gprof config.h file.  */
 #undef PACKAGE
-#undef PACKAGE_NAME
-#undef PACKAGE_STRING
-#undef PACKAGE_TARNAME
-#undef PACKAGE_VERSION
+#undef VERSION
+
 #include "gconfig.h"
 
 #ifndef MIN
@@ -119,6 +119,7 @@ extern int output_style;
 extern int output_width;		/* controls column width in index */
 extern bfd_boolean bsd_style_output;	/* as opposed to FSF style output */
 extern bfd_boolean demangle;		/* demangle symbol names? */
+extern bfd_boolean discard_underscores;	/* discard leading underscores? */
 extern bfd_boolean ignore_direct_calls;	/* don't count direct calls */
 extern bfd_boolean ignore_static_funcs;	/* suppress static functions */
 extern bfd_boolean ignore_zeros;	/* ignore unused symbols/files */

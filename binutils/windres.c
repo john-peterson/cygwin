@@ -1,14 +1,13 @@
 /* windres.c -- a program to manipulate Windows resources
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008,
-   2009, 2011, 2012 Free Software Foundation, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
+   Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Cygnus Support.
-   Rewritten by Kai Tietz, Onevision.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -35,7 +34,10 @@
 
    * The res2coff program, written by Pedro A. Aranda <paag@tid.es>.  */
 
-#include "sysdep.h"
+#include "config.h"
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 #include <assert.h>
 #include <time.h>
 #include "bfd.h"
@@ -49,11 +51,6 @@
 /* Used by resrc.c at least.  */
 
 int verbose = 0;
-
-int target_is_bigendian = 0;
-const char *def_target_arch;
-
-static void set_endianness (bfd *, const char *);
 
 /* An enumeration of format types.  */
 
@@ -112,22 +109,14 @@ static struct include_dir *include_dirs;
 /* Static functions.  */
 
 static void res_init (void);
-static int extended_menuitems (const rc_menuitem *);
+static int extended_menuitems (const struct menuitem *);
 static enum res_format format_from_name (const char *, int);
 static enum res_format format_from_filename (const char *, int);
 static void usage (FILE *, int);
 static int cmp_res_entry (const void *, const void *);
-static rc_res_directory *sort_resources (rc_res_directory *);
+static struct res_directory *sort_resources (struct res_directory *);
 static void reswr_init (void);
 static const char * quot (const char *);
-
-static rc_uint_type target_get_8 (const void *, rc_uint_type);
-static void target_put_8 (void *, rc_uint_type);
-static rc_uint_type target_get_16 (const void *, rc_uint_type);
-static void target_put_16 (void *, rc_uint_type);
-static rc_uint_type target_get_32 (const void *, rc_uint_type);
-static void target_put_32 (void *, rc_uint_type);
-
 
 /* When we are building a resource tree, we allocate everything onto
    an obstack, so that we can free it all at once if we want.  */
@@ -150,9 +139,9 @@ res_init (void)
 /* Allocate space on the resource building obstack.  */
 
 void *
-res_alloc (rc_uint_type bytes)
+res_alloc (size_t bytes)
 {
-  return obstack_alloc (&res_obstack, (size_t) bytes);
+  return (void *) obstack_alloc (&res_obstack, bytes);
 }
 
 /* We also use an obstack to save memory used while writing out a set
@@ -171,9 +160,9 @@ reswr_init (void)
 /* Allocate space on the resource writing obstack.  */
 
 void *
-reswr_alloc (rc_uint_type bytes)
+reswr_alloc (size_t bytes)
 {
-  return obstack_alloc (&reswr_obstack, (size_t) bytes);
+  return (void *) obstack_alloc (&reswr_obstack, bytes);
 }
 
 /* Open a file using the include directory search list.  */
@@ -223,7 +212,7 @@ open_file_search (const char *filename, const char *mode, const char *errmsg,
    section.  */
 
 int
-res_id_cmp (rc_res_id a, rc_res_id b)
+res_id_cmp (struct res_id a, struct res_id b)
 {
   if (! a.named)
     {
@@ -271,23 +260,24 @@ res_id_cmp (rc_res_id a, rc_res_id b)
 /* Print a resource ID.  */
 
 void
-res_id_print (FILE *stream, rc_res_id id, int quote)
+res_id_print (FILE *stream, struct res_id id, int quote)
 {
   if (! id.named)
-    fprintf (stream, "%u", (int) id.u.id);
+    fprintf (stream, "%lu", id.u.id);
   else
     {
       if (quote)
-	unicode_print_quoted (stream, id.u.n.name, id.u.n.length);
-      else
+	putc ('"', stream);
       unicode_print (stream, id.u.n.name, id.u.n.length);
+      if (quote)
+	putc ('"', stream);
     }
 }
 
 /* Print a list of resource ID's.  */
 
 void
-res_ids_print (FILE *stream, int cids, const rc_res_id *ids)
+res_ids_print (FILE *stream, int cids, const struct res_id *ids)
 {
   int i;
 
@@ -302,52 +292,43 @@ res_ids_print (FILE *stream, int cids, const rc_res_id *ids)
 /* Convert an ASCII string to a resource ID.  */
 
 void
-res_string_to_id (rc_res_id *res_id, const char *string)
+res_string_to_id (struct res_id *res_id, const char *string)
 {
   res_id->named = 1;
   unicode_from_ascii (&res_id->u.n.length, &res_id->u.n.name, string);
 }
 
-/* Convert an unicode string to a resource ID.  */
-void
-res_unistring_to_id (rc_res_id *res_id, const unichar *u)
-{
-  res_id->named = 1;
-  res_id->u.n.length = unichar_len (u);
-  res_id->u.n.name = unichar_dup_uppercase (u);
-}
-
 /* Define a resource.  The arguments are the resource tree, RESOURCES,
    and the location at which to put it in the tree, CIDS and IDS.
-   This returns a newly allocated rc_res_resource structure, which the
+   This returns a newly allocated res_resource structure, which the
    caller is expected to initialize.  If DUPOK is non-zero, then if a
    resource with this ID exists, it is returned.  Otherwise, a warning
    is issued, and a new resource is created replacing the existing
    one.  */
 
-rc_res_resource *
-define_resource (rc_res_directory **resources, int cids,
-		 const rc_res_id *ids, int dupok)
+struct res_resource *
+define_resource (struct res_directory **resources, int cids,
+		 const struct res_id *ids, int dupok)
 {
-  rc_res_entry *re = NULL;
+  struct res_entry *re = NULL;
   int i;
 
   assert (cids > 0);
   for (i = 0; i < cids; i++)
     {
-      rc_res_entry **pp;
+      struct res_entry **pp;
 
       if (*resources == NULL)
 	{
-	  static unsigned int timeval;
+	  static unsigned long timeval;
 
 	  /* Use the same timestamp for every resource created in a
              single run.  */
 	  if (timeval == 0)
 	    timeval = time (NULL);
 
-	  *resources = ((rc_res_directory *)
-			res_alloc (sizeof (rc_res_directory)));
+	  *resources = ((struct res_directory *)
+			res_alloc (sizeof **resources));
 	  (*resources)->characteristics = 0;
 	  (*resources)->time = timeval;
 	  (*resources)->major = 0;
@@ -363,7 +344,7 @@ define_resource (rc_res_directory **resources, int cids,
 	re = *pp;
       else
 	{
-	  re = (rc_res_entry *) res_alloc (sizeof (rc_res_entry));
+	  re = (struct res_entry *) res_alloc (sizeof *re);
 	  re->next = NULL;
 	  re->id = ids[i];
 	  if ((i + 1) < cids)
@@ -412,9 +393,9 @@ define_resource (rc_res_directory **resources, int cids,
       fprintf (stderr, _(": duplicate value\n"));
     }
 
-  re->u.res = ((rc_res_resource *)
-	       res_alloc (sizeof (rc_res_resource)));
-  memset (re->u.res, 0, sizeof (rc_res_resource));
+  re->u.res = ((struct res_resource *)
+	       res_alloc (sizeof (struct res_resource)));
+  memset (re->u.res, 0, sizeof (struct res_resource));
 
   re->u.res->type = RES_TYPE_UNINITIALIZED;
   return re->u.res;
@@ -423,11 +404,11 @@ define_resource (rc_res_directory **resources, int cids,
 /* Define a standard resource.  This is a version of define_resource
    that just takes type, name, and language arguments.  */
 
-rc_res_resource *
-define_standard_resource (rc_res_directory **resources, int type,
-			  rc_res_id name, rc_uint_type language, int dupok)
+struct res_resource *
+define_standard_resource (struct res_directory **resources, int type,
+			  struct res_id name, int language, int dupok)
 {
-  rc_res_id a[3];
+  struct res_id a[3];
 
   a[0].named = 0;
   a[0].u.id = type;
@@ -442,21 +423,21 @@ define_standard_resource (rc_res_directory **resources, int type,
 static int
 cmp_res_entry (const void *p1, const void *p2)
 {
-  const rc_res_entry **re1, **re2;
+  const struct res_entry **re1, **re2;
 
-  re1 = (const rc_res_entry **) p1;
-  re2 = (const rc_res_entry **) p2;
+  re1 = (const struct res_entry **) p1;
+  re2 = (const struct res_entry **) p2;
   return res_id_cmp ((*re1)->id, (*re2)->id);
 }
 
 /* Sort the resources.  */
 
-static rc_res_directory *
-sort_resources (rc_res_directory *resdir)
+static struct res_directory *
+sort_resources (struct res_directory *resdir)
 {
   int c, i;
-  rc_res_entry *re;
-  rc_res_entry **a;
+  struct res_entry *re;
+  struct res_entry **a;
 
   if (resdir->entries == NULL)
     return resdir;
@@ -467,12 +448,12 @@ sort_resources (rc_res_directory *resdir)
 
   /* This is a recursive routine, so using xmalloc is probably better
      than alloca.  */
-  a = (rc_res_entry **) xmalloc (c * sizeof (rc_res_entry *));
+  a = (struct res_entry **) xmalloc (c * sizeof (struct res_entry *));
 
   for (i = 0, re = resdir->entries; re != NULL; re = re->next, i++)
     a[i] = re;
 
-  qsort (a, c, sizeof (rc_res_entry *), cmp_res_entry);
+  qsort (a, c, sizeof (struct res_entry *), cmp_res_entry);
 
   resdir->entries = a[0];
   for (i = 0; i < c - 1; i++)
@@ -494,9 +475,9 @@ sort_resources (rc_res_directory *resdir)
    DIALOGEX.  */
 
 int
-extended_dialog (const rc_dialog *dialog)
+extended_dialog (const struct dialog *dialog)
 {
-  const rc_dialog_control *c;
+  const struct dialog_control *c;
 
   if (dialog->ex != NULL)
     return 1;
@@ -511,15 +492,15 @@ extended_dialog (const rc_dialog *dialog)
 /* Return whether MENUITEMS are a MENU or a MENUEX.  */
 
 int
-extended_menu (const rc_menu *menu)
+extended_menu (const struct menu *menu)
 {
   return extended_menuitems (menu->items);
 }
 
 static int
-extended_menuitems (const rc_menuitem *menuitems)
+extended_menuitems (const struct menuitem *menuitems)
 {
-  const rc_menuitem *mi;
+  const struct menuitem *mi;
 
   for (mi = menuitems; mi != NULL; mi = mi->next)
     {
@@ -578,7 +559,7 @@ format_from_filename (const char *filename, int input)
 {
   const char *ext;
   FILE *e;
-  bfd_byte b1, b2, b3, b4, b5;
+  unsigned char b1, b2, b3, b4, b5;
   int magic;
 
   /* If we have an extension, see if we recognize it as implying a
@@ -664,12 +645,10 @@ usage (FILE *stream, int status)
   -O --output-format=<format>  Specify output format\n\
   -F --target=<target>         Specify COFF target\n\
      --preprocessor=<program>  Program to use to preprocess rc file\n\
-     --preprocessor-arg=<arg>  Additional preprocessor argument\n\
   -I --include-dir=<dir>       Include directory when preprocessing rc file\n\
   -D --define <sym>[=<val>]    Define SYM when preprocessing rc file\n\
   -U --undefine <sym>          Undefine SYM when preprocessing rc file\n\
   -v --verbose                 Verbose - tells you what it's doing\n\
-  -c --codepage=<codepage>     Specify default codepage\n\
   -l --language=<val>          Set language when reading rc file\n\
      --use-temp-file           Use a temporary file instead of popen to read\n\
                                the preprocessor output\n\
@@ -707,7 +686,7 @@ quot (const char *string)
   const char *src;
   char *dest;
 
-  if ((buflen < slen * 2 + 2) || ! buf)
+  if ((buflen < slen * 2 + 2) || !buf)
     {
       buflen = slen * 2 + 2;
       if (buf)
@@ -727,16 +706,12 @@ quot (const char *string)
 
 /* Long options.  */
 
-enum option_values
-{
-  /* 150 isn't special; it's just an arbitrary non-ASCII char value.  */
-  OPTION_PREPROCESSOR	= 150,
-  OPTION_USE_TEMP_FILE,
-  OPTION_NO_USE_TEMP_FILE,
-  OPTION_YYDEBUG,
-  OPTION_INCLUDE_DIR,
-  OPTION_PREPROCESSOR_ARG
-};
+/* 150 isn't special; it's just an arbitrary non-ASCII char value.  */
+
+#define OPTION_PREPROCESSOR	150
+#define OPTION_USE_TEMP_FILE	(OPTION_PREPROCESSOR + 1)
+#define OPTION_NO_USE_TEMP_FILE	(OPTION_USE_TEMP_FILE + 1)
+#define OPTION_YYDEBUG		(OPTION_NO_USE_TEMP_FILE + 1)
 
 static const struct option long_options[] =
 {
@@ -746,12 +721,10 @@ static const struct option long_options[] =
   {"output-format", required_argument, 0, 'O'},
   {"target", required_argument, 0, 'F'},
   {"preprocessor", required_argument, 0, OPTION_PREPROCESSOR},
-  {"preprocessor-arg", required_argument, 0, OPTION_PREPROCESSOR_ARG},
-  {"include-dir", required_argument, 0, OPTION_INCLUDE_DIR},
+  {"include-dir", required_argument, 0, 'I'},
   {"define", required_argument, 0, 'D'},
   {"undefine", required_argument, 0, 'U'},
   {"verbose", no_argument, 0, 'v'},
-  {"codepage", required_argument, 0, 'c'},
   {"language", required_argument, 0, 'l'},
   {"use-temp-file", no_argument, 0, OPTION_USE_TEMP_FILE},
   {"no-use-temp-file", no_argument, 0, OPTION_NO_USE_TEMP_FILE},
@@ -760,26 +733,6 @@ static const struct option long_options[] =
   {"help", no_argument, 0, 'h'},
   {0, no_argument, 0, 0}
 };
-
-void
-windres_add_include_dir (const char *p)
-{
-  struct include_dir *n, **pp;
-
-  /* Computing paths is often complicated and error prone.
-     The easiest way to check for mistakes is at the time
-     we add them to include_dirs.  */
-  assert (p != NULL);
-  assert (*p != '\0');
-
-  n = xmalloc (sizeof *n);
-  n->next = NULL;
-  n->dir = (char * ) p;
-
-  for (pp = &include_dirs; *pp != NULL; pp = &(*pp)->next)
-    ;
-  *pp = n;
-}
 
 /* This keeps gcc happy when using -Wmissing-prototypes -Wstrict-prototypes.  */
 int main (int, char **);
@@ -800,7 +753,7 @@ main (int argc, char **argv)
   char *preprocargs;
   const char *quotedarg;
   int language;
-  rc_res_directory *resources;
+  struct res_directory *resources;
   int use_temp_file;
 
 #if defined (HAVE_SETLOCALE) && defined (HAVE_LC_MESSAGES)
@@ -832,25 +785,11 @@ main (int argc, char **argv)
   language = 0x409;   /* LANG_ENGLISH, SUBLANG_ENGLISH_US.  */
   use_temp_file = 0;
 
-  while ((c = getopt_long (argc, argv, "c:f:i:l:o:I:J:O:F:D:U:rhHvV", long_options,
+  while ((c = getopt_long (argc, argv, "f:i:l:o:I:J:O:F:D:U:rhHvV", long_options,
 			   (int *) 0)) != EOF)
     {
       switch (c)
 	{
-	case 'c':
-	  {
-	    rc_uint_type ncp;
-
-	    if (optarg[0] == '0' && (optarg[1] == 'x' || optarg[1] == 'X'))
-	      ncp = (rc_uint_type) strtol (optarg + 2, NULL, 16);
-	    else
-	      ncp = (rc_uint_type) strtol (optarg, NULL, 10);
-	    if (ncp == CP_UTF16 || ! unicode_is_valid_codepage (ncp))
-	      fatal (_("invalid codepage specified.\n"));
-	    wind_default_codepage = wind_current_codepage = ncp;
-	  }
-	  break;
-
 	case 'i':
 	  input_filename = optarg;
 	  break;
@@ -891,24 +830,6 @@ main (int argc, char **argv)
 	  preprocessor = optarg;
 	  break;
 
-	case OPTION_PREPROCESSOR_ARG:
-	  if (preprocargs == NULL)
-	    {
-	      quotedarg = quot (optarg);
-	      preprocargs = xstrdup (quotedarg);
-	    }
-	  else
-	    {
-	      char *n;
-
-	      quotedarg = quot (optarg);
-	      n = xmalloc (strlen (preprocargs) + strlen (quotedarg) + 2);
-	      sprintf (n, "%s %s", preprocargs, quotedarg);
-	      free (preprocargs);
-	      preprocargs = n;
-	    }
-	  break;
-
 	case 'D':
 	case 'U':
 	  if (preprocargs == NULL)
@@ -942,27 +863,11 @@ main (int argc, char **argv)
 	  input_format_tmp = format_from_name (optarg, 0);
 	  if (input_format_tmp != RES_FORMAT_UNKNOWN)
 	    {
-	      struct stat statbuf;
-	      char modebuf[11];
-	      
-	      if (stat (optarg, & statbuf) == 0
-		  /* Coded this way to avoid importing knowledge of S_ISDIR into this file.  */
-		  && (mode_string (statbuf.st_mode, modebuf), modebuf[0] == 'd'))
-		/* We have a -I option with a directory name that just happens
-		   to match a format name as well.  eg: -I res  Assume that the
-		   user knows what they are doing and do not complain.  */
-		;
-	      else
-		{
-		  fprintf (stderr,
-			   _("Option -I is deprecated for setting the input format, please use -J instead.\n"));
-		  input_format = input_format_tmp;
-		  break;
-		}
+	      fprintf (stderr, _("Option -I is deprecated for setting the input format, please use -J instead.\n"));
+	      input_format = input_format_tmp;
+	      break;
 	    }
-	  /* Fall through.  */
 
-	case OPTION_INCLUDE_DIR:
 	  if (preprocargs == NULL)
 	    {
 	      quotedarg = quot (optarg);
@@ -980,7 +885,17 @@ main (int argc, char **argv)
 	      preprocargs = n;
 	    }
 
-	  windres_add_include_dir (optarg);
+	  {
+	    struct include_dir *n, **pp;
+
+	    n = (struct include_dir *) xmalloc (sizeof *n);
+	    n->next = NULL;
+	    n->dir = optarg;
+
+	    for (pp = &include_dirs; *pp != NULL; pp = &(*pp)->next)
+	      ;
+	    *pp = n;
+	  }
 
 	  break;
 
@@ -1048,8 +963,6 @@ main (int argc, char **argv)
 	output_format = format_from_filename (output_filename, 0);
     }
 
-  set_endianness (NULL, target);
-
   /* Read the input file.  */
   switch (input_format)
     {
@@ -1094,320 +1007,4 @@ main (int argc, char **argv)
 
   xexit (0);
   return 0;
-}
-
-static void
-set_endianness (bfd *abfd, const char *target)
-{
-  const bfd_target *target_vec;
-
-  def_target_arch = NULL;
-  target_vec = bfd_get_target_info (target, abfd, &target_is_bigendian, NULL,
-                                   &def_target_arch);
-  if (! target_vec)
-    fatal ("Can't detect target endianness and architecture.");
-  if (! def_target_arch)
-    fatal ("Can't detect architecture.");
-}
-
-bfd *
-windres_open_as_binary (const char *filename, int rdmode)
-{
-  bfd *abfd;
-
-  abfd = (rdmode ? bfd_openr (filename, "binary") : bfd_openw (filename, "binary"));
-  if (! abfd)
-    fatal ("can't open `%s' for %s", filename, (rdmode ? "input" : "output"));
-
-  if (rdmode && ! bfd_check_format (abfd, bfd_object))
-    fatal ("can't open `%s' for input.", filename);
-  
-  return abfd;
-}
-
-void
-set_windres_bfd_endianness (windres_bfd *wrbfd, int is_bigendian)
-{
-  assert (!! wrbfd);
-  switch (WR_KIND(wrbfd))
-  {
-  case WR_KIND_BFD_BIN_L:
-    if (is_bigendian)
-      WR_KIND(wrbfd) = WR_KIND_BFD_BIN_B;
-    break;
-  case WR_KIND_BFD_BIN_B:
-    if (! is_bigendian)
-      WR_KIND(wrbfd) = WR_KIND_BFD_BIN_L;
-    break;
-  default:
-    /* only binary bfd can be overriden. */
-    abort ();
-  }
-}
-
-void
-set_windres_bfd (windres_bfd *wrbfd, bfd *abfd, asection *sec, rc_uint_type kind)
-{
-  assert (!! wrbfd);
-  switch (kind)
-  {
-  case WR_KIND_TARGET:
-    abfd = NULL;
-    sec = NULL;
-    break;
-  case WR_KIND_BFD:
-  case WR_KIND_BFD_BIN_L:
-  case WR_KIND_BFD_BIN_B:
-    assert (!! abfd);
-    assert (!!sec);
-    break;
-  default:
-    abort ();
-  }
-  WR_KIND(wrbfd) = kind;
-  WR_BFD(wrbfd) = abfd;
-  WR_SECTION(wrbfd) = sec;
-}
-
-void
-set_windres_bfd_content (windres_bfd *wrbfd, const void *data, rc_uint_type off,
-			 rc_uint_type length)
-{
-  if (WR_KIND(wrbfd) != WR_KIND_TARGET)
-    {
-      if (! bfd_set_section_contents (WR_BFD(wrbfd), WR_SECTION(wrbfd), data, off, length))
-	bfd_fatal ("bfd_set_section_contents");
-    }
-  else
-    abort ();
-}
-
-void
-get_windres_bfd_content (windres_bfd *wrbfd, void *data, rc_uint_type off,
-			 rc_uint_type length)
-{
-  if (WR_KIND(wrbfd) != WR_KIND_TARGET)
-    {
-      if (! bfd_get_section_contents (WR_BFD(wrbfd), WR_SECTION(wrbfd), data, off, length))
-	bfd_fatal ("bfd_get_section_contents");
-    }
-  else
-    abort ();
-}
-
-void
-windres_put_8 (windres_bfd *wrbfd, void *p, rc_uint_type value)
-{
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      target_put_8 (p, value);
-      break;
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_L:
-    case WR_KIND_BFD_BIN_B:
-      bfd_put_8 (WR_BFD(wrbfd), value, p);
-      break;
-    default:
-      abort ();
-    }
-}
-
-void
-windres_put_16 (windres_bfd *wrbfd, void *data, rc_uint_type value)
-{
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      target_put_16 (data, value);
-      break;
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_B:
-      bfd_put_16 (WR_BFD(wrbfd), value, data);
-      break;
-    case WR_KIND_BFD_BIN_L:
-      bfd_putl16 (value, data);
-      break;
-    default:
-      abort ();
-    }
-}
-
-void
-windres_put_32 (windres_bfd *wrbfd, void *data, rc_uint_type value)
-{
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      target_put_32 (data, value);
-      break;
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_B:
-      bfd_put_32 (WR_BFD(wrbfd), value, data);
-      break;
-    case WR_KIND_BFD_BIN_L:
-      bfd_putl32 (value, data);
-      break;
-    default:
-      abort ();
-    }
-}
-
-rc_uint_type
-windres_get_8 (windres_bfd *wrbfd, const void *data, rc_uint_type length)
-{
-  if (length < 1)
-    fatal ("windres_get_8: unexpected eob.");
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      return target_get_8 (data, length);
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_B:
-    case WR_KIND_BFD_BIN_L:
-      return bfd_get_8 (WR_BFD(wrbfd), data);
-    default:
-      abort ();
-    }
-  return 0;
-}
-
-rc_uint_type
-windres_get_16 (windres_bfd *wrbfd, const void *data, rc_uint_type length)
-{
-  if (length < 2)
-    fatal ("windres_get_16: unexpected eob.");
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      return target_get_16 (data, length);
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_B:
-      return bfd_get_16 (WR_BFD(wrbfd), data);
-    case WR_KIND_BFD_BIN_L:
-      return bfd_getl16 (data);
-    default:
-      abort ();
-    }
-  return 0;
-}
-
-rc_uint_type
-windres_get_32 (windres_bfd *wrbfd, const void *data, rc_uint_type length)
-{
-  if (length < 4)
-    fatal ("windres_get_32: unexpected eob.");
-  switch (WR_KIND(wrbfd))
-    {
-    case WR_KIND_TARGET:
-      return target_get_32 (data, length);
-    case WR_KIND_BFD:
-    case WR_KIND_BFD_BIN_B:
-      return bfd_get_32 (WR_BFD(wrbfd), data);
-    case WR_KIND_BFD_BIN_L:
-      return bfd_getl32 (data);
-    default:
-      abort ();
-    }
-  return 0;
-}
-
-static rc_uint_type
-target_get_8 (const void *p, rc_uint_type length)
-{
-  rc_uint_type ret;
-  
-  if (length < 1)
-    fatal ("Resource too small for getting 8-bit value.");
-
-  ret = (rc_uint_type) *((const bfd_byte *) p);
-  return ret & 0xff;
-}
-
-static rc_uint_type
-target_get_16 (const void *p, rc_uint_type length)
-{
-  if (length < 2)
-    fatal ("Resource too small for getting 16-bit value.");
-  
-  if (target_is_bigendian)
-    return bfd_getb16 (p);
-  else
-    return bfd_getl16 (p);
-}
-
-static rc_uint_type
-target_get_32 (const void *p, rc_uint_type length)
-{
-  if (length < 4)
-    fatal ("Resource too small for getting 32-bit value.");
-  
-  if (target_is_bigendian)
-    return bfd_getb32 (p);
-  else
-    return bfd_getl32 (p);
-}
-
-static void
-target_put_8 (void *p, rc_uint_type value)
-{
-  assert (!! p);
-  *((bfd_byte *) p)=(bfd_byte) value;
-}
-
-static void
-target_put_16 (void *p, rc_uint_type value)
-{
-  assert (!! p);
-  
-  if (target_is_bigendian)
-    bfd_putb16 (value, p);
-  else
-    bfd_putl16 (value, p);
-}
-
-static void
-target_put_32 (void *p, rc_uint_type value)
-{
-  assert (!! p);
-  
-  if (target_is_bigendian)
-    bfd_putb32 (value, p);
-  else
-    bfd_putl32 (value, p);
-}
-
-static int isInComment = 0;
-
-int wr_printcomment (FILE *e, const char *fmt, ...)
-{
-  va_list arg;
-  int r = 0;
-
-  if (isInComment)
-    r += fprintf (e, "\n   ");
-  else
-    fprintf (e, "/* ");
-  isInComment = 1;
-  if (fmt == NULL)
-    return r;
-  va_start (arg, fmt);
-  r += vfprintf (e, fmt, arg);
-  va_end (arg);
-  return r;
-}
-
-int wr_print (FILE *e, const char *fmt, ...)
-{
-  va_list arg;
-  int r = 0;
-  if (isInComment)
-    r += fprintf (e, ".  */\n");
-  isInComment = 0;
-  if (! fmt)
-    return r;
-  va_start (arg, fmt);
-  r += vfprintf (e, fmt, arg);
-  va_end (arg);
-  return r;    
 }

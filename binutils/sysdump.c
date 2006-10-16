@@ -1,12 +1,12 @@
 /* Sysroff object format dumper.
-   Copyright 1994, 1995, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007,
-   2009, 2011  Free Software Foundation, Inc.
+   Copyright 1994, 1995, 1998, 1999, 2000, 2001, 2002, 2003, 2005
+   Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -25,12 +25,13 @@
  This program reads a SYSROFF object file and prints it in an
  almost human readable form to stdout.  */
 
-#include "sysdep.h"
 #include "bfd.h"
+#include "bucomm.h"
 #include "safe-ctype.h"
+
+#include <stdio.h>
 #include "libiberty.h"
 #include "getopt.h"
-#include "bucomm.h"
 #include "sysroff.h"
 
 static int dump = 1;
@@ -63,7 +64,7 @@ getCHARS (unsigned char *ptr, int *idx, int size, int max)
   int b = size;
 
   if (b >= max)
-    return _("*undefined*");
+    return "*undefined*";
 
   if (b == 0)
     {
@@ -119,27 +120,20 @@ fillup (unsigned char *ptr)
   int sum;
   int i;
 
-  size = getc (file);
-  if (size == EOF
-      || size <= 2)
-    return 0;
-
-  size -= 2;
-  if (fread (ptr, size, 1, file) != 1)
-    return 0;
-
+  size = getc (file) - 2;
+  fread (ptr, 1, size, file);
   sum = code + size + 2;
 
   for (i = 0; i < size; i++)
     sum += ptr[i];
 
   if ((sum & 0xff) != 0xff)
-    printf (_("SUM IS %x\n"), sum);
+    printf ("SUM IS %x\n", sum);
 
   if (dump)
     dh (ptr, size);
 
-  return size;
+  return size - 1;
 }
 
 static barray
@@ -211,9 +205,9 @@ getBITS (unsigned char *ptr, int *idx, int size, int max)
 }
 
 static void
-itheader (char *name, int icode)
+itheader (char *name, int code)
 {
-  printf ("\n%s 0x%02x\n", name, icode);
+  printf ("\n%s 0x%02x\n", name, code);
 }
 
 static int indent;
@@ -500,7 +494,7 @@ getone (int type)
       break;
 
     default:
-      printf (_("GOT A %x\n"), c);
+      printf ("GOT A %x\n", c);
       return 0;
       break;
     }
@@ -518,7 +512,7 @@ static void
 must (int x)
 {
   if (!getone (x))
-    printf (_("WANTED %x!!\n"), x);
+    printf ("WANTED %x!!\n", x);
 }
 
 static void
@@ -529,14 +523,15 @@ tab (int i, char *s)
   if (s)
     {
       p ();
-      puts (s);
+      printf (s);
+      printf ("\n");
     }
 }
 
 static void
 dump_symbol_info (void)
 {
-  tab (1, _("SYMBOL INFO"));
+  tab (1, "SYMBOL INFO");
 
   while (opt (IT_dsy_CODE))
     {
@@ -554,7 +549,7 @@ dump_symbol_info (void)
 static void
 derived_type (void)
 {
-  tab (1, _("DERIVED TYPE"));
+  tab (1, "DERIVED TYPE");
 
   while (1)
     {
@@ -611,7 +606,7 @@ module (void)
   int c = 0;
   int l = 0;
 
-  tab (1, _("MODULE***\n"));
+  tab (1, "MODULE***\n");
 
   do
     {
@@ -641,16 +636,16 @@ module (void)
 char *program_name;
 
 static void
-show_usage (FILE *ffile, int status)
+show_usage (FILE *file, int status)
 {
-  fprintf (ffile, _("Usage: %s [option(s)] in-file\n"), program_name);
-  fprintf (ffile, _("Print a human readable interpretation of a SYSROFF object file\n"));
-  fprintf (ffile, _(" The options are:\n\
+  fprintf (file, _("Usage: %s [option(s)] in-file\n"), program_name);
+  fprintf (file, _("Print a human readable interpretation of a SYSROFF object file\n"));
+  fprintf (file, _(" The options are:\n\
   -h --help        Display this information\n\
   -v --version     Print the program's version number\n"));
 
   if (REPORT_BUGS_TO[0] && status == 0)
-    fprintf (ffile, _("Report bugs to %s\n"), REPORT_BUGS_TO);
+    fprintf (file, _("Report bugs to %s\n"), REPORT_BUGS_TO);
   exit (status);
 }
 
@@ -658,7 +653,7 @@ int
 main (int ac, char **av)
 {
   char *input_file = NULL;
-  int option;
+  int opt;
   static struct option long_options[] =
   {
     {"help", no_argument, 0, 'h'},
@@ -680,9 +675,9 @@ main (int ac, char **av)
 
   expandargv (&ac, &av);
 
-  while ((option = getopt_long (ac, av, "HhVv", long_options, (int *) NULL)) != EOF)
+  while ((opt = getopt_long (ac, av, "HhVv", long_options, (int *) NULL)) != EOF)
     {
-      switch (option)
+      switch (opt)
 	{
 	case 'H':
 	case 'h':

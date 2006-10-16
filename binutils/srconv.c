@@ -1,12 +1,12 @@
 /* srconv.c -- Sysroff conversion program
    Copyright 1994, 1995, 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005, 2007, 2008, 2009 Free Software Foundation, Inc.
+   2005 Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -26,13 +26,11 @@
 
    All debugging information is preserved */
 
-#include "sysdep.h"
 #include "bfd.h"
 #include "bucomm.h"
 #include "sysroff.h"
 #include "coffgrok.h"
 #include "libiberty.h"
-#include "filenames.h"
 #include "getopt.h"
 
 #include "coff/internal.h"
@@ -47,7 +45,7 @@ static char **rnames;
 static int get_member_id (int);
 static int get_ordinary_id (int);
 static char *section_translate (char *);
-static char *strip_suffix (const char *);
+static char *strip_suffix (char *);
 static void checksum (FILE *, unsigned char *, int, int);
 static void writeINT (int, unsigned char *, int *, int, FILE *);
 static void writeBITS (int, unsigned char *, int *, int);
@@ -143,8 +141,9 @@ section_translate (char *n)
 
 #define DATE "940201073000";	/* Just a time on my birthday */
 
-static char *
-strip_suffix (const char *name)
+static
+char *
+strip_suffix (char *name)
 {
   int i;
   char *res;
@@ -159,17 +158,17 @@ strip_suffix (const char *name)
 
 /* IT LEN stuff CS */
 static void
-checksum (FILE *ffile, unsigned char *ptr, int size, int ccode)
+checksum (FILE *file, unsigned char *ptr, int size, int code)
 {
   int j;
   int last;
   int sum = 0;
   int bytes = size / 8;
 
-  last = !(ccode & 0xff00);
+  last = !(code & 0xff00);
   if (size & 0x7)
     abort ();
-  ptr[0] = ccode | (last ? 0x80 : 0);
+  ptr[0] = code | (last ? 0x80 : 0);
   ptr[1] = bytes + 1;
 
   for (j = 0; j < bytes; j++)
@@ -177,14 +176,12 @@ checksum (FILE *ffile, unsigned char *ptr, int size, int ccode)
 
   /* Glue on a checksum too.  */
   ptr[bytes] = ~sum;
-  if (fwrite (ptr, bytes + 1, 1, ffile) != 1)
-    /* FIXME: Return error status.  */
-    abort ();
+  fwrite (ptr, bytes + 1, 1, file);
 }
 
 
 static void
-writeINT (int n, unsigned char *ptr, int *idx, int size, FILE *ffile)
+writeINT (int n, unsigned char *ptr, int *idx, int size, FILE *file)
 {
   int byte = *idx / 8;
 
@@ -196,7 +193,7 @@ writeINT (int n, unsigned char *ptr, int *idx, int size, FILE *ffile)
   if (byte > 240)
     {
       /* Lets write out that record and do another one.  */
-      checksum (ffile, ptr, *idx, code | 0x1000);
+      checksum (file, ptr, *idx, code | 0x1000);
       *idx = 16;
       byte = *idx / 8;
     }
@@ -243,24 +240,24 @@ writeBITS (int val, unsigned char *ptr, int *idx, int size)
 
 static void
 writeBARRAY (barray data, unsigned char *ptr, int *idx,
-	     int size ATTRIBUTE_UNUSED, FILE *ffile)
+	     int size ATTRIBUTE_UNUSED, FILE *file)
 {
   int i;
 
-  writeINT (data.len, ptr, idx, 1, ffile);
+  writeINT (data.len, ptr, idx, 1, file);
   for (i = 0; i < data.len; i++)
-    writeINT (data.data[i], ptr, idx, 1, ffile);
+    writeINT (data.data[i], ptr, idx, 1, file);
 }
 
 static void
-writeCHARS (char *string, unsigned char *ptr, int *idx, int size, FILE *ffile)
+writeCHARS (char *string, unsigned char *ptr, int *idx, int size, FILE *file)
 {
   int i = *idx / 8;
 
   if (i > 240)
     {
       /* Lets write out that record and do another one.  */
-      checksum (ffile, ptr, *idx, code | 0x1000);
+      checksum (file, ptr, *idx, code | 0x1000);
       *idx = 16;
       i = *idx / 8;
     }
@@ -302,10 +299,7 @@ wr_tr (void)
       0x03,			/* RL */
       0xfd,			/* CS */
     };
-
-  if (fwrite (b, sizeof (b), 1, file) != 1)
-    /* FIXME: Return error status.  */
-    abort ();
+  fwrite (b, 1, sizeof (b), file);
 }
 
 static void
@@ -416,7 +410,7 @@ wr_hd (struct coff_ofile *p)
       abort ();
     }
 
-  if (! (bfd_get_file_flags(abfd) & EXEC_P))
+  if (! bfd_get_file_flags(abfd) & EXEC_P)
     {
       hd.ep = 0;
     }
@@ -710,7 +704,6 @@ walk_tree_type_1 (struct coff_sfile *sfile, struct coff_symbol *symbol,
       {
 	struct IT_dpt dpt;
 
-	dpt.dunno = 0;
 	walk_tree_type_1 (sfile, symbol, type->u.pointer.points_to, nest + 1);
 	dpt.neg = 0x1001;
 	sysroff_swap_dpt_out (file, &dpt);
@@ -1458,10 +1451,7 @@ wr_cs (void)
     0x00,			/* dot */
     0xDE			/* CS */
   };
-
-  if (fwrite (b, sizeof (b), 1, file) != 1)
-    /* FIXME: Return error status.  */
-    abort ();
+  fwrite (b, 1, sizeof (b), file);
 }
 
 /* Write out the SC records for a unit.  Create an SC
@@ -1698,22 +1688,21 @@ align (int x)
    ordinary defs - dunno why, but thats what hitachi does with 'em.  */
 
 static void
-prescan (struct coff_ofile *otree)
+prescan (struct coff_ofile *tree)
 {
   struct coff_symbol *s;
   struct coff_section *common_section;
 
   /* Find the common section - always section 3.  */
-  common_section = otree->sections + 3;
+  common_section = tree->sections + 3;
 
-  for (s = otree->symbol_list_head;
+  for (s = tree->symbol_list_head;
        s;
        s = s->next_in_ofile_list)
     {
       if (s->visible->type == coff_vis_common)
 	{
 	  struct coff_where *w = s->where;
-
 	  /*      s->visible->type = coff_vis_ext_def; leave it as common */
 	  common_section->size = align (common_section->size);
 	  w->offset = common_section->size + common_section->address;
@@ -1727,11 +1716,11 @@ prescan (struct coff_ofile *otree)
 char *program_name;
 
 static void
-show_usage (FILE *ffile, int status)
+show_usage (FILE *file, int status)
 {
-  fprintf (ffile, _("Usage: %s [option(s)] in-file [out-file]\n"), program_name);
-  fprintf (ffile, _("Convert a COFF object file into a SYSROFF object file\n"));
-  fprintf (ffile, _(" The options are:\n\
+  fprintf (file, _("Usage: %s [option(s)] in-file [out-file]\n"), program_name);
+  fprintf (file, _("Convert a COFF object file into a SYSROFF object file\n"));
+  fprintf (file, _(" The options are:\n\
   -q --quick       (Obsolete - ignored)\n\
   -n --noprescan   Do not perform a scan to convert commons into defs\n\
   -d --debug       Display information about what is being done\n\
@@ -1740,7 +1729,7 @@ show_usage (FILE *ffile, int status)
   -v --version     Print the program's version number\n"));
 
   if (REPORT_BUGS_TO[0] && status == 0)
-    fprintf (ffile, _("Report bugs to %s\n"), REPORT_BUGS_TO);
+    fprintf (file, _("Report bugs to %s\n"), REPORT_BUGS_TO);
   exit (status);
 }
 
@@ -1819,7 +1808,7 @@ main (int ac, char **av)
 	  ++optind;
 	  if (optind < ac)
 	    show_usage (stderr, 1);
-	  if (filename_cmp (input_file, output_file) == 0)
+	  if (strcmp (input_file, output_file) == 0)
 	    {
 	      fatal (_("input and output files must be different"));
 	    }

@@ -1,11 +1,10 @@
 /* strings -- print the strings of printable characters in files
    Copyright 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2011, 2012
-   Free Software Foundation, Inc.
+   2002, 2003, 2004, 2005 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
+   the Free Software Foundation; either version 2, or (at your option)
    any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -47,25 +46,45 @@
 		littleendian 32-bit.
 
    --target=BFDNAME
-   -T {bfdname}
 		Specify a non-default object file format.
 
    --help
    -h		Print the usage message on the standard output.
 
    --version
-   -V
    -v		Print the program version number.
 
    Written by Richard Stallman <rms@gnu.ai.mit.edu>
    and David MacKenzie <djm@gnu.ai.mit.edu>.  */
 
-#include "sysdep.h"
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 #include "bfd.h"
+#include <stdio.h>
 #include "getopt.h"
+#include <errno.h>
+#include "bucomm.h"
 #include "libiberty.h"
 #include "safe-ctype.h"
-#include "bucomm.h"
+#include <sys/stat.h>
+
+/* Some platforms need to put stdin into binary mode, to read
+    binary files.  */
+#ifdef HAVE_SETMODE
+#ifndef O_BINARY
+#ifdef _O_BINARY
+#define O_BINARY _O_BINARY
+#define setmode _setmode
+#else
+#define O_BINARY 0
+#endif
+#endif
+#if O_BINARY
+#include <io.h>
+#define SET_BINARY(f) do { if (!isatty (f)) setmode (f,O_BINARY); } while (0)
+#endif
+#endif
 
 #define STRING_ISGRAPHIC(c) \
       (   (c) >= 0 \
@@ -78,6 +97,21 @@ extern int errno;
 
 /* The BFD section flags that identify an initialized data section.  */
 #define DATA_FLAGS (SEC_ALLOC | SEC_LOAD | SEC_HAS_CONTENTS)
+
+#ifdef HAVE_FOPEN64
+typedef off64_t file_off;
+#define file_open(s,m) fopen64(s, m)
+#else
+typedef off_t file_off;
+#define file_open(s,m) fopen(s, m)
+#endif
+#ifdef HAVE_STAT64
+typedef struct stat64 statbuf;
+#define file_stat(f,s) stat64(f, s)
+#else
+typedef struct stat statbuf;
+#define file_stat(f,s) stat(f, s)
+#endif
 
 /* Radix for printing addresses (must be 8, 10 or 16).  */
 static int address_radix;
@@ -129,9 +163,10 @@ typedef struct
 static void strings_a_section (bfd *, asection *, void *);
 static bfd_boolean strings_object_file (const char *);
 static bfd_boolean strings_file (char *file);
-static void print_strings (const char *, FILE *, file_ptr, int, int, char *);
+static int integer_arg (char *s);
+static void print_strings (const char *, FILE *, file_off, int, int, char *);
 static void usage (FILE *, int);
-static long get_char (FILE *, file_ptr *, int *, char **);
+static long get_char (FILE *, file_off *, int *, char **);
 
 int main (int, char **);
 
@@ -141,8 +176,6 @@ main (int argc, char **argv)
   int optc;
   int exit_status = 0;
   bfd_boolean files_given = FALSE;
-  char *s;
-  int numeric_opt = 0;
 
 #if defined (HAVE_SETLOCALE)
   setlocale (LC_ALL, "");
@@ -155,14 +188,14 @@ main (int argc, char **argv)
 
   expandargv (&argc, &argv);
 
-  string_min = 4;
+  string_min = -1;
   print_addresses = FALSE;
   print_filenames = FALSE;
   datasection_only = TRUE;
   target = NULL;
   encoding = 's';
 
-  while ((optc = getopt_long (argc, argv, "afhHn:ot:e:T:Vv0123456789",
+  while ((optc = getopt_long (argc, argv, "afhHn:ot:e:Vv0123456789",
 			      long_options, (int *) 0)) != EOF)
     {
       switch (optc)
@@ -180,9 +213,9 @@ main (int argc, char **argv)
 	  usage (stdout, 0);
 
 	case 'n':
-	  string_min = (int) strtoul (optarg, &s, 0);
-	  if (s != NULL && *s != 0)
-	    fatal (_("invalid integer argument %s"), optarg);
+	  string_min = integer_arg (optarg);
+	  if (string_min < 1)
+	    fatal (_("invalid number %s"), optarg);
 	  break;
 
 	case 'o':
@@ -232,19 +265,16 @@ main (int argc, char **argv)
 	  usage (stderr, 1);
 
 	default:
-	  numeric_opt = optind;
+	  if (string_min < 0)
+	    string_min = optc - '0';
+	  else
+	    string_min = string_min * 10 + optc - '0';
 	  break;
 	}
     }
 
-  if (numeric_opt != 0)
-    {
-      string_min = (int) strtoul (argv[numeric_opt - 1] + 1, &s, 0);
-      if (s != NULL && *s != 0)
-	fatal (_("invalid integer argument %s"), argv[numeric_opt - 1] + 1);
-    }
-  if (string_min < 1)
-    fatal (_("invalid minimum string length %d"), string_min);
+  if (string_min < 0)
+    string_min = 4;
 
   switch (encoding)
     {
@@ -270,7 +300,9 @@ main (int argc, char **argv)
   if (optind >= argc)
     {
       datasection_only = FALSE;
+#ifdef SET_BINARY
       SET_BINARY (fileno (stdin));
+#endif
       print_strings ("{standard input}", stdin, 0, 0, 0, (char *) NULL);
       files_given = TRUE;
     }
@@ -346,7 +378,7 @@ strings_a_section (bfd *abfd, asection *sect, void *arg)
       got_a_section = TRUE;
 
       print_strings (filename_and_sizep->filename, NULL, sect->filepos,
-		     0, sectsize, (char *) mem);
+		     0, sectsize, mem);
     }
 
   free (mem);
@@ -398,11 +430,9 @@ strings_object_file (const char *file)
 static bfd_boolean
 strings_file (char *file)
 {
-  struct stat st;
+  statbuf st;
 
-  /* get_file_size does not support non-S_ISREG files.  */
-
-  if (stat (file, &st) < 0)
+  if (file_stat (file, &st) < 0)
     {
       if (errno == ENOENT)
 	non_fatal (_("'%s': No such file"), file);
@@ -420,7 +450,7 @@ strings_file (char *file)
     {
       FILE *stream;
 
-      stream = fopen (file, FOPEN_RB);
+      stream = file_open (file, FOPEN_RB);
       if (stream == NULL)
 	{
 	  fprintf (stderr, "%s: ", program_name);
@@ -428,7 +458,7 @@ strings_file (char *file)
 	  return FALSE;
 	}
 
-      print_strings (file, stream, (file_ptr) 0, 0, 0, (char *) 0);
+      print_strings (file, stream, (file_off) 0, 0, 0, (char *) 0);
 
       if (fclose (stream) == EOF)
 	{
@@ -452,7 +482,7 @@ strings_file (char *file)
    MAGICCOUNT is how many characters are in it.  */
 
 static long
-get_char (FILE *stream, file_ptr *address, int *magiccount, char **magic)
+get_char (FILE *stream, file_off *address, int *magiccount, char **magic)
 {
   int c, i;
   long r = EOF;
@@ -528,14 +558,14 @@ get_char (FILE *stream, file_ptr *address, int *magiccount, char **magic)
    Those characters come at address ADDRESS and the data in STREAM follow.  */
 
 static void
-print_strings (const char *filename, FILE *stream, file_ptr address,
+print_strings (const char *filename, FILE *stream, file_off address,
 	       int stop_point, int magiccount, char *magic)
 {
   char *buf = (char *) xmalloc (sizeof (char) * (string_min + 1));
 
   while (1)
     {
-      file_ptr start;
+      file_off start;
       int i;
       long c;
 
@@ -548,10 +578,7 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	{
 	  c = get_char (stream, &address, &magiccount, &magic);
 	  if (c == EOF)
-	    {
-	      free (buf);
-	      return;
-	    }
+	    return;
 	  if (! STRING_ISGRAPHIC (c))
 	    /* Found a non-graphic.  Try again starting with next char.  */
 	    goto tryline;
@@ -569,18 +596,14 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	  case 8:
 #if __STDC_VERSION__ >= 199901L || (defined(__GNUC__) && __GNUC__ >= 2)
 	    if (sizeof (start) > sizeof (long))
-	      {
-#ifndef __MSVCRT__
-	        printf ("%7llo ", (unsigned long long) start);
-#else
-	        printf ("%7I64o ", (unsigned long long) start);
-#endif
-	      }
+	      printf ("%7Lo ", (unsigned long long) start);
 	    else
-#elif !BFD_HOST_64BIT_LONG
+#else
+# if !BFD_HOST_64BIT_LONG
 	    if (start != (unsigned long) start)
 	      printf ("++%7lo ", (unsigned long) start);
 	    else
+# endif
 #endif
 	      printf ("%7lo ", (unsigned long) start);
 	    break;
@@ -588,18 +611,14 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	  case 10:
 #if __STDC_VERSION__ >= 199901L || (defined(__GNUC__) && __GNUC__ >= 2)
 	    if (sizeof (start) > sizeof (long))
-	      {
-#ifndef __MSVCRT__
-	        printf ("%7lld ", (unsigned long long) start);
-#else
-	        printf ("%7I64d ", (unsigned long long) start);
-#endif
-	      }
+	      printf ("%7Ld ", (unsigned long long) start);
 	    else
-#elif !BFD_HOST_64BIT_LONG
+#else
+# if !BFD_HOST_64BIT_LONG
 	    if (start != (unsigned long) start)
 	      printf ("++%7ld ", (unsigned long) start);
 	    else
+# endif
 #endif
 	      printf ("%7ld ", (long) start);
 	    break;
@@ -607,19 +626,15 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	  case 16:
 #if __STDC_VERSION__ >= 199901L || (defined(__GNUC__) && __GNUC__ >= 2)
 	    if (sizeof (start) > sizeof (long))
-	      {
-#ifndef __MSVCRT__
-	        printf ("%7llx ", (unsigned long long) start);
-#else
-	        printf ("%7I64x ", (unsigned long long) start);
-#endif
-	      }
+	      printf ("%7Lx ", (unsigned long long) start);
 	    else
-#elif !BFD_HOST_64BIT_LONG
+#else
+# if !BFD_HOST_64BIT_LONG
 	    if (start != (unsigned long) start)
 	      printf ("%lx%8.8lx ", (unsigned long) (start >> 32),
 		      (unsigned long) (start & 0xffffffff));
 	    else
+# endif
 #endif
 	      printf ("%7lx ", (unsigned long) start);
 	    break;
@@ -640,9 +655,53 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 
       putchar ('\n');
     }
-  free (buf);
 }
 
+/* Parse string S as an integer, using decimal radix by default,
+   but allowing octal and hex numbers as in C.  */
+
+static int
+integer_arg (char *s)
+{
+  int value;
+  int radix = 10;
+  char *p = s;
+  int c;
+
+  if (*p != '0')
+    radix = 10;
+  else if (*++p == 'x')
+    {
+      radix = 16;
+      p++;
+    }
+  else
+    radix = 8;
+
+  value = 0;
+  while (((c = *p++) >= '0' && c <= '9')
+	 || (radix == 16 && (c & ~40) >= 'A' && (c & ~40) <= 'Z'))
+    {
+      value *= radix;
+      if (c >= '0' && c <= '9')
+	value += c - '0';
+      else
+	value += (c & ~40) - 'A';
+    }
+
+  if (c == 'b')
+    value *= 512;
+  else if (c == 'B')
+    value *= 1024;
+  else
+    p--;
+
+  if (*p)
+    fatal (_("invalid integer argument %s"), s);
+
+  return value;
+}
+
 static void
 usage (FILE *stream, int status)
 {
@@ -652,7 +711,7 @@ usage (FILE *stream, int status)
   -a - --all                Scan the entire file, not just the data section\n\
   -f --print-file-name      Print the name of the file before each string\n\
   -n --bytes=[number]       Locate & print any NUL-terminated sequence of at\n\
-  -<number>                   least [number] characters (default 4).\n\
+  -<number>                 least [number] characters (default 4).\n\
   -t --radix={o,d,x}        Print the location of the string in base 8, 10 or 16\n\
   -o                        An alias for --radix=o\n\
   -T --target=<BFDNAME>     Specify the binary file format\n\
@@ -660,7 +719,7 @@ usage (FILE *stream, int status)
                             s = 7-bit, S = 8-bit, {b,l} = 16-bit, {B,L} = 32-bit\n\
   @<file>                   Read options from <file>\n\
   -h --help                 Display this information\n\
-  -v -V --version           Print the program's version number\n"));
+  -v --version              Print the program's version number\n"));
   list_supported_targets (program_name, stream);
   if (REPORT_BUGS_TO[0] && status == 0)
     fprintf (stream, _("Report bugs to %s\n"), REPORT_BUGS_TO);
