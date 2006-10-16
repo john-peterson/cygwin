@@ -1,8 +1,8 @@
 /* environ.cc: Cygwin-adopted functions from newlib to manipulate
    process's environment.
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -10,245 +10,37 @@ details. */
 
 #include "winsup.h"
 #include <stdlib.h>
-#include <wchar.h>
-#include <wctype.h>
+#include <stddef.h>
 #include <ctype.h>
-#include <locale.h>
 #include <assert.h>
+#include <sys/cygwin.h>
 #include <cygwin/version.h>
-#include <winnls.h>
 #include "pinfo.h"
 #include "perprocess.h"
+#include "security.h"
 #include "path.h"
 #include "cygerrno.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
 #include "cygtls.h"
-#include "tls_pbuf.h"
 #include "registry.h"
 #include "environ.h"
 #include "child_info.h"
-#include "shared_info.h"
-#include "ntdll.h"
+
+extern bool allow_glob;
+extern bool ignore_case_with_glob;
+extern bool allow_winsymlinks;
+extern bool strip_title_path;
+extern int pcheck_case;
+extern int subauth_id;
+bool reset_com = false;
+static bool envcache = true;
+#ifdef USE_SERVER
+extern bool allow_server;
+#endif
 
 static char **lastenviron;
-
-/* Parse CYGWIN options */
-
-static NO_COPY bool export_settings = false;
-
-enum settings
-  {
-    isfunc,
-    setdword,
-    setbool,
-    setbit
-  };
-
-/* When BUF is:
-   null or empty: disables globbing
-   "ignorecase": enables case-insensitive globbing
-   anything else: enables case-sensitive globbing */
-static void
-glob_init (const char *buf)
-{
-  if (!buf || !*buf)
-    {
-      allow_glob = false;
-      ignore_case_with_glob = false;
-    }
-  else if (ascii_strncasematch (buf, "ignorecase", 10))
-    {
-      allow_glob = true;
-      ignore_case_with_glob = true;
-    }
-  else
-    {
-      allow_glob = true;
-      ignore_case_with_glob = false;
-    }
-}
-
-static void
-set_proc_retry (const char *buf)
-{
-  child_info::retry_count = strtoul (buf, NULL, 0);
-}
-
-static void
-tty_is_gone (const char *buf)
-{
-  if (!user_shared->warned_notty)
-    {
-      small_printf ("\"tty\" option detected in CYGWIN environment variable.\n"
-		    "CYGWIN=tty is no longer supported.  Please remove it from your\n"
-		    "CYGWIN environment variable and use a terminal emulator like mintty,\n"
-		    "xterm, or rxvt.\n");
-      user_shared->warned_notty = 1;
-    }
-}
-
-/* The structure below is used to set up an array which is used to
-   parse the CYGWIN environment variable or, if enabled, options from
-   the registry.  */
-static struct parse_thing
-  {
-    const char *name;
-    union parse_setting
-      {
-	bool *b;
-	DWORD *x;
-	int *i;
-	void (*func)(const char *);
-      } setting;
-
-    enum settings disposition;
-    char *remember;
-    union parse_values
-      {
-	DWORD i;
-	const char *s;
-      } values[2];
-  } known[] NO_COPY =
-{
-  {"detect_bloda", {&detect_bloda}, setbool, NULL, {{false}, {true}}},
-  {"dosfilewarning", {&dos_file_warning}, setbool, NULL, {{false}, {true}}},
-  {"error_start", {func: error_start_init}, isfunc, NULL, {{0}, {0}}},
-  {"export", {&export_settings}, setbool, NULL, {{false}, {true}}},
-  {"glob", {func: glob_init}, isfunc, NULL, {{0}, {s: "normal"}}},
-  {"pipe_byte", {&pipe_byte}, setbool, NULL, {{false}, {true}}},
-  {"proc_retry", {func: set_proc_retry}, isfunc, NULL, {{0}, {5}}},
-  {"reset_com", {&reset_com}, setbool, NULL, {{false}, {true}}},
-  {"tty", {func: tty_is_gone}, isfunc, NULL, {{0}, {0}}},
-  {"winsymlinks", {&allow_winsymlinks}, setbool, NULL, {{false}, {true}}},
-  {NULL, {0}, setdword, 0, {{0}, {0}}}
-};
-
-/* Parse a string of the form "something=stuff somethingelse=more-stuff",
-   silently ignoring unknown "somethings".  */
-static void __stdcall
-parse_options (const char *inbuf)
-{
-  int istrue;
-  char *p, *lasts;
-  parse_thing *k;
-
-  if (inbuf == NULL)
-    {
-      tmp_pathbuf tp;
-      char *newbuf = tp.c_get ();
-      newbuf[0] = '\0';
-      for (k = known; k->name != NULL; k++)
-	if (k->remember)
-	  {
-	    strcat (strcat (newbuf, " "), k->remember);
-	    free (k->remember);
-	    k->remember = NULL;
-	  }
-
-      if (export_settings)
-	{
-	  debug_printf ("%s", newbuf + 1);
-	  setenv ("CYGWIN", newbuf + 1, 1);
-	}
-      return;
-    }
-
-  char *buf = strcpy ((char *) alloca (strlen (inbuf) + 1), inbuf);
-  for (p = strtok_r (buf, " \t", &lasts);
-       p != NULL;
-       p = strtok_r (NULL, " \t", &lasts))
-    {
-      char *keyword_here = p;
-      if (!(istrue = !ascii_strncasematch (p, "no", 2)))
-	p += 2;
-      else if (!(istrue = *p != '-'))
-	p++;
-
-      char ch, *eq;
-      if ((eq = strchr (p, '=')) != NULL || (eq = strchr (p, ':')) != NULL)
-	ch = *eq, *eq++ = '\0';
-      else
-	ch = 0;
-
-      for (parse_thing *k = known; k->name != NULL; k++)
-	if (ascii_strcasematch (p, k->name))
-	  {
-	    switch (k->disposition)
-	      {
-	      case isfunc:
-		k->setting.func ((!eq || !istrue) ?
-		  k->values[istrue].s : eq);
-		debug_printf ("%s (called func)", k->name);
-		break;
-	      case setdword:
-		if (!istrue || !eq)
-		  *k->setting.x = k->values[istrue].i;
-		else
-		  *k->setting.x = strtol (eq, NULL, 0);
-		debug_printf ("%s %d", k->name, *k->setting.x);
-		break;
-	      case setbool:
-		if (!istrue || !eq)
-		  *k->setting.b = k->values[istrue].i;
-		else
-		  *k->setting.b = !!strtol (eq, NULL, 0);
-		debug_printf ("%s%s", *k->setting.b ? "" : "no", k->name);
-		break;
-	      case setbit:
-		*k->setting.x &= ~k->values[istrue].i;
-		if (istrue || (eq && strtol (eq, NULL, 0)))
-		  *k->setting.x |= k->values[istrue].i;
-		debug_printf ("%s %x", k->name, *k->setting.x);
-		break;
-	      }
-
-	    if (eq)
-	      *--eq = ch;
-
-	    int n = eq - p;
-	    p = strdup (keyword_here);
-	    if (n > 0)
-	      p[n] = ':';
-	    k->remember = p;
-	    break;
-	  }
-      }
-  debug_printf ("returning");
-}
-
-/* Helper functions for the below environment variables which have to
-   be converted Win32<->POSIX. */
-extern "C" ssize_t env_PATH_to_posix (const void *, void *, size_t);
-
-ssize_t
-env_plist_to_posix (const void *win32, void *posix, size_t size)
-{
-  return cygwin_conv_path_list (CCP_WIN_A_TO_POSIX | CCP_RELATIVE, win32,
-				posix, size);
-}
-
-ssize_t
-env_plist_to_win32 (const void *posix, void *win32, size_t size)
-{
-  return cygwin_conv_path_list (CCP_POSIX_TO_WIN_A | CCP_RELATIVE, posix,
-				win32, size);
-}
-
-ssize_t
-env_path_to_posix (const void *win32, void *posix, size_t size)
-{
-  return cygwin_conv_path (CCP_WIN_A_TO_POSIX | CCP_ABSOLUTE, win32,
-			   posix, size);
-}
-
-ssize_t
-env_path_to_win32 (const void *posix, void *win32, size_t size)
-{
-  return cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, posix,
-			   win32, size);
-}
 
 #define ENVMALLOC \
   (CYGWIN_VERSION_DLL_MAKE_COMBINED (user_data->api_major, user_data->api_minor) \
@@ -261,60 +53,29 @@ env_path_to_win32 (const void *posix, void *win32, size_t size)
    PATH needs to be here because CreateProcess uses it and gdb uses
    CreateProcess.  HOME is here because most shells use it and would be
    confused by Windows style path names.  */
+static int return_MAX_PATH (const char *) {return CYG_MAX_PATH;}
 static win_env conv_envvars[] =
   {
-    {NL ("PATH="), NULL, NULL, env_PATH_to_posix, env_plist_to_win32, true},
-    {NL ("HOME="), NULL, NULL, env_path_to_posix, env_path_to_win32, false},
-    {NL ("LD_LIBRARY_PATH="), NULL, NULL,
-			       env_plist_to_posix, env_plist_to_win32, true},
-    {NL ("TMPDIR="), NULL, NULL, env_path_to_posix, env_path_to_win32, false},
-    {NL ("TMP="), NULL, NULL, env_path_to_posix, env_path_to_win32, false},
-    {NL ("TEMP="), NULL, NULL, env_path_to_posix, env_path_to_win32, false},
-    {NULL, 0, NULL, NULL, 0, 0}
+    {NL ("PATH="), NULL, NULL, cygwin_win32_to_posix_path_list,
+     cygwin_posix_to_win32_path_list,
+     cygwin_win32_to_posix_path_list_buf_size,
+     cygwin_posix_to_win32_path_list_buf_size, true},
+    {NL ("HOME="), NULL, NULL, cygwin_conv_to_full_posix_path,
+     cygwin_conv_to_full_win32_path, return_MAX_PATH, return_MAX_PATH, false},
+    {NL ("LD_LIBRARY_PATH="), NULL, NULL, cygwin_win32_to_posix_path_list,
+     cygwin_posix_to_win32_path_list,
+     cygwin_win32_to_posix_path_list_buf_size,
+     cygwin_posix_to_win32_path_list_buf_size, true},
+    {NL ("TMPDIR="), NULL, NULL, cygwin_conv_to_full_posix_path,
+     cygwin_conv_to_full_win32_path, return_MAX_PATH, return_MAX_PATH, false},
+    {NL ("TMP="), NULL, NULL, cygwin_conv_to_full_posix_path,
+     cygwin_conv_to_full_win32_path, return_MAX_PATH, return_MAX_PATH, false},
+    {NL ("TEMP="), NULL, NULL, cygwin_conv_to_full_posix_path,
+     cygwin_conv_to_full_win32_path, return_MAX_PATH, return_MAX_PATH, false},
+    {NULL, 0, NULL, NULL, NULL, NULL, 0, 0}
   };
 
-#define WC ((unsigned char) 1)
-/* Note:  You *must* fill in this array setting the ordinal value of the first
-   character of the above environment variable names to 1.
-   This table is intended to speed up lookup of these variables. */
-
-static const unsigned char conv_start_chars[256] =
-  {
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-    0,        0,        0,        0,        0,        0,        0,        0,
-/*            A         B         C         D         E         F         G */
-    0,        0,        0,        0,        0,        0,        0,        0,
-    /*  72 */
-/*  H         I         J         K         L         M         N         O */
-    WC,       0,        0,        0,        WC,       0,        0,        0,
-    /*  80 */
-/*  P         Q         R         S         T         U         V         W */
-    WC,       0,        0,        0,        WC,       0,        0,        0,
-    /*  88 */
-/*  x         Y         Z                                                   */
-    0,        0,        0,        0,        0,        0,        0,        0,
-    /*  96 */
-/*            a         b         c         d         e         f         g */
-    0,        0,        0,        0,        0,        0,        0,        0,
-    /* 104 */
-/*  h         i         j         k         l         m         n         o */
-    WC,       0,        0,        0,        WC,       0,        0,        0,
-    /* 112 */
-/*  p         q         r         s         t         u         v         w */
-    WC,       0,        0,        0,        WC,       0,        0,        0,
-  };
-
-static inline char
-match_first_char (const char *s, unsigned char m)
-{
-  return conv_start_chars[(unsigned) *s] & m;
-}
+static unsigned char conv_start_chars[256] = {0};
 
 struct win_env&
 win_env::operator = (struct win_env& x)
@@ -323,6 +84,8 @@ win_env::operator = (struct win_env& x)
   namelen = x.namelen;
   toposix = x.toposix;
   towin32 = x.towin32;
+  posix_len = x.posix_len;
+  win32_len = x.win32_len;
   immediate = false;
   return *this;
 }
@@ -349,13 +112,9 @@ win_env::add_cache (const char *in_posix, const char *in_native)
     }
   else
     {
-      tmp_pathbuf tp;
-      char *buf = tp.c_get ();
-      strcpy (buf, name + namelen);
-      towin32 (in_posix, buf, NT_MAX_PATH);
-      native = (char *) realloc (native, namelen + 1 + strlen (buf));
+      native = (char *) realloc (native, namelen + 1 + win32_len (in_posix));
       strcpy (native, name);
-      strcpy (native + namelen, buf);
+      towin32 (in_posix, native + namelen);
     }
   MALLOC_CHECK;
   if (immediate && cygwin_finished_initializing)
@@ -375,10 +134,10 @@ win_env::add_cache (const char *in_posix, const char *in_native)
   to the beginning of the environment variable name.  *in_posix is any
   known posix value for the environment variable. Returns a pointer to
   the appropriate conversion structure.  */
-win_env * __reg3
+win_env * __stdcall
 getwinenv (const char *env, const char *in_posix, win_env *temp)
 {
-  if (!match_first_char (env, WC))
+  if (!conv_start_chars[(unsigned char)*env])
     return NULL;
 
   for (int i = 0; conv_envvars[i].name != NULL; i++)
@@ -389,7 +148,7 @@ getwinenv (const char *env, const char *in_posix, win_env *temp)
 	if (!cur_environ () || !(val = in_posix ?: getenv (we->name)))
 	  debug_printf ("can't set native for %s since no environ yet",
 			we->name);
-	else if (!we->posix || strcmp (val, we->posix) != 0)
+	else if (!envcache || !we->posix || strcmp (val, we->posix) != 0)
 	  {
 	    if (temp)
 	      {
@@ -405,8 +164,8 @@ getwinenv (const char *env, const char *in_posix, win_env *temp)
 
 /* Convert windows path specs to POSIX, if appropriate.
  */
-inline static void
-posify_maybe (char **here, const char *value, char *outenv)
+static void __stdcall
+posify (char **here, const char *value)
 {
   char *src = *here;
   win_env *conv;
@@ -419,22 +178,13 @@ posify_maybe (char **here, const char *value, char *outenv)
   /* Turn all the items from c:<foo>;<bar> into their
      mounted equivalents - if there is one.  */
 
+  char *outenv = (char *) malloc (1 + len + conv->posix_len (value));
   memcpy (outenv, src, len);
-  char *newvalue = outenv + len;
-  if (!conv->toposix (value, newvalue, NT_MAX_PATH - len)
-      || _impure_ptr->_errno != EIDRM)
-    conv->add_cache (newvalue, *value != '/' ? value : NULL);
-  else
-    {
-      /* The conversion routine removed elements from a path list so we have
-	 to recalculate the windows path to remove elements there, too. */
-      char cleanvalue[strlen (value) + 1];
-      conv->towin32 (newvalue, cleanvalue, sizeof cleanvalue);
-      conv->add_cache (newvalue, cleanvalue);
-    }
+  conv->toposix (value, outenv + len);
+  conv->add_cache (outenv + len, *value != '/' ? value : NULL);
 
   debug_printf ("env var converted to %s", outenv);
-  *here = strdup (outenv);
+  *here = outenv;
   free (src);
   MALLOC_CHECK;
 }
@@ -486,9 +236,9 @@ getearly (const char * name, int *)
 	if (strncasematch (name, *ptr, len) && (*ptr)[len] == '=')
 	  return *ptr + len + 1;
     }
-  else if ((len = GetEnvironmentVariableA (name, NULL, 0))
-	   && (ret = (char *) cmalloc_abort (HEAP_2_STR, len))
-	   && GetEnvironmentVariableA (name, ret, len))
+  else if ((len = GetEnvironmentVariable (name, NULL, 0))
+	   && (ret = (char *) cmalloc (HEAP_2_STR, len))
+	   && GetEnvironmentVariable (name, ret, len))
     return ret;
 
   return NULL;
@@ -500,15 +250,6 @@ static char * (*findenv_func)(const char *, int *) = (char * (*)(const char *, i
 
 extern "C" char *
 getenv (const char *name)
-{
-  int offset;
-  return findenv_func (name, &offset);
-}
-
-/* This function is required so that newlib uses the same environment
-   as Cygwin. */
-extern "C" char *
-_getenv_r (struct _reent *, const char *name)
 {
   int offset;
   return findenv_func (name, &offset);
@@ -601,8 +342,6 @@ _addenv (const char *name, const char *value, int overwrite)
   win_env *spenv;
   if ((spenv = getwinenv (envhere)))
     spenv->add_cache (value);
-  if (strcmp (name, "CYGWIN") == 0)
-    parse_options (value);
 
   MALLOC_CHECK;
   return 0;
@@ -635,11 +374,10 @@ setenv (const char *name, const char *value, int overwrite)
   myfault efault;
   if (efault.faulted (EFAULT))
     return -1;
-  if (!name || !*name || strchr (name, '='))
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
+  if (!*name)
+    return 0;
+  if (*value == '=')
+    value++;
   return _addenv (name, value, !!overwrite);
 }
 
@@ -650,9 +388,7 @@ unsetenv (const char *name)
   register char **e;
   int offset;
   myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  if (!name || *name == '\0' || strchr (name, '='))
+  if (efault.faulted () || *name == '\0' || strchr (name, '='))
     {
       set_errno (EINVAL);
       return -1;
@@ -667,86 +403,322 @@ unsetenv (const char *name)
   return 0;
 }
 
-/* Minimal list of Windows vars which must be converted to uppercase.
-   Either for POSIX compatibility of for backward compatibility with
-   existing applications. */
-static struct renv {
-	const char *name;
-	const size_t namelen;
-} renv_arr[] = {
-	{ NL("ALLUSERSPROFILE=") },		// 0
-	{ NL("COMMONPROGRAMFILES=") },		// 1
-	{ NL("COMPUTERNAME=") },
-	{ NL("COMSPEC=") },
-	{ NL("HOME=") },			// 4
-	{ NL("HOMEDRIVE=") },
-	{ NL("HOMEPATH=") },
-	{ NL("NUMBER_OF_PROCESSORS=") },	// 7
-	{ NL("OS=") },				// 8
-	{ NL("PATH=") },			// 9
-	{ NL("PATHEXT=") },
-	{ NL("PROCESSOR_ARCHITECTURE=") },
-	{ NL("PROCESSOR_IDENTIFIER=") },
-	{ NL("PROCESSOR_LEVEL=") },
-	{ NL("PROCESSOR_REVISION=") },
-	{ NL("PROGRAMFILES=") },
-	{ NL("SYSTEMDRIVE=") },			// 16
-	{ NL("SYSTEMROOT=") },
-	{ NL("TEMP=") },			// 18
-	{ NL("TERM=") },
-	{ NL("TMP=") },
-	{ NL("TMPDIR=") },
-	{ NL("WINDIR=") }			// 22
-};
-#define RENV_SIZE (sizeof (renv_arr) / sizeof (renv_arr[0]))
-
-/* Set of first characters of the above list of variables. */
-static const char idx_arr[] = "ACHNOPSTW";
-/* Index into renv_arr at which the variables with this specific character
-   starts. */
-static const int start_at[] = { 0, 1, 4, 7, 8, 9, 16, 18, 22 };
-
-/* Turn environment variable part of a=b string into uppercase - for some
-   environment variables only. */
+/* Turn environment variable part of a=b string into uppercase. */
 static __inline__ void
-ucenv (char *p, const char *eq)
+ucenv (char *p, char *eq)
 {
-  /* Hopefully as quickly as possible - only upper case specific set of important
-     Windows variables. */
-  char first = cyg_toupper (*p);
-  const char *idx = strchr (idx_arr, first);
-  if (idx)
-    for (size_t i = start_at[idx - idx_arr];
-	 i < RENV_SIZE && renv_arr[i].name[0] == first;
-	 ++i)
-      if (strncasematch (p, renv_arr[i].name, renv_arr[i].namelen))
+  /* Amazingly, NT has a case sensitive environment name list,
+     but only sometimes.
+     It's normal to have NT set your "Path" to something.
+     Later, you set "PATH" to something else.  This alters "Path".
+     But if you try and do a naive getenv on "PATH" you'll get nothing.
+
+     So we upper case the labels here to prevent confusion later but
+     we only do it for the first process in a session group. */
+  for (; p < eq; p++)
+    if (islower (*p))
+      *p = cyg_toupper (*p);
+}
+
+/* Parse CYGWIN options */
+
+static NO_COPY bool export_settings = false;
+
+enum settings
+  {
+    justset,
+    isfunc,
+    setbit,
+    set_process_state,
+  };
+
+/* When BUF is:
+   null or empty: disables globbing
+   "ignorecase": enables case-insensitive globbing
+   anything else: enables case-sensitive globbing */
+static void
+glob_init (const char *buf)
+{
+  if (!buf || !*buf)
+    {
+      allow_glob = false;
+      ignore_case_with_glob = false;
+    }
+  else if (strncasematch (buf, "ignorecase", 10))
+    {
+      allow_glob = true;
+      ignore_case_with_glob = true;
+    }
+  else
+    {
+      allow_glob = true;
+      ignore_case_with_glob = false;
+    }
+}
+
+static void
+check_case_init (const char *buf)
+{
+  if (!buf || !*buf)
+    return;
+
+  if (strncasematch (buf, "relax", 5))
+    {
+      pcheck_case = PCHECK_RELAXED;
+      debug_printf ("File case checking set to RELAXED");
+    }
+  else if (strcasematch (buf, "adjust"))
+    {
+      pcheck_case = PCHECK_ADJUST;
+      debug_printf ("File case checking set to ADJUST");
+    }
+  else if (strcasematch (buf, "strict"))
+    {
+      pcheck_case = PCHECK_STRICT;
+      debug_printf ("File case checking set to STRICT");
+    }
+  else
+    {
+      debug_printf ("Wrong case checking name: %s", buf);
+    }
+}
+
+void
+set_file_api_mode (codepage_type cp)
+{
+  if (cp == oem_cp)
+    {
+      SetFileApisToOEM ();
+      debug_printf ("File APIs set to OEM");
+    }
+  else if (cp == ansi_cp)
+    {
+      SetFileApisToANSI ();
+      debug_printf ("File APIs set to ANSI");
+    }
+}
+
+static void
+codepage_init (const char *buf)
+{
+  if (!buf || !*buf)
+    return;
+
+  if (strcasematch (buf, "oem"))
+    {
+      current_codepage = oem_cp;
+      set_file_api_mode (current_codepage);
+    }
+  else if (strcasematch (buf, "ansi"))
+    {
+      current_codepage = ansi_cp;
+      set_file_api_mode (current_codepage);
+    }
+  else
+    debug_printf ("Wrong codepage name: %s", buf);
+}
+
+static void
+subauth_id_init (const char *buf)
+{
+  if (!buf || !*buf)
+    return;
+
+  int i = strtol (buf, NULL, 0);
+
+  /* 0..127 are reserved by Microsoft, 132 is IIS subauthentication. */
+  if (i > 127 && i != 132 && i <= 255)
+    subauth_id = i;
+}
+
+static void
+set_chunksize (const char *buf)
+{
+  wincap.set_chunksize (strtoul (buf, NULL, 0));
+}
+
+static void
+set_proc_retry (const char *buf)
+{
+  child_info::retry_count = strtoul (buf, NULL, 0);
+}
+
+static void
+set_ntea (const char *buf)
+{
+  allow_ntea = (buf && strcasematch (buf, "yes") && wincap.has_security ());
+}
+
+static void
+set_ntsec (const char *buf)
+{
+  allow_ntsec = (buf && strcasematch (buf, "yes") && wincap.has_security ());
+}
+
+static void
+set_traverse (const char *buf)
+{
+  allow_traverse = (buf && strcasematch (buf, "yes") && wincap.has_security ());
+}
+
+static void
+set_smbntsec (const char *buf)
+{
+  allow_smbntsec = (buf && strcasematch (buf, "yes") && wincap.has_security ());
+}
+
+/* The structure below is used to set up an array which is used to
+   parse the CYGWIN environment variable or, if enabled, options from
+   the registry.  */
+static struct parse_thing
+  {
+    const char *name;
+    union parse_setting
+      {
+	bool *b;
+	DWORD *x;
+	int *i;
+	void (*func)(const char *);
+      } setting;
+
+    enum settings disposition;
+    char *remember;
+    union parse_values
+      {
+	DWORD i;
+	const char *s;
+      } values[2];
+  } known[] NO_COPY =
+{
+  {"binmode", {x: &binmode}, justset, NULL, {{O_TEXT}, {O_BINARY}}},
+  {"check_case", {func: &check_case_init}, isfunc, NULL, {{0}, {0}}},
+  {"codepage", {func: &codepage_init}, isfunc, NULL, {{0}, {0}}},
+  {"envcache", {&envcache}, justset, NULL, {{true}, {false}}},
+  {"error_start", {func: &error_start_init}, isfunc, NULL, {{0}, {0}}},
+  {"export", {&export_settings}, justset, NULL, {{false}, {true}}},
+  {"forkchunk", {func: set_chunksize}, isfunc, NULL, {{0}, {0}}},
+  {"glob", {func: &glob_init}, isfunc, NULL, {{0}, {s: "normal"}}},
+  {"ntea", {func: set_ntea}, isfunc, NULL, {{0}, {s: "yes"}}},
+  {"ntsec", {func: set_ntsec}, isfunc, NULL, {{0}, {s: "yes"}}},
+  {"traverse", {func: set_traverse}, isfunc, NULL, {{0}, {s: "yes"}}},
+  {"reset_com", {&reset_com}, justset, NULL, {{false}, {true}}},
+#ifdef USE_SERVER
+  {"server", {&allow_server}, justset, NULL, {{false}, {true}}},
+#endif
+  {"smbntsec", {func: set_smbntsec}, isfunc, NULL, {{0}, {s: "yes"}}},
+  {"strip_title", {&strip_title_path}, justset, NULL, {{false}, {true}}},
+  {"subauth_id", {func: &subauth_id_init}, isfunc, NULL, {{0}, {0}}},
+  {"title", {&display_title}, justset, NULL, {{false}, {true}}},
+  {"tty", {NULL}, set_process_state, NULL, {{0}, {PID_USETTY}}},
+  {"winsymlinks", {&allow_winsymlinks}, justset, NULL, {{false}, {true}}},
+  {"transparent_exe", {&transparent_exe}, justset, NULL, {{false}, {true}}},
+  {"proc_retry", {func: set_proc_retry}, isfunc, NULL, {{0}, {5}}},
+  {NULL, {0}, justset, 0, {{0}, {0}}}
+};
+
+/* Parse a string of the form "something=stuff somethingelse=more-stuff",
+   silently ignoring unknown "somethings".  */
+static void __stdcall
+parse_options (char *buf)
+{
+  int istrue;
+  char *p, *lasts;
+  parse_thing *k;
+
+  if (buf == NULL)
+    {
+      char newbuf[CYG_MAX_PATH + 7];
+      newbuf[0] = '\0';
+      for (k = known; k->name != NULL; k++)
+	if (k->remember)
+	  {
+	    strcat (strcat (newbuf, " "), k->remember);
+	    free (k->remember);
+	    k->remember = NULL;
+	  }
+
+      if (export_settings)
 	{
-	  strncpy (p, renv_arr[i].name, renv_arr[i].namelen);
-	  break;
+	  debug_printf ("%s", newbuf + 1);
+	  setenv ("CYGWIN", newbuf + 1, 1);
 	}
+      return;
+    }
+
+  buf = strcpy ((char *) alloca (strlen (buf) + 1), buf);
+  for (p = strtok_r (buf, " \t", &lasts);
+       p != NULL;
+       p = strtok_r (NULL, " \t", &lasts))
+    {
+      char *keyword_here = p;
+      if (!(istrue = !strncasematch (p, "no", 2)))
+	p += 2;
+      else if (!(istrue = *p != '-'))
+	p++;
+
+      char ch, *eq;
+      if ((eq = strchr (p, '=')) != NULL || (eq = strchr (p, ':')) != NULL)
+	ch = *eq, *eq++ = '\0';
+      else
+	ch = 0;
+
+      for (parse_thing *k = known; k->name != NULL; k++)
+	if (strcasematch (p, k->name))
+	  {
+	    switch (k->disposition)
+	      {
+	      case isfunc:
+		k->setting.func ((!eq || !istrue) ?
+		  k->values[istrue].s : eq);
+		debug_printf ("%s (called func)", k->name);
+		break;
+	      case justset:
+		if (!istrue || !eq)
+		  *k->setting.x = k->values[istrue].i;
+		else
+		  *k->setting.x = strtol (eq, NULL, 0);
+		debug_printf ("%s %d", k->name, *k->setting.x);
+		break;
+	      case set_process_state:
+		k->setting.x = &myself->process_state;
+		/* fall through */
+	      case setbit:
+		*k->setting.x &= ~k->values[istrue].i;
+		if (istrue || (eq && strtol (eq, NULL, 0)))
+		  *k->setting.x |= k->values[istrue].i;
+		debug_printf ("%s %x", k->name, *k->setting.x);
+		break;
+	      }
+
+	    if (eq)
+	      *--eq = ch;
+
+	    int n = eq - p;
+	    p = strdup (keyword_here);
+	    if (n > 0)
+	      p[n] = ':';
+	    k->remember = p;
+	    break;
+	  }
+      }
+  debug_printf ("returning");
 }
 
 /* Set options from the registry. */
 static bool __stdcall
-regopt (const WCHAR *name, char *buf)
+regopt (const char *name)
 {
   bool parsed_something = false;
-  UNICODE_STRING lname;
-  size_t len = (wcslen(name) + 1) * sizeof (WCHAR);
-  RtlInitEmptyUnicodeString(&lname, (PWCHAR) alloca (len), len);
-  wcscpy(lname.Buffer, name);
-  RtlDowncaseUnicodeString(&lname, &lname, FALSE);
+  char buf[CYG_MAX_PATH];
+  char lname[strlen (name) + 1];
+  strlwr (strcpy (lname, name));
 
   for (int i = 0; i < 2; i++)
     {
-      reg_key r (i, KEY_READ, _WIDE (CYGWIN_INFO_PROGRAM_OPTIONS_NAME), NULL);
+      reg_key r (i, KEY_READ, CYGWIN_INFO_PROGRAM_OPTIONS_NAME, NULL);
 
-      if (NT_SUCCESS (r.get_string (lname.Buffer, (PWCHAR) buf,
-				    NT_MAX_PATH, L"")))
+      if (r.get_string (lname, buf, sizeof (buf) - 1, "") == ERROR_SUCCESS)
 	{
-	  char *newp;
-	  sys_wcstombs_alloc(&newp, HEAP_NOTHEAP, (PWCHAR) buf);
-	  strcpy(buf, newp);
 	  parse_options (buf);
 	  parsed_something = true;
 	  break;
@@ -762,7 +734,7 @@ regopt (const WCHAR *name, char *buf)
 void
 environ_init (char **envp, int envc)
 {
-  PWCHAR rawenv, w;
+  char *rawenv;
   int i;
   char *p;
   char *newp;
@@ -771,16 +743,24 @@ environ_init (char **envp, int envc)
   bool got_something_from_registry;
   static char NO_COPY cygterm[] = "TERM=cygwin";
   myfault efault;
-  tmp_pathbuf tp;
 
   if (efault.faulted ())
     api_fatal ("internal error reading the windows environment - too many environment variables?");
 
-  char *tmpbuf = tp.t_get ();
-  got_something_from_registry = regopt (L"default", tmpbuf);
+  if (!conv_start_chars[0])
+    for (int i = 0; conv_envvars[i].name != NULL; i++)
+      {
+	conv_start_chars[(int) cyg_tolower (conv_envvars[i].name[0])] = 1;
+	conv_start_chars[(int) cyg_toupper (conv_envvars[i].name[0])] = 1;
+      }
+
+  got_something_from_registry = regopt ("default");
   if (myself->progname[0])
-    got_something_from_registry = regopt (myself->progname, tmpbuf)
-				  || got_something_from_registry;
+    got_something_from_registry = regopt (myself->progname) || got_something_from_registry;
+
+  /* Set ntsec explicit as default, if NT is running */
+  if (wincap.has_security ())
+    allow_ntsec = true;
 
   if (!envp)
     envp_passed_in = 0;
@@ -809,41 +789,42 @@ environ_init (char **envp, int envc)
   /* Allocate space for environment + trailing NULL + CYGWIN env. */
   lastenviron = envp = (char **) malloc ((4 + (envc = 100)) * sizeof (char *));
 
-  rawenv = GetEnvironmentStringsW ();
+  rawenv = GetEnvironmentStrings ();
   if (!rawenv)
     {
       system_printf ("GetEnvironmentStrings returned NULL, %E");
       return;
     }
-  debug_printf ("GetEnvironmentStrings returned %p", rawenv);
+  debug_printf ("GetEnvironmentStrings returned %p - \"%s\"", rawenv, rawenv);
 
   /* Current directory information is recorded as variables of the
      form "=X:=X:\foo\bar; these must be changed into something legal
      (we could just ignore them but maybe an application will
      eventually want to use them).  */
-  for (i = 0, w = rawenv; *w != L'\0'; w = wcschr (w, L'\0') + 1, i++)
+  for (i = 0, p = rawenv; *p != '\0'; p = strchr (p, '\0') + 1, i++)
     {
-      sys_wcstombs_alloc (&newp, HEAP_NOTHEAP, w);
+      newp = strdup (p);
       if (i >= envc)
 	envp = (char **) realloc (envp, (4 + (envc += 100)) * sizeof (char *));
       envp[i] = newp;
       if (*newp == '=')
 	*newp = '!';
-      char *eq = strchrnul (newp, '=');
-      ucenv (newp, eq);	/* uppercase env vars which need it */
+      char *eq = strechr (newp, '=');
+      if (!child_proc_info)
+	ucenv (newp, eq);
       if (*newp == 'T' && strncmp (newp, "TERM=", 5) == 0)
 	sawTERM = 1;
-      else if (*newp == 'C' && strncmp (newp, "CYGWIN=", 7) == 0)
-	parse_options (newp + 7);
-      if (*eq)
-	posify_maybe (envp + i, *++eq ? eq : --eq, tmpbuf);
+      if (*newp == 'C' && strncmp (newp, "CYGWIN=", sizeof ("CYGWIN=") - 1) == 0)
+	parse_options (newp + sizeof ("CYGWIN=") - 1);
+      if (*eq && conv_start_chars[(unsigned char)envp[i][0]])
+	posify (envp + i, *++eq ? eq : --eq);
       debug_printf ("%p: %s", envp[i], envp[i]);
     }
 
   if (!sawTERM)
     envp[i++] = strdup (cygterm);
   envp[i] = NULL;
-  FreeEnvironmentStringsW (rawenv);
+  FreeEnvironmentStrings (rawenv);
 
 out:
   findenv_func = (char * (*)(const char*, int*)) my_findenv;
@@ -872,27 +853,32 @@ env_sort (const void *a, const void *b)
   return strcmp (*p, *q);
 }
 
-char * __reg3
+char * __stdcall
 getwinenveq (const char *name, size_t namelen, int x)
 {
-  WCHAR name0[namelen - 1];
-  WCHAR valbuf[32768]; /* Max size of an env.var including trailing '\0'. */
-
-  name0[sys_mbstowcs (name0, sizeof name0, name, namelen - 1)] = L'\0';
-  int totlen = GetEnvironmentVariableW (name0, valbuf, 32768);
+  char dum[1];
+  char name0[namelen - 1];
+  memcpy (name0, name, namelen - 1);
+  name0[namelen - 1] = '\0';
+  int totlen = GetEnvironmentVariable (name0, dum, 0);
   if (totlen > 0)
     {
-      totlen = sys_wcstombs (NULL, 0, valbuf);
+      totlen++;
       if (x == HEAP_1_STR)
 	totlen += namelen;
       else
 	namelen = 0;
-      char *p = (char *) cmalloc_abort ((cygheap_types) x, totlen);
+      char *p = (char *) cmalloc ((cygheap_types) x, totlen);
       if (namelen)
 	strcpy (p, name);
-      sys_wcstombs (p + namelen, totlen, valbuf);
-      debug_printf ("using value from GetEnvironmentVariable for '%W'", name0);
-      return p;
+      if (GetEnvironmentVariable (name0, p + namelen, totlen))
+	{
+	  debug_printf ("using value from GetEnvironmentVariable for '%s'",
+			name0);
+	  return p;
+	}
+      else
+	cfree (p);
     }
 
   debug_printf ("warning: %s not present in environment", name);
@@ -907,7 +893,8 @@ struct spenv
   bool add_if_exists;		/* if true, retrieve value from cache */
   const char * (cygheap_user::*from_cygheap) (const char *, size_t);
 
-  char __reg3 *retrieve (bool, const char * const = NULL);
+  char *retrieve (bool, const char * const = NULL)
+    __attribute__ ((regparm (3)));
 };
 
 #define env_dontadd almost_null
@@ -933,7 +920,7 @@ static NO_COPY spenv spenvs[] =
 char *
 spenv::retrieve (bool no_envblock, const char *const env)
 {
-  if (env && !ascii_strncasematch (env, name, namelen))
+  if (env && !strncasematch (env, name, namelen))
     return NULL;
 
   debug_printf ("no_envblock %d", no_envblock);
@@ -952,7 +939,7 @@ spenv::retrieve (bool no_envblock, const char *const env)
       p = (cygheap->user.*from_cygheap) (name, namelen);
       if (!p || (no_envblock && !env) || (p == env_dontadd))
 	return env_dontadd;
-      char *s = (char *) cmalloc_abort (HEAP_1_STR, namelen + strlen (p) + 1);
+      char *s = (char *) cmalloc (HEAP_1_STR, namelen + strlen (p) + 1);
       strcpy (s, name);
       strcpy (s + namelen, p);
       debug_printf ("using computed value for '%s'", name);
@@ -971,8 +958,8 @@ spenv::retrieve (bool no_envblock, const char *const env)
    filled with null terminated strings, terminated by double null characters.
    Converts environment variables noted in conv_envvars into win32 form
    prior to placing them in the string.  */
-char ** __reg3
-build_env (const char * const *envp, PWCHAR &envblock, int &envc,
+char ** __stdcall
+build_env (const char * const *envp, char *&envblock, int &envc,
 	   bool no_envblock)
 {
   int len, n;
@@ -987,7 +974,7 @@ build_env (const char * const *envp, PWCHAR &envblock, int &envc,
     continue;
 
   /* Allocate a new "argv-style" environ list with room for extra stuff. */
-  char **newenv = (char **) cmalloc_abort (HEAP_1_ARGV, sizeof (char *) *
+  char **newenv = (char **) cmalloc (HEAP_1_ARGV, sizeof (char *) *
 				     (n + SPENVS_SIZE + 1));
 
   int tl = 0;
@@ -1056,8 +1043,8 @@ build_env (const char * const *envp, PWCHAR &envblock, int &envc,
       qsort (pass_env, pass_envc, sizeof (char *), env_sort);
 
       /* Create an environment block suitable for passing to CreateProcess.  */
-      PWCHAR s;
-      envblock = (PWCHAR) malloc ((2 + tl) * sizeof (WCHAR));
+      char *s;
+      envblock = (char *) malloc (2 + tl);
       int new_tl = 0;
       for (srcp = pass_env, s = envblock; *srcp; srcp++)
 	{
@@ -1081,15 +1068,21 @@ build_env (const char * const *envp, PWCHAR &envblock, int &envc,
 	  else
 	    p = *srcp;		/* Don't worry about it */
 
-	  len = sys_mbstowcs (NULL, 0, p);
+	  len = strlen (p) + 1;
+	  if (len >= 32 * 1024)
+	    {
+	      free (envblock);
+	      envblock = NULL;
+	      goto out;
+	    }
 	  new_tl += len;	/* Keep running total of block length so far */
 
 	  /* See if we need to increase the size of the block. */
 	  if (new_tl > tl)
 	    {
 	      tl = new_tl + 100;
-	      PWCHAR new_envblock =
-			(PWCHAR) realloc (envblock, (2 + tl) * sizeof (WCHAR));
+	      char *new_envblock =
+			(char *) realloc (envblock, 2 + tl);
 	      /* If realloc moves the block, move `s' with it. */
 	      if (new_envblock != envblock)
 		{
@@ -1098,22 +1091,23 @@ build_env (const char * const *envp, PWCHAR &envblock, int &envc,
 		}
 	    }
 
-	  int slen = sys_mbstowcs (s, len, p);
+	  memcpy (s, p, len);
 
 	  /* See if environment variable is "special" in a Windows sense.
 	     Under NT, the current directories for visited drives are stored
 	     as =C:=\bar.  Cygwin converts the '=' to '!' for hopefully obvious
 	     reasons.  We need to convert it back when building the envblock */
-	  if (s[0] == L'!' && (iswdrive (s + 1) || (s[1] == L':' && s[2] == L':'))
-	      && s[3] == L'=')
-	    *s = L'=';
-	  s += slen + 1;
+	  if (s[0] == '!' && (isdrive (s + 1) || (s[1] == ':' && s[2] == ':'))
+	      && s[3] == '=')
+	    *s = '=';
+	  s += len;
 	}
-      *s = L'\0';			/* Two null bytes at the end */
+      *s = '\0';			/* Two null bytes at the end */
       assert ((s - envblock) <= tl);	/* Detect if we somehow ran over end
 					   of buffer */
     }
 
+out:
   debug_printf ("envp %p, envc %d", newenv, envc);
   return newenv;
 }
