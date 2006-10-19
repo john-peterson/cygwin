@@ -14,8 +14,6 @@ FUNCTION
 
 INDEX
 	gmtime
-INDEX
-	gmtime_r
 
 ANSI_SYNOPSIS
 	#include <time.h>
