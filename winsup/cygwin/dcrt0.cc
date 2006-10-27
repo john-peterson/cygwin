@@ -1,7 +1,7 @@
 /* dcrt0.cc -- essentially the main() for the Cygwin dll
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,18 +10,21 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
 #include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include "glob.h"
+#include "exceptions.h"
 #include <ctype.h>
-#include <locale.h>
-#include "environ.h"
+#include <limits.h>
+#include <wingdi.h>
+#include <winuser.h>
 #include "sigproc.h"
 #include "pinfo.h"
 #include "cygerrno.h"
 #define NEED_VFORK
 #include "perprocess.h"
+#include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
@@ -31,25 +34,100 @@ details. */
 #include "shared_info.h"
 #include "cygwin_version.h"
 #include "dll_init.h"
+#include "sync.h"
 #include "heap.h"
-#include "tls_pbuf.h"
-#include "exception.h"
-#include "cygxdr.h"
-#include "fenv.h"
-#include "ntdll.h"
-#include "wow64.h"
+#include "environ.h"
 
 #define MAX_AT_FILE_LEVEL 10
 
 #define PREMAIN_LEN (sizeof (user_data->premain) / sizeof (user_data->premain[0]))
 
 extern "C" void cygwin_exit (int) __attribute__ ((noreturn));
-extern "C" void __sinit (_reent *);
+
+HANDLE NO_COPY hMainProc = (HANDLE) -1;
+HANDLE NO_COPY hMainThread;
+HANDLE NO_COPY hProcToken;
+HANDLE NO_COPY hProcImpToken;
+
+muto NO_COPY lock_process::locker;
+
+bool display_title;
+bool strip_title_path;
+bool allow_glob = true;
+bool NO_COPY in_forkee;
+codepage_type current_codepage = ansi_cp;
+
+int __argc_safe;
+int _declspec(dllexport) __argc;
+char _declspec(dllexport) **__argv;
+#ifdef NEWVFORK
+vfork_save NO_COPY *main_vfork;
+#endif
 
 static int NO_COPY envc;
-static char NO_COPY **envp;
+char NO_COPY **envp;
 
-bool NO_COPY jit_debug;
+extern "C" void __sinit (_reent *);
+
+_cygtls NO_COPY *_main_tls;
+
+bool NO_COPY cygwin_finished_initializing;
+
+/* Used in SIGTOMASK for generating a bit for insertion into a sigset_t.
+   This is subtracted from the signal number prior to shifting the bit.
+   In older versions of cygwin, the signal was used as-is to shift the
+   bit for masking.  So, we'll temporarily detect this and set it to zero
+   for programs that are linked using older cygwins.  This is just a stopgap
+   measure to allow an orderly transfer to the new, correct sigmask method. */
+unsigned NO_COPY int signal_shift_subtract = 1;
+
+ResourceLocks _reslock NO_COPY;
+MTinterface _mtinterf;
+
+bool NO_COPY _cygwin_testing;
+
+char NO_COPY almost_null[1];
+
+extern "C"
+{
+  /* This is an exported copy of environ which can be used by DLLs
+     which use cygwin.dll.  */
+  char **__cygwin_environ;
+  char ***main_environ = &__cygwin_environ;
+  /* __progname used in getopt error message */
+  char *__progname;
+  struct per_process __cygwin_user_data =
+  {/* initial_sp */ 0, /* magic_biscuit */ 0,
+   /* dll_major */ CYGWIN_VERSION_DLL_MAJOR,
+   /* dll_major */ CYGWIN_VERSION_DLL_MINOR,
+   /* impure_ptr_ptr */ NULL, /* envptr */ NULL,
+   /* malloc */ malloc, /* free */ free,
+   /* realloc */ realloc,
+   /* fmode_ptr */ NULL, /* main */ NULL, /* ctors */ NULL,
+   /* dtors */ NULL, /* data_start */ NULL, /* data_end */ NULL,
+   /* bss_start */ NULL, /* bss_end */ NULL,
+   /* calloc */ calloc,
+   /* premain */ {NULL, NULL, NULL, NULL},
+   /* run_ctors_p */ 0,
+   /* unused */ {0, 0, 0, 0, 0, 0, 0},
+   /* UNUSED forkee */ 0,
+   /* hmodule */ NULL,
+   /* api_major */ CYGWIN_VERSION_API_MAJOR,
+   /* api_minor */ CYGWIN_VERSION_API_MINOR,
+   /* unused2 */ {0, 0, 0, 0, 0},
+   /* resourcelocks */ &_reslock, /* threadinterface */ &_mtinterf,
+   /* impure_ptr */ _GLOBAL_REENT,
+  };
+  bool ignore_case_with_glob;
+  int __declspec (dllexport) _check_for_executable = true;
+#ifdef DEBUGGING
+  int pinger;
+#endif
+  int NO_COPY __api_fatal_exit_val = 1;
+};
+
+char *old_title;
+char title_buf[TITLESIZE + 1];
 
 static void
 do_global_dtors ()
@@ -91,17 +169,14 @@ insert_file (char *name, char *&cmd)
 {
   HANDLE f;
   DWORD size;
-  tmp_pathbuf tp;
 
-  PWCHAR wname = tp.w_get ();
-  sys_mbstowcs (wname, NT_MAX_PATH, name + 1);
-  f = CreateFileW (wname,
-		   GENERIC_READ,		/* open for reading	*/
-		   FILE_SHARE_VALID_FLAGS,      /* share for reading	*/
-		   &sec_none_nih,		/* default security	*/
-		   OPEN_EXISTING,		/* existing file only	*/
-		   FILE_ATTRIBUTE_NORMAL,	/* normal file		*/
-		   NULL);			/* no attr. template	*/
+  f = CreateFile (name + 1,
+		  GENERIC_READ,		 /* open for reading	*/
+		  FILE_SHARE_READ,       /* share for reading	*/
+		  &sec_none_nih,	 /* no security		*/
+		  OPEN_EXISTING,	 /* existing file only	*/
+		  FILE_ATTRIBUTE_NORMAL, /* normal file		*/
+		  NULL);		 /* no attr. template	*/
 
   if (f == INVALID_HANDLE_VALUE)
     {
@@ -162,7 +237,7 @@ quoted (char *cmd, int winshell)
     {
       char *p;
       strcpy (cmd, cmd + 1);
-      if (*(p = strchrnul (cmd, quote)))
+      if (*(p = strechr (cmd, quote)))
 	strcpy (p, p + 1);
       return p;
     }
@@ -194,14 +269,6 @@ quoted (char *cmd, int winshell)
 /* Perform a glob on word if it contains wildcard characters.
    Also quote every character between quotes to force glob to
    treat the characters literally. */
-
-/* Either X:[...] or \\server\[...] */
-#define is_dos_path(s) (isdrive(s) \
-			|| ((s)[0] == '\\' \
-			    && (s)[1] == '\\' \
-			    && isalpha ((s)[2]) \
-			    && strchr ((s) + 3, '\\')))
-
 static int __stdcall
 globify (char *word, char **&argv, int &argc, int &argvlen)
 {
@@ -210,9 +277,9 @@ globify (char *word, char **&argv, int &argc, int &argvlen)
 
   int n = 0;
   char *p, *s;
-  int dos_spec = is_dos_path (word);
+  int dos_spec = isdrive (word);
   if (!dos_spec && isquote (*word) && word[1] && word[2])
-    dos_spec = is_dos_path (word + 1);
+    dos_spec = isdrive (word + 1);
 
   /* We'll need more space if there are quoting characters in
      word.  If that is the case, doubling the size of the
@@ -240,15 +307,7 @@ globify (char *word, char **&argv, int &argc, int &argvlen)
 	    else if (s[1] == quote || s[1] == '\\')
 	      s++;
 	    *p++ = '\\';
-	    size_t cnt = isascii (*s) ? 1 : mbtowc (NULL, s, MB_CUR_MAX);
-	    if (cnt <= 1 || cnt == (size_t)-1)
-	      *p++ = *s;
-	    else
-	      {
-		--s;
-		while (cnt-- > 0)
-		  *p++ = *++s;
-	      }
+	    *p++ = *s;
 	  }
 	if (*s == quote)
 	  p--;
@@ -320,11 +379,7 @@ build_argv (char *cmd, char **&argv, int &argc, int winshell)
 	    /* Skip over characters until the closing quote */
 	    {
 	      sawquote = cmd;
-	      /* Handle quoting.  Only strip off quotes if the parent is
-		 a Cygwin process, or if the word starts with a '@'.
-		 In this case, the insert_file function needs an unquoted
-		 DOS filename and globbing isn't performed anyway. */
-	      cmd = quoted (cmd, winshell && argc > 0 && *word != '@');
+	      cmd = quoted (cmd, winshell && argc > 0);
 	    }
 	  if (issep (*cmd))	// End of argument if space
 	    break;
@@ -357,8 +412,7 @@ build_argv (char *cmd, char **&argv, int &argc, int winshell)
 	}
     }
 
-  if (argv)
-    argv[argc] = NULL;
+  argv[argc] = NULL;
 
   debug_printf ("argc %d", argc);
 }
@@ -371,7 +425,9 @@ check_sanity_and_sync (per_process *p)
   /* struct without updating SIZEOF_PER_PROCESS [it makes them think twice */
   /* about changing it].						   */
   if (sizeof (per_process) != SIZEOF_PER_PROCESS)
-    api_fatal ("per_process sanity check failed");
+    {
+      api_fatal ("per_process sanity check failed");
+    }
 
   /* Make sure that the app and the dll are in sync. */
 
@@ -390,57 +446,64 @@ check_sanity_and_sync (per_process *p)
     api_fatal ("cygwin DLL and APP are out of sync -- API version mismatch %d > %d",
 	       p->api_major, cygwin_version.api_major);
 
-  /* This is a kludge to work around a version of _cygwin_common_crt0
-     which overwrote the cxx_malloc field with the local DLL copy.
-     Hilarity ensues if the DLL is not loaded while the process
-     is forking. */
-  __cygwin_user_data.cxx_malloc = &default_cygwin_cxx_malloc;
+  if (CYGWIN_VERSION_DLL_MAKE_COMBINED (p->dll_major, p->dll_minor) <=
+      CYGWIN_VERSION_DLL_BAD_SIGNAL_MASK)
+    signal_shift_subtract = 0;
 }
 
 child_info NO_COPY *child_proc_info = NULL;
 
-#define CYGWIN_GUARD (PAGE_READWRITE | PAGE_GUARD)
+#define CYGWIN_GUARD ((wincap.has_page_guard ()) ? \
+		     PAGE_EXECUTE_READWRITE|PAGE_GUARD : PAGE_NOACCESS)
 
 void
 child_info_fork::alloc_stack_hard_way (volatile char *b)
 {
-  void *stack_ptr;
-  DWORD stacksize;
+  void *new_stack_pointer;
+  MEMORY_BASIC_INFORMATION m;
+  void *newbase;
+  int newlen;
+  bool noguard;
 
-  /* First check if the requested stack area is part of the user heap
-     or part of a mmapped region.  If so, we have been started from a
-     pthread with an application-provided stack, and the stack has just
-     to be used as is. */
-  if ((stacktop >= cygheap->user_heap.base
-      && stackbottom <= cygheap->user_heap.max)
-      || is_mmapped_region ((caddr_t) stacktop, (caddr_t) stackbottom))
-    return;
+  if (!VirtualQuery ((LPCVOID) &b, &m, sizeof m))
+    api_fatal ("fork: couldn't get stack info, %E");
 
-  /* First, try to reserve the entire stack. */
-  stacksize = (char *) stackbottom - (char *) stackaddr;
-  if (!VirtualAlloc (stackaddr, stacksize, MEM_RESERVE, PAGE_NOACCESS))
-    api_fatal ("fork: can't reserve memory for stack %p - %p, %E",
-	       stackaddr, stackbottom);
-  stacksize = (char *) stackbottom - (char *) stacktop;
-  stack_ptr = VirtualAlloc (stacktop, stacksize, MEM_COMMIT, PAGE_READWRITE);
-  if (!stack_ptr)
-    abort ("can't commit memory for stack %p(%d), %E", stacktop, stacksize);
-  if (guardsize != (size_t) -1)
+  LPBYTE curbot = (LPBYTE) m.BaseAddress + m.RegionSize;
+
+  if (stacktop > (LPBYTE) m.AllocationBase && stacktop < curbot)
     {
-      /* Allocate PAGE_GUARD page if it still fits. */
-      if (stack_ptr > stackaddr)
-	{
-	  stack_ptr = (void *) ((LPBYTE) stack_ptr
-					- wincap.page_size ());
-	  if (!VirtualAlloc (stack_ptr, wincap.page_size (), MEM_COMMIT,
-			     CYGWIN_GUARD))
-	    api_fatal ("fork: couldn't allocate new stack guard page %p, %E",
-		       stack_ptr);
-	}
-      /* Allocate POSIX guard pages. */
-      if (guardsize > 0)
-	VirtualAlloc (stackaddr, guardsize, MEM_COMMIT, PAGE_NOACCESS);
+      newbase = curbot;
+      newlen = (LPBYTE) stackbottom - (LPBYTE) curbot;
+      noguard = 1;
     }
+  else
+    {
+      newbase = stacktop;
+      newlen = (DWORD) stackbottom - (DWORD) stacktop;
+      noguard = 0;
+    }
+  if (!VirtualAlloc (newbase, newlen, MEM_RESERVE, PAGE_NOACCESS))
+    api_fatal ("fork: can't reserve memory for stack %p - %p, %E",
+		stacktop, stackbottom);
+
+  new_stack_pointer = (void *) ((LPBYTE) stackbottom - stacksize);
+  if (!VirtualAlloc (new_stack_pointer, stacksize, MEM_COMMIT,
+		     PAGE_EXECUTE_READWRITE))
+    api_fatal ("fork: can't commit memory for stack %p(%d), %E",
+	       new_stack_pointer, stacksize);
+  if (!VirtualQuery ((LPCVOID) new_stack_pointer, &m, sizeof m))
+    api_fatal ("fork: couldn't get new stack info, %E");
+  if (!noguard)
+    {
+      m.BaseAddress = (LPVOID) ((DWORD) m.BaseAddress - 1);
+      if (!VirtualAlloc ((LPVOID) m.BaseAddress, 1, MEM_COMMIT,
+			 CYGWIN_GUARD))
+	api_fatal ("fork: couldn't allocate new stack guard page %p, %E",
+		   m.BaseAddress);
+    }
+  if (!VirtualQuery ((LPCVOID) m.BaseAddress, &m, sizeof m))
+    api_fatal ("fork: couldn't get new stack info, %E");
+  stacktop = m.BaseAddress;
   b[0] = '\0';
 }
 
@@ -460,29 +523,14 @@ child_info_fork::alloc_stack ()
 {
   volatile char * volatile esp;
   __asm__ volatile ("movl %%esp,%0": "=r" (esp));
-  /* Make sure not to try a hard allocation if we have been forked off from
-     the main thread of a Cygwin process which has been started from a 64 bit
-     parent.  In that case the _tlsbase of the forked child is not the same
-     as the _tlsbase of the parent (== stackbottom), but only because the
-     stack of the parent has been slightly rearranged.  See comment in
-     wow64_revert_to_original_stack for details. We check here if the
-     parent stack fits into the child stack. */
-  if (_tlsbase != stackbottom
-      && (!wincap.is_wow64 ()
-      	  || stacktop < (char *) NtCurrentTeb ()->DeallocationStack
-	  || stackbottom > _tlsbase))
+  if (_tlsbase != stackbottom)
     alloc_stack_hard_way (esp);
   else
     {
       char *st = (char *) stacktop - 4096;
       while (_tlstop >= st)
 	esp = getstack (esp);
-      stackaddr = 0;
-      /* This only affects forked children of a process started from a native
-	 64 bit process, but it doesn't hurt to do it unconditionally.  Fix
-	 StackBase in the child to be the same as in the parent, so that the
-	 computation of _my_tls is correct. */
-      _tlsbase = (char *) stackbottom;
+      stacksize = 0;
     }
 }
 
@@ -498,16 +546,27 @@ break_here ()
 static void
 initial_env ()
 {
-  if (GetEnvironmentVariableA ("CYGWIN_TESTING", NULL, 0))
+  char buf[CYG_MAX_PATH];
+  if (GetEnvironmentVariable ("CYGWIN_TESTING", buf, sizeof (buf) - 1))
     _cygwin_testing = 1;
 
 #ifdef DEBUGGING
   DWORD len;
-  char buf[NT_MAX_PATH];
-  if (GetEnvironmentVariableA ("CYGWIN_DEBUG", buf, sizeof (buf) - 1))
+
+  if (GetEnvironmentVariable ("CYGWIN_SLEEP", buf, sizeof (buf) - 1))
     {
-      char buf1[NT_MAX_PATH];
-      len = GetModuleFileName (NULL, buf1, NT_MAX_PATH);
+      DWORD ms = atoi (buf);
+      buf[0] = '\0';
+      len = GetModuleFileName (NULL, buf, CYG_MAX_PATH);
+      console_printf ("Sleeping %d, pid %u %s\n", ms, GetCurrentProcessId (), buf);
+      Sleep (ms);
+      if (!strace.active () && !dynamically_loaded)
+	strace.hello ();
+    }
+  if (GetEnvironmentVariable ("CYGWIN_DEBUG", buf, sizeof (buf) - 1))
+    {
+      char buf1[CYG_MAX_PATH];
+      len = GetModuleFileName (NULL, buf1, CYG_MAX_PATH);
       strlwr (buf1);
       strlwr (buf);
       char *p = strpbrk (buf, ":=");
@@ -518,33 +577,34 @@ initial_env ()
       if (strstr (buf1, buf))
 	{
 	  error_start_init (p);
-	  jit_debug = true;
 	  try_to_debug ();
 	  console_printf ("*** Sending Break.  gdb may issue spurious SIGTRAP message.\n");
 	  break_here ();
 	}
     }
 #endif
+
 }
 
 child_info *
 get_cygwin_startup_info ()
 {
   STARTUPINFO si;
+  char zeros[sizeof (child_proc_info->zero)] = {0};
 
   GetStartupInfo (&si);
   child_info *res = (child_info *) si.lpReserved2;
-
   if (si.cbReserved2 < EXEC_MAGIC_SIZE || !res
-      || res->intro != PROC_MAGIC_GENERIC || res->magic != CHILD_INFO_MAGIC)
-    {
-      strace.activate (false);
-      res = NULL;
-    }
+      || memcmp (res->zero, zeros, sizeof (res->zero)) != 0)
+    res = NULL;
   else
     {
       if ((res->intro & OPROC_MAGIC_MASK) == OPROC_MAGIC_GENERIC)
 	multiple_cygwin_problem ("proc intro", res->intro, 0);
+      else if (res->intro == PROC_MAGIC_GENERIC
+	       && res->magic != CHILD_INFO_MAGIC)
+	multiple_cygwin_problem ("proc magic", res->magic,
+				 CHILD_INFO_MAGIC);
       else if (res->cygheap != (void *) &_cygheap_start)
 	multiple_cygwin_problem ("cygheap base", (DWORD) res->cygheap,
 				 (DWORD) &_cygheap_start);
@@ -552,12 +612,12 @@ get_cygwin_startup_info ()
       unsigned should_be_cb = 0;
       switch (res->type)
 	{
-	  case _CH_FORK:
+	  case _PROC_FORK:
 	    in_forkee = true;
 	    should_be_cb = sizeof (child_info_fork);
 	    /* fall through */;
-	  case _CH_SPAWN:
-	  case _CH_EXEC:
+	  case _PROC_SPAWN:
+	  case _PROC_EXEC:
 	    if (!should_be_cb)
 	      should_be_cb = sizeof (child_info_spawn);
 	    if (should_be_cb != res->cb)
@@ -566,15 +626,16 @@ get_cygwin_startup_info ()
 	      multiple_cygwin_problem ("fhandler size", res->fhandler_union_cb, sizeof (fhandler_union));
 	    if (res->isstraced ())
 	      {
-		while (!being_debugged ())
-		  yield ();
-		strace.activate (res->type == _CH_FORK);
+		res->ready (false);
+		for (unsigned i = 0; !being_debugged () && i < 10000; i++)
+		  low_priority_sleep (0);
+		strace.hello ();
 	      }
 	    break;
 	  default:
 	    system_printf ("unknown exec type %d", res->type);
 	    /* intentionally fall through */
-	  case _CH_WHOOPS:
+	  case _PROC_WHOOPS:
 	    res = NULL;
 	    break;
 	}
@@ -592,8 +653,8 @@ void
 child_info_fork::handle_fork ()
 {
   cygheap_fixup_in_child (false);
-  memory_init (false);
-  myself.thisproc (NULL);
+  memory_init ();
+  set_myself (NULL);
   myself->uid = cygheap->user.real_uid;
   myself->gid = cygheap->user.real_gid;
 
@@ -602,23 +663,6 @@ child_info_fork::handle_fork ()
 	      "dll bss", dll_bss_start, dll_bss_end,
 	      "user heap", cygheap->user_heap.base, cygheap->user_heap.ptr,
 	      NULL);
-
-  /* If my_wr_proc_pipe != NULL then it's a leftover handle from a previously
-     forked process.  Close it now or suffer confusion with the parent of our
-     parent.  */
-  if (my_wr_proc_pipe)
-    ForceCloseHandle1 (my_wr_proc_pipe, wr_proc_pipe);
-
-  /* Setup our write end of the process pipe.  Clear the one in the structure.
-     The destructor should never be called for this but, it can't hurt to be
-     safe. */
-  my_wr_proc_pipe = wr_proc_pipe;
-  rd_proc_pipe = wr_proc_pipe = NULL;
-  /* Do the relocations here.  These will actually likely be overwritten by the
-     below child_copy but we do them here in case there is a read-only section
-     which does not get copied by fork. */
-  _pei386_runtime_relocator (user_data);
-
   /* step 2 now that the dll has its heap filled in, we can fill in the
      user's data and bss since user_data is now filled out. */
   child_copy (parent, false,
@@ -630,105 +674,50 @@ child_info_fork::handle_fork ()
     api_fatal ("recreate_mmaps_after_fork_failed");
 }
 
-bool
-child_info_spawn::get_parent_handle ()
-{
-  parent = OpenProcess (PROCESS_VM_READ, false, parent_winpid);
-  moreinfo->myself_pinfo = NULL;
-  return !!parent;
-}
-
 void
 child_info_spawn::handle_spawn ()
 {
-  extern void fixup_lockf_after_exec ();
   HANDLE h;
-  if (!dynamically_loaded || get_parent_handle ())
-      {
-	cygheap_fixup_in_child (true);
-	memory_init (false);
-      }
+  cygheap_fixup_in_child (true);
+  memory_init ();
   if (!moreinfo->myself_pinfo ||
-      !DuplicateHandle (GetCurrentProcess (), moreinfo->myself_pinfo,
-			GetCurrentProcess (), &h, 0,
+      !DuplicateHandle (hMainProc, moreinfo->myself_pinfo, hMainProc, &h, 0,
 			FALSE, DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE))
     h = NULL;
-
-  /* Setup our write end of the process pipe.  Clear the one in the structure.
-     The destructor should never be called for this but, it can't hurt to be
-     safe. */
-  my_wr_proc_pipe = wr_proc_pipe;
-  rd_proc_pipe = wr_proc_pipe = NULL;
-
-  myself.thisproc (h);
+  set_myself (h);
   __argc = moreinfo->argc;
   __argv = moreinfo->argv;
   envp = moreinfo->envp;
   envc = moreinfo->envc;
   if (!dynamically_loaded)
     cygheap->fdtab.fixup_after_exec ();
-  if (__stdin >= 0)
-    cygheap->fdtab.move_fd (__stdin, 0);
-  if (__stdout >= 0)
-    cygheap->fdtab.move_fd (__stdout, 1);
-  cygheap->user.groups.clear_supp ();
-
-  /* If we're execing we may have "inherited" a list of children forked by the
-     previous process executing under this pid.  Reattach them here so that we
-     can wait for them.  */
-  if (type == _CH_EXEC)
-    reattach_children ();
-
   ready (true);
 
-  /* Keep pointer to parent open if we've execed so that pid will not be reused.
-     Otherwise, we no longer need this handle so close it.
-     Need to do this after debug_fixup_after_fork_exec or DEBUGGING handling of
+  /* Need to do this after debug_fixup_after_fork_exec or DEBUGGING handling of
      handles might get confused. */
-  if (type != _CH_EXEC && child_proc_info->parent)
-    {
-      CloseHandle (child_proc_info->parent);
-      child_proc_info->parent = NULL;
-    }
+  CloseHandle (child_proc_info->parent);
+  child_proc_info->parent = NULL;
 
   signal_fixup_after_exec ();
-  fixup_lockf_after_exec ();
-}
-
-/* Retrieve and store system directory for later use.  Note that the
-   directory is stored with a trailing backslash! */
-static void
-init_windows_system_directory ()
-{
-  if (!windows_system_directory_length)
+  if (moreinfo->old_title)
     {
-      windows_system_directory_length =
-	    GetSystemDirectoryW (windows_system_directory, MAX_PATH);
-      if (windows_system_directory_length == 0)
-	api_fatal ("can't find windows system directory");
-      windows_system_directory[windows_system_directory_length++] = L'\\';
-      windows_system_directory[windows_system_directory_length] = L'\0';
-
-      system_wow64_directory_length =
-	GetSystemWow64DirectoryW (system_wow64_directory, MAX_PATH);
-      if (system_wow64_directory_length)
-	{
-	  system_wow64_directory[system_wow64_directory_length++] = L'\\';
-	  system_wow64_directory[system_wow64_directory_length] = L'\0';
-	}
+      old_title = strcpy (title_buf, moreinfo->old_title);
+      cfree (moreinfo->old_title);
     }
 }
 
-void
+void __stdcall
 dll_crt0_0 ()
 {
-  wincap.init ();
-  child_proc_info = get_cygwin_startup_info ();
-  init_windows_system_directory ();
   init_global_security ();
   initial_env ();
 
-  SetErrorMode (SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+  SetErrorMode (SEM_FAILCRITICALERRORS);
+
+  /* Initialize signal processing here, early, in the hopes that the creation
+     of a thread early in the process will cause more predictability in memory
+     layout for the main thread. */
+  sigproc_init ();
 
   lock_process::init ();
   _impure_ptr = _GLOBAL_REENT;
@@ -738,77 +727,63 @@ dll_crt0_0 ()
   _impure_ptr->_current_locale = "C";
   user_data->impure_ptr = _impure_ptr;
   user_data->impure_ptr_ptr = &_impure_ptr;
+  mmap_init ();
 
-  DuplicateHandle (GetCurrentProcess (), GetCurrentThread (),
-		   GetCurrentProcess (), &hMainThread,
-		   0, false, DUPLICATE_SAME_ACCESS);
+  if (!DuplicateHandle (GetCurrentProcess (), GetCurrentProcess (),
+		       GetCurrentProcess (), &hMainProc, 0, FALSE,
+			DUPLICATE_SAME_ACCESS))
+    hMainProc = GetCurrentProcess ();
 
-  NtOpenProcessToken (NtCurrentProcess (), MAXIMUM_ALLOWED, &hProcToken);
-  set_cygwin_privileges (hProcToken);
+  DuplicateHandle (hMainProc, GetCurrentThread (), hMainProc,
+		   &hMainThread, 0, false, DUPLICATE_SAME_ACCESS);
+  if (wincap.has_security ())
+    OpenProcessToken (hMainProc, MAXIMUM_ALLOWED, &hProcToken);
 
   device::init ();
   do_global_ctors (&__CTOR_LIST__, 1);
   cygthread::init ();
 
+  child_proc_info = get_cygwin_startup_info ();
   if (!child_proc_info)
-    {
-      memory_init (true);
-      /* WOW64 process on XP/64 or Server 2003/64?  Check if we have been
-	 started from 64 bit process and if our stack is at an unusual
-	 address.  Set wow64_needs_stack_adjustment if so.  Problem
-	 description in wow64_test_for_64bit_parent. */
-      if (wincap.wow64_has_secondary_stack ())
-	wow64_needs_stack_adjustment = wow64_test_for_64bit_parent ();
-    }
+    memory_init ();
   else
     {
       cygwin_user_h = child_proc_info->user_h;
       switch (child_proc_info->type)
 	{
-	case _CH_FORK:
-	  fork_info->handle_fork ();
-	  break;
-	case _CH_SPAWN:
-	case _CH_EXEC:
-	  spawn_info->handle_spawn ();
-	  break;
+	  case _PROC_FORK:
+	    fork_info->handle_fork ();
+	    break;
+	  case _PROC_SPAWN:
+	  case _PROC_EXEC:
+	    spawn_info->handle_spawn ();
+	    break;
 	}
     }
 
+  user_data->resourcelocks->Init ();
   user_data->threadinterface->Init ();
 
-  _main_tls = &_my_tls;
+  _cygtls::init ();
 
-  /* Initialize signal processing here, early, in the hopes that the creation
-     of a thread early in the process will cause more predictability in memory
-     layout for the main thread. */
-  if (!dynamically_loaded)
-    sigproc_init ();
+  /* Initialize events */
+  events_init ();
+  tty_list::init_session ();
+
+  cygheap->cwd.init ();
+
+  /* Late duplicate simplifies tweaking the process token in uinfo.cc. */
+  if (wincap.has_security ()
+      && !DuplicateTokenEx (hProcToken, MAXIMUM_ALLOWED, NULL,
+			    SecurityImpersonation, TokenImpersonation,
+			    &hProcImpToken))
+#ifdef DEBUGGING
+    system_printf ("DuplicateTokenEx failed, %E");
+#else
+    ;
+#endif
 
   debug_printf ("finished dll_crt0_0 initialization");
-}
-
-static inline void
-main_thread_sinit ()
-{
-  __sinit (_impure_ptr);
-  /* At this point, _impure_ptr == _global_impure_ptr == _GLOBAL_REENT is
-     initialized, but _REENT == _my_tls.local_clib doesn't know about it.
-     It has been copied over from _GLOBAL_REENT in _cygtls::init_thread
-     *before* the initialization took place.
-
-     As soon as the main thread calls a stdio function, this would be
-     rectified.  But if another thread calls a stdio function on
-     stdin/out/err before the main thread does, all the required
-     initialization of stdin/out/err will be done, but _REENT->__sdidinit
-     is *still* 0.  This in turn will result in a call to __sinit in the
-     wrong spot.  The input or output buffer will be NULLed and nothing is
-     read or written in the first stdio function call in the main thread.
-
-     To fix this issue we have to copy over the relevant part of _GLOBAL_REENT
-     to _REENT here again. */
-  _REENT->__sdidinit = -1;
-  _REENT->__cleanup = _GLOBAL_REENT->__cleanup;
 }
 
 /* Take over from libc's crt0.o and start the application. Note the
@@ -818,53 +793,28 @@ main_thread_sinit ()
 void
 dll_crt0_1 (void *)
 {
-  extern void initial_setlocale ();
-
-  _my_tls.incyg++;
-
-  if (dynamically_loaded)
-    sigproc_init ();
-
   check_sanity_and_sync (user_data);
-
-  /* Initialize malloc and then call user_shared_initialize since it relies
-     on a functioning malloc and it's possible that the user's program may
-     have overridden malloc.  We only know about that at this stage,
-     unfortunately. */
   malloc_init ();
-  user_shared->initialize ();
-
-#ifdef CYGHEAP_DEBUG
+#ifdef CGF
   int i = 0;
   const int n = 2 * 1024 * 1024;
   while (i--)
-    {
-      void *p = cmalloc (HEAP_STR, n);
-      if (p)
-	small_printf ("cmalloc returns %p\n", cmalloc (HEAP_STR, n));
-      else
-	{
-	  small_printf ("total allocated %p\n", (i - 1) * n);
-	  break;
-	}
-    }
+    small_printf ("cmalloc returns %p\n", cmalloc (HEAP_STR, n));
 #endif
 
+  ProtectHandle (hMainProc);
   ProtectHandle (hMainThread);
-
-  cygheap->cwd.init ();
 
   /* Initialize pthread mainthread when not forked and it is safe to call new,
      otherwise it is reinitalized in fixup_after_fork */
   if (!in_forkee)
-    {
-      pthread::init_mainthread ();
-      _pei386_runtime_relocator (user_data);
-    }
+    pthread::init_mainthread ();
 
 #ifdef DEBUGGING
   strace.microseconds ();
 #endif
+
+  create_signal_arrived (); /* FIXME: move into wait_sig? */
 
   /* Initialize debug muto, if DLL is built with --enable-debugging.
      Need to do this before any helper threads start. */
@@ -885,18 +835,13 @@ dll_crt0_1 (void *)
 
 	 NOTE: Don't do anything that involves the stack until you've completed
 	 this step. */
-      if (fork_info->stackaddr)
+      if (fork_info->stacksize)
 	{
 	  _tlsbase = (char *) fork_info->stackbottom;
 	  _tlstop = (char *) fork_info->stacktop;
 	}
-
-      /* Not resetting _my_tls.incyg here because presumably fork will overwrite
-	 it with the value of the forker and all will be good.   */
       longjmp (fork_info->jmp, true);
     }
-
-  main_thread_sinit ();
 
 #ifdef DEBUGGING
   {
@@ -905,25 +850,34 @@ dll_crt0_1 (void *)
   }
 #endif
   pinfo_init (envp, envc);
-  strace.dll_info ();
+
+  /* Can be set only after environment has been initialized. */
+  if (wincap.has_security ())
+    set_cygwin_privileges (hProcImpToken);
+
+  if (!old_title && GetConsoleTitle (title_buf, TITLESIZE))
+    old_title = title_buf;
 
   /* Allocate cygheap->fdtab */
   dtable_init ();
 
   uinfo_init ();	/* initialize user info */
 
+  wait_for_sigthread ();
+  extern DWORD threadfunc_ix;
+  if (!threadfunc_ix)
+    system_printf ("internal error: couldn't determine location of thread function on stack.  Expect signal problems.");
+
   /* Connect to tty. */
   tty::init_session ();
 
-  /* Set internal locale to the environment settings. */
-  initial_setlocale ();
-
   if (!__argc)
     {
-      PWCHAR wline = GetCommandLineW ();
-      size_t size = sys_wcstombs (NULL, 0, wline);
-      char *line = (char *) alloca (size);
-      sys_wcstombs (line, size, wline);
+      char *line = GetCommandLineA ();
+      line = strcpy ((char *) alloca (strlen (line) + 1), line);
+
+      if (current_codepage == oem_cp)
+	CharToOemA (line, line);
 
       /* Scan the command line and build argv.  Expand wildcards if not
 	 called from another cygwin process. */
@@ -934,9 +888,8 @@ dll_crt0_1 (void *)
 	 win32 style. */
       if ((strchr (__argv[0], ':')) || (strchr (__argv[0], '\\')))
 	{
-	  char *new_argv0 = (char *) malloc (NT_MAX_PATH);
-	  cygwin_conv_path (CCP_WIN_A_TO_POSIX | CCP_RELATIVE, __argv[0],
-			    new_argv0, NT_MAX_PATH);
+	  char *new_argv0 = (char *) malloc (CYG_MAX_PATH);
+	  cygwin_conv_to_posix_path (__argv[0], new_argv0);
 	  __argv[0] = (char *) realloc (new_argv0, strlen (new_argv0) + 1);
 	}
     }
@@ -954,16 +907,25 @@ dll_crt0_1 (void *)
     ++__progname;
   else
     __progname = __argv[0];
-  program_invocation_name = __argv[0];
-  program_invocation_short_name = __progname;
   if (__progname)
     {
       char *cp = strchr (__progname, '\0') - 4;
-      if (cp > __progname && ascii_strcasematch (cp, ".exe"))
+      if (cp > __progname && strcasematch (cp, ".exe"))
 	*cp = '\0';
     }
 
-  (void) xdr_set_vprintf (&cygxdr_vwarnx);
+  /* Set new console title if appropriate. */
+
+  if (display_title && !dynamically_loaded)
+    {
+      char *cp = __progname;
+      if (strip_title_path)
+	for (char *ptr = cp; *ptr && *ptr != ' '; ptr++)
+	  if (isdirsep (*ptr))
+	    cp = ptr + 1;
+      set_console_title (cp);
+    }
+
   cygwin_finished_initializing = true;
   /* Call init of loaded dlls. */
   dlls.init ();
@@ -973,95 +935,40 @@ dll_crt0_1 (void *)
     for (unsigned int i = PREMAIN_LEN / 2; i < PREMAIN_LEN; i++)
       user_data->premain[i] (__argc, __argv, user_data);
 
-  set_errno (0);
+  debug_printf ("user_data->main %p", user_data->main);
 
   if (dynamically_loaded)
     {
-      _setlocale_r (_REENT, LC_CTYPE, "C");
+      set_errno (0);
       return;
     }
 
   /* Disable case-insensitive globbing */
   ignore_case_with_glob = false;
 
+  set_errno (0);
+
   MALLOC_CHECK;
   cygbench (__progname);
 
+  /* Flush signals and ensure that signal thread is up and running. Can't
+     do this for noncygwin case since the signal thread is blocked due to
+     LoadLibrary serialization. */
   ld_preload ();
-  /* Per POSIX set the default application locale back to "C". */
-  _setlocale_r (_REENT, LC_CTYPE, "C");
-
-  if (!user_data->main)
-    {
-      /* Handle any signals which may have arrived */
-      _my_tls.call_signal_handler ();
-      _my_tls.incyg--;	/* Not in Cygwin anymore */
-    }
-  else
-    {
-      /* Create a copy of Cygwin's version of __argv so that, if the user makes
-	 a change to an element of argv[] it does not affect Cygwin's argv.
-	 Changing the the contents of what argv[n] points to will still
-	 affect Cygwin.  This is similar (but not exactly like) Linux. */
-      char *newargv[__argc + 1];
-      char **nav = newargv;
-      char **oav = __argv;
-      while ((*nav++ = *oav++) != NULL)
-	continue;
-      /* Handle any signals which may have arrived */
-      _my_tls.call_signal_handler ();
-      _my_tls.incyg--;	/* Not in Cygwin anymore */
-      cygwin_exit (user_data->main (__argc, newargv, *user_data->envptr));
-    }
-  __asm__ ("				\n\
-	.global __cygwin_exit_return	\n\
-__cygwin_exit_return:			\n\
-");
+  if (user_data->main)
+    cygwin_exit (user_data->main (__argc, __argv, *user_data->envptr));
 }
 
 extern "C" void __stdcall
 _dll_crt0 ()
 {
-  /* Handle WOW64 process on XP/2K3 which has been started from native 64 bit
-     process.  See comment in wow64_test_for_64bit_parent for a full problem
-     description. */
-  if (wow64_needs_stack_adjustment && !dynamically_loaded)
-    {
-      /* Must be static since it's referenced after the stack and frame
-	 pointer registers have been changed. */
-      static PVOID allocationbase = 0;
-
-      /* Check if we just move the stack.  If so, wow64_revert_to_original_stack
-	 returns a non-NULL, 16 byte aligned address.  See comments in
-	 wow64_revert_to_original_stack for the gory details. */
-      PVOID stackaddr = wow64_revert_to_original_stack (allocationbase);
-      if (stackaddr)
-      	{
-	  /* 2nd half of the stack move.  Set stack pointer to new address.
-	     Set frame pointer to 0. */
-	  __asm__ ("\n\
-		   movl  %[ADDR], %%esp \n\
-		   xorl  %%ebp, %%ebp   \n"
-		   : : [ADDR] "r" (stackaddr));
-	  /* Now we're back on the original stack.  Free up space taken by the
-	     former main thread stack and set DeallocationStack correctly. */
-	  VirtualFree (NtCurrentTeb ()->DeallocationStack, 0, MEM_RELEASE);
-	  NtCurrentTeb ()->DeallocationStack = allocationbase;
-	}
-      else
-	/* Fall back to respawn if wow64_revert_to_original_stack fails. */
-	wow64_respawn_process ();
-    }
-#ifdef __i386__
-  _feinitialise ();
-#endif
   main_environ = user_data->envptr;
   if (in_forkee)
-    {
-      fork_info->alloc_stack ();
-      _main_tls = &_my_tls;
-    }
+    fork_info->alloc_stack ();
+  else
+    __sinit (_impure_ptr);
 
+  _main_tls = &_my_tls;
   _main_tls->call ((DWORD (*) (void *, void *)) dll_crt0_1, NULL);
 }
 
@@ -1102,20 +1009,11 @@ cygwin_dll_init ()
 extern "C" void
 __main (void)
 {
-  /* Ordering is critical here.  DLL ctors have already been
-     run as they were being loaded, so we should stack the
-     queued call to DLL dtors now.  */
-  atexit (dll_global_dtors);
   do_global_ctors (user_data->ctors, false);
-  /* Now we have run global ctors, register their dtors.
-
-     At exit, global dtors will run first, so the app can still
-     use shared library functions while terminating; then the
-     DLLs will be destroyed; finally newlib will shut down stdio
-     and terminate itself.  */
   atexit (do_global_dtors);
-  sig_dispatch_pending (true);
 }
+
+exit_states NO_COPY exit_state;
 
 void __stdcall
 do_exit (int status)
@@ -1133,8 +1031,24 @@ do_exit (int status)
 
   lock_process until_exit (true);
 
+  if (exit_state < ES_GLOBAL_DTORS)
+    {
+      exit_state = ES_GLOBAL_DTORS;
+      dll_global_dtors ();
+    }
+
   if (exit_state < ES_EVENTS_TERMINATE)
-    exit_state = ES_EVENTS_TERMINATE;
+    {
+      exit_state = ES_EVENTS_TERMINATE;
+      events_terminate ();
+    }
+
+  UINT n = (UINT) status;
+  if (exit_state < ES_THREADTERM)
+    {
+      exit_state = ES_THREADTERM;
+      cygthread::terminate ();
+    }
 
   if (exit_state < ES_SIGNAL)
     {
@@ -1149,13 +1063,6 @@ do_exit (int status)
     {
       exit_state = ES_CLOSEALL;
       close_all_files ();
-    }
-
-  UINT n = (UINT) status;
-  if (exit_state < ES_THREADTERM)
-    {
-      exit_state = ES_THREADTERM;
-      cygthread::terminate ();
     }
 
   myself->stopsig = 0;
@@ -1192,22 +1099,42 @@ do_exit (int status)
 
     }
 
+  if (exit_state < ES_TITLE)
+    {
+      exit_state = ES_TITLE;
+      /* restore console title */
+      if (old_title && display_title)
+	set_console_title (old_title);
+    }
+
+  if (exit_state < ES_TTY_TERMINATE)
+    {
+      exit_state = ES_TTY_TERMINATE;
+      cygwin_shared->tty.terminate ();
+    }
+
   myself.exit (n);
 }
 
+static NO_COPY muto atexit_lock;
+
 extern "C" int
-cygwin_atexit (void (*fn) (void))
+cygwin_atexit (void (*function)(void))
 {
   int res;
-  dll *d = dlls.find ((void *) _my_tls.retaddr ());
-  res = d ? __cxa_atexit ((void (*) (void *)) fn, NULL, d) : atexit (fn);
+  atexit_lock.init ("atexit_lock");
+  atexit_lock.acquire ();
+  res = atexit (function);
+  atexit_lock.release ();
   return res;
 }
 
 extern "C" void
 cygwin_exit (int n)
 {
-  exit_state = ES_EXIT_STARTING;
+  dll_global_dtors ();
+  if (atexit_lock)
+    atexit_lock.acquire ();
   exit (n);
 }
 
@@ -1217,13 +1144,14 @@ _exit (int n)
   do_exit (((DWORD) n & 0xff) << 8);
 }
 
-extern "C" void cygwin_stackdump ();
-
 extern "C" void
-vapi_fatal (const char *fmt, va_list ap)
+__api_fatal (const char *fmt, ...)
 {
   char buf[4096];
-  int n = __small_sprintf (buf, "%P: *** fatal error %s- ", in_forkee ? "in forked process " : "");
+  va_list ap;
+
+  va_start (ap, fmt);
+  int n = __small_sprintf (buf, "%P: *** fatal error - ");
   __small_vsprintf (buf + n, fmt, ap);
   va_end (ap);
   strace.prntf (_STRACE_SYSTEM, NULL, "%s", buf);
@@ -1231,17 +1159,7 @@ vapi_fatal (const char *fmt, va_list ap)
 #ifdef DEBUGGING
   try_to_debug ();
 #endif
-  cygwin_stackdump ();
   myself.exit (__api_fatal_exit_val);
-}
-
-extern "C" void
-api_fatal (const char *fmt, ...)
-{
-  va_list ap;
-
-  va_start (ap, fmt);
-  vapi_fatal (fmt, ap);
 }
 
 void
@@ -1249,11 +1167,12 @@ multiple_cygwin_problem (const char *what, unsigned magic_version, unsigned vers
 {
   if (_cygwin_testing && (strstr (what, "proc") || strstr (what, "cygheap")))
     {
-      child_proc_info->type = _CH_WHOOPS;
+      child_proc_info->type = _PROC_WHOOPS;
       return;
     }
 
-  if (GetEnvironmentVariableA ("CYGWIN_MISMATCH_OK", NULL, 0))
+  char buf[1024];
+  if (GetEnvironmentVariable ("CYGWIN_MISMATCH_OK", buf, sizeof (buf)))
     return;
 
   if (CYGWIN_VERSION_MAGIC_VERSION (magic_version) == version)
@@ -1273,7 +1192,8 @@ are unable to find another cygwin DLL.",
 void __stdcall
 cygbench (const char *s)
 {
-  if (GetEnvironmentVariableA ("CYGWIN_BENCH", NULL, 0))
+  char buf[1024];
+  if (GetEnvironmentVariable ("CYGWIN_BENCH", buf, sizeof (buf)))
     small_printf ("%05d ***** %s : %10d\n", GetCurrentProcessId (), s, strace.microseconds ());
 }
 #endif
