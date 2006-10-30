@@ -1,13 +1,13 @@
 /* hist.c  -  Histogram related operations.
 
-   Copyright 1999, 2000, 2001, 2002, 2004, 2005, 2007, 2009
+   Copyright 1999, 2000, 2001, 2002, 2004, 2005
    Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -20,8 +20,8 @@
    Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
    02110-1301, USA.  */
 
-#include "gprof.h"
 #include "libiberty.h"
+#include "gprof.h"
 #include "search_list.h"
 #include "source.h"
 #include "symtab.h"
@@ -48,8 +48,6 @@ extern void flat_blurb (FILE * fp);
 static histogram *find_histogram (bfd_vma lowpc, bfd_vma highpc);
 static histogram *find_histogram_for_pc (bfd_vma pc);
 
-histogram * histograms;
-unsigned num_histograms;
 double hist_scale;
 static char hist_dimension[16] = "seconds";
 static char hist_dimension_abbrev = 's';
@@ -115,13 +113,10 @@ read_histogram_header (histogram *record,
 
   if (first)
     {
-      /* We don't try to veryfy profrate is the same for all histogram
-	 records.  If we have two histogram records for the same
-	 address range and profiling samples is done as often
-	 as possible as opposed on timer, then the actual profrate will
-	 be slightly different.  Most of the time the difference does not
-	 matter and insisting that profiling rate is exactly the same
-	 will only create inconvenient.  */
+      /* We could try to verify it's the same for all records,
+	 but it isn't practical, since when profiling is done
+	 no by a timer but with a loop running in a stub, polling PC
+	 from the target as fast as possible, the rate is not fixed.  */
       hz = profrate;
       memcpy (hist_dimension, n_hist_dimension, 15);
       hist_dimension_abbrev = n_hist_dimension_abbrev;
@@ -200,8 +195,9 @@ hist_read_rec (FILE * ifp, const char *filename)
 
       /* This is new record.  Add it to global array and allocate space for
 	 the samples.  */
-      histograms = (struct histogram *)
-          xrealloc (histograms, sizeof (histogram) * (num_histograms + 1));
+      histograms = (histogram *)realloc (histograms,
+					 sizeof (histogram)
+					 * (num_histograms + 1));
       memcpy (histograms + num_histograms,
 	      &n_record, sizeof (histogram));
       record = &histograms[num_histograms];      
@@ -298,9 +294,9 @@ scale_and_align_entries ()
 
   for (sym = symtab.base; sym < symtab.limit; sym++)
     {
-      histogram *r = find_histogram_for_pc (sym->addr);
-
       sym->hist.scaled_addr = sym->addr / sizeof (UNIT);
+
+      histogram *r = find_histogram_for_pc (sym->addr);
 
       if (r)
 	{
@@ -365,13 +361,13 @@ hist_assign_samples_1 (histogram *r)
   bfd_vma sym_low_pc, sym_high_pc;
   bfd_vma overlap, addr;
   unsigned int bin_count;
-  unsigned int i, j, k;
-  double count_time, credit;
+  unsigned int i, j;
+  double time, credit;
 
   bfd_vma lowpc = r->lowpc / sizeof (UNIT);
 
   /* Iterate over all sample bins.  */
-  for (i = 0, k = 1; i < r->num_bins; ++i)
+  for (i = 0, j = 1; i < r->num_bins; ++i)
     {
       bin_count = r->sample[i];
       if (! bin_count)
@@ -379,7 +375,7 @@ hist_assign_samples_1 (histogram *r)
 
       bin_low_pc = lowpc + (bfd_vma) (hist_scale * i);
       bin_high_pc = lowpc + (bfd_vma) (hist_scale * (i + 1));
-      count_time = bin_count;
+      time = bin_count;
 
       DBG (SAMPLEDEBUG,
 	   printf (
@@ -387,13 +383,10 @@ hist_assign_samples_1 (histogram *r)
 		    (unsigned long) (sizeof (UNIT) * bin_low_pc),
 		    (unsigned long) (sizeof (UNIT) * bin_high_pc),
 		    bin_count));
-      total_time += count_time;
+      total_time += time;
 
-      /* Credit all symbols that are covered by bin I.
-
-         PR gprof/13325: Make sure that K does not get decremented
-	 and J will never be less than 0.  */
-      for (j = k - 1; j < symtab.len; k = ++j)
+      /* Credit all symbols that are covered by bin I.  */
+      for (j = j - 1; j < symtab.len; ++j)
 	{
 	  sym_low_pc = symtab.base[j].hist.scaled_addr;
 	  sym_high_pc = symtab.base[j + 1].hist.scaled_addr;
@@ -417,11 +410,11 @@ hist_assign_samples_1 (histogram *r)
 	       "[assign_samples] [0x%lx,0x%lx) %s gets %f ticks %ld overlap\n",
 			   (unsigned long) symtab.base[j].addr,
 			   (unsigned long) (sizeof (UNIT) * sym_high_pc),
-			   symtab.base[j].name, overlap * count_time / hist_scale,
+			   symtab.base[j].name, overlap * time / hist_scale,
 			   (long) overlap));
 
 	      addr = symtab.base[j].addr;
-	      credit = overlap * count_time / hist_scale;
+	      credit = overlap * time / hist_scale;
 
 	      /* Credit symbol if it appears in INCL_FLAT or that
 		 table is empty and it does not appear it in
@@ -469,7 +462,7 @@ print_header (int prefix)
   if (bsd_style_output)
     {
       printf (_("\ngranularity: each sample hit covers %ld byte(s)"),
-	      (long) hist_scale * (long) sizeof (UNIT));
+	      (long) hist_scale * sizeof (UNIT));
       if (total_time > 0.0)
 	{
 	  printf (_(" for %.2f%% of %.2f %s\n\n"),
@@ -566,9 +559,9 @@ void
 hist_print ()
 {
   Sym **time_sorted_syms, *top_dog, *sym;
-  unsigned int sym_index;
+  unsigned int index;
   unsigned log_scale;
-  double top_time;
+  double top_time, time;
   bfd_vma addr;
 
   if (first_output)
@@ -595,8 +588,8 @@ hist_print ()
      and tertiary keys).  */
   time_sorted_syms = (Sym **) xmalloc (symtab.len * sizeof (Sym *));
 
-  for (sym_index = 0; sym_index < symtab.len; ++sym_index)
-    time_sorted_syms[sym_index] = &symtab.base[sym_index];
+  for (index = 0; index < symtab.len; ++index)
+    time_sorted_syms[index] = &symtab.base[index];
 
   qsort (time_sorted_syms, symtab.len, sizeof (Sym *), cmp_time);
 
@@ -612,20 +605,18 @@ hist_print ()
       top_dog = 0;
       top_time = 0.0;
 
-      for (sym_index = 0; sym_index < symtab.len; ++sym_index)
+      for (index = 0; index < symtab.len; ++index)
 	{
-	  sym = time_sorted_syms[sym_index];
+	  sym = time_sorted_syms[index];
 
 	  if (sym->ncalls != 0)
 	    {
-	      double call_time;
+	      time = (sym->hist.time + sym->cg.child_time) / sym->ncalls;
 
-	      call_time = (sym->hist.time + sym->cg.child_time) / sym->ncalls;
-
-	      if (call_time > top_time)
+	      if (time > top_time)
 		{
 		  top_dog = sym;
-		  top_time = call_time;
+		  top_time = time;
 		}
 	    }
 	}
@@ -649,16 +640,16 @@ hist_print ()
      I-cache misses etc.).  */
   print_header (SItab[log_scale].prefix);
 
-  for (sym_index = 0; sym_index < symtab.len; ++sym_index)
+  for (index = 0; index < symtab.len; ++index)
     {
-      addr = time_sorted_syms[sym_index]->addr;
+      addr = time_sorted_syms[index]->addr;
 
       /* Print symbol if its in INCL_FLAT table or that table
 	is empty and the symbol is not in EXCL_FLAT.  */
       if (sym_lookup (&syms[INCL_FLAT], addr)
 	  || (syms[INCL_FLAT].len == 0
 	      && !sym_lookup (&syms[EXCL_FLAT], addr)))
-	print_line (time_sorted_syms[sym_index], SItab[log_scale].scale);
+	print_line (time_sorted_syms[index], SItab[log_scale].scale);
     }
 
   free (time_sorted_syms);
@@ -708,11 +699,9 @@ hist_clip_symbol_address (bfd_vma *p_lowpc, bfd_vma *p_highpc)
 	{
 	  if (found)
 	    {
-	      fprintf (stderr,
-		       _("%s: found a symbol that covers "
-			 "several histogram records"),
-			 whoami);
-	      done (1);
+	      // FIXME: some proper diagnostics.
+	      // like: "a symbol covers more than one histogram record"
+	      abort ();
 	    }
 
 	  found = 1;

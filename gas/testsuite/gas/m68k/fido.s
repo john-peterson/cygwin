@@ -35,7 +35,3 @@ foo:
 	movec %a6,%cac
 	movec %d7,%mbb
 	movec %a7,%mbb
-	movec %mbo,%d0
-	movec %mbo,%a0
-	movec %d1,%mbo
-	movec %a1,%mbo
