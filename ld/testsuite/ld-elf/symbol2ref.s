@@ -1,3 +1,3 @@
-	.data
-	.dc.a Foo
+	.text
+	.long Foo
 
