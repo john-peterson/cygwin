@@ -1,7 +1,6 @@
 /* cygheap.h: Cygwin heap manager.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,7 +9,30 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "hires.h"
-#include "cygheap_malloc.h"
+
+#undef cfree
+
+enum cygheap_types
+{
+  HEAP_FHANDLER,
+  HEAP_STR,
+  HEAP_ARGV,
+  HEAP_BUF,
+  HEAP_MOUNT,
+  HEAP_SIGS,
+  HEAP_ARCHETYPES,
+  HEAP_TLS,
+  HEAP_COMMUNE,
+  HEAP_1_START,
+  HEAP_1_HOOK,
+  HEAP_1_STR,
+  HEAP_1_ARGV,
+  HEAP_1_BUF,
+  HEAP_1_EXEC,
+  HEAP_1_MAX = 100,
+  HEAP_2_STR,
+  HEAP_MMAP = 200
+};
 
 #define incygheap(s) (cygheap && ((char *) (s) >= (char *) cygheap) && ((char *) (s) <= ((char *) cygheap_max)))
 
@@ -31,7 +53,6 @@ struct cygheap_root_mount_info
   unsigned posix_pathlen;
   char native_path[CYG_MAX_PATH];
   unsigned native_pathlen;
-  bool caseinsensitive;
 };
 
 /* CGF: FIXME This doesn't belong here */
@@ -47,8 +68,7 @@ public:
   {
     if (!m)
       return 1;
-    return path_prefix_p (m->posix_path, path, m->posix_pathlen,
-			  m->caseinsensitive);
+    return path_prefix_p (m->posix_path, path, m->posix_pathlen);
   }
   bool ischroot_native (const char *path)
   {
@@ -67,7 +87,7 @@ public:
     return p;
   }
   bool exists () {return !!m;}
-  void set (const char *, const char *, bool);
+  void set (const char *, const char *);
   size_t posix_length () const { return m->posix_pathlen; }
   const char *posix_path () const { return m->posix_path; }
   size_t native_length () const { return m->native_pathlen; }
@@ -86,7 +106,7 @@ class cygheap_user
   /* Extendend user information.
      The information is derived from the internal_getlogin call
      when on a NT system. */
-  char  *pname;		/* user's name */
+  char  *pname;         /* user's name */
   char  *plogsrv;       /* Logon server, may be FQDN */
   char  *pdomain;       /* Logon domain of the user */
   char  *homedrive;	/* User's home drive */
@@ -108,10 +128,7 @@ public:
   HANDLE external_token;
   HANDLE internal_token;
   HANDLE curr_primary_token;
-  HANDLE curr_imp_token;
-  bool ext_token_is_restricted;  /* external_token is restricted token */
-  bool curr_token_is_restricted; /* curr_primary_token is restricted token */
-  bool setuid_to_restricted;     /* switch to restricted token by setuid () */
+  HANDLE current_token;
 
   /* CGF 2002-06-27.  I removed the initializaton from this constructor
      since this class is always allocated statically.  That means that everything
@@ -159,18 +176,20 @@ public:
   PSID saved_sid () { return saved_cygsid; }
   const char *ontherange (homebodies what, struct passwd * = NULL);
 #define NO_IMPERSONATION NULL
-  bool issetuid () const { return curr_imp_token != NO_IMPERSONATION; }
+  bool issetuid () const { return current_token != NO_IMPERSONATION; }
   HANDLE primary_token () { return curr_primary_token; }
-  HANDLE imp_token () { return curr_imp_token; }
+  HANDLE token () { return current_token; }
   void deimpersonate ()
   {
-    RevertToSelf ();
+    if (issetuid ())
+      {
+	RevertToSelf ();
+	ImpersonateLoggedOnUser (hProcImpToken);
+      }
   }
   bool reimpersonate ()
   {
-    if (issetuid ())
-      return ImpersonateLoggedOnUser (primary_token ());
-    return true;
+    return ImpersonateLoggedOnUser (issetuid () ? token () : hProcImpToken);
   }
   bool has_impersonation_tokens ()
     { return external_token != NO_IMPERSONATION
@@ -178,10 +197,10 @@ public:
 	     || curr_primary_token != NO_IMPERSONATION; }
   void close_impersonation_tokens ()
   {
-    if (curr_imp_token != NO_IMPERSONATION)
-      CloseHandle (curr_imp_token);
+    if (current_token != NO_IMPERSONATION)
+      CloseHandle (current_token);
     if (curr_primary_token != NO_IMPERSONATION
-	&& curr_primary_token != external_token
+    	&& curr_primary_token != external_token
 	&& curr_primary_token != internal_token)
       CloseHandle (curr_primary_token);
     if (external_token != NO_IMPERSONATION)
@@ -189,159 +208,52 @@ public:
     if (internal_token != NO_IMPERSONATION)
       CloseHandle (internal_token);
   }
-  PWCHAR get_windows_id (PWCHAR buf)
+  char * get_windows_id (char * buf)
   {
-    return effec_cygsid.string (buf);
-  }
-  char *get_windows_id (char *buf)
-  {
-    return effec_cygsid.string (buf);
+    if (wincap.is_winnt ())
+      return effec_cygsid.string (buf);
+    else
+      return strcpy (buf, name ());
   }
 
-  const char __reg3 *test_uid (char *&, const char *, size_t);
+  const char *test_uid (char *&, const char *, size_t)
+    __attribute__ ((regparm (3)));
 };
 
 /* cwd cache stuff.  */
 
-enum fcwd_version_t {
-  FCWD_OLD,
-  FCWD_W7,
-  FCWD_W8
-};
+class muto;
 
-/* This class is used to store the CWD starting with Windows Vista.
-   The CWD storage in the RTL_USER_PROCESS_PARAMETERS block is only
-   an afterthought now.  The actual CWD storage is a FAST_CWD structure
-   which is allocated on the process heap.  The new method only requires
-   minimal locking and it's much more multi-thread friendly.  Presumably
-   it minimizes contention when accessing the CWD.
-   The class fcwd_access_t is supposed to encapsulate the gory implementation
-   details depending on OS version from the calling functions. */
-class fcwd_access_t {
-  /* This is the layout used in Windows 8 developer preview. */
-  struct FAST_CWD_8 {
-    LONG           ReferenceCount;	/* Only release when this is 0. */
-    HANDLE         DirectoryHandle;
-    ULONG          OldDismountCount;	/* Reflects the system DismountCount
-					   at the time the CWD has been set. */
-    UNICODE_STRING Path;		/* Path's Buffer member always refers
-					   to the following Buffer array. */
-    LONG           FSCharacteristics;	/* Taken from FileFsDeviceInformation */
-    WCHAR          Buffer[MAX_PATH];
-  };
-  /* This is the layout used in Windows 7 and Vista. */
-  struct FAST_CWD_7 {
-    UNICODE_STRING Path;		/* Path's Buffer member always refers
-					   to the following Buffer array. */
-    HANDLE         DirectoryHandle;
-    LONG           FSCharacteristics;	/* Taken from FileFsDeviceInformation */
-    LONG           ReferenceCount;	/* Only release when this is 0. */
-    ULONG          OldDismountCount;	/* Reflects the system DismountCount
-					   at the time the CWD has been set. */
-    WCHAR          Buffer[MAX_PATH];
-  };
-  /* This is the old FAST_CWD structure up to the patch from KB 2393802,
-     release in February 2011. */
-  struct FAST_CWD_OLD {
-    LONG           ReferenceCount;	/* Only release when this is 0. */
-    HANDLE         DirectoryHandle;
-    ULONG          OldDismountCount;	/* Reflects the system DismountCount
-					   at the time the CWD has been set. */
-    UNICODE_STRING Path;		/* Path's Buffer member always refers
-					   to the following Buffer array. */
-    WCHAR          Buffer[MAX_PATH];
-  };
-  union {
-    FAST_CWD_OLD fold;
-    FAST_CWD_7   f7;
-    FAST_CWD_8   f8;
-  };
-
-#define IMPLEMENT(type, name) \
-  type name () { \
-    switch (fast_cwd_version ()) { \
-      case FCWD_OLD: \
-      default: \
-	return fold.name; \
-      case FCWD_W7: \
-	return f7.name; \
-      case FCWD_W8: \
-	return f8.name; \
-    } \
-  }
-  IMPLEMENT (LONG &, ReferenceCount)
-  IMPLEMENT (HANDLE &, DirectoryHandle)
-  IMPLEMENT (ULONG &, OldDismountCount)
-  IMPLEMENT (UNICODE_STRING &, Path)
-  IMPLEMENT (WCHAR *, Buffer)
-  void SetFSCharacteristics (LONG val);
-  static fcwd_version_t &fast_cwd_version (void);
-
-public:
-  void CopyPath (UNICODE_STRING &target);
-  void Free (PVOID heap);
-  void FillIn (HANDLE dir, PUNICODE_STRING name, ULONG old_dismount_count);
-  static void SetDirHandleFromBufferPointer (PWCHAR buf_p, HANDLE dir);
-  static void SetVersionFromPointer (PBYTE buf_p, bool is_buffer);
-};
-
-class cwdstuff
+struct cwdstuff
 {
-private:
   char *posix;
-  HANDLE dir;
+  char *win32;
+  DWORD hash;
   DWORD drive_length;
-  int error;		/* This contains an errno number which corresponds
-			   to the problem with this path when trying to start
-			   a native Win32 application.  See cwdstuff::set for
-			   how it gets set.  See child_info_spawn::worker for how
-			   it's evaluated. */
-
-  friend class fcwd_access_t;
-  /* fast_cwd_ptr is a pointer to the global RtlpCurDirRef pointer in
-     ntdll.dll pointing to the FAST_CWD structure which constitutes the CWD.
-     Unfortunately RtlpCurDirRef is not exported from ntdll.dll. */
-  fcwd_access_t **fast_cwd_ptr;
-  /* Type of FAST_CWD used on this system.  Keeping this information
-     available in shared memory avoids to test for the version every time
-     around.  Default to new version. */
-  fcwd_version_t fast_cwd_version;
-  void override_win32_cwd (bool, ULONG);
-
-public:
-  UNICODE_STRING win32;
   static muto cwd_lock;
-  const char *get_posix () const { return posix; };
-  void reset_posix (wchar_t *);
-  char *get (char *, int = 1, int = 0, unsigned = NT_MAX_PATH);
-  HANDLE get_handle () { return dir; }
+  char *get (char *, int = 1, int = 0, unsigned = CYG_MAX_PATH);
+  DWORD get_hash ();
   DWORD get_drive (char * dst)
   {
-    cwd_lock.acquire ();
-    DWORD ret = sys_wcstombs (dst, NT_MAX_PATH, win32.Buffer, drive_length);
+    get_initial ();
+    memcpy (dst, win32, drive_length);
     cwd_lock.release ();
-    return ret;
+    return drive_length;
   }
-  int get_error () const { return error; }
-  const char *get_error_desc () const;
   void init ();
-  int set (path_conv *, const char *);
+  void fixup_after_exec (char *, char *, DWORD);
+  bool get_initial ();
+  int set (const char *, const char *, bool);
 };
 
 #ifdef DEBUGGING
 struct cygheap_debug
 {
   handle_list starth;
+  handle_list *endh;
   handle_list freeh[500];
 };
 #endif
-
-struct cygheap_locale
-{
-  mbtowc_p mbtowc;
-  wctomb_p wctomb;
-  char charset[ENCODING_LEN + 1];
-};
 
 struct user_heap_info
 {
@@ -360,45 +272,39 @@ struct hook_chain
   struct hook_chain *next;
 };
 
-struct mini_cygheap
-{
-  cygheap_locale locale;
-};
-
-struct init_cygheap: public mini_cygheap
+struct init_cygheap
 {
   _cmalloc_entry *chain;
   char *buckets[32];
-  WCHAR installation_root[PATH_MAX];
-  UNICODE_STRING installation_key;
-  WCHAR installation_key_buf[18];
   cygheap_root root;
   cygheap_user user;
   user_heap_info user_heap;
   mode_t umask;
-  unsigned long rlim_core;
+  HANDLE shared_h;
   HANDLE console_h;
+  HANDLE mt_h;
   cwdstuff cwd;
   dtable fdtab;
+  LUID luid[SE_NUM_PRIVS];
+  const char *shared_prefix;
 #ifdef DEBUGGING
   cygheap_debug debug;
 #endif
   struct sigaction *sigs;
 
-  fhandler_termios *ctty;	/* Current tty */
+  fhandler_tty_slave *ctty;	/* Current tty */
+#ifdef NEWVFORK
+  fhandler_tty_slave *ctty_on_hold;
+#endif
   struct _cygtls **threadlist;
   size_t sthreads;
   pid_t pid;			/* my pid */
-  struct {			/* Equivalent to using LIST_HEAD. */
-    struct inode_t *lh_first;
-  } inode_list;			/* Global inode pointer for adv. locking. */
+  HANDLE pid_handle;		/* handle for my pid */
   hook_chain hooks;
   void close_ctty ();
-  void init_installation_root ();
-  void __reg1 init_tls_list ();;
-  void __reg2 add_tls (_cygtls *);
-  void __reg3 remove_tls (_cygtls *, DWORD);
-  _cygtls __reg2 *find_tls (int);
+  int manage_console_count (const char *, int, bool = false) __attribute__ ((regparm (3)));
+private:
+  int console_count;
 };
 
 
@@ -413,24 +319,28 @@ class cygheap_fdmanip
 {
  protected:
   int fd;
+  fhandler_base **fh;
   bool locked;
  public:
-  cygheap_fdmanip (): fd (-1), locked (false) {}
+  cygheap_fdmanip (): fh (NULL) {}
   virtual ~cygheap_fdmanip ()
   {
     if (locked)
       cygheap->fdtab.unlock ();
   }
-  virtual void release () { cygheap->fdtab.release (fd); }
+  void release ()
+  {
+    cygheap->fdtab.release (fd);
+  }
   operator int &() {return fd;}
-  operator fhandler_base* &() {return cygheap->fdtab[fd];}
-  operator fhandler_socket* () const {return reinterpret_cast<fhandler_socket *> (cygheap->fdtab[fd]);}
-  operator fhandler_pipe* () const {return reinterpret_cast<fhandler_pipe *> (cygheap->fdtab[fd]);}
-  void operator = (fhandler_base *fh) {cygheap->fdtab[fd] = fh;}
-  fhandler_base *operator -> () const {return cygheap->fdtab[fd];}
+  operator fhandler_base* &() {return *fh;}
+  operator fhandler_socket* () const {return reinterpret_cast<fhandler_socket *> (*fh);}
+  operator fhandler_pipe* () const {return reinterpret_cast<fhandler_pipe *> (*fh);}
+  void operator = (fhandler_base *fh) {*this->fh = fh;}
+  fhandler_base *operator -> () const {return *fh;}
   bool isopen () const
   {
-    if (cygheap->fdtab[fd])
+    if (*fh)
       return true;
     set_errno (EBADF);
     return false;
@@ -449,7 +359,10 @@ class cygheap_fdnew : public cygheap_fdmanip
     else
       fd = cygheap->fdtab.find_unused_handle (seed_fd + 1);
     if (fd >= 0)
-      locked = lockit;
+      {
+	locked = lockit;
+	fh = cygheap->fdtab + fd;
+      }
     else
       {
 	set_errno (EMFILE);
@@ -458,28 +371,21 @@ class cygheap_fdnew : public cygheap_fdmanip
 	locked = false;
       }
   }
-  ~cygheap_fdnew ()
-  {
-    if (cygheap->fdtab[fd])
-      cygheap->fdtab[fd]->inc_refcnt ();
-  }
-  void operator = (fhandler_base *fh) {cygheap->fdtab[fd] = fh;}
+  void operator = (fhandler_base *fh) {*this->fh = fh;}
 };
 
 class cygheap_fdget : public cygheap_fdmanip
 {
-  fhandler_base *fh;
-public:
+ public:
   cygheap_fdget (int fd, bool lockit = false, bool do_set_errno = true)
   {
     if (lockit)
       cygheap->fdtab.lock ();
-    if (fd >= 0 && fd < (int) cygheap->fdtab.size && cygheap->fdtab[fd] != NULL)
+    if (fd >= 0 && fd < (int) cygheap->fdtab.size
+	&& *(fh = cygheap->fdtab + fd) != NULL)
       {
 	this->fd = fd;
 	locked = lockit;
-	fh = cygheap->fdtab[fd];
-	fh->inc_refcnt ();
       }
     else
       {
@@ -489,18 +395,8 @@ public:
 	if (lockit)
 	  cygheap->fdtab.unlock ();
 	locked = false;
-	fh = NULL;
       }
   }
-  ~cygheap_fdget ()
-  {
-    if (fh && fh->dec_refcnt () <= 0)
-      {
-	debug_only_printf ("deleting fh %p", fh);
-	delete fh;
-      }
-  }
-  void release () { cygheap->fdtab.release (fd); }
 };
 
 class cygheap_fdenum : public cygheap_fdmanip
@@ -516,7 +412,7 @@ class cygheap_fdenum : public cygheap_fdmanip
   int next ()
   {
     while (++fd < (int) cygheap->fdtab.size)
-      if (cygheap->fdtab[fd] != NULL)
+      if (*(fh = cygheap->fdtab + fd) != NULL)
 	return fd;
     return -1;
   }
@@ -526,6 +422,16 @@ class cygheap_fdenum : public cygheap_fdmanip
   }
 };
 
+class child_info;
 void __stdcall cygheap_fixup_in_child (bool);
+extern "C" {
+void __stdcall cfree (void *) __attribute__ ((regparm(1)));
+void *__stdcall cmalloc (cygheap_types, DWORD) __attribute__ ((regparm(2)));
+void *__stdcall crealloc (void *, DWORD) __attribute__ ((regparm(2)));
+void *__stdcall ccalloc (cygheap_types, DWORD, DWORD) __attribute__ ((regparm(3)));
+char *__stdcall cstrdup (const char *) __attribute__ ((regparm(1)));
+char *__stdcall cstrdup1 (const char *) __attribute__ ((regparm(1)));
+void __stdcall cfree_and_set (char *&, char * = NULL) __attribute__ ((regparm(2)));
 void __stdcall cygheap_init ();
 extern char _cygheap_start[] __attribute__((section(".idata")));
+}

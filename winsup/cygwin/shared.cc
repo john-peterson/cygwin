@@ -1,7 +1,7 @@
 /* shared.cc: shared data area support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
+   Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,10 +10,14 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "miscfuncs.h"
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <grp.h>
+#include <pwd.h>
 #include "cygerrno.h"
 #include "pinfo.h"
+#include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
@@ -22,238 +26,143 @@ details. */
 #include "shared_info_magic.h"
 #include "registry.h"
 #include "cygwin_version.h"
-#include "pwdgrp.h"
-#include "spinlock.h"
-#include <alloca.h>
-#include <wchar.h>
-#include <wingdi.h>
-#include <winuser.h>
+#include "child_info.h"
+#include "mtinfo.h"
 
 shared_info NO_COPY *cygwin_shared;
 user_info NO_COPY *user_shared;
-HANDLE NO_COPY cygwin_shared_h;
 HANDLE NO_COPY cygwin_user_h;
-
-/* This function returns a handle to the top-level directory in the global
-   NT namespace used to implement global objects including shared memory. */
-
-static HANDLE NO_COPY shared_parent_dir;
-
-HANDLE
-get_shared_parent_dir ()
-{
-  UNICODE_STRING uname;
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-
-  if (!shared_parent_dir)
-    {
-      WCHAR bnoname[MAX_PATH];
-      __small_swprintf (bnoname, L"\\BaseNamedObjects\\%s%s-%S",
-			cygwin_version.shared_id,
-			_cygwin_testing ? cygwin_version.dll_build_date : "",
-			&cygheap->installation_key);
-      RtlInitUnicodeString (&uname, bnoname);
-      InitializeObjectAttributes (&attr, &uname, OBJ_OPENIF, NULL,
-				  everyone_sd (CYG_SHARED_DIR_ACCESS));
-      status = NtCreateDirectoryObject (&shared_parent_dir,
-					CYG_SHARED_DIR_ACCESS, &attr);
-      if (!NT_SUCCESS (status))
-	api_fatal ("NtCreateDirectoryObject(%S): %p", &uname, status);
-    }
-  return shared_parent_dir;
-}
-
-static HANDLE NO_COPY session_parent_dir;
-
-HANDLE
-get_session_parent_dir ()
-{
-  UNICODE_STRING uname;
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-
-  if (!session_parent_dir)
-    {
-      PROCESS_SESSION_INFORMATION psi;
-      status = NtQueryInformationProcess (NtCurrentProcess (),
-					  ProcessSessionInformation,
-					  &psi, sizeof psi, NULL);
-      if (!NT_SUCCESS (status) || psi.SessionId == 0)
-	session_parent_dir = get_shared_parent_dir ();
-      else
-	{
-	  WCHAR bnoname[MAX_PATH];
-	  __small_swprintf (bnoname,
-			    L"\\Sessions\\BNOLINKS\\%d\\%s%s-%S",
-			    psi.SessionId, cygwin_version.shared_id,
-			    _cygwin_testing ? cygwin_version.dll_build_date : "",
-			    &cygheap->installation_key);
-	  RtlInitUnicodeString (&uname, bnoname);
-	  InitializeObjectAttributes (&attr, &uname, OBJ_OPENIF, NULL,
-				      everyone_sd(CYG_SHARED_DIR_ACCESS));
-	  status = NtCreateDirectoryObject (&session_parent_dir,
-					    CYG_SHARED_DIR_ACCESS, &attr);
-	  if (!NT_SUCCESS (status))
-	    api_fatal ("NtCreateDirectoryObject(%S): %p", &uname, status);
-	}
-    }
-  return session_parent_dir;
-}
 
 char * __stdcall
 shared_name (char *ret_buf, const char *str, int num)
 {
-  __small_sprintf (ret_buf, "%s.%d", str, num);
-  return ret_buf;
-}
+  extern bool _cygwin_testing;
 
-WCHAR * __stdcall
-shared_name (WCHAR *ret_buf, const WCHAR *str, int num)
-{
-  __small_swprintf (ret_buf, L"%W.%d", str, num);
+  __small_sprintf (ret_buf, "%s%s.%s.%d", cygheap->shared_prefix,
+		   cygwin_version.shared_id, str, num);
+  if (_cygwin_testing)
+    strcat (ret_buf, cygwin_version.dll_build_date);
   return ret_buf;
 }
 
 #define page_const (65535)
 #define pround(n) (((size_t) (n) + page_const) & ~page_const)
 
-/* The order in offsets is so that the constant blocks shared_info
-   and user_info are right below the cygwin DLL, then the pinfo block
-   which changes with each process.  Below that is the console_state,
-   an optional block which only exists when running in a Windows console
-   window.  Therefore, if we are not running in a console, we have 64K
-   more of contiguous memory below the Cygwin DLL. */
-static ptrdiff_t offsets[] =
+static char *offsets[] =
 {
-  - pround (sizeof (shared_info)),		/* SH_CYGWIN_SHARED */
-  - pround (sizeof (shared_info))		/* SH_USER_SHARED */
-  - pround (sizeof (user_info)),
-  - pround (sizeof (shared_info))		/* SH_MYSELF */
-  - pround (sizeof (user_info))
-  - pround (sizeof (_pinfo)),
-  - pround (sizeof (shared_info))		/* SH_SHARED_CONSOLE */
-  - pround (sizeof (user_info))
-  - pround (sizeof (_pinfo))
-  - pround (sizeof (fhandler_console::console_state)),
-  0
+  (char *) cygwin_shared_address,
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state))
+    + pround (sizeof (_pinfo)),
+  (char *) cygwin_shared_address
+    + pround (sizeof (shared_info))
+    + pround (sizeof (user_info))
+    + pround (sizeof (console_state))
+    + pround (sizeof (_pinfo))
+    + pround (sizeof (mtinfo))
 };
 
-#define off_addr(x)	((void *)((caddr_t) cygwin_hmodule + offsets[x]))
-
 void * __stdcall
-open_shared (const WCHAR *name, int n, HANDLE& shared_h, DWORD size,
-	     shared_locations m, PSECURITY_ATTRIBUTES psa, DWORD access)
-{
-  return open_shared (name, n, shared_h, size, &m, psa, access);
-}
-
-void * __stdcall
-open_shared (const WCHAR *name, int n, HANDLE& shared_h, DWORD size,
-	     shared_locations *m, PSECURITY_ATTRIBUTES psa, DWORD access)
+open_shared (const char *name, int n, HANDLE& shared_h, DWORD size,
+	     shared_locations& m, PSECURITY_ATTRIBUTES psa, DWORD access)
 {
   void *shared;
 
   void *addr;
-  if (*m == SH_JUSTCREATE || *m == SH_JUSTOPEN)
+  if ((m == SH_JUSTCREATE || m == SH_JUSTOPEN)
+      || !wincap.needs_memory_protection () && offsets[0])
     addr = NULL;
   else
     {
-      addr = off_addr (*m);
+      addr = offsets[m];
       VirtualFree (addr, 0, MEM_RELEASE);
     }
 
-  WCHAR map_buf[MAX_PATH];
-  WCHAR *mapname = NULL;
+  char map_buf[CYG_MAX_PATH];
+  char *mapname = NULL;
 
   if (shared_h)
-    *m = SH_JUSTOPEN;
+    m = SH_JUSTOPEN;
   else
     {
       if (name)
 	mapname = shared_name (map_buf, name, n);
-      if (*m == SH_JUSTOPEN)
-	shared_h = OpenFileMappingW (access, FALSE, mapname);
+      if (m == SH_JUSTOPEN)
+	shared_h = OpenFileMapping (access, FALSE, mapname);
       else
 	{
-	  shared_h = CreateFileMappingW (INVALID_HANDLE_VALUE, psa,
-					PAGE_READWRITE, 0, size, mapname);
+	  shared_h = CreateFileMapping (INVALID_HANDLE_VALUE, psa, PAGE_READWRITE,
+					0, size, mapname);
 	  if (GetLastError () == ERROR_ALREADY_EXISTS)
-	    *m = SH_JUSTOPEN;
+	    m = SH_JUSTOPEN;
 	}
       if (shared_h)
 	/* ok! */;
-      else if (*m != SH_JUSTOPEN)
-	api_fatal ("CreateFileMapping %W, %E.  Terminating.", mapname);
+      else if (m != SH_JUSTOPEN)
+	api_fatal ("CreateFileMapping %s, %E.  Terminating.", mapname);
       else
 	return NULL;
     }
 
-  shared = (shared_info *) MapViewOfFileEx (shared_h, access, 0, 0, 0, addr);
+  shared = (shared_info *)
+    MapViewOfFileEx (shared_h, access, 0, 0, 0, addr);
 
   if (!shared && addr)
     {
+      /* Probably win95, so try without specifying the address.  */
       shared = (shared_info *) MapViewOfFileEx (shared_h,
 				       FILE_MAP_READ|FILE_MAP_WRITE,
 				       0, 0, 0, NULL);
 #ifdef DEBUGGING
-      system_printf ("relocating shared object %W(%d) from %p to %p", name, n, addr, shared);
+      if (wincap.is_winnt ())
+	system_printf ("relocating shared object %s(%d) from %p to %p on Windows NT", name, n, addr, shared);
 #endif
-      offsets[0] = 0;
+      offsets[0] = NULL;
     }
 
   if (!shared)
-    api_fatal ("MapViewOfFileEx '%W'(%p), %E.  Terminating.", mapname, shared_h);
+    api_fatal ("MapViewOfFileEx '%s'(%p), %E.  Terminating.", mapname, shared_h);
 
-  if (*m == SH_CYGWIN_SHARED && offsets[0])
+  if (m == SH_CYGWIN_SHARED && offsets[0] && wincap.needs_memory_protection ())
     {
-      /* Reserve subsequent shared memory areas in non-relocated case only.
-	 There's no good reason to reserve the console shmem, because it's
-	 not yet known if we will allocate it at all. */
-      for (int i = SH_USER_SHARED; i < SH_SHARED_CONSOLE; i++)
+      unsigned delta = (char *) shared - offsets[0];
+      offsets[0] = (char *) shared;
+      for (int i = SH_CYGWIN_SHARED + 1; i < SH_TOTAL_SIZE; i++)
 	{
-	  DWORD size = offsets[i - 1] - offsets[i];
-	  if (!VirtualAlloc (off_addr (i), size, MEM_RESERVE, PAGE_NOACCESS))
+	  unsigned size = offsets[i + 1] - offsets[i];
+	  offsets[i] += delta;
+	  if (!VirtualAlloc (offsets[i], size, MEM_RESERVE, PAGE_NOACCESS))
 	    continue;  /* oh well */
 	}
+      offsets[SH_TOTAL_SIZE] += delta;
+
+#if 0
+      if (!child_proc_info && wincap.needs_memory_protection ())
+	for (DWORD s = 0x950000; s <= 0xa40000; s += 0x1000)
+	  VirtualAlloc ((void *) s, 4, MEM_RESERVE, PAGE_NOACCESS);
+#endif
     }
 
-  debug_printf ("name %W, n %d, shared %p (wanted %p), h %p, *m %d",
-		mapname, n, shared, addr, shared_h, *m);
+  debug_printf ("name %s, n %d, shared %p (wanted %p), h %p", mapname, n, shared, addr, shared_h);
 
   return shared;
 }
 
-/* Second half of user shared initialization: Initialize content. */
 void
-user_info::initialize ()
+user_shared_initialize (bool reinit)
 {
-  /* Wait for initialization of the Cygwin per-user shared, if necessary */
-  spinlock sversion (version, CURR_USER_MAGIC);
-  if (!sversion)
-    {
-      cb =  sizeof (*user_shared);
-      cygpsid sid (cygheap->user.sid ());
-      struct passwd *pw = internal_getpwsid (sid);
-      /* Correct the user name with what's defined in /etc/passwd before
-	 loading the user fstab file. */
-      if (pw)
-	cygheap->user.set_name (pw->pw_name);
-      mountinfo.init ();	/* Initialize the mount table.  */
-    }
-  else if (sversion != CURR_USER_MAGIC)
-    sversion.multiple_cygwin_problem ("user shared memory version", version,
-				      sversion);
-  else if (user_shared->cb != sizeof (*user_shared))
-    sversion.multiple_cygwin_problem ("user shared memory size", cb,
-				      sizeof (*user_shared));
-}
-
-/* First half of user shared initialization: Create shared mem region. */
-void
-user_info::create (bool reinit)
-{
-  WCHAR name[UNLEN + 1] = L""; /* Large enough for SID */
+  char name[UNLEN + 1] = ""; /* Large enough for SID */
 
   if (reinit)
     {
@@ -267,118 +176,146 @@ user_info::create (bool reinit)
   if (!cygwin_user_h)
     cygheap->user.get_windows_id (name);
 
+  shared_locations sh_user_shared = SH_USER_SHARED;
   user_shared = (user_info *) open_shared (name, USER_VERSION,
-					   cygwin_user_h, sizeof (user_info),
-					   SH_USER_SHARED, &sec_none);
-  debug_printf ("opening user shared for '%W' at %p", name, user_shared);
+					    cygwin_user_h, sizeof (user_info),
+					    sh_user_shared, &sec_none);
+  debug_printf ("opening user shared for '%s' at %p", name, user_shared);
   ProtectHandleINH (cygwin_user_h);
   debug_printf ("user shared version %x", user_shared->version);
-  if (reinit)
-    user_shared->initialize ();
-}
 
-void __stdcall
-shared_destroy ()
-{
-  ForceCloseHandle (cygwin_shared_h);
-  UnmapViewOfFile (cygwin_shared);
-  ForceCloseHandle (cygwin_user_h);
-  UnmapViewOfFile (user_shared);
-}
-
-/* Initialize obcaseinsensitive.*/
-void
-shared_info::init_obcaseinsensitive ()
-{
-  if (wincap.kernel_is_always_casesensitive ())
+  DWORD sversion = (DWORD) InterlockedExchange ((LONG *) &user_shared->version, USER_VERSION_MAGIC);
+  /* Initialize the Cygwin per-user shared, if necessary */
+  if (!sversion)
     {
-      /* Only Windows 2000.  Default to case insensitive unless the user
-      	 sets the obcaseinsensitive registry value explicitely to 0. */
-      DWORD def_obcaseinsensitive = 1;
-
-      obcaseinsensitive = def_obcaseinsensitive;
-      RTL_QUERY_REGISTRY_TABLE tab[2] = {
-	{ NULL, RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_NOSTRING,
-	  L"obcaseinsensitive", &obcaseinsensitive, REG_DWORD,
-	  &def_obcaseinsensitive, sizeof (DWORD) },
-	{ NULL, 0, NULL, NULL, 0, NULL, 0 }
-      };
-      RtlQueryRegistryValues (RTL_REGISTRY_CONTROL,
-			      L"Session Manager\\kernel",
-			      tab, NULL, NULL);
+      debug_printf ("initializing user shared");
+      user_shared->mountinfo.init ();	/* Initialize the mount table.  */
+      user_shared->delqueue.init (); /* Initialize the queue of deleted files.  */
+      user_shared->cb =  sizeof (*user_shared);
     }
   else
     {
-      /* Instead of reading the obcaseinsensitive registry value, test the
-	 actual state of case sensitivity handling in the kernel. */
-      UNICODE_STRING sysroot;
-      OBJECT_ATTRIBUTES attr;
-      HANDLE h;
-
-      RtlInitUnicodeString (&sysroot, L"\\SYSTEMROOT");
-      InitializeObjectAttributes (&attr, &sysroot, 0, NULL, NULL);
-      /* NtOpenSymbolicLinkObject returns STATUS_ACCESS_DENIED when called
-      	 with a 0 access mask.  However, if the kernel is case sensitive,
-	 it returns STATUS_OBJECT_NAME_NOT_FOUND because we used the incorrect
-	 case for the filename (It's actually "\\SystemRoot"). */
-      obcaseinsensitive = NtOpenSymbolicLinkObject (&h, 0, &attr)
-			  != STATUS_OBJECT_NAME_NOT_FOUND;
+      while (!user_shared->cb)
+	low_priority_sleep (0);	// Should be hit only very very rarely
+      if (user_shared->version != sversion)
+	multiple_cygwin_problem ("user shared memory version", user_shared->version, sversion);
+      else if (user_shared->cb != sizeof (*user_shared))
+	multiple_cygwin_problem ("user shared memory size", user_shared->cb, sizeof (*user_shared));
     }
-}
-
-void inline
-shared_info::create ()
-{
-  cygwin_shared = (shared_info *) open_shared (L"shared",
-					       CYGWIN_VERSION_SHARED_DATA,
-					       cygwin_shared_h,
-					       sizeof (*cygwin_shared),
-					       SH_CYGWIN_SHARED,
-					       &sec_all_nih);
-  cygwin_shared->initialize ();
 }
 
 void
 shared_info::initialize ()
 {
-  spinlock sversion (version, CURR_SHARED_MAGIC);
+  DWORD sversion = (DWORD) InterlockedExchange ((LONG *) &version, SHARED_VERSION_MAGIC);
+  if (sversion)
+    {
+      if (sversion != SHARED_VERSION_MAGIC)
+	{
+	  InterlockedExchange ((LONG *) &version, sversion);
+	  multiple_cygwin_problem ("system shared memory version", sversion, SHARED_VERSION_MAGIC);
+	}
+      while (!cb)
+	low_priority_sleep (0);	// Should be hit only very very rarely
+    }
+
+  heap_init ();
+
   if (!sversion)
     {
-      cb = sizeof (*this);
-      get_session_parent_dir ();	/* Create session dir if first process. */
-      init_obcaseinsensitive ();	/* Initialize obcaseinsensitive */
-      tty.init ();			/* Initialize tty table  */
-      mt.initialize ();			/* Initialize shared tape information */
-      /* Defer debug output printing the installation root and installation key
-	 up to this point.  Debug output except for system_printf requires
-	 the global shared memory to exist. */
-      debug_printf ("Installation root: <%W> key: <%S>",
-		    cygheap->installation_root, &cygheap->installation_key);
+      tty.init ();		/* Initialize tty table.  */
+      cb = sizeof (*this);	/* Do last, after all shared memory initialization */
     }
-  else if (sversion != (LONG) CURR_SHARED_MAGIC)
-    sversion.multiple_cygwin_problem ("system shared memory version",
-				      sversion, CURR_SHARED_MAGIC);
-  else if (cb != sizeof (*this))
+
+  if (cb != SHARED_INFO_CB)
     system_printf ("size of shared memory region changed from %u to %u",
-		   sizeof (*this), cb);
-  heap_init ();
+		   SHARED_INFO_CB, cb);
 }
 
-void
-memory_init (bool init_cygheap)
+void __stdcall
+memory_init ()
 {
+  getpagesize ();
+
   /* Initialize the Cygwin heap, if necessary */
-  if (init_cygheap)
+  if (!cygheap)
     {
       cygheap_init ();
       cygheap->user.init ();
-      cygheap->init_installation_root (); /* Requires user.init! */
     }
 
-  shared_info::create ();	/* Initialize global shared memory */
-  user_info::create (false);	/* Initialize per-user shared memory */
-  /* Initialize tty list session stuff.  Doesn't really belong here but
-     this needs to be initialized before any tty or console manipulation
-     happens and it is a common location.  */
-  tty_list::init_session ();
+  /* Initialize general shared memory */
+  shared_locations sh_cygwin_shared = SH_CYGWIN_SHARED;
+  cygwin_shared = (shared_info *) open_shared ("shared",
+					       CYGWIN_VERSION_SHARED_DATA,
+					       cygheap->shared_h,
+					       sizeof (*cygwin_shared),
+					       sh_cygwin_shared);
+
+  cygwin_shared->initialize ();
+  ProtectHandleINH (cygheap->shared_h);
+
+  user_shared_initialize (false);
+  mtinfo_init ();
+}
+
+unsigned
+shared_info::heap_slop_size ()
+{
+  if (!heap_slop)
+    {
+      /* Fetch from registry, first user then local machine.  */
+      for (int i = 0; i < 2; i++)
+	{
+	  reg_key reg (i, KEY_READ, NULL);
+
+	  if ((heap_slop = reg.get_int ("heap_slop_in_mb", 0)))
+	    break;
+	  heap_slop = wincap.heapslop ();
+	}
+
+      if (heap_slop < 0)
+	heap_slop = 0;
+      else
+	heap_slop <<= 20;
+#ifdef DEBUGGING
+      system_printf ("fixed heap slop is %p", heap_slop);
+#endif
+    }
+
+  return heap_slop;
+}
+
+unsigned
+shared_info::heap_chunk_size ()
+{
+  if (!heap_chunk)
+    {
+      /* Fetch from registry, first user then local machine.  */
+      for (int i = 0; i < 2; i++)
+	{
+	  reg_key reg (i, KEY_READ, NULL);
+
+	  /* Note that reserving a huge amount of heap space does not result in
+	     the use of swap since we are not committing it. */
+	  /* FIXME: We should not be restricted to a fixed size heap no matter
+	     what the fixed size is. */
+
+	  if ((heap_chunk = reg.get_int ("heap_chunk_in_mb", 0)))
+	    break;
+	  heap_chunk = 384; /* Default */
+	}
+
+      if (heap_chunk < 4)
+	heap_chunk = 4 * 1024 * 1024;
+      else
+	heap_chunk <<= 20;
+      if (!heap_chunk)
+	heap_chunk = 384 * 1024 * 1024;
+#ifdef DEBUGGING
+      system_printf ("fixed heap size is %u", heap_chunk);
+#endif
+    }
+
+  return heap_chunk;
 }
