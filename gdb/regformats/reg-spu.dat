@@ -1,5 +1,4 @@
 name:spu
-xmlarch:spu
 expedite:r0,r1,npc
 128:r0
 128:r1
@@ -129,5 +128,5 @@ expedite:r0,r1,npc
 128:r125
 128:r126
 128:r127
-32:id
 32:npc
+32:id
