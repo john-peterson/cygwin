@@ -1,21 +1,29 @@
-# Copyright 2002-2013 Free Software Foundation, Inc.
+# Copyright 2002, 2003, 2004
+# Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
 
 # This file was written by Joel Brobecker. (brobecker@gnat.com), derived
 # from selftest.exp, written by Rob Savoye.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
+set prms_id 0
+set bug_id 0
 
 # are we on a target board
 if { [is_remote target] || ![isnative] } then {
@@ -25,7 +33,6 @@ if { [is_remote target] || ![isnative] } then {
 proc setup_test { executable } {
     global gdb_prompt
     global timeout
-    global INTERNAL_GDBFLAGS
 
     # load yourself into the debugger
     # This can take a relatively long time, particularly for testing where
@@ -68,7 +75,8 @@ proc setup_test { executable } {
     set timeout 600
 
     set description "run until breakpoint at captured_main"
-    gdb_test_multiple "run $INTERNAL_GDBFLAGS" "$description" {
+    send_gdb "run -nw\n"
+    gdb_expect {
         -re "Starting program.*Breakpoint \[0-9\]+,.*captured_main .data.* at .*main.c:.*$gdb_prompt $" {
             pass "$description"
         }
@@ -86,6 +94,9 @@ proc setup_test { executable } {
             set timeout $oldtimeout
             verbose "Timeout is now $timeout seconds" 2
             return -1
+        }
+        timeout {
+            fail "$description (timeout)"
         }
     }
 

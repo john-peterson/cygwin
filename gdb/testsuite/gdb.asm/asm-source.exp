@@ -1,25 +1,35 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998, 2000, 2001, 2002, 2003, 2004 Free Software Foundation, Inc.
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
+# the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
-#
+# 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
+# 
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  
+# 
+# Please email any bugs, comments, and/or additions to this file to:
+# bug-gdb@prep.ai.mit.edu
 #
 # This file was written by Kendra.
+
+if $tracelevel then {
+    strace $tracelevel
+}
 
 #
 # Test debugging assembly level programs.
 # This file uses asmsrc[12].s for input.
 #
 
+set prms_id 0
+set bug_id 0
 
 set asm-arch ""
 set asm-note "empty"
@@ -27,21 +37,22 @@ set asm-flags ""
 set link-flags "-e _start"
 set debug-flags ""
 
-set obj_include -I[standard_output_file {}]
-
 switch -glob -- [istarget] {
     "alpha*-*-*" {
         set asm-arch alpha
 	# ??? Won't work with ecoff systems like Tru64, but then we also
 	# don't have any other -g flag that creates mdebug output.
-        set asm-flags "-no-mdebug -I${srcdir}/${subdir} $obj_include"
+        set asm-flags "-no-mdebug -I${srcdir}/${subdir} -I${objdir}/${subdir}"
 	set debug-flags "-gdwarf-2"
     }
-    "arm*-*-*" {
+    "*arm-*-*" {
         set asm-arch arm
     }
-    "bfin-*-*" {
-        set asm-arch bfin
+    "xscale-*-*" {
+        set asm-arch arm
+    }
+    "d10v-*-*" {
+        set asm-arch d10v
     }
     "frv-*-*" {
 	set asm-arch frv
@@ -59,9 +70,6 @@ switch -glob -- [istarget] {
     "i\[3456\]86-*-*" {
         set asm-arch i386
     }
-    "lm32-*" {
-        set asm-arch lm32
-    }
     "m32r*-linux*" {
         set asm-arch m32r-linux
     }
@@ -74,7 +82,7 @@ switch -glob -- [istarget] {
     }
     "m6811-*-*" {
         set asm-arch m68hc11
-        set asm-flags "-mshort-double -m68hc11 --no-warn -I${srcdir}/${subdir} $obj_include"
+        set asm-flags "-mshort-double -m68hc11 --no-warn -I${srcdir}/${subdir} -I${objdir}/${subdir}"
 	set debug-flags "-gdwarf-2"
 	# This asm test is specific and uses the linker directly.
 	# We must not use the target board linker script defined for other
@@ -85,7 +93,7 @@ switch -glob -- [istarget] {
     }
     "m6812-*-*" {
         set asm-arch m68hc11
-        set asm-flags "-mshort-double -m68hc12 --no-warn -I${srcdir}/${subdir} $obj_include"
+        set asm-flags "-mshort-double -m68hc12 --no-warn -I${srcdir}/${subdir} -I${objdir}/${subdir}"
 	set debug-flags "-gdwarf-2"
 	# This asm test is specific and uses the linker directly.
 	# We must not use the target board linker script defined for other
@@ -98,15 +106,7 @@ switch -glob -- [istarget] {
         set asm-arch mips
     }
     "powerpc*-*" {
-        if { [is_lp64_target] } {
-            set asm-arch powerpc64
-            set asm-flags "-a64 -I${srcdir}/${subdir} $obj_include"
-            append link-flags " -m elf64ppc"
-        } else {
-            set asm-arch powerpc
-            set asm-flags "-a32 -I${srcdir}/${subdir} $obj_include"
-            append link-flags " -m elf32ppc"
-        }
+        set asm-arch powerpc
     }
     "sh*-*-*" {
         set asm-arch sh
@@ -117,12 +117,12 @@ switch -glob -- [istarget] {
     }
     "sparc64-*-*" {
         set asm-arch sparc64
-        set asm-flags "-xarch=v9 -I${srcdir}/${subdir} $obj_include"
+        set asm-flags "-xarch=v9 -I${srcdir}/${subdir} -I${objdir}/${subdir}"
 	set debug-flags "-gdwarf-2"
     }
     "spu*-*-*" {
        set asm-arch spu
-       set asm-flags "-I${srcdir}/${subdir} $obj_include --no-warn"
+       set asm-flags "-I${srcdir}/${subdir} -I${objdir}/${subdir} --no-warn"
        set debug-flags "-gdwarf-2"
     }
     "xstormy16-*-*" {
@@ -198,7 +198,10 @@ if [board_info $dest exists multilib_flags] {
 	 }
 }
 
-standard_testfile asmsrc1.s asmsrc2.s
+set testfile "asm-source"
+set binfile ${objdir}/${subdir}/${testfile}
+set srcfile1 asmsrc1.s
+set srcfile2 asmsrc2.s
 
 remote_exec build "rm -f ${subdir}/arch.inc"
 remote_download host ${srcdir}/${subdir}/${asm-arch}.inc ${subdir}/arch.inc
@@ -206,7 +209,7 @@ remote_exec build "rm -f ${subdir}/note.inc"
 remote_download host ${srcdir}/${subdir}/${asm-note}.inc ${subdir}/note.inc
 
 if { [string equal ${asm-flags} ""] } {
-    set asm-flags "-I${srcdir}/${subdir} $obj_include"
+    set asm-flags "-I${srcdir}/${subdir} -I${objdir}/${subdir}"
 }
 
 if { [string equal ${debug-flags} ""] } {
@@ -238,14 +241,11 @@ regsub "--" "-gstabs\[+\]" "${debug-flags}" "-gstabs" debug-flags
 # The GNU assembler does not support level options like "-g2" or "-g3".
 regsub "--" "-g\[0-9\]" "${debug-flags}" "" debug-flags
 
-set asm1obj [standard_output_file asmrc1.o]
-set asm2obj [standard_output_file asmrc2.o]
-
-if {[target_assemble ${srcdir}/${subdir}/${srcfile} $asm1obj "${asm-flags} ${debug-flags}"] != ""} then {
+if {[target_assemble ${srcdir}/${subdir}/${srcfile1} asmsrc1.o "${asm-flags} ${debug-flags}"] != ""} then {
      untested asm-source.exp
      return -1
 }
-if {[target_assemble ${srcdir}/${subdir}/${srcfile2} $asm2obj "${asm-flags} ${debug-flags}"] != ""} then {
+if {[target_assemble ${srcdir}/${subdir}/${srcfile2} asmsrc2.o "${asm-flags} ${debug-flags}"] != ""} then {
      untested asm-source.exp
      return -1
 }
@@ -256,7 +256,7 @@ if {[target_assemble ${srcdir}/${subdir}/${srcfile2} $asm2obj "${asm-flags} ${de
 # code here that provides its own startup code.  Using target_link
 # also avoids a lot of problems on many systems, most notably on
 # *-*-*bsd* and *-*-solaris2*.
-if {[target_link [list $asm1obj $asm2obj] "${binfile}" ${link-flags}] != "" } then {
+if {[target_link "asmsrc1.o asmsrc2.o" "${binfile}" ${link-flags}] != "" } then {
      untested asm-source.exp
      return -1
 }
@@ -266,16 +266,8 @@ if { [istarget "m6811-*-*"] || [istarget "m6812-*-*"] } {
     set_board_info ldscript $old_ldscript
 }
 
-# Collect some line numbers.
-set line_main       [expr [gdb_get_line_number "main start" "asmsrc1.s"] + 1]
-set line_call_foo2  [expr [gdb_get_line_number "call foo2"  "asmsrc1.s"] + 1]
-set line_search_comment [expr [gdb_get_line_number "search" "asmsrc1.s"] + 1]
-set line_foo3       [expr [gdb_get_line_number "foo3 start" "asmsrc1.s"] + 1]
-set line_main_exit  [expr [gdb_get_line_number "main exit"  "asmsrc1.s"] + 1]
-set line_foo2       [expr [gdb_get_line_number "foo2 start" "asmsrc2.s"] + 1]
-set line_call_foo3  [expr [gdb_get_line_number "call foo3"  "asmsrc2.s"] + 1]
-set line_call_foo3_again [expr $line_call_foo3 + 1]
-set line_foo2_leave [expr [gdb_get_line_number "foo2 leave" "asmsrc2.s"] + 1]
+remote_exec build "mv asmsrc1.o asmsrc2.o ${objdir}/${subdir}"
+
 
 gdb_start
 gdb_reinitialize_dir $srcdir/$subdir
@@ -290,26 +282,34 @@ if ![runto_main] then {
 }
 
 # Execute the `f' command and see if the result includes source info.
-gdb_test "f" "asmsrc1\[.\]s:$line_main.*several_nops" "f at main"
+gdb_test "f" "asmsrc1\[.\]s:29.*several_nops" "f at main"
 
 # See if we properly `next' over a macro with several insns.
-gdb_test "n" "$line_call_foo2\[ 	\]*.*foo2" "next over macro"
+gdb_test "n" "33\[ 	\]*.*foo2" "next over macro"
 
 # See if we can properly `step' into a subroutine call.
-gdb_test "s" "$line_foo2\[ 	\]*.*" "step into foo2"
+gdb_test "s" "8\[ 	\]*.*" "step into foo2"
 
 # Test 'info target', and incidentally capture the entry point address.
 set entry_point 0
-gdb_test_multiple "info target" "info target" {
+send_gdb "info target\n"
+gdb_expect {
     -re "Symbols from .*asm-source.*Entry point: 0x(\[01232456789abcdefABCDEF\]+).*$gdb_prompt $" {
 	set entry_point $expect_out(1,string)
 	pass "info target"
+    }
+    -re ".*$gdb_prompt $" {
+	fail "info target"
+    }
+    timeout {
+	fail "info target (timeout)"
     }
 }
 
 # Capture the start symbol (may be '_start' or 'start')
 set entry_symbol ""
-gdb_test_multiple "info symbol 0x$entry_point" "info symbol" {
+send_gdb "info symbol 0x$entry_point\n"
+gdb_expect {
     -re "info symbol 0x$entry_point\[\r\n\]+(\[^\r\n\]*) in section .*$gdb_prompt $" {
         # We match the echoed `info symbol' command here, to help us
         # reliably identify the beginning of the start symbol in the
@@ -325,6 +325,12 @@ gdb_test_multiple "info symbol 0x$entry_point" "info symbol" {
 	set entry_symbol $expect_out(1,string)
 	pass "info symbol"
     }
+    -re ".*$gdb_prompt $" {
+	fail "info symbol"
+    }
+    timeout {
+	fail "info symbol (timeout)"
+    }
 }
 
 # Now try a 'list' from the other source file.
@@ -332,32 +338,32 @@ gdb_test "list $entry_symbol" ".*gdbasm_startup.*" "list"
 
 # Now try a source file search
 gdb_test "search A routine for foo2 to call" \
-	"$line_search_comment\[ \t\]+comment \"A routine for foo2 to call.\"" "search"
+	"40\[ \t\]+comment \"A routine for foo2 to call.\"" "search"
 
 # See if `f' prints the right source file.
-gdb_test "f" ".*asmsrc2\[.\]s:$line_foo2.*" "f in foo2"
+gdb_test "f" ".*asmsrc2\[.\]s:8.*" "f in foo2"
 
 # `next' one insn (or macro) to set up our stackframe (for the following bt).
-gdb_test "n" "$line_call_foo3\[ 	\]*.*foo3" "n in foo2"
+gdb_test "n" "12\[ 	\]*.*foo3" "n in foo2"
 
 # See if a simple `bt' prints the right source files and 
 # doesn't fall off the stack.
 
 gdb_test "bt 10" \
-	"\#0.*foo2.*asmsrc2\[.\]s:$line_call_foo3.*\#1.*main.*asmsrc1\[.\]s:$line_call_foo2" \
+	"\#0.*foo2.*asmsrc2\[.\]s:12.*\#1.*main.*asmsrc1\[.\]s:33" \
 	"bt ALL in foo2"
 
 # See if a capped `bt' prints the right source files.
-gdb_test "bt 2" "\#0.*foo2.*asmsrc2\[.\]s:$line_call_foo3.*\#1.*main.*asmsrc1\[.\]s:$line_call_foo2.*" "bt 2 in foo2"
+gdb_test "bt 2" "\#0.*foo2.*asmsrc2\[.\]s:12.*\#1.*main.*asmsrc1\[.\]s:33.*" "bt 2 in foo2"
 
 # Step into another subroutine which lives back in the first source file.
-gdb_test "s" ".*" "s 2"
+gdb_test "s" "" "s 2"
 
 # Next over insns to set up the stack frame.
-gdb_test "n" ".*" "n 2"
+gdb_test "n" "" "n 2"
 
 # Now see if a capped `bt' is correct.
-gdb_test "bt 3" "\#0.*foo3.*asmsrc1\[.\]s:$line_foo3.*\#1.*foo2.*asmsrc2\[.\]s:$line_call_foo3.*\#2.*main.*asmsrc1\[.\]s:$line_call_foo2.*" "bt 3 in foo3"
+gdb_test "bt 3" "\#0.*foo3.*asmsrc1\[.\]s:45.*\#1.*foo2.*asmsrc2\[.\]s:12.*\#2.*main.*asmsrc1\[.\]s:33.*" "bt 3 in foo3"
 
 # Try 'info source' from asmsrc1.s
 gdb_test "info source" \
@@ -365,19 +371,8 @@ gdb_test "info source" \
 	"info source asmsrc1.s"
 
 # Try 'finishing' from foo3
-# Some architectures will have one or more instructions after the
-# call instruction which still is part of the call sequence, so we
-# must be prepared for a "finish" to show us the caller line
-# again as well as the statement after.
-gdb_test_multiple "finish" "finish from foo3" {
-    -re "Run till exit from.*\[\r\n\]$line_call_foo3\[ \t\]+gdbasm_call foo3.*$gdb_prompt $" {
-        pass "finish from foo3"
-        gdb_test "s" ".*" "s after finish"
-    }
-    -re "Run till exit from.*\[\r\n\]$line_call_foo3_again\[ \t\]+gdbasm_call foo3.*$gdb_prompt $" {
-        pass "finish from foo3"
-    }
-}
+gdb_test "finish" "Run till exit from.*\[\r\n\]13\[ \t\]+gdbasm_call foo3" \
+	"finish from foo3"
 
 # Try 'info source' from asmsrc2.s
 gdb_test "info source" \
@@ -388,9 +383,10 @@ gdb_test "info source" \
 # with dynamic linking, where the system's shared libc was compiled
 # with debugging info; for example, on Linux, this produces 47kb of
 # output.  So we consume it as we go.
+send_gdb "info sources\n"
 set seen_asmsrc_1 0
 set seen_asmsrc_2 0
-gdb_test_multiple "info sources" "info sources" {
+gdb_expect {
     -re "^\[^,\]*asmsrc1.s(, |\[\r\n\]+)" {
         set seen_asmsrc_1 1
         exp_continue
@@ -409,38 +405,29 @@ gdb_test_multiple "info sources" "info sources" {
             fail "info sources"
         }
     }
+    timeout {
+            fail "info sources (timeout)"
+    }
 }
         
 
 # Try 'info line'
 gdb_test "info line" \
-	"Line $line_call_foo3_again of.*asmsrc2.s.*starts at.*<\\.?foo2+.*> and ends at.*<\\.?foo2+.*>." \
+	"Line 13 of.*asmsrc2.s.*starts at.*<foo2+.*> and ends at.*<foo2+.*>." \
 	"info line"
 
 # Try 'nexting' over next call to foo3
-gdb_test "next" "$line_foo2_leave\[ \t\]+gdbasm_leave" "next over foo3"
+gdb_test "next" "17\[ \t\]+gdbasm_leave" "next over foo3"
 
 # Try 'return' from foo2
-# Like "finish", "return" command also can return to the caller
-# line again or the statement after, depending on the architecture.
-gdb_test_multiple "return" "return from foo2" {
-    -re "Make (foo2|selected stack frame) return now\?.*" {
-        send_gdb "y\n"
-        exp_continue
-    }
-    -re "\#0.*main .*$line_call_foo2\[ \t\]+gdbasm_call foo2.*$gdb_prompt $" {
-        pass "return from foo2"
-        gdb_test "s" ".*" "s after return"
-    }
-    -re "\#0.*main .*$line_main_exit\[ \t\]+gdbasm_exit0.*$gdb_prompt $" {
-        pass "return from foo2"
-    }
-}
+gdb_test "return" "\#0  main .*37\[ \t\]+gdbasm_exit0" "return from foo2" \
+	"Make (foo2|selected stack frame) return now\?.*" "y"
 
 # Disassemble something, check the output
 proc test_dis { command var } {
     global gdb_prompt
-    gdb_test_multiple "${command}" "${command}" {
+    send_gdb "${command}\n"
+    gdb_expect {
 	-re "${var}.*:.*(Cannot access|Bad address)" {
 	    # The "disassembler" was only accessing the local
 	    # executable and that would cause attempts to disassemble
@@ -450,21 +437,24 @@ proc test_dis { command var } {
 	-re "${var}.*:.*${gdb_prompt}" {
 	    pass "${command}"
 	}
+	timeout {
+	    fail "${command} (timeout)"
+	}
     }
 }
 
 # See if we can look at a global variable, three ways
 gdb_test "print globalvar" ".* = 11" "look at global variable"
 test_dis "x/i &globalvar" "globalvar"
-test_dis "disassem &globalvar, &globalvar+1" "globalvar"
+test_dis "disassem &globalvar &globalvar+1" "globalvar"
 
 # See if we can look at a static variable, three ways
 gdb_test "print staticvar" ".* = 5" "look at static variable"
 test_dis "x/i &staticvar" "staticvar"
-test_dis "disassem &staticvar, &staticvar+1" "staticvar"
+test_dis "disassem &staticvar &staticvar+1" "staticvar"
 
 # See if we can look at a static function
-gdb_test "disassem foostatic" ".*<\\+0>:.*End of assembler dump." \
+gdb_test "disassem foostatic" ".*<foostatic\\+0>:.*End of assembler dump." \
 	"look at static function"
 
 remote_exec build "rm -f ${subdir}/arch.inc"
