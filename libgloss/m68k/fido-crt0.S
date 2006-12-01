@@ -239,15 +239,12 @@ SYM (_start):
     bgt     .LdataCopyLoop
 #endif /* ROM */
 
-#ifdef FIDO_ram
-	/* For ROM configs, the linker script ensures that
-	   _vector_table is placed at the proper place.  For RAM
-	   configs, we have to adjust it ourselves.  */
-	movel	IMM (SYM (_vector_table)), FIDO_CTX0_VBR
-#endif
-
 #ifndef FIDO_redboot
-	/* Setup interrupt vectors for secondary contexts.  */
+/*
+ * Setup interrupt vectors for secondary contexts.  We do not need to
+ * worry about _vector_table, since the linker script ensures that
+ * _vector_table is placed at the proper place.
+ */
 	movel	IMM (SYM (_vector_table1)), FIDO_CTX1_VBR
 	movel	IMM (SYM (_vector_table2)), FIDO_CTX2_VBR
 	movel	IMM (SYM (_vector_table3)), FIDO_CTX3_VBR
@@ -283,10 +280,10 @@ SYM (_start):
 	movel	IMM (SYM(__do_global_dtors)),(sp)
 	jsr	SYM (atexit)
 #endif
-	movel	IMM (_fini),(sp)
+	movel	IMM (__FINI_SECTION__),(sp)
 	jsr	SYM (atexit)
 
-	jsr	_init
+	jsr	__INIT_SECTION__
 
 /*
  * call the main routine from the application to get it going.
@@ -325,7 +322,7 @@ SYM (_vector_table):
         dc.l    _DivideByZeroHandler             /* 005 Divide by Zero             */
         dc.l    _ChkHandler                      /* 006 CHK, CHK2 Instructions     */  
         dc.l    _TrapccHandler                   /* 007 TRAPcc, TRAPV Instructions */
-        dc.l    _PrivilegeViolationHandler       /* 008 Privilege Violation        */
+        dc.l    _PriviligeViolationHandler       /* 008 Privilege Violation        */
         dc.l    _TraceHandler                    /* 009 Trace                      */
         dc.l    _ALineHandler                    /* 010 A-Line Unimplemented Instr */
         dc.l    _FLineHandler                    /* 011 F-Line Unimplemented Instr */
