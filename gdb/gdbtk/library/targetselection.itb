@@ -1,5 +1,5 @@
 # Target selection dialog for Insight.
-# Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008 Red Hat, Inc.
+# Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License (GPL) as published by
@@ -44,11 +44,6 @@ itcl::body TargetSelection::init_target_db {} {
   }
   set db_inited 1
 
-  # We really need to have the preferences defined, too,
-  # otherwise set_target and company won't work properly
-  # unless the user has first opened a TargetSelection dialog.
-  _init_prefs
-
   # Target Database
   # Set the following members:
   # TARGET,pretty-name: Name to display to user
@@ -74,8 +69,6 @@ itcl::body TargetSelection::init_target_db {} {
   set gdb_target(exec,baud-rates) {}
   set gdb_target(exec,cmd) ""
   set gdb_target(exec,runlist) {0 0 1 0}
-  # NOTE: for native "options", we use the sessions-stored preference
-  # which is really inferior arguments
   set gdb_target(exec,options) ""
   set gdb_target(exec,after_attaching) {}
 
@@ -285,10 +278,9 @@ itcl::body TargetSelection::init_target_db {} {
 }
 
 itcl::body TargetSelection::default_port {} {
-  global gdbtk_platform
-  switch -regexp $gdbtk_platform(os) {
-    cygwin  { set port /dev/com1 }
-    mingw   { set port COM1 }
+  global tcl_platform
+  switch -regexp $tcl_platform(os) {
+    Windows { set port com1 }
     Linux   { set port /dev/ttyS0 }
     SunOS   { set port /dev/ttya }
     AIX     { set port /dev/foo1 }
@@ -298,7 +290,7 @@ itcl::body TargetSelection::default_port {} {
     NetBSD  { set port /dev/foo1 }
     HP-UX   { 
       # Special case...
-      switch -regexp $gdbtk_platform(osVersion) {
+      switch -regexp $tcl_platform(osVersion) {
 	A.09 { set port /dev/tty00 }
 	B.10 -
 	B.11 { set port /dev/tty0p0 }
@@ -330,7 +322,6 @@ itcl::body TargetSelection::_init_prefs {} {
   pref define gdb/load/default-port [default_port]
   pref define gdb/load/default-hostname ""
   pref define gdb/load/default-after_attaching {}
-  pref define gdb/load/default-portname 32767
 }
 
 itcl::body TargetSelection::_init_target {} {
@@ -379,6 +370,7 @@ itcl::body TargetSelection::_init {} {
   set trace_inited 1
 
   init_target_db	;# initialize database
+  _init_prefs	;# initialize load prefs 
   _init_target	;# initialize target prefs
   set_saved
 
@@ -393,7 +385,7 @@ itcl::body TargetSelection::_init {} {
 #  METHOD:  build_win - build the dialog
 # ------------------------------------------------------------------
 itcl::body TargetSelection::build_win {} {
-  global gdbtk_platform PREFS_state gdb_ImageDir gdb_target_name
+  global tcl_platform PREFS_state gdb_ImageDir gdb_target_name
 
   set f [frame $itk_interior.f]
   set opts [frame $itk_interior.moreoptions]
@@ -434,7 +426,7 @@ itcl::body TargetSelection::build_win {} {
     -width $Width
 
   # port combobox
-  if {$gdbtk_platform(platform) == "windows"} {
+  if {$tcl_platform(platform) == "windows"} {
     set editable 0
   } else {
     set editable 1
@@ -449,13 +441,13 @@ itcl::body TargetSelection::build_win {} {
   fill_rates
 
   # load port combobox
-  if {$gdbtk_platform(platform) == "windows"} {
+  if {$tcl_platform(platform) == "windows"} {
     foreach val [port_list] {
       $fr.port list insert end $val
     }
   } else {
     # fixme:  how do I find valid values for these????
-    switch $gdbtk_platform(os) {
+    switch $tcl_platform(os) {
       Linux { set ports [list /dev/cua0 /dev/ttyS0 /dev/ttyS1 /dev/ttyS2 /dev/ttyS3]}
       SunOS { set ports [list /dev/ttya /dev/ttyb] }
       AIX   { set ports [list /dev/foo1 /dev/foo2] }
@@ -465,7 +457,7 @@ itcl::body TargetSelection::build_win {} {
       NetBSD { set ports [list /dev/foo1 /dev/foo2] }
       HP-UX  { 
 	# Special case...
-	switch -regexp $gdbtk_platform(osVersion) {
+	switch -regexp $tcl_platform(osVersion) {
 	  A.09 { set ports [list /dev/tty00 /dev/tty01] }
 	  B.10 -
 	  B.11 { set ports [list /dev/tty0p0 /dev/tty1p0] }
@@ -493,7 +485,7 @@ itcl::body TargetSelection::build_win {} {
   checkbutton $f.fr.verb -text [gettext "Display Download Dialog"] \
     -variable [pref varname gdb/load/$target-verbose]
 
-  if {$gdbtk_platform(platform) == "unix"} {
+  if {$tcl_platform(platform) == "unix"} {
     checkbutton $f.fr.xterm -text [gettext "Use xterm as inferior's tty"] \
 	-variable [pref varname gdb/process/xtermtty] \
 	-onvalue yes -offvalue no
@@ -523,7 +515,7 @@ itcl::body TargetSelection::build_win {} {
   pack $f.fr.bp.at_func $f.fr.bp.func -side left
   grid $f.fr.bp -sticky w -padx 5 -pady 5
   grid $f.fr.verb -sticky w -padx 5 -pady 5
-  if {$gdbtk_platform(platform) == "unix"} {
+  if {$tcl_platform(platform) == "unix"} {
     grid $f.fr.xterm -sticky w -padx 5 -pady 5
   }
   if {![pref get gdb/control_target]} {
@@ -591,12 +583,6 @@ itcl::body TargetSelection::build_win {} {
   pack $MoreFrame -fill x -expand yes
   pack $f $opts -side top -fill x
 
-  # If the target is set to "default", select an appropriate
-  # default: on native debuggers, choose "Exec"; otherwise, make
-  # the user choose.
-  if {[string compare $target "default"] == 0 && [native_debugging]} {
-    set target exec
-  }
   change_target $gdb_target($target,pretty-name)
 
   button $btns.ok -text [gettext OK] -width 7 -command [code $this save] \
@@ -665,10 +651,6 @@ itcl::body TargetSelection::write_saved {} {
   pref setd gdb/load/$target-runlist [list $saved_attach $saved_load $saved_run $saved_cont]
   if {[info exists gdb_target($target,options)]} {
     pref setd gdb/load/$target-opts $saved_options
-
-    # For the case of "exec" targets, also save the options
-    # so that the command line picks them up.
-    gdb_set_inferior_args $saved_options
   }
   if {[catch {$_after_entry get} saved_after_attaching]} {
     set saved_after_attaching ""
@@ -797,8 +779,6 @@ itcl::body TargetSelection::config_dialog {t} {
       # FIXME: this is really overloaded!!
       if {$t == "exec"} {
 	set text "Arguments:"
-        # Also set the target options to the session's saved arguments
-        pref set gdb/load/$t-opts [gdb_get_inferior_args]
       } else {
 	set text "Options:"
       }
@@ -822,6 +802,7 @@ itcl::body TargetSelection::change_target {w {name ""}} {
     $RunMethod.cont configure -state normal
   }
 
+  debug "$target"
   set defbaud $gdb_target($target,defbaud)
   pref define gdb/load/$target-baud $defbaud
   pref define gdb/load/$target-portname 1000
@@ -892,12 +873,6 @@ itcl::body TargetSelection::change_baud {w {baud ""}} {
 #  METHOD:  port_list - return a list of valid ports for Windows
 # ------------------------------------------------------------------
 itcl::body TargetSelection::port_list {} {
-  global gdbtk_platform
-  if {[string compare $gdbtk_platform(os) "cygwin"] == 0} {
-    set device "/dev/com"
-  } else {
-    set device "COM"
-  }
   set plist ""
   # Scan com1 - com8 trying to open each one.
   # If permission is denied that means it is in use,
@@ -910,7 +885,7 @@ itcl::body TargetSelection::port_list {} {
       # Failed.  Find out why.
       if {[string first "permission denied" $msg] != -1} {
 	# Port is there, but busy right now. That's OK.
-	lappend plist $device$i
+	lappend plist /dev/com$i
       } elseif {$i > 4} {
 	# if we've scanned the first 4 ports, then quit when we find no more 
 	set quit 1
@@ -918,7 +893,7 @@ itcl::body TargetSelection::port_list {} {
     } else {
       # We got it.  Now close it and add to list.
       close $fd
-      lappend plist $device$i
+      lappend plist /dev/com$i
     }
   }
   return $plist
