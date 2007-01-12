@@ -1,7 +1,6 @@
 /* cygheap.cc: Cygwin heap manager.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -10,59 +9,36 @@
    details. */
 
 #include "winsup.h"
+#include <string.h>
 #include <assert.h>
 #include <stdlib.h>
 #include "cygerrno.h"
 #include "security.h"
 #include "path.h"
-#include "tty.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
 #include "child_info.h"
 #include "heap.h"
+#include "sync.h"
 #include "sigproc.h"
 #include "pinfo.h"
-#include "registry.h"
-#include "ntdll.h"
 #include <unistd.h>
-#include <wchar.h>
 
-static mini_cygheap NO_COPY cygheap_dummy =
-{
-  {__utf8_mbtowc, __utf8_wctomb}
-};
-
-init_cygheap NO_COPY *cygheap = (init_cygheap *) &cygheap_dummy;
+init_cygheap NO_COPY *cygheap;
 void NO_COPY *cygheap_max;
 
+extern "C" char  _cygheap_mid[] __attribute__((section(".cygheap")));
 extern "C" char  _cygheap_end[];
 
 static NO_COPY muto cygheap_protect;
 
 struct cygheap_entry
-{
-  int type;
-  struct cygheap_entry *next;
-  char data[0];
-};
-
-class tls_sentry
-{
-public:
-  static muto lock;
-  int destroy;
-  void init ();
-  bool acquired () {return lock.acquired ();}
-  tls_sentry () {destroy = 0;}
-  tls_sentry (DWORD wait) {destroy = lock.acquire (wait);}
-  ~tls_sentry () {if (destroy) lock.release ();}
-};
-
-muto NO_COPY tls_sentry::lock;
-static NO_COPY size_t nthreads;
-
-#define THREADLIST_CHUNK 256
+  {
+    int type;
+    struct cygheap_entry *next;
+    char data[0];
+  };
 
 #define NBUCKETS (sizeof (cygheap->buckets) / sizeof (cygheap->buckets[0]))
 #define N0 ((_cmalloc_entry *) NULL)
@@ -72,7 +48,7 @@ static NO_COPY size_t nthreads;
 #define MVMAP_OPTIONS (FILE_MAP_WRITE)
 
 extern "C" {
-static void __reg1 _cfree (void *);
+static void __stdcall _cfree (void *) __attribute__((regparm(1)));
 static void *__stdcall _csbrk (int);
 }
 
@@ -80,7 +56,8 @@ static void *__stdcall _csbrk (int);
 void __stdcall
 cygheap_fixup_in_child (bool execed)
 {
-  cygheap_max = cygheap = (init_cygheap *) _cygheap_start;
+  cygheap_max = child_proc_info->cygheap;
+  cygheap = (init_cygheap *) cygheap_max;
   _csbrk ((char *) child_proc_info->cygheap_max - (char *) cygheap);
   child_copy (child_proc_info->parent, false, "cygheap", cygheap, cygheap_max, NULL);
   cygheap_init ();
@@ -89,30 +66,43 @@ cygheap_fixup_in_child (bool execed)
     {
       cygheap->hooks.next = NULL;
       cygheap->user_heap.base = NULL;		/* We can allocate the heap anywhere */
+      /* Walk the allocated memory chain looking for orphaned memory from
+	 previous execs */
+      for (_cmalloc_entry *rvc = cygheap->chain; rvc; rvc = rvc->prev)
+	{
+	  cygheap_entry *ce = (cygheap_entry *) rvc->data;
+	  if (!rvc->ptr || rvc->b >= NBUCKETS || ce->type <= HEAP_1_START)
+	    continue;
+	  else if (ce->type < HEAP_1_MAX)
+	    ce->type += HEAP_1_MAX;	/* Mark for freeing after next exec */
+	  else
+	    _cfree (ce);		/* Marked by parent for freeing in child */
+	}
     }
-  /* Walk the allocated memory chain looking for orphaned memory from
-     previous execs or forks */
-  for (_cmalloc_entry *rvc = cygheap->chain; rvc; rvc = rvc->prev)
+}
+
+int
+init_cygheap::manage_console_count (const char *something, int amount, bool avoid_freeing_console)
+{
+  if (console_count == 0 && amount > 0)
+    init_console_handler (true);
+  console_count += amount;
+  debug_printf ("%s: console_count %d, amount %d, %s, avoid_freeing_console %d",
+		something, console_count, amount, myctty (), avoid_freeing_console);
+  if (!avoid_freeing_console && amount <= 0 && !console_count && myself->ctty == -1)
     {
-      cygheap_entry *ce = (cygheap_entry *) rvc->data;
-      if (!rvc->ptr || rvc->b >= NBUCKETS || ce->type <= HEAP_1_START)
-	continue;
-      else if (ce->type > HEAP_2_MAX)
-	_cfree (ce);		/* Marked for freeing in any child */
-      else if (!execed)
-	continue;
-      else if (ce->type > HEAP_1_MAX)
-	_cfree (ce);		/* Marked for freeing in execed child */
-      else
-	ce->type += HEAP_1_MAX;	/* Mark for freeing after next exec */
+      BOOL res = FreeConsole ();
+      debug_printf ("freed console, res %d", res);
+      init_console_handler (false);
     }
+  return console_count;
 }
 
 void
 init_cygheap::close_ctty ()
 {
   debug_printf ("closing cygheap->ctty %p", cygheap->ctty);
-  cygheap->ctty->close_with_arch ();
+  cygheap->ctty->close ();
   cygheap->ctty = NULL;
 }
 
@@ -128,7 +118,7 @@ static void *__stdcall
 _csbrk (int sbs)
 {
   void *prebrk = cygheap_max;
-  size_t granmask = wincap.allocation_granularity () - 1;
+  size_t granmask = getpagesize () - 1;
   char *newbase = nextpage (prebrk);
   cygheap_max = (char *) cygheap_max + sbs;
   if (!sbs || (newbase >= cygheap_max) || (cygheap_max <= _cygheap_end))
@@ -139,7 +129,7 @@ _csbrk (int sbs)
 	newbase = _cygheap_end;
 
       DWORD adjsbs = allocsize ((char *) cygheap_max - newbase);
-      if (adjsbs && !VirtualAlloc (newbase, adjsbs, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))
+      if (!VirtualAlloc (newbase, adjsbs, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))
 	{
 	  MEMORY_BASIC_INFORMATION m;
 	  if (!VirtualQuery (newbase, &m, sizeof m))
@@ -157,131 +147,35 @@ _csbrk (int sbs)
   return prebrk;
 }
 
-/* Use absolute path of cygwin1.dll to derive the Win32 dir which
-   is our installation_root.  Note that we can't handle Cygwin installation
-   root dirs of more than 4K path length.  I assume that's ok...
-
-   This function also generates the installation_key value.  It's a 64 bit
-   hash value based on the path of the Cygwin DLL itself.  It's subsequently
-   used when generating shared object names.  Thus, different Cygwin
-   installations generate different object names and so are isolated from
-   each other.
-
-   Having this information, the installation key together with the
-   installation root path is written to the registry.  The idea is that
-   cygcheck can print the paths into which the Cygwin DLL has been
-   installed for debugging purposes.
-
-   Last but not least, the new cygwin properties datastrcuture is checked
-   for the "disabled_key" value, which is used to determine whether the
-   installation key is actually added to all object names or not.  This is
-   used as a last resort for debugging purposes, usually.  However, there
-   could be another good reason to re-enable object name collisions between
-   multiple Cygwin DLLs, which we're just not aware of right now.  Cygcheck
-   can be used to change the value in an existing Cygwin DLL binary. */
-void
-init_cygheap::init_installation_root ()
-{
-  if (!GetModuleFileNameW (cygwin_hmodule, installation_root, PATH_MAX))
-    api_fatal ("Can't initialize Cygwin installation root dir.\n"
-	       "GetModuleFileNameW(%p, %p, %u), %E",
-	       cygwin_hmodule, installation_root, PATH_MAX);
-  PWCHAR p = installation_root;
-  if (wcsncasecmp (p, L"\\\\", 2))	/* Normal drive letter path */
-    {
-      p = wcpcpy (p, L"\\??\\");
-      GetModuleFileNameW (cygwin_hmodule, p, PATH_MAX - 4);
-    }
-  else
-    {
-      bool unc = false;
-      if (wcsncmp (p + 2, L"?\\", 2))	/* No long path prefix, so UNC path. */
-	{
-	  p = wcpcpy (p, L"\\??\\UN");
-	  GetModuleFileNameW (cygwin_hmodule, p, PATH_MAX - 6);
-	  *p = L'C';
-	  unc = true;
-	}
-      else if (!wcsncmp (p + 4, L"UNC\\", 4)) /* Native NT UNC path. */
-	unc = true;
-      if (unc)
-	{
-	  p = wcschr (p + 2, L'\\');    /* Skip server name */
-	  if (p)
-	    p = wcschr (p + 1, L'\\');  /* Skip share name */
-	}
-    }
-  installation_root[1] = L'?';
-
-  RtlInitEmptyUnicodeString (&installation_key, installation_key_buf,
-			     sizeof installation_key_buf);
-  RtlInt64ToHexUnicodeString (hash_path_name (0, installation_root),
-			      &installation_key, FALSE);
-
-  PWCHAR w = wcsrchr (installation_root, L'\\');
-  if (w)
-    {
-      *w = L'\0';
-      w = wcsrchr (installation_root, L'\\');
-    }
-  if (!w)
-    api_fatal ("Can't initialize Cygwin installation root dir.\n"
-	       "Invalid DLL path");
-  /* If w < p, the Cygwin DLL resides in the root dir of a drive or network
-     path.  In that case, if we strip off yet another backslash, the path
-     becomes invalid.  We avoid that here so that the DLL also works in this
-     scenario.  The /usr/bin and /usr/lib default mounts will probably point
-     to something non-existing, but that's life. */
-  if (w > p)
-    *w = L'\0';
-
-  for (int i = 1; i >= 0; --i)
-    {
-      reg_key r (i, KEY_WRITE, _WIDE (CYGWIN_INFO_INSTALLATIONS_NAME),
-		 NULL);
-      if (NT_SUCCESS (r.set_string (installation_key_buf,
-				    installation_root)))
-	break;
-    }
-
-  if (cygwin_props.disable_key)
-    {
-      installation_key.Length = 0;
-      installation_key.Buffer[0] = L'\0';
-    }
-}
-
-void __stdcall
+extern "C" void __stdcall
 cygheap_init ()
 {
   cygheap_protect.init ("cygheap_protect");
-  if (cygheap == &cygheap_dummy)
+  if (!cygheap)
     {
-      cygheap = (init_cygheap *) memset (_cygheap_start, 0,
-					 sizeof (*cygheap));
+      cygheap = (init_cygheap *) memset (_cygheap_start, 0, _cygheap_mid - _cygheap_start);
       cygheap_max = cygheap;
       _csbrk (sizeof (*cygheap));
-      /* Default locale settings. */
-      cygheap->locale.mbtowc = __utf8_mbtowc;
-      cygheap->locale.wctomb = __utf8_wctomb;
-      strcpy (cygheap->locale.charset, "UTF-8");
-      /* Set umask to a sane default. */
-      cygheap->umask = 022;
-      cygheap->rlim_core = RLIM_INFINITY;
     }
   if (!cygheap->fdtab)
     cygheap->fdtab.init ();
   if (!cygheap->sigs)
     sigalloc ();
-  cygheap->init_tls_list ();
+
+  if (!cygheap->shared_prefix)
+    cygheap->shared_prefix = cstrdup (
+	    wincap.has_terminal_services ()
+	    && (set_privilege (hProcToken, SE_CREATE_GLOBAL_PRIV, true) >= 0
+		|| GetLastError () == ERROR_NO_SUCH_PRIVILEGE)
+	    ? "Global\\" : "");
 }
 
 /* Copyright (C) 1997, 2000 DJ Delorie */
 
-static void *__reg1 _cmalloc (unsigned size);
-static void *__reg2 _crealloc (void *ptr, unsigned size);
+static void *_cmalloc (unsigned size) __attribute ((regparm(1)));
+static void *__stdcall _crealloc (void *ptr, unsigned size) __attribute ((regparm(2)));
 
-static void *__reg1
+static void *__stdcall
 _cmalloc (unsigned size)
 {
   _cmalloc_entry *rvc;
@@ -315,7 +209,7 @@ _cmalloc (unsigned size)
   return rvc->data;
 }
 
-static void __reg1
+static void __stdcall
 _cfree (void *ptr)
 {
   cygheap_protect.acquire ();
@@ -326,7 +220,7 @@ _cfree (void *ptr)
   cygheap_protect.release ();
 }
 
-static void *__reg2
+static void *__stdcall
 _crealloc (void *ptr, unsigned size)
 {
   void *newptr;
@@ -338,11 +232,8 @@ _crealloc (void *ptr, unsigned size)
       if (size <= oldsize)
 	return ptr;
       newptr = _cmalloc (size);
-      if (newptr)
-	{
-	  memcpy (newptr, ptr, oldsize);
-	  _cfree (ptr);
-	}
+      memcpy (newptr, ptr, oldsize);
+      _cfree (ptr);
     }
   return newptr;
 }
@@ -355,13 +246,9 @@ _crealloc (void *ptr, unsigned size)
 #define tocygheap(s) ((cygheap_entry *) (((char *) (s)) - (int) (N->data)))
 
 inline static void *
-creturn (cygheap_types x, cygheap_entry * c, unsigned len, const char *fn = NULL)
+creturn (cygheap_types x, cygheap_entry * c, unsigned len)
 {
-  if (c)
-    /* nothing to do */;
-  else if (fn)
-    api_fatal ("%s would have returned NULL", fn);
-  else
+  if (!c)
     {
       set_errno (ENOMEM);
       return NULL;
@@ -374,29 +261,24 @@ creturn (cygheap_types x, cygheap_entry * c, unsigned len, const char *fn = NULL
   return (void *) c->data;
 }
 
-inline static void *
-cmalloc (cygheap_types x, DWORD n, const char *fn)
+extern "C" void *__stdcall
+cmalloc (cygheap_types x, DWORD n)
 {
   cygheap_entry *c;
   MALLOC_CHECK;
   c = (cygheap_entry *) _cmalloc (sizeof_cygheap (n));
-  return creturn (x, c, n, fn);
+  if (!c)
+    {
+#ifdef DEBUGGING
+      system_printf ("cmalloc returned NULL");
+      try_to_debug ();
+#endif
+    }
+  return creturn (x, c, n);
 }
 
-extern "C" void *
-cmalloc (cygheap_types x, DWORD n)
-{
-  return cmalloc (x, n, NULL);
-}
-
-extern "C" void *
-cmalloc_abort (cygheap_types x, DWORD n)
-{
-  return cmalloc (x, n, "cmalloc");
-}
-
-inline static void *
-crealloc (void *s, DWORD n, const char *fn)
+extern "C" void *__stdcall
+crealloc (void *s, DWORD n)
 {
   MALLOC_CHECK;
   if (s == NULL)
@@ -406,22 +288,14 @@ crealloc (void *s, DWORD n, const char *fn)
   cygheap_entry *c = tocygheap (s);
   cygheap_types t = (cygheap_types) c->type;
   c = (cygheap_entry *) _crealloc (c, sizeof_cygheap (n));
-  return creturn (t, c, n, fn);
+#ifdef DEBUGGING
+  if (!c)
+    system_printf ("crealloc returned NULL");
+#endif
+  return creturn (t, c, n);
 }
 
-extern "C" void *__reg2
-crealloc (void *s, DWORD n)
-{
-  return crealloc (s, n, NULL);
-}
-
-extern "C" void *__reg2
-crealloc_abort (void *s, DWORD n)
-{
-  return crealloc (s, n, "crealloc");
-}
-
-extern "C" void __reg1
+extern "C" void __stdcall
 cfree (void *s)
 {
   assert (!inheap (s));
@@ -429,7 +303,7 @@ cfree (void *s)
   MALLOC_CHECK;
 }
 
-extern "C" void __reg2
+extern "C" void __stdcall
 cfree_and_set (char *&s, char *what)
 {
   if (s && s != almost_null)
@@ -437,8 +311,8 @@ cfree_and_set (char *&s, char *what)
   s = what;
 }
 
-inline static void *
-ccalloc (cygheap_types x, DWORD n, DWORD size, const char *fn)
+extern "C" void *__stdcall
+ccalloc (cygheap_types x, DWORD n, DWORD size)
 {
   cygheap_entry *c;
   MALLOC_CHECK;
@@ -446,46 +320,14 @@ ccalloc (cygheap_types x, DWORD n, DWORD size, const char *fn)
   c = (cygheap_entry *) _cmalloc (sizeof_cygheap (n));
   if (c)
     memset (c->data, 0, n);
-  return creturn (x, c, n, fn);
+#ifdef DEBUGGING
+  if (!c)
+    system_printf ("ccalloc returned NULL");
+#endif
+  return creturn (x, c, n);
 }
 
-extern "C" void *__reg3
-ccalloc (cygheap_types x, DWORD n, DWORD size)
-{
-  return ccalloc (x, n, size, NULL);
-}
-
-extern "C" void *__reg3
-ccalloc_abort (cygheap_types x, DWORD n, DWORD size)
-{
-  return ccalloc (x, n, size, "ccalloc");
-}
-
-extern "C" PWCHAR __reg1
-cwcsdup (const PWCHAR s)
-{
-  MALLOC_CHECK;
-  PWCHAR p = (PWCHAR) cmalloc (HEAP_STR, (wcslen (s) + 1) * sizeof (WCHAR));
-  if (!p)
-    return NULL;
-  wcpcpy (p, s);
-  MALLOC_CHECK;
-  return p;
-}
-
-extern "C" PWCHAR __reg1
-cwcsdup1 (const PWCHAR s)
-{
-  MALLOC_CHECK;
-  PWCHAR p = (PWCHAR) cmalloc (HEAP_1_STR, (wcslen (s) + 1) * sizeof (WCHAR));
-  if (!p)
-    return NULL;
-  wcpcpy (p, s);
-  MALLOC_CHECK;
-  return p;
-}
-
-extern "C" char *__reg1
+extern "C" char *__stdcall
 cstrdup (const char *s)
 {
   MALLOC_CHECK;
@@ -497,7 +339,7 @@ cstrdup (const char *s)
   return p;
 }
 
-extern "C" char *__reg1
+extern "C" char *__stdcall
 cstrdup1 (const char *s)
 {
   MALLOC_CHECK;
@@ -510,7 +352,7 @@ cstrdup1 (const char *s)
 }
 
 void
-cygheap_root::set (const char *posix, const char *native, bool caseinsensitive)
+cygheap_root::set (const char *posix, const char *native)
 {
   if (*posix == '/' && posix[1] == '\0')
     {
@@ -532,11 +374,20 @@ cygheap_root::set (const char *posix, const char *native, bool caseinsensitive)
   m->native_pathlen = strlen (native);
   if (m->native_pathlen >= 1 && m->native_path[m->native_pathlen - 1] == '\\')
     m->native_path[--m->native_pathlen] = '\0';
-  m->caseinsensitive = caseinsensitive;
 }
 
 cygheap_user::~cygheap_user ()
 {
+#if 0
+  if (pname)
+    cfree (pname);
+  if (plogsrv)
+    cfree (plogsrv - 2);
+  if (pdomain)
+    cfree (pdomain);
+  if (psid)
+    cfree (psid);
+#endif
 }
 
 void
@@ -546,9 +397,7 @@ cygheap_user::set_name (const char *new_name)
 
   if (allocated)
     {
-      /* Windows user names are case-insensitive.  Here we want the correct
-	 username, though, even if it only differs by case. */
-      if (!strcmp (new_name, pname))
+      if (strcasematch (new_name, pname))
 	return;
       cfree (pname);
     }
@@ -562,87 +411,4 @@ cygheap_user::set_name (const char *new_name)
   cfree_and_set (plogsrv);
   cfree_and_set (pdomain);
   cfree_and_set (pwinname);
-}
-
-void
-init_cygheap::init_tls_list ()
-{
-  if (threadlist)
-    memset (cygheap->threadlist, 0, cygheap->sthreads * sizeof (cygheap->threadlist[0]));
-  else
-    {
-      sthreads = THREADLIST_CHUNK;
-      threadlist = (_cygtls **) ccalloc_abort (HEAP_TLS, cygheap->sthreads,
-					       sizeof (cygheap->threadlist[0]));
-    }
-  tls_sentry::lock.init ("thread_tls_sentry");
-}
-
-void
-init_cygheap::add_tls (_cygtls *t)
-{
-  cygheap->user.reimpersonate ();
-  tls_sentry here (INFINITE);
-  if (nthreads >= cygheap->sthreads)
-    {
-      threadlist = (_cygtls **)
-	crealloc_abort (threadlist, (sthreads += THREADLIST_CHUNK)
-			* sizeof (threadlist[0]));
-      // memset (threadlist + nthreads, 0, THREADLIST_CHUNK * sizeof (threadlist[0]));
-    }
-
-  threadlist[nthreads++] = t;
-}
-
-void
-init_cygheap::remove_tls (_cygtls *t, DWORD wait)
-{
-  tls_sentry here (wait);
-  if (here.acquired ())
-    {
-      for (size_t i = 0; i < nthreads; i++)
-	if (t == threadlist[i])
-	  {
-	    if (i < --nthreads)
-	      threadlist[i] = threadlist[nthreads];
-	    debug_only_printf ("removed %p element %d", this, i);
-	    break;
-	  }
-    }
-}
-
-_cygtls *
-init_cygheap::find_tls (int sig)
-{
-  debug_printf ("sig %d\n", sig);
-  tls_sentry here (INFINITE);
-
-  static int NO_COPY threadlist_ix;
-
-  _cygtls *t = _main_tls;
-
-  myfault efault;
-  if (efault.faulted ())
-    threadlist[threadlist_ix]->remove (INFINITE);
-  else
-    {
-      threadlist_ix = -1;
-      while (++threadlist_ix < (int) nthreads)
-	if (threadlist[threadlist_ix]->tid
-	    && sigismember (&(threadlist[threadlist_ix]->sigwait_mask), sig))
-	  {
-	    t = cygheap->threadlist[threadlist_ix];
-	    goto out;
-	  }
-      threadlist_ix = -1;
-      while (++threadlist_ix < (int) nthreads)
-	if (threadlist[threadlist_ix]->tid
-	    && !sigismember (&(threadlist[threadlist_ix]->sigmask), sig))
-	  {
-	    t = cygheap->threadlist[threadlist_ix];
-	    break;
-	  }
-    }
-out:
-  return t;
 }
