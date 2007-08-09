@@ -2,7 +2,6 @@ SCRIPT_NAME=elf
 OUTPUT_FORMAT="elf32-mcore-little"
 BIG_OUTPUT_FORMAT="elf32-mcore-big"
 LITTLE_OUTPUT_FORMAT="elf32-mcore-little"
-NO_REL_RELOCS=yes
 PAGE_SIZE=0x1000
 TARGET_PAGE_SIZE=0x400
 MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
@@ -49,6 +48,11 @@ PARSE_AND_LIST_ARGS_CASES='
     case OPTION_BASE_FILE:
       link_info.base_file = fopen (optarg, FOPEN_WB);
       if (link_info.base_file == NULL)
-	einfo (_("%F%P: cannot open base file %s\n"), optarg);
+	{
+	  /* xgettext:c-format */
+	  fprintf (stderr, _("%s: Cannot open base file %s\n"),
+		   program_name, optarg);
+	  xexit (1);
+	}
       break;
 '

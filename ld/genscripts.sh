@@ -1,6 +1,6 @@
 #!/bin/sh
 # genscripts.sh - generate the ld-emulation-target specific files
-# Copyright 2004, 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
+# Copyright 2007 Free Software Foundation, Inc.
 #
 # This file is part of the Gnu Linker.
 #
@@ -30,7 +30,6 @@
 #          default_emulation \
 #          native_lib_dirs \
 #          use_sysroot \
-#          enable_initfini_array \
 #          this_emulation \
 # optional:
 #          tool_dir \
@@ -64,7 +63,6 @@
 #   sun3.xc      [used when the linker is invoked with "-z combreloc"]
 #   sun3.xsc     [used when the linker is invoked with "--shared"]
 #   sun3.xdc     [used when the linker is invoked with "-pie"]
-#   sun3.xa      [used when the linker is invoked with "--enable-auto-import"]
 #
 # It also produced the C source file:
 #
@@ -90,10 +88,9 @@ EMULATION_LIBPATH=$8
 NATIVE_LIB_DIRS=$9
 shift 9
 use_sysroot=$1
-ENABLE_INITFINI_ARRAY=$2
-EMULATION_NAME=$3
-TOOL_LIB=$4
-CUSTOMIZER_SCRIPT=$5
+EMULATION_NAME=$2
+TOOL_LIB=$3
+CUSTOMIZER_SCRIPT=$4
 
 # Can't use ${TOOL_LIB:-$target_alias} here due to an Ultrix shell bug.
 if [ "x${TOOL_LIB}" = "x" ] ; then
@@ -108,7 +105,7 @@ fi
 CUSTOMIZER_SCRIPT="${srcdir}/emulparams/${CUSTOMIZER_SCRIPT}.sh"
 
 # Include the emulation-specific parameters:
-. ${CUSTOMIZER_SCRIPT}
+. ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
 
 if test -d ldscripts; then
   true
@@ -200,27 +197,6 @@ if [ "x${LIB_PATH}" = "x" ] && [ "x${USE_LIBPATH}" = xyes ] ; then
     *:: | ::*) LIB_PATH=${LIB_PATH}${LIB_PATH2} ;;
     *) LIB_PATH=${LIB_PATH}:${LIB_PATH2} ;;
   esac
-
-  # For multilib'ed targets, ensure both ${target_alias}/lib${LIBPATH_SUFFIX}
-  # and ${TOOL_LIB}/lib${LIBPATH_SUFFIX} are in the default search path, because
-  # 64bit libraries may be in both places, depending on cross-development
-  # setup method (e.g.: /usr/s390x-linux/lib64 vs /usr/s390-linux/lib64)
-  case "${LIBPATH_SUFFIX}:${tool_lib}" in
-    :*) ;;
-    *:*${LIBPATH_SUFFIX}) ;;
-    *)
-      paths="${exec_prefix}/${target_alias}/lib${LIBPATH_SUFFIX}"
-      if [ x"${TOOL_LIB}" != x ]; then
-        paths="${paths} ${exec_prefix}/${TOOL_LIB}/lib${LIBPATH_SUFFIX}"
-      fi
-      for path in $paths; do
-        case :${LIB_PATH}: in
-          ::: | *:${path}:*) ;;
-          *) LIB_PATH=${path}:${LIB_PATH} ;;
-        esac
-      done
-    ;;
-  esac
 fi
 
 # Always search $(tooldir)/lib, aka /usr/local/TARGET/lib, except for
@@ -291,7 +267,7 @@ LD_FLAG=r
 DATA_ALIGNMENT=${DATA_ALIGNMENT_r}
 DEFAULT_DATA_ALIGNMENT="ALIGN(${SEGMENT_SIZE})"
 ( echo "/* Script for ld -r: link without relocation */"
-  . ${CUSTOMIZER_SCRIPT}
+  . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
   . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
 ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xr
 
@@ -299,7 +275,7 @@ LD_FLAG=u
 DATA_ALIGNMENT=${DATA_ALIGNMENT_u}
 CONSTRUCTING=" "
 ( echo "/* Script for ld -Ur: link w/out relocation, do create constructors */"
-  . ${CUSTOMIZER_SCRIPT}
+  . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
   . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
 ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xu
 
@@ -307,21 +283,21 @@ LD_FLAG=
 DATA_ALIGNMENT=${DATA_ALIGNMENT_}
 RELOCATING=" "
 ( echo "/* Default linker script, for normal executables */"
-  . ${CUSTOMIZER_SCRIPT}
+  . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
   . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
 ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.x
 
 LD_FLAG=n
 DATA_ALIGNMENT=${DATA_ALIGNMENT_n}
 ( echo "/* Script for -n: mix text and data on same page */"
-  . ${CUSTOMIZER_SCRIPT}
+  . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
   . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
 ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xn
 
 LD_FLAG=N
 DATA_ALIGNMENT=${DATA_ALIGNMENT_N}
 ( echo "/* Script for -N: mix text and data on same page; don't align data */"
-  . ${CUSTOMIZER_SCRIPT}
+  . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
   . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
 ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xbn
 
@@ -330,7 +306,7 @@ if test -n "$GENERATE_COMBRELOC_SCRIPT"; then
   LD_FLAG=c
   COMBRELOC=ldscripts/${EMULATION_NAME}.xc.tmp
   ( echo "/* Script for -z combreloc: combine and sort reloc sections */"
-    . ${CUSTOMIZER_SCRIPT}
+    . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
     . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
   ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xc
   rm -f ${COMBRELOC}
@@ -338,7 +314,7 @@ if test -n "$GENERATE_COMBRELOC_SCRIPT"; then
   RELRO_NOW=" "
   COMBRELOC=ldscripts/${EMULATION_NAME}.xw.tmp
   ( echo "/* Script for -z combreloc -z now -z relro: combine and sort reloc sections */"
-    . ${CUSTOMIZER_SCRIPT}
+    . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
     . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
   ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xw
   rm -f ${COMBRELOC}
@@ -352,7 +328,7 @@ if test -n "$GENERATE_SHLIB_SCRIPT"; then
   CREATE_SHLIB=" "
   (
     echo "/* Script for ld --shared: link shared library */"
-    . ${CUSTOMIZER_SCRIPT}
+    . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
     . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
   ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xs
   if test -n "$GENERATE_COMBRELOC_SCRIPT"; then
@@ -360,7 +336,7 @@ if test -n "$GENERATE_SHLIB_SCRIPT"; then
     DATA_ALIGNMENT=${DATA_ALIGNMENT_sc-${DATA_ALIGNMENT}}
     COMBRELOC=ldscripts/${EMULATION_NAME}.xsc.tmp
     ( echo "/* Script for --shared -z combreloc: shared library, combine & sort relocs */"
-      . ${CUSTOMIZER_SCRIPT}
+      . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
       . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
     ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xsc
     rm -f ${COMBRELOC}
@@ -368,7 +344,7 @@ if test -n "$GENERATE_SHLIB_SCRIPT"; then
     RELRO_NOW=" "
     COMBRELOC=ldscripts/${EMULATION_NAME}.xsw.tmp
     ( echo "/* Script for --shared -z combreloc -z now -z relro: shared library, combine & sort relocs */"
-      . ${CUSTOMIZER_SCRIPT}
+      . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
       . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
     ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xsw
     rm -f ${COMBRELOC}
@@ -384,7 +360,7 @@ if test -n "$GENERATE_PIE_SCRIPT"; then
   CREATE_PIE=" "
   (
     echo "/* Script for ld -pie: link position independent executable */"
-    . ${CUSTOMIZER_SCRIPT}
+    . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
     . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
   ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xd
   if test -n "$GENERATE_COMBRELOC_SCRIPT"; then
@@ -392,7 +368,7 @@ if test -n "$GENERATE_PIE_SCRIPT"; then
     DATA_ALIGNMENT=${DATA_ALIGNMENT_sc-${DATA_ALIGNMENT}}
     COMBRELOC=ldscripts/${EMULATION_NAME}.xdc.tmp
     ( echo "/* Script for -pie -z combreloc: position independent executable, combine & sort relocs */"
-      . ${CUSTOMIZER_SCRIPT}
+      . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
       . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
     ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xdc
     rm -f ${COMBRELOC}
@@ -400,7 +376,7 @@ if test -n "$GENERATE_PIE_SCRIPT"; then
     RELRO_NOW=" "
     COMBRELOC=ldscripts/${EMULATION_NAME}.xdw.tmp
     ( echo "/* Script for -pie -z combreloc -z now -z relro: position independent executable, combine & sort relocs */"
-      . ${CUSTOMIZER_SCRIPT}
+      . ${CUSTOMIZER_SCRIPT} ${EMULATION_NAME}
       . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
     ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xdw
     rm -f ${COMBRELOC}
@@ -410,31 +386,24 @@ if test -n "$GENERATE_PIE_SCRIPT"; then
   unset CREATE_PIE
 fi
 
-if test -n "$GENERATE_AUTO_IMPORT_SCRIPT"; then
-  LD_FLAG=auto_import
-  DATA_ALIGNMENT=${DATA_ALIGNMENT_}
-  (
-    echo "/* Script for ld --enable-auto-import: Like the default script except read only data is placed into .data  */"
-    . ${CUSTOMIZER_SCRIPT}
-    . ${srcdir}/scripttempl/${SCRIPT_NAME}.sc
-  ) | sed -e '/^ *$/d;s/[ 	]*$//' > ldscripts/${EMULATION_NAME}.xa
-fi
-
 case " $EMULATION_LIBPATH " in
     *" ${EMULATION_NAME} "*) COMPILE_IN=true;;
 esac
 
-# PR ld/5652:
-# Determine if the shell has support for the variable BASH_LINENO.
-# When it is the case, it is only available inside functions.
-has_lineno()
-{
-  test "x$BASH_LINENO" != "x"
-}
-
-# Enable accruate error source in the compiler error messages, if possible.
-if has_lineno; then
-  . ${srcdir}/genscrba.sh
+if test -n "${BASH+set}"; then
+  source_em()
+  {
+    local current_script="$em_script"
+    em_script=$1
+    . $em_script
+    em_script=$current_script
+  }
+  fragment()
+  {
+    local lineno=$[${BASH_LINENO[0]} + 1]
+    echo >> e${EMULATION_NAME}.c "#line $lineno \"$em_script\""
+    cat >> e${EMULATION_NAME}.c
+  }
 else
   source_em()
   {

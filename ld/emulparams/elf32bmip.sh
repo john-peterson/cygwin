@@ -33,27 +33,8 @@ OTHER_GOT_RELOC_SECTIONS="
 # of .got.
 OTHER_GOT_SYMBOLS='
   . = .;
-  HIDDEN (_gp = ALIGN (16) + 0x7ff0);
+  _gp = ALIGN(16) + 0x7ff0;
 '
-# .got.plt is only used for the PLT psABI extension.  It should not be
-# included in the .sdata block with .got, as there is no need to access
-# the section from _gp.  Note that the traditional:
-#
-#      . = .
-#      _gp = ALIGN (16) + 0x7ff0;
-#      .got : { *(.got.plt) *(.got) }
-#
-# would set _gp to the wrong value; _gp - 0x7ff0 must point to the start
-# of *(.got).
-GOT=".got          ${RELOCATING-0} : { *(.got) }"
-unset OTHER_READWRITE_SECTIONS
-unset OTHER_RELRO_SECTIONS
-if test -n "$RELRO_NOW"; then
-  OTHER_RELRO_SECTIONS=".got.plt      ${RELOCATING-0} : { *(.got.plt) }"
-else
-  OTHER_READWRITE_SECTIONS=".got.plt      ${RELOCATING-0} : { *(.got.plt) }"
-fi
-
 OTHER_SDATA_SECTIONS="
   .lit8         ${RELOCATING-0} : { *(.lit8) }
   .lit4         ${RELOCATING-0} : { *(.lit4) }
@@ -64,14 +45,14 @@ OTHER_BSS_SYMBOLS='_fbss = .;'
 OTHER_SECTIONS='
   .gptab.sdata : { *(.gptab.data) *(.gptab.sdata) }
   .gptab.sbss : { *(.gptab.bss) *(.gptab.sbss) }
-  .mdebug.abi32 0 : { KEEP(*(.mdebug.abi32)) }
-  .mdebug.abiN32 0 : { KEEP(*(.mdebug.abiN32)) }
-  .mdebug.abi64 0 : { KEEP(*(.mdebug.abi64)) }
-  .mdebug.abiO64 0 : { KEEP(*(.mdebug.abiO64)) }
-  .mdebug.eabi32 0 : { KEEP(*(.mdebug.eabi32)) }
-  .mdebug.eabi64 0 : { KEEP(*(.mdebug.eabi64)) }
-  .gcc_compiled_long32 0 : { KEEP(*(.gcc_compiled_long32)) }
-  .gcc_compiled_long64 0 : { KEEP(*(.gcc_compiled_long64)) }
+  .mdebug.abi32 : { KEEP(*(.mdebug.abi32)) }
+  .mdebug.abiN32 : { KEEP(*(.mdebug.abiN32)) }
+  .mdebug.abi64 : { KEEP(*(.mdebug.abi64)) }
+  .mdebug.abiO64 : { KEEP(*(.mdebug.abiO64)) }
+  .mdebug.eabi32 : { KEEP(*(.mdebug.eabi32)) }
+  .mdebug.eabi64 : { KEEP(*(.mdebug.eabi64)) }
+  .gcc_compiled_long32 : { KEEP(*(.gcc_compiled_long32)) }
+  .gcc_compiled_long64 : { KEEP(*(.gcc_compiled_long64)) }
 '
 ARCH=mips
 MACHINE=
