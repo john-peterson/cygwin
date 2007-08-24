@@ -1,6 +1,6 @@
 /* Generic stabs parsing for gas.
    Copyright 1989, 1990, 1991, 1993, 1995, 1996, 1997, 1998, 2000, 2001
-   2002, 2003, 2004, 2005, 2007, 2009  Free Software Foundation, Inc.
+   2002, 2003, 2004, 2005, 2007 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -20,7 +20,6 @@
    02110-1301, USA.  */
 
 #include "as.h"
-#include "filenames.h"
 #include "obstack.h"
 #include "subsegs.h"
 #include "ecoff.h"
@@ -164,8 +163,6 @@ aout_process_stab (what, string, type, other, desc)
     }
 
   symbol_append (symbol, symbol_lastP, &symbol_rootP, &symbol_lastP);
-
-  symbol_get_bfdsym (symbol)->flags |= BSF_DEBUGGING;
 
   S_SET_TYPE (symbol, type);
   S_SET_OTHER (symbol, other);
@@ -499,10 +496,9 @@ stabs_generate_asm_file (void)
       char *dir2;
 
       dir = remap_debug_filename (getpwd ());
-      dir2 = (char *) alloca (strlen (dir) + 2);
+      dir2 = alloca (strlen (dir) + 2);
       sprintf (dir2, "%s%s", dir, "/");
       generate_asm_file (N_SO, dir2);
-      xfree ((char *) dir);
     }
   generate_asm_file (N_SO, file);
 }
@@ -519,11 +515,11 @@ generate_asm_file (int type, char *file)
   char sym[30];
   char *buf;
   char *tmp = file;
-  char *file_endp = file + strlen (file);
+  char *endp = file + strlen (file);
   char *bufp;
 
   if (last_file != NULL
-      && filename_cmp (last_file, file) == 0)
+      && strcmp (last_file, file) == 0)
     return;
 
   /* Rather than try to do this in some efficient fashion, we just
@@ -538,11 +534,11 @@ generate_asm_file (int type, char *file)
   /* Allocate enough space for the file name (possibly extended with
      doubled up backslashes), the symbol name, and the other characters
      that make up a stabs file directive.  */
-  bufp = buf = (char *) xmalloc (2 * strlen (file) + strlen (sym) + 12);
+  bufp = buf = xmalloc (2 * strlen (file) + strlen (sym) + 12);
 
   *bufp++ = '"';
 
-  while (tmp < file_endp)
+  while (tmp < endp)
     {
       char *bslash = strchr (tmp, '\\');
       size_t len = (bslash) ? (size_t) (bslash - tmp + 1) : strlen (tmp);
@@ -607,7 +603,7 @@ stabs_generate_asm_lineno (void)
       prev_lineno = lineno;
     }
   else if (lineno == prev_lineno
-	   && filename_cmp (file, prev_file) == 0)
+	   && strcmp (file, prev_file) == 0)
     {
       /* Same file/line as last time.  */
       return;
@@ -616,7 +612,7 @@ stabs_generate_asm_lineno (void)
     {
       /* Remember file/line for next time.  */
       prev_lineno = lineno;
-      if (filename_cmp (file, prev_file) != 0)
+      if (strcmp (file, prev_file) != 0)
 	{
 	  free (prev_file);
 	  prev_file = xstrdup (file);
@@ -671,9 +667,8 @@ stabs_generate_asm_func (const char *funcname, const char *startlabname)
     }
 
   as_where (&file, &lineno);
-  if (asprintf (&buf, "\"%s:F1\",%d,0,%d,%s",
-		funcname, N_FUN, lineno + 1, startlabname) == -1)
-    as_fatal ("%s", xstrerror (errno));
+  asprintf (&buf, "\"%s:F1\",%d,0,%d,%s",
+	    funcname, N_FUN, lineno + 1, startlabname);
   input_line_pointer = buf;
   s_stab ('s');
   free (buf);
@@ -698,8 +693,7 @@ stabs_generate_asm_endfunc (const char *funcname ATTRIBUTE_UNUSED,
   ++label_count;
   colon (sym);
 
-  if (asprintf (&buf, "\"\",%d,0,0,%s-%s", N_FUN, sym, startlabname) == -1)
-    as_fatal ("%s", xstrerror (errno));
+  asprintf (&buf, "\"\",%d,0,0,%s-%s", N_FUN, sym, startlabname);
   input_line_pointer = buf;
   s_stab ('s');
   free (buf);
