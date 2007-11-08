@@ -1,4 +1,4 @@
-/* Copyright 1999-2013 Free Software Foundation, Inc.
+/* Copyright 1999, 2004, 2005, 2007 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -206,12 +206,8 @@ do_children_tests (void)
   int *foo;
   int bar;
 
-  /* Avoid pointing into NULL, as that is editable on some
-     systems.  */
-  int dummy;
-  int *dummy_ptr = &dummy;
-
-  struct _struct_decl struct_declarations = { 0, 0, NULL, 0, &dummy_ptr };
+  struct _struct_decl struct_declarations;
+  memset (&struct_declarations, 0, sizeof (struct_declarations));
   weird = &struct_declarations;
 
   struct_declarations.integer = 123;
