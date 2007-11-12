@@ -1,7 +1,6 @@
 /* termios.cc: termios for WIN32.
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001, 2002 Red Hat, Inc.
 
    Written by Doug Evans and Steve Chamberlain of Cygnus Support
    dje@cygnus.com, sac@cygnus.com
@@ -13,7 +12,7 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
-#include "cygwin/version.h"
+#include <signal.h>
 #include <stdlib.h>
 #include "cygerrno.h"
 #include "security.h"
@@ -21,8 +20,11 @@ details. */
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
+#include "cygwin/version.h"
 #include "perprocess.h"
+#include "sigproc.h"
 #include "cygtls.h"
+#include <sys/termios.h>
 
 /* tcsendbreak: POSIX 7.2.2.1 */
 extern "C" int
@@ -40,7 +42,7 @@ tcsendbreak (int fd, int duration)
     res = cfd->tcsendbreak (duration);
 
 out:
-  syscall_printf ("%R = tcsendbreak(%d, %d)", res, fd, duration);
+  syscall_printf ("%d = tcsendbreak (%d, %d)", res, fd, duration);
   return res;
 }
 
@@ -48,8 +50,6 @@ out:
 extern "C" int
 tcdrain (int fd)
 {
-  pthread_testcancel ();
-
   int res = -1;
 
   termios_printf ("tcdrain");
@@ -64,7 +64,7 @@ tcdrain (int fd)
     res = cfd->tcdrain ();
 
 out:
-  syscall_printf ("%R = tcdrain(%d)", res, fd);
+  syscall_printf ("%d = tcdrain (%d)", res, fd);
   return res;
 }
 
@@ -86,7 +86,7 @@ tcflush (int fd, int queue)
     res = cfd->tcflush (queue);
 
 out:
-  termios_printf ("%R = tcflush(%d, %d)", res, fd, queue);
+  termios_printf ("%d = tcflush (%d, %d)", res, fd, queue);
   return res;
 }
 
@@ -106,7 +106,7 @@ tcflow (int fd, int action)
     res = cfd->tcflow (action);
 
 out:
-  syscall_printf ("%R = tcflow(%d, %d)", res, fd, action);
+  syscall_printf ("%d = tcflow (%d, %d)", res, fd, action);
   return res;
 }
 
@@ -162,7 +162,7 @@ tcsetattr (int fd, int a, const struct termios *t)
   termios_printf ("iflag %p, oflag %p, cflag %p, lflag %p, VMIN %d, VTIME %d",
 	t->c_iflag, t->c_oflag, t->c_cflag, t->c_lflag, t->c_cc[VMIN],
 	t->c_cc[VTIME]);
-  termios_printf ("%R = tcsetattr(%d, %d, %x)", res, fd, a, t);
+  termios_printf ("%d = tcsetattr (%d, %d, %x)", res, fd, a, t);
   return res;
 }
 
@@ -182,7 +182,7 @@ tcgetattr (int fd, struct termios *in_t)
     __toapp_termios (in_t, t);
 
   if (res)
-    termios_printf ("%R = tcgetattr(%d, %p)", res, fd, in_t);
+    termios_printf ("%d = tcgetattr (%d, %p)", res, fd, in_t);
   else
     termios_printf ("iflag %x, oflag %x, cflag %x, lflag %x, VMIN %d, VTIME %d",
 	  t->c_iflag, t->c_oflag, t->c_cflag, t->c_lflag, t->c_cc[VMIN],
@@ -195,30 +195,17 @@ tcgetattr (int fd, struct termios *in_t)
 extern "C" int
 tcgetpgrp (int fd)
 {
-  int res;
+  int res = -1;
 
   cygheap_fdget cfd (fd);
   if (cfd < 0)
-    res = -1;
+    /* saw an error */;
+  else if (!cfd->is_tty ())
+    set_errno (ENOTTY);
   else
     res = cfd->tcgetpgrp ();
 
-  termios_printf ("%R = tcgetpgrp(%d)", res, fd);
-  return res;
-}
-
-extern "C" pid_t
-tcgetsid (int fd)
-{
-  int res;
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->tcgetsid ();
-
-  termios_printf ("%R = tcgetsid(%d)", res, fd);
+  termios_printf ("%d = tcgetpgrp (%d)", res, fd);
   return res;
 }
 
@@ -236,7 +223,7 @@ tcsetpgrp (int fd, pid_t pgid)
   else
     res = cfd->tcsetpgrp (pgid);
 
-  termios_printf ("%R = tcsetpgrp(%d, %d)", res, fd, pgid);
+  termios_printf ("%d = tcsetpgrp (%d, %x)", res, fd, pgid);
   return res;
 }
 
@@ -248,14 +235,14 @@ tcsetpgrp (int fd, pid_t pgid)
 
 /* cfgetospeed: POSIX96 7.1.3.1 */
 extern "C" speed_t
-cfgetospeed (const struct termios *tp)
+cfgetospeed (struct termios *tp)
 {
   return __tonew_termios (tp)->c_ospeed;
 }
 
 /* cfgetispeed: POSIX96 7.1.3.1 */
 extern "C" speed_t
-cfgetispeed (const struct termios *tp)
+cfgetispeed (struct termios *tp)
 {
   return __tonew_termios (tp)->c_ispeed;
 }
@@ -326,29 +313,4 @@ cfsetispeed (struct termios *in_tp, speed_t speed)
   int res = setspeed (tp->c_ispeed, speed);
   __toapp_termios (in_tp, tp);
   return res;
-}
-
-/* cfsetspeed: 4.4BSD */
-extern "C" int
-cfsetspeed (struct termios *in_tp, speed_t speed)
-{
-  struct termios *tp = __tonew_termios (in_tp);
-  int res;
-  /* errors come only from unsupported baud rates, so setspeed() would return
-     identical results in both calls */
-  if ((res = setspeed (tp->c_ospeed, speed)) == 0)
-    setspeed (tp->c_ispeed, speed);
-  __toapp_termios (in_tp, tp);
-  return res;
-}
-
-extern "C" void
-cfmakeraw(struct termios *tp)
-{
-  tp->c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP
-		 | INLCR | IGNCR | ICRNL | IXON);
-  tp->c_oflag &= ~OPOST;
-  tp->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-  tp->c_cflag &= ~(CSIZE | PARENB);
-  tp->c_cflag |= CS8;
 }

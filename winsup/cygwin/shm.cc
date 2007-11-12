@@ -1,6 +1,6 @@
 /* shm.cc: XSI IPC interface for Cygwin.
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009 Red Hat, Inc.
+   Copyright 2003 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,16 +9,21 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include "cygerrno.h"
+#include <signal.h>
+#ifdef USE_SERVER
+#include <sys/types.h>
 #include <sys/queue.h>
+#include <stdio.h>
 #include <unistd.h>
 
 #include "pinfo.h"
 #include "sigproc.h"
 
+#include "cygserver_ipc.h"
 #include "cygserver_shm.h"
 #include "cygtls.h"
 #include "sync.h"
-#include "ntdll.h"
 
 /*
  * client_request_shm Constructors
@@ -105,7 +110,7 @@ struct shm_attached_list {
   SLIST_ENTRY (shm_attached_list) sph_next;
   vm_object_t ptr;
   shm_shmid_list *parent;
-  ULONG access;
+  int access;
 };
 
 static SLIST_HEAD (, shm_attached_list) sph_list;
@@ -130,21 +135,19 @@ fixup_shms_after_fork ()
       return 0;
     }
   shm_attached_list *sph_entry;
-  /* Reconstruct map from list... */
+  /* Remove map from list... */
   SLIST_FOREACH (sph_entry, &sph_list, sph_next)
     {
-      NTSTATUS status;
-      vm_object_t ptr = sph_entry->ptr;
-      ULONG viewsize = sph_entry->parent->size;
-      status = NtMapViewOfSection (sph_entry->parent->hdl, NtCurrentProcess (),
-				   &ptr, 0, sph_entry->parent->size, NULL,
-				   &viewsize, ViewShare, 0, sph_entry->access);
-      if (!NT_SUCCESS (status) || ptr != sph_entry->ptr)
-	api_fatal ("fixup_shms_after_fork: NtMapViewOfSection (%p), status %p.  Terminating.",
-		   sph_entry->ptr, status);
+      vm_object_t ptr = MapViewOfFileEx (sph_entry->parent->hdl,
+					 sph_entry->access, 0, 0,
+					 sph_entry->parent->size,
+					 sph_entry->ptr);
+      if (ptr != sph_entry->ptr)
+	api_fatal ("MapViewOfFileEx (%p), %E.  Terminating.", sph_entry->ptr);
     }
   return 0;
 }
+#endif /* USE_SERVER */
 
 /*
  * XSI shmaphore API.  These are exported by the DLL.
@@ -153,6 +156,7 @@ fixup_shms_after_fork ()
 extern "C" void *
 shmat (int shmid, const void *shmaddr, int shmflg)
 {
+#ifdef USE_SERVER
   syscall_printf ("shmat (shmid = %d, shmaddr = %p, shmflg = 0x%x)",
 		  shmid, shmaddr, shmflg);
 
@@ -217,16 +221,12 @@ shmat (int shmid, const void *shmaddr, int shmflg)
       --ssh_entry->ref_count;
       return (void *) -1;
     }
-  NTSTATUS status;
-  vm_object_t ptr = NULL;
-  ULONG viewsize = ssh_entry->size;
-  ULONG access = (shmflg & SHM_RDONLY) ? PAGE_READONLY : PAGE_READWRITE;
-  status = NtMapViewOfSection (ssh_entry->hdl, NtCurrentProcess (), &ptr, 0,
-			       ssh_entry->size, NULL, &viewsize, ViewShare,
-			       MEM_TOP_DOWN, access);
-  if (!NT_SUCCESS (status))
+  DWORD access = (shmflg & SHM_RDONLY) ? FILE_MAP_READ : FILE_MAP_WRITE;
+  vm_object_t ptr = MapViewOfFileEx (ssh_entry->hdl, access, 0, 0,
+				     ssh_entry->size, attach_va);
+  if (!ptr)
     {
-      __seterrno_from_nt_status (status);
+      __seterrno ();
       delete sph_entry;
       --ssh_entry->ref_count;
       return (void *) -1;
@@ -252,11 +252,17 @@ shmat (int shmid, const void *shmaddr, int shmflg)
   SLIST_INSERT_HEAD (&sph_list, sph_entry, sph_next);
   SLIST_UNLOCK ();
   return ptr;
+#else
+  set_errno (ENOSYS);
+  raise (SIGSYS);
+  return (void *) -1;
+#endif
 }
 
 extern "C" int
 shmctl (int shmid, int cmd, struct shmid_ds *buf)
 {
+#ifdef USE_SERVER
   syscall_printf ("shmctl (shmid = %d, cmd = %d, buf = 0x%x)",
 		  shmid, cmd, buf);
   myfault efault;
@@ -294,11 +300,17 @@ shmctl (int shmid, int cmd, struct shmid_ds *buf)
       SLIST_UNLOCK ();
     }
   return request.retval ();
+#else
+  set_errno (ENOSYS);
+  raise (SIGSYS);
+  return -1;
+#endif
 }
 
 extern "C" int
 shmdt (const void *shmaddr)
 {
+#ifdef USE_SERVER
   syscall_printf ("shmdt (shmaddr = %p)", shmaddr);
   client_request_shm request (shmaddr);
   if (request.make_request () == -1 || request.retval () == -1)
@@ -334,11 +346,17 @@ shmdt (const void *shmaddr)
     }
   SLIST_UNLOCK ();
   return request.retval ();
+#else
+  set_errno (ENOSYS);
+  raise (SIGSYS);
+  return -1;
+#endif
 }
 
 extern "C" int
 shmget (key_t key, size_t size, int shmflg)
 {
+#ifdef USE_SERVER
   syscall_printf ("shmget (key = %U, size = %d, shmflg = 0x%x)",
 		  key, size, shmflg);
   /* Try allocating memory before calling cygserver. */
@@ -385,4 +403,9 @@ shmget (key_t key, size_t size, int shmflg)
   SLIST_INSERT_HEAD (&ssh_list, ssh_new_entry, ssh_next);
   SLIST_UNLOCK ();
   return shmid;
+#else
+  set_errno (ENOSYS);
+  raise (SIGSYS);
+  return -1;
+#endif
 }

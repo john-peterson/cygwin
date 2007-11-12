@@ -6,8 +6,7 @@
 
 #include "winsup.h"
 #include "cygerrno.h"
-#include "sync.h"
-#include <ctype.h>
+#include <windows.h>
 #define STD_INSPIRED
 #define lint
 
@@ -95,11 +94,14 @@ static char	privatehid[] = "@(#)private.h	7.48";
 ** Nested includes
 */
 
+#include "sys/types.h"	/* for time_t */
 #include "stdio.h"
 #include "limits.h"	/* for CHAR_BIT */
+#include "time.h"
 #include "stdlib.h"
 
 #if HAVE_GETTEXT - 0
+#include "libintl.h"
 #endif /* HAVE_GETTEXT - 0 */
 
 #if HAVE_UNISTD_H - 0
@@ -169,6 +171,7 @@ static char	privatehid[] = "@(#)private.h	7.48";
 
 #ifndef MAXPATHLEN
 #ifdef unix
+#include "sys/param.h"
 #endif /* defined unix */
 #endif /* !defined MAXPATHLEN */
 
@@ -596,13 +599,7 @@ static struct state	gmtmem;
 #endif /* !defined TZ_STRLEN_MAX */
 
 static char		lcl_TZname[TZ_STRLEN_MAX + 1];
-static enum lcl_states
-{
-  lcl_setting = -1,
-  lcl_unset = 0,
-  lcl_from_environment = 1,
-  lcl_from_default = 2
-} lcl_is_set;
+static int		lcl_is_set;
 static int		gmt_is_set;
 
 #define tzname _tzname
@@ -866,13 +863,6 @@ tzload(const char *name, struct state *sp)
 			}
 		}
 	}
-	if (sp == lclptr)
-	  {
-	    __gettzinfo ()->__tzrule[0].offset
-				    = -sp->ttis[1].tt_gmtoff;
-	    __gettzinfo ()->__tzrule[1].offset
-				    = -sp->ttis[0].tt_gmtoff;
-	  }
 	return 0;
 }
 
@@ -1246,13 +1236,10 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 				janfirst += year_lengths[isleap(year)] *
 					SECSPERDAY;
 			}
-			if (sp == lclptr)
-			  {
-			    __gettzinfo ()->__tzrule[0].offset
-						    = -sp->ttis[1].tt_gmtoff;
-			    __gettzinfo ()->__tzrule[1].offset
-						    = -sp->ttis[0].tt_gmtoff;
-			  }
+			__gettzinfo ()->__tzrule[0].offset
+						= -sp->ttis[1].tt_gmtoff;
+			__gettzinfo ()->__tzrule[1].offset
+						= -sp->ttis[0].tt_gmtoff;
 		} else {
 			register long	theirstdoffset;
 			register long	theirdstoffset;
@@ -1339,13 +1326,10 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 			sp->ttis[1].tt_isdst = true;
 			sp->ttis[1].tt_abbrind = stdlen + 1;
 			sp->typecnt = 2;
-			if (sp == lclptr)
-			  {
-			    __gettzinfo ()->__tzrule[0].offset
-						    = -sp->ttis[0].tt_gmtoff;
-			    __gettzinfo ()->__tzrule[1].offset
-						    = -sp->ttis[1].tt_gmtoff;
-			  }
+			__gettzinfo ()->__tzrule[0].offset
+						= -sp->ttis[0].tt_gmtoff;
+			__gettzinfo ()->__tzrule[1].offset
+						= -sp->ttis[1].tt_gmtoff;
 		}
 	} else {
 		dstlen = 0;
@@ -1354,11 +1338,8 @@ tzparse(const char *name, struct state *sp, const int lastditch)
 		sp->ttis[0].tt_gmtoff = -stdoffset;
 		sp->ttis[0].tt_isdst = 0;
 		sp->ttis[0].tt_abbrind = 0;
-		if (sp == lclptr)
-		  {
-		    __gettzinfo ()->__tzrule[0].offset = -sp->ttis[0].tt_gmtoff;
-		    __gettzinfo ()->__tzrule[1].offset = -sp->ttis[0].tt_gmtoff;
-		  }
+		__gettzinfo ()->__tzrule[0].offset = -sp->ttis[0].tt_gmtoff;
+		__gettzinfo ()->__tzrule[1].offset = -sp->ttis[0].tt_gmtoff;
 	}
 	sp->charcnt = stdlen + 1;
 	if (dstlen != 0)
@@ -1393,9 +1374,9 @@ static
 void
 tzsetwall P((void))
 {
-	if (lcl_is_set == lcl_setting)
+	if (lcl_is_set < 0)
 		return;
-	lcl_is_set = lcl_setting;
+	lcl_is_set = -1;
 
 #ifdef ALL_STATE
 	if (lclptr == NULL) {
@@ -1406,7 +1387,8 @@ tzsetwall P((void))
 		}
 	}
 #endif /* defined ALL_STATE */
-#if defined (__CYGWIN__)
+#if defined (_WIN32) || defined (__CYGWIN__)
+#define is_upper(c) ((unsigned)(c) - 'A' <= 26)
 	{
 	    TIME_ZONE_INFORMATION tz;
 	    char buf[BUFSIZ];
@@ -1416,7 +1398,7 @@ tzsetwall P((void))
 	    GetTimeZoneInformation(&tz);
 	    dst = cp = buf;
 	    for (src = tz.StandardName; *src; src++)
-	      if (isupper(*src)) *dst++ = *src;
+	      if (is_upper(*src)) *dst++ = *src;
 	    if ((dst - cp) < 3)
 	      {
 		/* In non-english Windows, converted tz.StandardName
@@ -1434,7 +1416,7 @@ tzsetwall P((void))
 		cp = strchr(cp, 0);
 		dst = cp;
 		for (src = tz.DaylightName; *src; src++)
-		  if (isupper(*src)) *dst++ = *src;
+		  if (is_upper(*src)) *dst++ = *src;
 		if ((dst - cp) < 3)
 		  {
 		    /* In non-english Windows, converted tz.DaylightName
@@ -1472,7 +1454,7 @@ tzsetwall P((void))
 	    /* printf("TZ deduced as `%s'\n", buf); */
 	    if (tzparse(buf, lclptr, false) == 0) {
 		settzname();
-		lcl_is_set = lcl_from_default;
+		lcl_is_set = 1;
 		strlcpy(lcl_TZname, buf, sizeof (lcl_TZname));
 #if 0
 		/* Huh?  POSIX doesn't mention anywhere that tzset should
@@ -1488,32 +1470,28 @@ tzsetwall P((void))
 	settzname();
 }
 
-static NO_COPY muto tzset_guard;
-
 extern "C" void
 tzset P((void))
 {
-	tzset_guard.init ("tzset_guard")->acquire ();
 	const char *	name = getenv("TZ");
 
 	if (name == NULL) {
-		if (lcl_is_set != lcl_from_default)
-			tzsetwall();
-		goto out;
+		tzsetwall();
+		return;
 	}
 
-	if (lcl_is_set > 0 && strncmp(lcl_TZname, name, sizeof(lcl_TZname) - 1) == 0)
-		goto out;
-	lcl_is_set = (strlen(name) < sizeof (lcl_TZname)) ? lcl_from_environment : lcl_unset;
-	if (lcl_is_set != lcl_unset)
-		strlcpy(lcl_TZname, name, sizeof (lcl_TZname));
+	if (lcl_is_set > 0  &&  strcmp(lcl_TZname, name) == 0)
+		return;
+	lcl_is_set = (strlen(name) < sizeof (lcl_TZname));
+	if (lcl_is_set)
+		strcpy(lcl_TZname, name);
 
 #ifdef ALL_STATE
 	if (lclptr == NULL) {
 		lclptr = (struct state *) malloc(sizeof *lclptr);
 		if (lclptr == NULL) {
 			settzname();	/* all we can do */
-			goto out;
+			return;
 		}
 	}
 #endif /* defined ALL_STATE */
@@ -1531,8 +1509,6 @@ tzset P((void))
 			gmtload(lclptr);
 	}
 	settzname();
-out:
-	tzset_guard.release ();
 }
 
 /*
@@ -1810,8 +1786,7 @@ ctime_r(const time_t *timep, char *buf)
 ** Simplified normalize logic courtesy Paul Eggert (eggert@twinsun.com).
 */
 
-/* Mark as noinline to prevent a compiler warning. */
-static int __attribute__((noinline))
+static int
 increment_overflow(int *number, int delta)
 {
 	int	number0;
@@ -2007,28 +1982,7 @@ time2(struct tm *tmp, void (*funcp) P((const time_t*, long, struct tm*)),
 	** If that fails, try with normalization of seconds.
 	*/
 	t = time2sub(tmp, funcp, offset, okayp, false);
-	if (*okayp)
-	  return t;
-	t = time2sub(tmp, funcp, offset, okayp, true);
-	if (*okayp)
-	  return t;
-	/* Workaround for the spring forward gap problem which results in
-	   the autoconf mktime usability test failing.
-	   What we do here is this:  The gap has 3600 seconds.  If we
-	   subtract 3600 from the tm_sec value and get a valid result,
-	   then we can simply add 3600 to the return value and are done.
-	   If the result is still not valid, the problem is not the
-	   spring forward gap and we can give up. */
-	struct tm tmp2 = *tmp;
-	tmp2.tm_sec -= 3600;
-	t = time2sub(&tmp2, funcp, offset, okayp, true);
-	if (*okayp)
-	  {
-	    if (t + 3600 < 0)	/* Sanity check */
-	      return WRONG;
-	    return t + 3600;
-	  }
-	return t;
+	return *okayp ? t : time2sub(tmp, funcp, offset, okayp, true);
 }
 
 static time_t

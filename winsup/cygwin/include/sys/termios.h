@@ -1,7 +1,6 @@
 /* sys/termios.h
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2006 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -14,14 +13,11 @@ details. */
 #ifndef	_SYS_TERMIOS_H
 #define _SYS_TERMIOS_H
 
-#include <sys/types.h>
-
 #define	TIOCMGET	0x5415
 #define	TIOCMBIS	0x5416
 #define	TIOCMBIC	0x5417
 #define	TIOCMSET	0x5418
 #define	TIOCINQ		0x541B
-#define TIOCSCTTY	0x540E
 
 /* TIOCINQ is utilized instead of FIONREAD which has been
 accupied for other purposes under CYGWIN.
@@ -80,12 +76,11 @@ POSIX commands */
 #define CESC	'\\'
 #define CINTR	CTRL('C')
 #define CQUIT	0x0001c
-#define CERASE	CDEL
+#define CERASE	CTRL('H')
 #define CKILL	CTRL('U')
 #define CEOT	CTRL('D')
 #define CEOL	0
 #define CEOL2	0
-#define CBRK	CEOL
 #define CEOF	CTRL('D')
 #define CSTART	CTRL('Q')
 #define CSTOP	CTRL('S')
@@ -94,9 +89,7 @@ POSIX commands */
 #define CSUSP	CTRL('Z')
 #define CDSUSP	CTRL('Y')
 #define CRPRNT	CTRL('R')
-#define CREPRINT	CRPRNT
 #define CFLUSH	CTRL('O')
-#define CDISCARD	CFLUSH
 #define CWERASE	CTRL('W')
 #define CLNEXT	CTRL('V')
 
@@ -240,15 +233,13 @@ POSIX commands */
 
 #define NCCS		18
 
+/* `c_cc' member of 'struct termios' structure can be disabled by
+   using the value _POSIX_VDISABLE.  */
+#define	_POSIX_VDISABLE	'\0'
+
 /* Compare a character C to a value VAL from the `c_cc' array in a
    `struct termios'.  If VAL is _POSIX_VDISABLE, no character can match it.  */
 #define CCEQ(val, c)	((c) == (val) && (val) != _POSIX_VDISABLE)
-
-#define TTYDEF_IFLAG	(BRKINT	| ICRNL	| IMAXBEL | IXON | IXANY)
-#define TTYDEF_OFLAG	(OPOST | ONLCR)
-#define TTYDEF_LFLAG	(ICANON | ISIG | IEXTEN | ECHO | ECHOE | ECHOKE | ECHOCTL)
-#define TTYDEF_CFLAG	(CREAD | CS8 | HUPCL)
-#define TTYDEF_SPEED	(B9600)
 
 typedef unsigned char cc_t;
 typedef unsigned int  tcflag_t;
@@ -329,6 +320,9 @@ struct termios
 
 #define termio termios
 
+#define cfgetospeed(tp)		((tp)->c_ospeed)
+#define cfgetispeed(tp)		((tp)->c_ispeed)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -339,21 +333,11 @@ int tcsendbreak (int, int);
 int tcdrain (int);
 int tcflush (int, int);
 int tcflow (int, int);
-pid_t tcgetsid (int);
-void cfmakeraw (struct termios *);
-speed_t cfgetispeed(const struct termios *);
-speed_t cfgetospeed(const struct termios *);
 int cfsetispeed (struct termios *, speed_t);
 int cfsetospeed (struct termios *, speed_t);
-int cfsetspeed (struct termios *, speed_t);
 
 #ifdef __cplusplus
 }
-#endif
-
-#ifndef __cplusplus
-#define cfgetispeed(tp)		((tp)->c_ispeed)
-#define cfgetospeed(tp)		((tp)->c_ospeed)
 #endif
 
 /* Extra stuff to make porting stuff easier.  */
@@ -366,7 +350,5 @@ struct winsize
 #define TIOCGWINSZ (('T' << 8) | 1)
 #define TIOCSWINSZ (('T' << 8) | 2)
 #define TIOCLINUX  (('T' << 8) | 3)
-#define TIOCGPGRP  (('T' << 8) | 0xf)
-#define TIOCSPGRP  (('T' << 8) | 0x10)
 
 #endif	/* _SYS_TERMIOS_H */

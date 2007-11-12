@@ -1,7 +1,7 @@
 /* init.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -10,16 +10,21 @@ Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
 #include "winsup.h"
+#include <stdlib.h>
+#include "thread.h"
+#include "perprocess.h"
 #include "cygtls.h"
+#include "pinfo.h"
+#include <ntdef.h>
 #include "ntdll.h"
-#include "shared_info.h"
 
 static DWORD _my_oldfunc;
 
-static char *search_for  = (char *) cygthread::stub;
-unsigned threadfunc_ix[8];
+int NO_COPY dynamically_loaded;
+static char NO_COPY *search_for = (char *) cygthread::stub;
+unsigned threadfunc_ix[8] __attribute__((section (".cygwin_dll_common"), shared));
+extern cygthread *hwait_sig;
 
-static bool dll_finished_loading;
 #define OLDFUNC_OFFSET -1
 
 static void WINAPI
@@ -64,45 +69,93 @@ munge_threadfunc ()
     }
 }
 
-void dll_crt0_0 ();
+inline static void
+respawn_wow64_process ()
+{
+  NTSTATUS ret;
+  PROCESS_BASIC_INFORMATION pbi;
+  HANDLE parent;
+
+  BOOL is_wow64_proc = TRUE;	/* Opt on the safe side. */
+
+  /* Unfortunately there's no simpler way to retrieve the
+     parent process in NT, as far as I know.  Hints welcome. */
+  ret = NtQueryInformationProcess (GetCurrentProcess (),
+				   ProcessBasicInformation,
+				   (PVOID) &pbi,
+				   sizeof pbi, NULL);
+  if (ret == STATUS_SUCCESS
+      && (parent = OpenProcess (PROCESS_QUERY_INFORMATION,
+				FALSE,
+				pbi.InheritedFromUniqueProcessId)))
+    {
+      IsWow64Process (parent, &is_wow64_proc);
+      CloseHandle (parent);
+    }
+
+  /* The parent is a real 64 bit process?  Respawn! */
+  if (!is_wow64_proc)
+    {
+      PROCESS_INFORMATION pi;
+      STARTUPINFO si;
+      DWORD ret = 0;
+
+      GetStartupInfo (&si);
+      if (!CreateProcessA (NULL, GetCommandLineA (), NULL, NULL, TRUE,
+			   CREATE_DEFAULT_ERROR_MODE
+			   | GetPriorityClass (GetCurrentProcess ()),
+			   NULL, NULL, &si, &pi))
+	api_fatal ("Failed to create process <%s>, %E", GetCommandLineA ());
+      CloseHandle (pi.hThread);
+      if (WaitForSingleObject (pi.hProcess, INFINITE) == WAIT_FAILED)
+	api_fatal ("Waiting for process %d failed, %E", pi.dwProcessId);
+      GetExitCodeProcess (pi.hProcess, &ret);
+      CloseHandle (pi.hProcess);
+      ExitProcess (ret);
+    }
+}
+
+extern void __stdcall dll_crt0_0 ();
+
+HMODULE NO_COPY cygwin_hmodule;
 
 extern "C" BOOL WINAPI
 dll_entry (HANDLE h, DWORD reason, void *static_load)
 {
-  BOOL test_stack_marker;
+  BOOL wow64_test_stack_marker;
 
   switch (reason)
     {
     case DLL_PROCESS_ATTACH:
+      wincap.init ();
       init_console_handler (false);
 
       cygwin_hmodule = (HMODULE) h;
       dynamically_loaded = (static_load == NULL);
 
+      /* Is the stack at an unusual address?  This is, an address which
+	 is in the usual space occupied by the process image, but below
+	 the auto load address of DLLs?
+	 Check if we're running in WOW64 on a 64 bit machine *and* are
+	 spawned by a genuine 64 bit process.  If so, respawn. */
+      if (wincap.is_wow64 ()
+	  && &wow64_test_stack_marker >= (PBOOL) 0x400000
+	  && &wow64_test_stack_marker <= (PBOOL) 0x10000000)
+	respawn_wow64_process ();
+
       dll_crt0_0 ();
       _my_oldfunc = TlsAlloc ();
-      dll_finished_loading = true;
       break;
     case DLL_PROCESS_DETACH:
-      if (dynamically_loaded)
-	shared_destroy ();
       break;
     case DLL_THREAD_ATTACH:
-      if (dll_finished_loading)
+      if (hwait_sig)
 	munge_threadfunc ();
       break;
     case DLL_THREAD_DETACH:
-      if (dll_finished_loading
-	  && (PVOID) &_my_tls > (PVOID) &test_stack_marker
+      if (hwait_sig && (void *) &_my_tls > (void *) &wow64_test_stack_marker
 	  && _my_tls.isinitialized ())
 	_my_tls.remove (0);
-      /* Windows 2000 has a bug in NtTerminateThread.  Instead of releasing
-	 the stack at teb->DeallocationStack it uses the value of
-	 teb->Tib.StackLimit to evaluate the stack address.  So we just claim
-	 there is no stack. */
-      if (NtCurrentTeb ()->DeallocationStack == NULL
-	  && !wincap.has_stack_size_param_is_a_reservation ())
-	NtCurrentTeb ()->Tib.StackLimit = NULL;
       break;
     }
 

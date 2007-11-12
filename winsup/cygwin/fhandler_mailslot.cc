@@ -1,6 +1,6 @@
 /* fhandler_mailslot.cc.  See fhandler.h for a description of the fhandler classes.
 
-   Copyright 2005, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2005, 2007 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -9,31 +9,33 @@
    details. */
 
 #include "winsup.h"
+#include <unistd.h>
+#include <sys/termios.h>
 
+#include <ntdef.h>
 #include "cygerrno.h"
+#include "perprocess.h"
 #include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
 #include "ntdll.h"
-#include "shared_info.h"
-#include "tls_pbuf.h"
 
 /**********************************************************************/
 /* fhandler_mailslot */
 
 fhandler_mailslot::fhandler_mailslot ()
-  : fhandler_base_overlapped ()
+  : fhandler_base ()
 {
 }
 
-int __reg2
+int __stdcall
 fhandler_mailslot::fstat (struct __stat64 *buf)
 {
   debug_printf ("here");
 
-  fhandler_base_overlapped::fstat (buf);
+  fhandler_base::fstat (buf);
   if (is_auto_device ())
     {
       buf->st_mode = S_IFCHR | S_IRUSR | S_IWUSR;
@@ -42,73 +44,47 @@ fhandler_mailslot::fstat (struct __stat64 *buf)
       buf->st_nlink = 1;
       buf->st_blksize = PREFERRED_IO_BLKSIZE;
       time_as_timestruc_t (&buf->st_ctim);
-      buf->st_atim = buf->st_mtim = buf->st_birthtim = buf->st_ctim;
+      buf->st_atim = buf->st_mtim = buf->st_ctim;
     }
   return 0;
-}
-
-POBJECT_ATTRIBUTES
-fhandler_mailslot::get_object_attr (OBJECT_ATTRIBUTES &attr,
-				    PUNICODE_STRING path,
-				    int flags)
-{
-
-  RtlCopyUnicodeString (path, pc.get_nt_native_path ());
-  RtlAppendUnicodeStringToString (path, &cygheap->installation_key);
-  InitializeObjectAttributes (&attr, path,
-			      OBJ_CASE_INSENSITIVE
-			      | (flags & O_CLOEXEC ? 0 : OBJ_INHERIT),
-			      NULL, NULL);
-  return &attr;
 }
 
 int
 fhandler_mailslot::open (int flags, mode_t mode)
 {
   int res = 0;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
-  OBJECT_ATTRIBUTES attr;
   HANDLE x;
-  LARGE_INTEGER timeout;
-  tmp_pathbuf tp;
-  UNICODE_STRING path;
-
-  tp.u_get (&path);
 
   switch (flags & O_ACCMODE)
     {
     case O_RDONLY:	/* Server */
-      timeout.QuadPart = (flags & O_NONBLOCK) ? 0LL : 0x8000000000000000LL;
-      status = NtCreateMailslotFile (&x, GENERIC_READ | SYNCHRONIZE,
-				     get_object_attr (attr, &path, flags),
-				     &io, FILE_SYNCHRONOUS_IO_NONALERT,
-				     0, 0, &timeout);
-      if (!NT_SUCCESS (status))
+      x = CreateMailslot (get_win32_name (),
+			  0, /* Any message size */
+			  (flags & O_NONBLOCK) ? 0 : MAILSLOT_WAIT_FOREVER,
+			  &sec_none);
+      if (x == INVALID_HANDLE_VALUE)
 	{
 	  /* FIXME: It's not possible to open the read side of an existing
-	     mailslot again.  You'll get a handle, but using it in ReadFile
-	     returns ERROR_INVALID_PARAMETER.  On the other hand,
-	     NtCreateMailslotFile returns with STATUS_OBJECT_NAME_EXISTS if
-	     the mailslot has been created already.
+	     mailslot using CreateFile.  You'll get a handle, but using it
+	     in ReadFile returns ERROR_INVALID_PARAMETER.  On the other
+	     hand, CreateMailslot returns with ERROR_ALREADY_EXISTS if the
+	     mailslot has been created already.
 	     So this is an exclusive open for now.  *Duplicating* read side
 	     handles works, though, so it might be an option to duplicate
 	     the handle from the first process to the current process for
 	     opening the mailslot. */
 #if 0
-	  if (status != STATUS_OBJECT_NAME_COLLISION)
+	  if (GetLastError () != ERROR_ALREADY_EXISTS)
 	    {
-	      __seterrno_from_nt_status (status);
+	      __seterrno ();
 	      break;
 	    }
-	  status = NtOpenFile (&x, GENERIC_READ | SYNCHRONIZE,
-			       get_object_attr (attr, &path, flags), &io,
-			       FILE_SHARE_VALID_FLAGS,
-			       FILE_SYNCHRONOUS_IO_NONALERT);
+	  x = CreateFile (get_win32_name (), GENERIC_READ, wincap.shared (),
+			  &sec_none, OPEN_EXISTING, 0, 0);
 #endif
-	  if (!NT_SUCCESS (status))
+	  if (x == INVALID_HANDLE_VALUE)
 	    {
-	      __seterrno_from_nt_status (status);
+	      __seterrno ();
 	      break;
 	    }
 	}
@@ -126,12 +102,11 @@ fhandler_mailslot::open (int flags, mode_t mode)
 	  set_errno (EPERM);	/* As on Linux. */
 	  break;
 	}
-      status = NtOpenFile (&x, GENERIC_WRITE | SYNCHRONIZE,
-			   get_object_attr (attr, &path, flags), &io,
-			   FILE_SHARE_VALID_FLAGS, 0);
-      if (!NT_SUCCESS (status))
+      x = CreateFile (get_win32_name (), GENERIC_WRITE, wincap.shared (),
+		      &sec_none, OPEN_EXISTING, 0, 0);
+      if (x == INVALID_HANDLE_VALUE)
 	{
-	  __seterrno_from_nt_status (status);
+	  __seterrno ();
 	  break;
 	}
       set_io_handle (x);
@@ -146,8 +121,8 @@ fhandler_mailslot::open (int flags, mode_t mode)
   return res;
 }
 
-ssize_t __stdcall
-fhandler_mailslot::raw_write (const void *ptr, size_t len)
+int
+fhandler_mailslot::write (const void *ptr, size_t len)
 {
   /* Check for 425/426 byte weirdness */
   if (len == 425 || len == 426)
@@ -157,35 +132,28 @@ fhandler_mailslot::raw_write (const void *ptr, size_t len)
       memcpy (buf, ptr, len);
       return raw_write (buf, 427);
     }
-  return fhandler_base_overlapped::raw_write (ptr, len);
+  return raw_write (ptr, len);
 }
 
 int
 fhandler_mailslot::ioctl (unsigned int cmd, void *buf)
 {
   int res = -1;
-  NTSTATUS status;
-  IO_STATUS_BLOCK io;
 
   switch (cmd)
     {
     case FIONBIO:
       {
-	FILE_MAILSLOT_SET_INFORMATION fmsi;
-	fmsi.ReadTimeout.QuadPart = buf ? 0LL : 0x8000000000000000LL;
-	status = NtSetInformationFile (get_handle (), &io, &fmsi, sizeof fmsi,
-				       FileMailslotSetInformation);
-	if (!NT_SUCCESS (status))
+	DWORD timeout = buf ? 0 : MAILSLOT_WAIT_FOREVER;
+	if (!SetMailslotInfo (get_handle (), timeout))
 	  {
-	    debug_printf ("NtSetInformationFile (%X): %08x",
-			  fmsi.ReadTimeout.QuadPart, status);
-	    __seterrno_from_nt_status (status);
+	    debug_printf ("SetMailslotInfo (%u): %E", timeout);
 	    break;
 	  }
       }
       /*FALLTHRU*/
     default:
-      res =  fhandler_base_overlapped::ioctl (cmd, buf);
+      res =  fhandler_base::ioctl (cmd, buf);
       break;
     }
   return res;

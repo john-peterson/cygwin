@@ -1,6 +1,6 @@
 /* sys/stdio.h
 
-   Copyright 2004, 2005, 2006, 2007, 2008, 2010 Red Hat, Inc.
+   Copyright 2004, 2005 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -20,22 +20,24 @@ details. */
 #if !defined(__SINGLE_THREAD__)
 #  if !defined(_flockfile)
 #    define _flockfile(fp) ({ if (!((fp)->_flags & __SSTR)) \
-		  __cygwin_lock_lock ((_LOCK_T *)&(fp)->_lock); })
+                  __cygwin_lock_lock ((_LOCK_T *)&(fp)->_lock); })
 #  endif
 #  if !defined(_ftrylockfile)
 #    define _ftrylockfile(fp) (((fp)->_flags & __SSTR) ? 0 : \
-		  __cygwin_lock_trylock ((_LOCK_T *)&(fp)->_lock))
+                  __cygwin_lock_trylock ((_LOCK_T *)&(fp)->_lock))
 #  endif
 #  if !defined(_funlockfile)
 #    define _funlockfile(fp) ({ if (!((fp)->_flags & __SSTR)) \
-		  __cygwin_lock_unlock ((_LOCK_T *)&(fp)->_lock); })
+                  __cygwin_lock_unlock ((_LOCK_T *)&(fp)->_lock); })
 #  endif
 #endif
 
 __BEGIN_DECLS
 
+#ifdef _GNU_SOURCE
 ssize_t	_EXFUN(getline, (char **, size_t *, FILE *));
 ssize_t	_EXFUN(getdelim, (char **, size_t *, int, FILE *));
+#endif /* _GNU_SOURCE */
 
 __END_DECLS
 

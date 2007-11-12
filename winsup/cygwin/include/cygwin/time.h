@@ -1,6 +1,6 @@
 /* time.h
 
-   Copyright 2005, 2007 Red Hat Inc.
+   Copyright 2005 Red Hat Inc.
 
 This file is part of Cygwin.
 
@@ -15,23 +15,28 @@ extern "C"
 {
 #endif
 
-/* Not defined in main time.h */
-int __cdecl clock_setres (clockid_t, struct timespec *);
+int nanosleep (const struct timespec  *, struct timespec *);
+int clock_setres (clockid_t, struct timespec *);
+int clock_getres (clockid_t, struct timespec *);
 
 /* GNU extensions. */
-time_t __cdecl timelocal (struct tm *);
-time_t __cdecl timegm (struct tm *);
+time_t timelocal (struct tm *);
+time_t timegm (struct tm *);
 
 #define TIMER_RELTIME  0 /* For compatibility with HP/UX, Solaris, others? */
 
 #ifndef __STRICT_ANSI__
+# ifndef daylight
+#   define daylight _daylight
+# endif
 
-extern int daylight __asm__ ("__daylight");
-
-#ifndef __timezonefunc__
-extern long timezone __asm__ ("__timezone");
-#endif
-
+/* The timezone function is only kept for backward compatibility.
+   POSIX expects the timezone variable as XSI extension. */
+# ifdef __timezonefunc__
+char __cdecl *timezone (void);
+# elif !defined(timezone)
+#   define timezone _timezone
+# endif
 #endif /*__STRICT_ANSI__*/
 
 #ifdef __cplusplus
