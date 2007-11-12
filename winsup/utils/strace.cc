@@ -1,7 +1,6 @@
 /* strace.cc
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011 Red Hat Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007 Red Hat Inc.
 
    Written by Chris Faylor <cgf@redhat.com>
 
@@ -11,8 +10,6 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#include <windows.h>
-#include <winternl.h>
 #define cygwin_internal cygwin_internal_dontuse
 #include <stdio.h>
 #include <fcntl.h>
@@ -21,19 +18,19 @@ details. */
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <windows.h>
 #include <signal.h>
 #include <errno.h>
-#include "../cygwin/include/sys/strace.h"
-#include "../cygwin/include/sys/cygwin.h"
-#include "../cygwin/include/cygwin/version.h"
+#include "cygwin/include/sys/strace.h"
+#include "cygwin/include/sys/cygwin.h"
 #include "path.h"
 #undef cygwin_internal
-#include "loadlib.h"
 
 /* we *know* we're being built with GCC */
-#ifndef alloca
 #define alloca __builtin_alloca
-#endif
+
+// Version string.
+static const char version[] = "$Revision$";
 
 static const char *pgm;
 static int forkdebug = 1;
@@ -134,7 +131,7 @@ add_child (DWORD id, HANDLE hproc)
       lasth = children.next->hproc = hproc;
       processes++;
       if (!quiet)
-	fprintf (stderr, "Windows process %lu attached\n", id);
+	fprintf (stderr, "Windows process %d attached\n", id);
     }
 }
 
@@ -151,7 +148,7 @@ remove_child (DWORD id)
 	c->next = c1->next;
 	free (c1);
 	if (!quiet)
-	  fprintf (stderr, "Windows process %lu detached\n", id);
+	  fprintf (stderr, "Windows process %d detached\n", id);
 	processes--;
 	return;
       }
@@ -266,7 +263,6 @@ ctrl_c (DWORD)
 
 extern "C" {
 unsigned long (*cygwin_internal) (int, ...);
-WCHAR cygwin_dll_path[32768];
 };
 
 static int
@@ -285,7 +281,6 @@ load_cygwin ()
       errno = ENOENT;
       return 0;
     }
-  GetModuleFileNameW (h, cygwin_dll_path, 32768);
   if (!(cygwin_internal = (DWORD (*) (int, ...)) GetProcAddress (h, "cygwin_internal")))
     {
       errno = ENOSYS;
@@ -293,9 +288,6 @@ load_cygwin ()
     }
   return 1;
 }
-
-#define DEBUG_PROCESS_DETACH_ON_EXIT    0x00000001
-#define DEBUG_PROCESS_ONLY_THIS_PROCESS 0x00000002
 
 static void
 attach_process (pid_t pid)
@@ -306,23 +298,6 @@ attach_process (pid_t pid)
 
   if (!DebugActiveProcess (child_pid))
     error (0, "couldn't attach to pid %d for debugging", child_pid);
-
-  if (forkdebug)
-    {
-      HANDLE h = OpenProcess(PROCESS_ALL_ACCESS, FALSE, child_pid);
-
-      if (h)
-	{
-	  /* Try to turn off DEBUG_ONLY_THIS_PROCESS so we can follow forks */
-	  /* This is only supported on XP and later */
-	  ULONG DebugFlags = DEBUG_PROCESS_DETACH_ON_EXIT;
-	  NTSTATUS status = NtSetInformationProcess (h, ProcessDebugFlags, &DebugFlags, sizeof (DebugFlags));
-	  if (!NT_SUCCESS (status))
-	    warn (0, "Could not clear DEBUG_ONLY_THIS_PROCESS (%x), will not trace child processes", status);
-
-	  CloseHandle(h);
-	}
-    }
 
   return;
 }
@@ -351,22 +326,12 @@ create_child (char **argv)
   make_command_line (one_line, argv);
 
   SetConsoleCtrlHandler (NULL, 0);
-  const char *cygwin_env = getenv ("CYGWIN");
-  const char *space;
-  if (cygwin_env)
-    space = " ";
-  else
-    space = cygwin_env = "";
-  char *newenv = (char *) malloc (sizeof ("CYGWIN=noglob") + strlen (space) + strlen (cygwin_env));
-  sprintf (newenv, "CYGWIN=noglob%s%s", space, cygwin_env);
-  _putenv (newenv);
   ret = CreateProcess (0, one_line.buf,	/* command line */
 		       NULL,	/* Security */
 		       NULL,	/* thread */
 		       TRUE,	/* inherit handles */
 		       flags,	/* start flags */
-		       NULL,	/* default environment */
-		       NULL,	/* current directory */
+		       NULL, NULL,	/* current directory */
 		       &si, &pi);
   if (!ret)
     error (0, "error creating process %s, (error %d)", *argv,
@@ -488,16 +453,15 @@ handle_output_debug_string (DWORD id, LPVOID p, unsigned mask, FILE *ofile)
 
   if (special == _STRACE_CHILD_PID)
     {
-      DebugActiveProcess (n);
+      if (!DebugActiveProcess (n))
+	error (0, "couldn't attach to subprocess %d for debugging, "
+	       "windows error %d", n, GetLastError ());
       return;
     }
 
   if (special == _STRACE_INTERFACE_ACTIVATE_ADDR)
     {
-      s = strtok (NULL, " ");
-      if (*s && *s == '1' && !forkdebug)
-	/* don't activate since we are not following forks */;
-      else if (!WriteProcessMemory (hchild, (LPVOID) n, &strace_active,
+      if (!WriteProcessMemory (hchild, (LPVOID) n, &strace_active,
 			       sizeof (strace_active), &nbytes))
 	error (0, "couldn't write strace flag to subprocess at %p, "
 	       "windows error %d", n, GetLastError ());
@@ -531,9 +495,6 @@ handle_output_debug_string (DWORD id, LPVOID p, unsigned mask, FILE *ofile)
       usecs = dusecs;
     }
 
-#if 1
-  child->saw_stars = 2;
-#else
   if (child->saw_stars == 0)
     {
       FILETIME st;
@@ -591,7 +552,6 @@ handle_output_debug_string (DWORD id, LPVOID p, unsigned mask, FILE *ofile)
 	    }
 	}
     }
-#endif
 
   long long d = usecs - child->last_usecs;
   char intbuf[40];
@@ -682,17 +642,16 @@ proc_child (unsigned mask, FILE *ofile, pid_t pid)
 	  break;
 
 	case EXIT_PROCESS_DEBUG_EVENT:
-	  res = ev.u.ExitProcess.dwExitCode;
+	  res = ev.u.ExitProcess.dwExitCode >> 8;
 	  remove_child (ev.dwProcessId);
 	  break;
 	case EXCEPTION_DEBUG_EVENT:
-	  if (ev.u.Exception.ExceptionRecord.ExceptionCode
-	      != (DWORD) STATUS_BREAKPOINT)
+	  if (ev.u.Exception.ExceptionRecord.ExceptionCode != STATUS_BREAKPOINT)
 	    {
 	      status = DBG_EXCEPTION_NOT_HANDLED;
 	      if (ev.u.Exception.dwFirstChance)
-		fprintf (ofile, "--- Process %lu, exception %p at %p\n", ev.dwProcessId,
-			 (void *) ev.u.Exception.ExceptionRecord.ExceptionCode,
+		fprintf (ofile, "--- Process %u, exception %p at %p\n", ev.dwProcessId,
+			 ev.u.Exception.ExceptionRecord.ExceptionCode,
 			 ev.u.Exception.ExceptionRecord.ExceptionAddress);
 	    }
 	  break;
@@ -759,8 +718,6 @@ static const mask_mnemonic mnemonic_table[] = {
   {_STRACE_NOMUTEX, "nomutex"},
   {_STRACE_MALLOC, "malloc"},
   {_STRACE_THREAD, "thread"},
-  {_STRACE_PTHREAD, "pthread"},
-  {_STRACE_SPECIAL, "special"},
   {0, NULL}
 };
 
@@ -859,7 +816,6 @@ usage (FILE *where = stderr)
   fprintf (where, "\
 Usage: %s [OPTIONS] <command-line>\n\
 Usage: %s [OPTIONS] -p <pid>\n\
-\n\
 Trace system calls and signals\n\
 \n\
   -b, --buffer-size=SIZE       set size of output file buffer\n\
@@ -868,17 +824,17 @@ Trace system calls and signals\n\
   -h, --help                   output usage information and exit\n\
   -m, --mask=MASK              set message filter mask\n\
   -n, --crack-error-numbers    output descriptive text instead of error\n\
-			       numbers for Windows errors\n\
+                               numbers for Windows errors\n\
   -o, --output=FILENAME        set output file to FILENAME\n\
   -p, --pid=n                  attach to executing program with cygwin pid n\n\
   -q, --quiet                  suppress messages about attaching, detaching, etc.\n\
   -S, --flush-period=PERIOD    flush buffered strace output every PERIOD secs\n\
   -t, --timestamp              use an absolute hh:mm:ss timestamp insted of \n\
-			       the default microsecond timestamp.  Implies -d\n\
+                               the default microsecond timestamp.  Implies -d\n\
   -T, --toggle                 toggle tracing in a process already being\n\
-			       traced. Requires -p <pid>\n\
+                               traced. Requires -p <pid>\n\
   -u, --usecs                  toggle printing of microseconds timestamp\n\
-  -V, --version                output version information and exit\n\
+  -v, --version                output version information and exit\n\
   -w, --new-window             spawn program under test in a new window\n\
 \n", pgm, pgm);
   if ( where == stdout)
@@ -886,34 +842,31 @@ Trace system calls and signals\n\
     MASK can be any combination of the following mnemonics and/or hex values\n\
     (0x is optional).  Combine masks with '+' or ',' like so:\n\
 \n\
-		      --mask=wm+system,malloc+0x00800\n\
+                      --mask=wm+system,malloc+0x00800\n\
 \n\
     Mnemonic Hex     Corresponding Def  Description\n\
     =========================================================================\n\
-    all      0x000001 (_STRACE_ALL)      All strace messages.\n\
-    flush    0x000002 (_STRACE_FLUSH)    Flush output buffer after each message.\n\
-    inherit  0x000004 (_STRACE_INHERIT)  Children inherit mask from parent.\n\
-    uhoh     0x000008 (_STRACE_UHOH)     Unusual or weird phenomenon.\n\
-    syscall  0x000010 (_STRACE_SYSCALL)  System calls.\n\
-    startup  0x000020 (_STRACE_STARTUP)  argc/envp printout at startup.\n\
-    debug    0x000040 (_STRACE_DEBUG)    Info to help debugging. \n\
-    paranoid 0x000080 (_STRACE_PARANOID) Paranoid info.\n\
-    termios  0x000100 (_STRACE_TERMIOS)  Info for debugging termios stuff.\n\
-    select   0x000200 (_STRACE_SELECT)   Info on ugly select internals.\n\
-    wm       0x000400 (_STRACE_WM)       Trace Windows msgs (enable _strace_wm).\n\
-    sigp     0x000800 (_STRACE_SIGP)     Trace signal and process handling.\n\
-    minimal  0x001000 (_STRACE_MINIMAL)  Very minimal strace output.\n\
-    pthread  0x002000 (_STRACE_PTHREAD)	Pthread calls.\n\
-    exitdump 0x004000 (_STRACE_EXITDUMP) Dump strace cache on exit.\n\
-    system   0x008000 (_STRACE_SYSTEM)   Serious error; goes to console and log.\n\
-    nomutex  0x010000 (_STRACE_NOMUTEX)  Don't use mutex for synchronization.\n\
-    malloc   0x020000 (_STRACE_MALLOC)   Trace malloc calls.\n\
-    thread   0x040000 (_STRACE_THREAD)   Thread-locking calls.\n\
-    special  0x100000 (_STRACE_SPECIAL)  Special debugging printfs for\n\
-					 non-checked-in code\n\
+    all      0x00001 (_STRACE_ALL)      All strace messages.\n\
+    flush    0x00002 (_STRACE_FLUSH)    Flush output buffer after each message.\n\
+    inherit  0x00004 (_STRACE_INHERIT)  Children inherit mask from parent.\n\
+    uhoh     0x00008 (_STRACE_UHOH)     Unusual or weird phenomenon.\n\
+    syscall  0x00010 (_STRACE_SYSCALL)  System calls.\n\
+    startup  0x00020 (_STRACE_STARTUP)  argc/envp printout at startup.\n\
+    debug    0x00040 (_STRACE_DEBUG)    Info to help debugging. \n\
+    paranoid 0x00080 (_STRACE_PARANOID) Paranoid info.\n\
+    termios  0x00100 (_STRACE_TERMIOS)  Info for debugging termios stuff.\n\
+    select   0x00200 (_STRACE_SELECT)   Info on ugly select internals.\n\
+    wm       0x00400 (_STRACE_WM)       Trace Windows msgs (enable _strace_wm).\n\
+    sigp     0x00800 (_STRACE_SIGP)     Trace signal and process handling.\n\
+    minimal  0x01000 (_STRACE_MINIMAL)  Very minimal strace output.\n\
+    exitdump 0x04000 (_STRACE_EXITDUMP) Dump strace cache on exit.\n\
+    system   0x08000 (_STRACE_SYSTEM)   Serious error; goes to console and log.\n\
+    nomutex  0x10000 (_STRACE_NOMUTEX)  Don't use mutex for synchronization.\n\
+    malloc   0x20000 (_STRACE_MALLOC)   Trace malloc calls.\n\
+    thread   0x40000 (_STRACE_THREAD)   Thread-locking calls.\n\
 ");
   if (where == stderr)
-    fprintf (stderr, "Try `%s --help' for more information.\n", pgm);
+    fprintf (stderr, "Try '%s --help' for more information.\n", pgm);
   exit (where == stderr ? 1 : 0 );
 }
 
@@ -933,24 +886,33 @@ struct option longopts[] = {
   {"trace-children", no_argument, NULL, 'f'},
   {"translate-error-numbers", no_argument, NULL, 'n'},
   {"usecs", no_argument, NULL, 'u'},
-  {"version", no_argument, NULL, 'V'},
+  {"version", no_argument, NULL, 'v'},
   {NULL, 0, NULL, 0}
 };
 
-static const char *const opts = "+b:dhHfm:no:p:qS:tTuVw";
+static const char *const opts = "+b:dhHfm:no:p:qS:tTuvw";
 
 static void
 print_version ()
 {
-  printf ("strace (cygwin) %d.%d.%d\n"
-	  "System Trace\n"
-	  "Copyright (C) 2000 - %s Red Hat, Inc.\n"
-	  "This is free software; see the source for copying conditions.  There is NO\n"
-	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-	  CYGWIN_VERSION_DLL_MAJOR / 1000,
-	  CYGWIN_VERSION_DLL_MAJOR % 1000,
-	  CYGWIN_VERSION_DLL_MINOR,
-	  strrchr (__DATE__, ' ') + 1);
+  const char *v = strchr (version, ':');
+  int len;
+  if (!v)
+    {
+      v = "?";
+      len = 1;
+    }
+  else
+    {
+      v += 2;
+      len = strchr (v, ' ') - v;
+    }
+  printf ("\
+%s (cygwin) %.*s\n\
+System Trace\n\
+Copyright 2000, 2001, 2002, 2003, 2004, 2005 Red Hat, Inc.\n\
+Compiled on %s\n\
+", pgm, len, v, __DATE__);
 }
 
 int
@@ -1011,7 +973,7 @@ character #%d.\n", optarg, (int) (endptr - optarg), endptr);
 	numerror ^= 1;
 	break;
       case 'o':
-	if ((ofile = fopen (cygpath (optarg, NULL), "wb")) == NULL)
+	if ((ofile = fopen (cygpath (optarg, NULL), "w")) == NULL)
 	  error (1, "can't open %s", optarg);
 #ifdef F_SETFD
 	(void) fcntl (fileno (ofile), F_SETFD, 0);
@@ -1041,15 +1003,15 @@ character #%d.\n", optarg, (int) (endptr - optarg), endptr);
 	show_usecs ^= 1;
 	delta ^= 1;
 	break;
-      case 'V':
+      case 'v':
 	// Print version info and exit
 	print_version ();
 	return 0;
       case 'w':
 	new_window ^= 1;
 	break;
-      default:
-	fprintf (stderr, "Try `%s --help' for more information.\n", pgm);
+      case '?':
+	fprintf (stderr, "Try '%s --help' for more information.\n", pgm);
 	exit (1);
       }
 
@@ -1078,11 +1040,12 @@ character #%d.\n", optarg, (int) (endptr - optarg), endptr);
   if (!ofile)
     ofile = stdout;
 
+  DWORD res = 0;
   if (toggle)
     dotoggle (pid);
   else
-    ExitProcess (dostrace (mask, ofile, pid, argv + optind));
-  return 0;
+    res = dostrace (mask, ofile, pid, argv + optind);
+  return res;
 }
 
 #undef CloseHandle

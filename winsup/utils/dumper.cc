@@ -1,6 +1,6 @@
 /* dumper.cc
 
-   Copyright 1999, 2001, 2002, 2004, 2006, 2007, 2011 Red Hat Inc.
+   Copyright 1999, 2001, 2002, 2004, 2006, 2007 Hat Inc.
 
    Written by Egor Duda <deo@logos-m.ru>
 
@@ -20,25 +20,20 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
-#include <ansidecl.h>
-#define PACKAGE
 #include <bfd.h>
+#include <ansidecl.h>
 #include <elf/common.h>
 #include <elf/external.h>
 #include <sys/procfs.h>
 #include <sys/cygwin.h>
-#include <cygwin/version.h>
 #include <getopt.h>
 #include <stdarg.h>
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/param.h>
 #include <windows.h>
 
 #include "dumper.h"
-
 #define NOTE_NAME_SIZE 16
 
 typedef struct _note_header
@@ -50,6 +45,8 @@ typedef struct _note_header
 __attribute__ ((packed))
 #endif
   note_header;
+
+static const char version[] = "$Revision$";
 
 BOOL verbose = FALSE;
 
@@ -382,7 +379,7 @@ dumper::dump_memory_region (asection * to, process_mem_region * memory)
 
   while (size > 0)
     {
-      todo = MIN (size, PAGE_BUFFER_SIZE);
+      todo = min (size, PAGE_BUFFER_SIZE);
       if (!ReadProcessMemory (hProcess, pos, mem_buf, todo, &done))
 	{
 	  deb_printf ("Failed to read process memory at %x(%x), error %ld\n", pos, todo, GetLastError ());
@@ -844,15 +841,14 @@ static void
 usage (FILE *stream, int status)
 {
   fprintf (stream, "\
-Usage: %s [OPTION] FILENAME WIN32PID\n\
-\n\
+Usage: dumper [OPTION] FILENAME WIN32PID\n\
 Dump core from WIN32PID to FILENAME.core\n\
 \n\
  -d, --verbose  be verbose while dumping\n\
  -h, --help     output help information and exit\n\
  -q, --quiet    be quiet while dumping (default)\n\
- -V, --version  output version information and exit\n\
-\n", program_invocation_short_name);
+ -v, --version  output version information and exit\n\
+");
   exit (status);
 }
 
@@ -860,23 +856,29 @@ struct option longopts[] = {
   {"verbose", no_argument, NULL, 'd'},
   {"help", no_argument, NULL, 'h'},
   {"quiet", no_argument, NULL, 'q'},
-  {"version", no_argument, 0, 'V'},
+  {"version", no_argument, 0, 'v'},
   {0, no_argument, NULL, 0}
 };
-const char *opts = "dhqV";
 
 static void
 print_version ()
 {
-  printf ("dumper (cygwin) %d.%d.%d\n"
-	  "Core Dumper for Cygwin\n"
-	  "Copyright (C) 1999 - %s Red Hat, Inc.\n"
-	  "This is free software; see the source for copying conditions.  There is NO\n"
-	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-	  CYGWIN_VERSION_DLL_MAJOR / 1000,
-	  CYGWIN_VERSION_DLL_MAJOR % 1000,
-	  CYGWIN_VERSION_DLL_MINOR,
-	  strrchr (__DATE__, ' ') + 1);
+  const char *v = strchr (version, ':');
+  int len;
+  if (!v)
+    {
+      v = "?";
+      len = 1;
+    }
+  else
+    {
+      v += 2;
+      len = strchr (v, ' ') - v;
+    }
+  printf ("\
+dumper (cygwin) %.*s\n\
+Core Dumper for Cygwin\n\
+Copyright 1999, 2001, 2002 Red Hat, Inc.\n", len, v);
 }
 
 int
@@ -885,8 +887,9 @@ main (int argc, char **argv)
   int opt;
   const char *p = "";
   DWORD pid;
+  char win32_name [MAX_PATH];
 
-  while ((opt = getopt_long (argc, argv, opts, longopts, NULL) ) != EOF)
+  while ((opt = getopt_long (argc, argv, "dqhv", longopts, NULL) ) != EOF)
     switch (opt)
       {
       case 'd':
@@ -897,22 +900,18 @@ main (int argc, char **argv)
 	break;
       case 'h':
 	usage (stdout, 0);
-      case 'V':
-	print_version ();
-	exit (0);
+      case 'v':
+       print_version ();
+       exit (0);
       default:
-	fprintf (stderr, "Try `%s --help' for more information.\n",
-		 program_invocation_short_name);
-	exit (1);
+	usage (stderr, 1);
+	break;
       }
 
   if (argv && *(argv + optind) && *(argv + optind +1))
     {
-      ssize_t len = cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_RELATIVE,
-				      *(argv + optind), NULL, 0);
-      char *win32_name = (char *) alloca (len);
-      cygwin_conv_path (CCP_POSIX_TO_WIN_A | CCP_RELATIVE,  *(argv + optind),
-			win32_name, len);
+      *win32_name = '\0';
+      cygwin_conv_to_win32_path (*(argv + optind), win32_name);
       if ((p = strrchr (win32_name, '\\')))
 	p++;
       else

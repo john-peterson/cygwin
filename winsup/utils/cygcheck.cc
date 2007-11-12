@@ -1,7 +1,7 @@
 /* cygcheck.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -20,22 +20,12 @@
 #include <windows.h>
 #include <wininet.h>
 #include "path.h"
-#include "wide_path.h"
 #include <getopt.h>
-#include "../cygwin/include/cygwin/version.h"
-#include "../cygwin/include/sys/cygwin.h"
-#include "../cygwin/include/mntent.h"
-#include "../cygwin/cygprops.h"
+#include "cygwin/include/sys/cygwin.h"
+#include "cygwin/include/mntent.h"
 #undef cygwin_internal
-#include "loadlib.h"
 
-#ifndef max
-#define max __max
-#endif
-
-#ifndef alloca
 #define alloca __builtin_alloca
-#endif
 
 int verbose = 0;
 int registry = 0;
@@ -47,10 +37,6 @@ int dump_only = 0;
 int find_package = 0;
 int list_package = 0;
 int grep_packages = 0;
-int del_orphaned_reg = 0;
-int unique_object_name_opt = 0;
-
-static char emptystr[] = "";
 
 /* This is global because it's used in both internet_display_error as well
    as package_grep.  */
@@ -68,8 +54,9 @@ void package_find (int, char **);
 void package_list (int, char **);
 /* In bloda.cc  */
 void dump_dodgy_apps (int verbose);
-/* Forward declaration */
-static void usage (FILE *, int);
+
+
+static const char version[] = "$Revision$";
 
 static const char *known_env_vars[] = {
   "c_include_path",
@@ -130,26 +117,8 @@ static common_apps[] = {
   {0, 0}
 };
 
-/* Options without ASCII single char representation. */
-enum
-{
-  CO_DELETE_KEYS = 0x100,
-  CO_ENABLE_UON = 0x101,
-  CO_DISABLE_UON = 0x102,
-  CO_SHOW_UON = 0x103
-};
-
 static int num_paths, max_paths;
-struct pathlike
-{
-  char *dir;
-  bool issys;
-  void check_existence (const char *fn, int showall, int verbose,
-			char* first, const char *ext1 = "",
-			const char *ext2 = "");
-};
-
-pathlike *paths;
+static char **paths;
 int first_nonsys_path;
 
 void
@@ -165,41 +134,15 @@ eprintf (const char *format, ...)
  * display_error() is used to report failure modes
  */
 static int
-display_error (const char *name, bool show_error, bool print_failed)
+display_error (const char *name, bool show_error = true, bool print_failed = true)
 {
-  fprintf (stderr, "cygcheck: %s", name);
   if (show_error)
-    fprintf (stderr, "%s: %lu\n",
+    fprintf (stderr, "cygcheck: %s%s: %lu\n", name,
 	print_failed ? " failed" : "", GetLastError ());
   else
-    fprintf (stderr, "%s\n",
+    fprintf (stderr, "cygcheck: %s%s\n", name,
 	print_failed ? " failed" : "");
   return 1;
-}
-
-static int
-display_error (const char *name)
-{
-  return display_error (name, true, true);
-}
-
-static int
-display_error (const char *fmt, const char *x)
-{
-  char buf[4000];
-  snprintf (buf, sizeof buf, fmt, x);
-  return display_error (buf, false, false);
-}
-
-static int
-display_error_fmt (const char *fmt, ...)
-{
-  char buf[4000];
-  va_list va;
-
-  va_start (va, fmt);
-  vsnprintf (buf, sizeof buf, fmt, va);
-  return display_error (buf, false, false);
 }
 
 /* Display a WinInet error message, and close a variable number of handles.
@@ -217,12 +160,12 @@ display_internet_error (const char *message, ...)
   if (err)
     {
       if (FormatMessage (FORMAT_MESSAGE_FROM_HMODULE,
-	  GetModuleHandle ("wininet.dll"), err, 0, err_buf,
-	  sizeof (err_buf), NULL) == 0)
-	strcpy (err_buf, "(Unknown error)");
+          GetModuleHandle ("wininet.dll"), err, 0, err_buf,
+          sizeof (err_buf), NULL) == 0)
+        strcpy (err_buf, "(Unknown error)");
 
-      fprintf (stderr, "cygcheck: %s: %s (win32 error %lu)\n", message,
-	       err_buf, err);
+      fprintf (stderr, "cygcheck: %s: %s (win32 error %d)\n", message,
+               err_buf, err);
     }
   else
     fprintf (stderr, "cygcheck: %s\n", message);
@@ -236,37 +179,33 @@ display_internet_error (const char *message, ...)
 }
 
 static void
-add_path (char *s, int maxlen, bool issys)
+add_path (char *s, int maxlen)
 {
   if (num_paths >= max_paths)
     {
       max_paths += 10;
-      /* Extend path array */
-      paths = (pathlike *) realloc (paths, (1 + max_paths) * sizeof (paths[0]));
+      if (paths)
+	paths = (char **) realloc (paths, max_paths * sizeof (char *));
+      else
+	paths = (char **) malloc (max_paths * sizeof (char *));
     }
-
-  pathlike *pth = paths + num_paths;
-
-  /* Allocate space for directory in path list */
-  char *dir = (char *) calloc (maxlen + 2, sizeof (char));
-  if (dir == NULL)
+  paths[num_paths] = (char *) malloc (maxlen + 1);
+  if (paths[num_paths] == NULL)
     {
-      display_error ("add_path: calloc() failed");
+      display_error ("add_path: malloc()");
       return;
     }
-
-  /* Copy input directory to path list */
-  memcpy (dir, s, maxlen);
-
-  /* Add a trailing slash by default */
-  char *e = strchr (dir, '\0');
-  if (e != dir && e[-1] != '\\')
-    strcpy (e, "\\");
-
-  /* Fill out this element */
-  pth->dir = dir;
-  pth->issys = issys;
-  pth[1].dir = NULL;
+  memcpy (paths[num_paths], s, maxlen);
+  paths[num_paths][maxlen] = 0;
+  char *e = paths[num_paths] + strlen (paths[num_paths]);
+  if (e[-1] == '\\' && e[-2] != ':')
+    *--e = 0;
+  for (int i = 1; i < num_paths; i++)
+    if (strcasecmp (paths[num_paths], paths[i]) == 0)
+      {
+	free (paths[num_paths]);
+	return;
+      }
   num_paths++;
 }
 
@@ -274,39 +213,39 @@ static void
 init_paths ()
 {
   char tmp[4000], *sl;
-  add_path ((char *) ".", 1, true);	/* to be replaced later */
+  add_path ((char *) ".", 1);	/* to be replaced later */
 
   if (GetCurrentDirectory (4000, tmp))
-    add_path (tmp, strlen (tmp), true);
+    add_path (tmp, strlen (tmp));
   else
     display_error ("init_paths: GetCurrentDirectory()");
 
   if (GetSystemDirectory (tmp, 4000))
-    add_path (tmp, strlen (tmp), true);
+    add_path (tmp, strlen (tmp));
   else
     display_error ("init_paths: GetSystemDirectory()");
   sl = strrchr (tmp, '\\');
   if (sl)
     {
       strcpy (sl, "\\SYSTEM");
-      add_path (tmp, strlen (tmp), true);
+      add_path (tmp, strlen (tmp));
     }
   GetWindowsDirectory (tmp, 4000);
-  add_path (tmp, strlen (tmp), true);
+  add_path (tmp, strlen (tmp));
+  first_nonsys_path = num_paths;
 
   char *wpath = getenv ("PATH");
   if (!wpath)
-    display_error ("WARNING: PATH is not set\n", "");
+    fprintf (stderr, "WARNING: PATH is not set at all!\n");
   else
     {
       char *b, *e;
       b = wpath;
       while (1)
 	{
-	  for (e = b; *e && *e != ';'; e++)
-	    continue;	/* loop terminates at first ';' or EOS */
-	  if (strncmp(b, ".\\", 2) != 0)
-	    add_path (b, e - b, false);
+	  for (e = b; *e && *e != ';'; e++);
+	  if (strncmp(b, ".", 1) && strncmp(b, ".\\", 2))
+	    add_path (b, e - b);
 	  if (!*e)
 	    break;
 	  b = e + 1;
@@ -314,116 +253,58 @@ init_paths ()
     }
 }
 
-#define LINK_EXTENSION ".lnk"
-
-void
-pathlike::check_existence (const char *fn, int showall, int verbose,
-			   char* first, const char *ext1, const char *ext2)
-{
-  char file[4000];
-  strcpy (file, dir);
-  strcat (file, fn);
-  strcat (file, ext1);
-  strcat (file, ext2);
-
-  wide_path wpath (file);
-  if (GetFileAttributesW (wpath) != (DWORD) - 1)
-    {
-      char *lastdot = strrchr (file, '.');
-      bool is_link = lastdot && !strcmp (lastdot, LINK_EXTENSION);
-      // If file is a link, fix up the extension before printing
-      if (is_link)
-	*lastdot = '\0';
-      if (showall)
-	printf ("Found: %s\n", file);
-      if (verbose && *first != '\0' && strcasecmp (first, file) != 0)
-	{
-	  char *flastdot = strrchr (first, '.');
-	  bool f_is_link = flastdot && !strcmp (flastdot, LINK_EXTENSION);
-	  // if first is a link, fix up the extension before printing
-	  if (f_is_link)
-	    *flastdot = '\0';
-	  printf ("Warning: %s hides %s\n", first, file);
-	  if (f_is_link)
-	    *flastdot = '.';
-	}
-      if (is_link)
-	*lastdot = '.';
-      if (!*first)
-	strcpy (first, file);
-    }
-}
-
-static const char *
-find_on_path (const char *in_file, const char *ext, bool showall = false,
-	      bool search_sys = false, bool checklinks = false)
+static char *
+find_on_path (char *file, char *default_extension,
+	      int showall = 0, int search_sysdirs = 0)
 {
   static char rv[4000];
-
-  /* Sort of a kludge but we've already tested this once, so don't try it again */
-  if (in_file == rv)
-    return in_file;
-
-  static pathlike abspath[2] =
-  {
-    {emptystr, 0},
-    {NULL, 0}
-  };
-
-  *rv = '\0';
-  if (!in_file)
-    {
-      display_error ("internal error find_on_path: NULL pointer for file", false, false);
-      return 0;
-    }
-
-  if (!ext)
-    {
-      display_error ("internal error find_on_path: NULL pointer for default_extension", false, false);
-      return 0;
-    }
-
-  const char *file;
-  pathlike *search_paths;
-  if (!strpbrk (in_file, ":/\\"))
-    {
-      file = in_file;
-      search_paths = paths;
-    }
-  else
-    {
-      file = cygpath (in_file, NULL);
-      search_paths = abspath;
-      showall = false;
-    }
+  char tmp[4000], *ptr = rv;
 
   if (!file)
     {
-      display_error ("internal error find_on_path: cygpath conversion failed for %s\n", in_file);
+      display_error ("find_on_path: NULL pointer for file", false, false);
       return 0;
     }
 
-  char *hasext = strrchr (file, '.');
-  if (hasext && !strpbrk (hasext, "/\\"))
-    ext = "";
+  if (default_extension == NULL)
+    {
+      display_error ("find_on_path: NULL pointer for default_extension", false, false);
+      return 0;
+    }
 
-  for (pathlike *pth = search_paths; pth->dir; pth++)
-    if (!pth->issys || search_sys)
-      {
-	pth->check_existence (file, showall, verbose, rv, ext);
+  if (strchr (file, ':') || strchr (file, '\\') || strchr (file, '/'))
+    {
+      char *fn = cygpath (file, NULL);
+      if (access (fn, F_OK) == 0)
+	return fn;
+      strcpy (rv, fn);
+      strcat (rv, default_extension);
+      return access (rv, F_OK) == 0 ? strdup (rv) : fn;
+    }
 
-	if (checklinks)
-	  pth->check_existence (file, showall, verbose, rv, ext, LINK_EXTENSION);
+  if (strchr (file, '.'))
+    default_extension = (char *) "";
 
-	if (!*ext)
-	  continue;
+  for (int i = search_sysdirs ? 0 : first_nonsys_path; i < num_paths; i++)
+    {
+      if (i == 0 || !search_sysdirs || strcasecmp (paths[i], paths[0]))
+	{
+	  sprintf (ptr, "%s\\%s%s", paths[i], file, default_extension);
+	  if (GetFileAttributes (ptr) != (DWORD) - 1)
+	    {
+	      if (showall)
+		printf ("Found: %s\n", ptr);
+	      if (ptr == tmp && verbose)
+		printf ("Warning: %s hides %s\n", rv, ptr);
+	      ptr = tmp;
+	    }
+	}
+    }
 
-	pth->check_existence (file, showall, verbose, rv);
-	if (checklinks)
-	  pth->check_existence (file, showall, verbose, rv, LINK_EXTENSION);
-      }
+  if (ptr == tmp)
+    return rv;
 
-  return *rv ? rv : NULL;
+  return 0;
 }
 
 #define DID_NEW		1
@@ -439,7 +320,7 @@ struct Did
 static Did *did = 0;
 
 static Did *
-already_did (const char *file)
+already_did (char *file)
 {
   Did *d;
   for (d = did; d; d = d->next)
@@ -451,6 +332,38 @@ already_did (const char *file)
   d->state = DID_NEW;
   did = d;
   return d;
+}
+
+static int
+get_word (HANDLE fh, int offset)
+{
+  short rv;
+  unsigned r;
+
+  if (SetFilePointer (fh, offset, 0, FILE_BEGIN) == INVALID_SET_FILE_POINTER
+      && GetLastError () != NO_ERROR)
+    display_error ("get_word: SetFilePointer()");
+
+  if (!ReadFile (fh, &rv, 2, (DWORD *) &r, 0))
+    display_error ("get_word: Readfile()");
+
+  return rv;
+}
+
+static int
+get_dword (HANDLE fh, int offset)
+{
+  int rv;
+  unsigned r;
+
+  if (SetFilePointer (fh, offset, 0, FILE_BEGIN) == INVALID_SET_FILE_POINTER
+      && GetLastError () != NO_ERROR)
+    display_error ("get_dword: SetFilePointer()");
+
+  if (!ReadFile (fh, &rv, 4, (DWORD *) &r, 0))
+    display_error ("get_dword: Readfile()");
+
+  return rv;
 }
 
 struct Section
@@ -510,7 +423,8 @@ struct ImpDirectory
   unsigned iat_rva;
 };
 
-static bool track_down (const char *file, const char *suffix, int lvl);
+
+static bool track_down (char *file, char *suffix, int lvl);
 
 #define CYGPREFIX (sizeof ("%%% Cygwin ") - 1)
 static void
@@ -595,8 +509,6 @@ dll_info (const char *path, HANDLE fh, int lvl, int recurse)
   DWORD junk;
   int i;
   int pe_header_offset = get_dword (fh, 0x3c);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
   int opthdr_ofs = pe_header_offset + 4 + 20;
   unsigned short v[6];
 
@@ -620,24 +532,12 @@ dll_info (const char *path, HANDLE fh, int lvl, int recurse)
     printf ("\n");
 
   int num_entries = get_dword (fh, opthdr_ofs + 92);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
   int export_rva = get_dword (fh, opthdr_ofs + 96);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
   int export_size = get_dword (fh, opthdr_ofs + 100);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
   int import_rva = get_dword (fh, opthdr_ofs + 104);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
   int import_size = get_dword (fh, opthdr_ofs + 108);
-  if (GetLastError () != NO_ERROR)
-    display_error ("get_dword");
 
   int nsections = get_word (fh, pe_header_offset + 4 + 2);
-  if (nsections == -1)
-    display_error ("get_word");
   char *sections = (char *) malloc (nsections * 40);
 
   if (SetFilePointer (fh, pe_header_offset + 4 + 20 +
@@ -716,7 +616,7 @@ dll_info (const char *path, HANDLE fh, int lvl, int recurse)
 
 // Return true on success, false if error printed
 static bool
-track_down (const char *file, const char *suffix, int lvl)
+track_down (char *file, char *suffix, int lvl)
 {
   if (file == NULL)
     {
@@ -730,10 +630,10 @@ track_down (const char *file, const char *suffix, int lvl)
       return false;
     }
 
-  const char *path = find_on_path (file, suffix, false, true);
+  char *path = find_on_path (file, suffix, 0, 1);
   if (!path)
     {
-      display_error ("track_down: could not find %s\n", file);
+      printf ("Error: could not find %s\n", file);
       return false;
     }
 
@@ -769,38 +669,24 @@ track_down (const char *file, const char *suffix, int lvl)
 
   if (!path)
     {
-      display_error ("file not found - '%s'\n", file);
+      printf ("%s not found\n", file);
       return false;
     }
 
   printf ("%s", path);
 
-  wide_path wpath (path);
   HANDLE fh =
-    CreateFileW (wpath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-		 NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    CreateFile (path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (fh == INVALID_HANDLE_VALUE)
     {
-      display_error ("cannot open - '%s'\n", path);
+      printf (" - Cannot open\n");
       return false;
     }
 
   d->state = DID_ACTIVE;
 
-  if (is_exe (fh))
-    dll_info (path, fh, lvl, 1);
-  else if (is_symlink (fh))
-    display_error ("%s is a symlink instead of a DLL\n", path);
-  else
-    {
-      int magic = get_word (fh, 0x0);
-      if (magic == -1)
-	display_error ("get_word");
-      magic &= 0x00FFFFFF;
-      display_error_fmt ("%s is not a DLL: magic number %x (%d) '%s'\n",
-			 path, magic, magic, (char *)&magic);
-    }
-
+  dll_info (path, fh, lvl, 1);
   d->state = DID_INACTIVE;
   if (!CloseHandle (fh))
     display_error ("track_down: CloseHandle()");
@@ -810,10 +696,8 @@ track_down (const char *file, const char *suffix, int lvl)
 static void
 ls (char *f)
 {
-  wide_path wpath (f);
-  HANDLE h = CreateFileW (wpath, GENERIC_READ,
-			  FILE_SHARE_READ | FILE_SHARE_WRITE,
-			  0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+  HANDLE h = CreateFile (f, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+			 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
   BY_HANDLE_FILE_INFORMATION info;
 
   if (!GetFileInformationByHandle (h, &info))
@@ -831,103 +715,34 @@ ls (char *f)
     display_error ("ls: CloseHandle()");
 }
 
-/* Remove filename from 's' and return directory name without trailing
-   backslash, or NULL if 's' doesn't seem to have a dirname.  */
-static char *
-dirname (const char *s)
-{
-  static char buf[PATH_MAX];
-
-  if (!s)
-    return NULL;
-
-  strncpy (buf, s, PATH_MAX);
-  buf[PATH_MAX - 1] = '\0';   // in case strlen(s) > PATH_MAX
-  char *lastsep = strrchr (buf, '\\');
-  if (!lastsep)
-    return NULL;          // no backslash -> no dirname
-  else if (lastsep - buf <= 2 && buf[1] == ':')
-    lastsep[1] = '\0';    // can't remove backslash of "x:\"
-  else
-    *lastsep = '\0';
-  return buf;
-}
-
-// Find a real application on the path (possibly following symlinks)
-static const char *
-find_app_on_path (const char *app, bool showall = false)
-{
-  const char *papp = find_on_path (app, ".exe", showall, false, true);
-
-  if (!papp)
-    return NULL;
-
-  wide_path wpath (papp);
-  HANDLE fh =
-    CreateFileW (wpath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-		 NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (fh == INVALID_HANDLE_VALUE)
-    return NULL;
-
-  if (is_symlink (fh))
-    {
-      static char tmp[SYMLINK_MAX + 1];
-      if (!readlink (fh, tmp, SYMLINK_MAX))
-	display_error("readlink failed");
-
-      /* Resolve the linkname relative to the directory of the link.  */
-      char *ptr = cygpath_rel (dirname (papp), tmp, NULL);
-      printf (" -> %s\n", ptr);
-      if (!strchr (ptr, '\\'))
-	{
-	  char *lastsep;
-	  strncpy (tmp, cygpath (papp, NULL), SYMLINK_MAX);
-	  lastsep = strrchr (tmp, '\\');
-	  strncpy (lastsep+1, ptr, SYMLINK_MAX - (lastsep-tmp));
-	  ptr = tmp;
-	}
-      if (!CloseHandle (fh))
-	display_error ("find_app_on_path: CloseHandle()");
-      /* FIXME: We leak the ptr returned by cygpath() here which is a
-	 malloc()d string.  */
-      return find_app_on_path (ptr, showall);
-    }
-
-  if (!CloseHandle (fh))
-    display_error ("find_app_on_path: CloseHandle()");
-  return papp;
-}
-
 // Return true on success, false if error printed
 static bool
-cygcheck (const char *app)
+cygcheck (char *app)
 {
-  const char *papp = find_app_on_path (app, 1);
+  char *papp = find_on_path (app, (char *) ".exe", 1, 0);
   if (!papp)
     {
-      display_error ("could not find '%s'\n", app);
+      printf ("Error: could not find %s\n", app);
       return false;
     }
-
-  char *s;
-  char *sep = strpbrk (papp, ":/\\");
-  if (!sep)
-    {
-      static char dot[] = ".";
-      s = dot;
-    }
+  char *s = strdup (papp);
+  char *sl = 0, *t;
+  for (t = s; *t; t++)
+    if (*t == '/' || *t == '\\' || *t == ':')
+      sl = t;
+  if (sl == 0)
+    paths[0] = (char *) ".";
   else
     {
-      int n = sep - papp;
-      s = (char *) malloc (n + 2);
-      memcpy ((char *) s, papp, n);
-      strcpy (s + n, "\\");
+      *sl = 0;
+      paths[0] = s;
     }
-
-  paths[0].dir = s;
-  did = NULL;
-  return track_down (papp, ".exe", 0);
+  did = 0;
+  return track_down (papp, (char *) ".exe", 0);
 }
+
+
+extern char **environ;
 
 struct RegInfo
 {
@@ -949,7 +764,7 @@ show_reg (RegInfo * ri, int nest)
 }
 
 static void
-scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygwin, bool wow64)
+scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygnus)
 {
   RegInfo ri;
   ri.prev = prev;
@@ -958,8 +773,8 @@ scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygwin, bool wow64)
 
   char *cp;
   for (cp = name; *cp; cp++)
-    if (strncasecmp (cp, "Cygwin", 6) == 0)
-      cygwin = 1;
+    if (strncasecmp (cp, "cygnus", 6) == 0)
+      cygnus = 1;
 
   DWORD num_subkeys, max_subkey_len, num_values;
   DWORD max_value_len, max_valdata_len, i;
@@ -976,7 +791,7 @@ scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygwin, bool wow64)
       return;
     }
 
-  if (cygwin)
+  if (cygnus)
     {
       show_reg (&ri, 0);
 
@@ -1029,18 +844,10 @@ scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygwin, bool wow64)
 	  ERROR_SUCCESS)
 	{
 	  HKEY sKey;
-	  /* Don't recurse more than one level into the WOW64 subkey since
-	     that would lead to an endless recursion. */
-	  if (!strcasecmp (subkey_name, "Wow6432Node"))
-	    {
-	      if (wow64)
-		continue;
-	      wow64 = true;
-	    }
 	  if (RegOpenKeyEx (hKey, subkey_name, 0, KEY_READ, &sKey)
 	      == ERROR_SUCCESS)
 	    {
-	      scan_registry (&ri, sKey, subkey_name, cygwin, wow64);
+	      scan_registry (&ri, sKey, subkey_name, cygnus);
 	      if (RegCloseKey (sKey) != ERROR_SUCCESS)
 		display_error ("scan_registry: RegCloseKey()");
 	    }
@@ -1050,9 +857,13 @@ scan_registry (RegInfo * prev, HKEY hKey, char *name, int cygwin, bool wow64)
 }
 
 void
-pretty_id ()
+pretty_id (const char *s, char *cygwin, size_t cyglen)
 {
   char *groups[16384];
+
+  strcpy (cygwin + cyglen++, " ");
+  strcpy (cygwin + cyglen, s);
+  putenv (cygwin);
 
   char *id = cygpath ("/bin/id.exe", NULL);
   for (char *p = id; (p = strchr (p, '/')); p++)
@@ -1064,10 +875,9 @@ pretty_id ()
       return;
     }
 
-  char buf[16384];
-  snprintf (buf, sizeof (buf), "\"%s\"", id);
-  FILE *f = popen (buf, "rt");
+  FILE *f = popen (id, "rt");
 
+  char buf[16384];
   buf[0] = '\0';
   fgets (buf, sizeof (buf), f);
   pclose (f);
@@ -1109,7 +919,7 @@ pretty_id ()
     }
   ng--;
 
-  printf ("\nOutput from %s\n", id);
+  printf ("\nOutput from %s (%s)\n", id, s);
   int n = 80 / (int) ++sz;
   int i = n > 2 ? n - 2 : 0;
   sz = -sz;
@@ -1151,7 +961,7 @@ dump_sysinfo_services ()
     }
 
   /* check for a recent cygrunsrv */
-  snprintf (buf, sizeof (buf), "\"%s\" --version", cygrunsrv);
+  snprintf (buf, sizeof (buf), "%s --version", cygrunsrv);
   if ((f = popen (buf, "rt")) == NULL)
     {
       printf ("Failed to execute '%s', skipping services check.\n", buf);
@@ -1169,7 +979,7 @@ dump_sysinfo_services ()
   /* For verbose mode, just run cygrunsrv --list --verbose and copy output
      verbatim; otherwise run cygrunsrv --list and then cygrunsrv --query for
      each service.  */
-  snprintf (buf, sizeof (buf), (verbose ? "\"%s\" --list --verbose" : "\"%s\" --list"),
+  snprintf (buf, sizeof (buf), (verbose ? "%s --list --verbose" : "%s --list"),
 	    cygrunsrv);
   if ((f = popen (buf, "rt")) == NULL)
     {
@@ -1200,7 +1010,7 @@ dump_sysinfo_services ()
       if (nchars > 0)
 	for (char *srv = strtok (buf, "\n"); srv; srv = strtok (NULL, "\n"))
 	  {
-	    snprintf (buf2, sizeof (buf2), "\"%s\" --query %s", cygrunsrv, srv);
+	    snprintf (buf2, sizeof (buf2), "%s --query %s", cygrunsrv, srv);
 	    if ((f = popen (buf2, "rt")) == NULL)
 	      {
 		printf ("Failed to execute '%s', skipping services check.\n", buf2);
@@ -1222,172 +1032,6 @@ dump_sysinfo_services ()
     puts ("No Cygwin services found.\n");
 }
 
-enum handle_reg_t
-{
-  PRINT_KEY,
-  DELETE_KEY
-};
-
-void
-handle_reg_installation (handle_reg_t what)
-{
-  HKEY key;
-
-  if (what == PRINT_KEY)
-    printf ("Cygwin installations found in the registry:\n");
-  for (int i = 0; i < 2; ++i)
-    if (RegOpenKeyEx (i ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE,
-		      "SOFTWARE\\Cygwin\\Installations", 0,
-		      what == DELETE_KEY ? KEY_READ | KEY_WRITE : KEY_READ,
-		      &key)
-	== ERROR_SUCCESS)
-      {
-	char name[32], data[PATH_MAX];
-	DWORD nsize, dsize, type;
-	LONG ret;
-
-	for (DWORD index = 0;
-	     (ret = RegEnumValue (key, index, name, (nsize = 32, &nsize), 0,
-				  &type, (PBYTE) data,
-				  (dsize = PATH_MAX, &dsize)))
-	     != ERROR_NO_MORE_ITEMS; ++index)
-	  if (ret == ERROR_SUCCESS && dsize > 5)
-	    {
-	      char *path = data + 4;
-	      if (path[1] != ':')
-		*(path += 2) = '\\';
-	      if (what == PRINT_KEY)
-		printf ("  %s Key: %s Path: %s", i ? "User:  " : "System:",
-			name, path);
-	      strcat (path, "\\bin\\cygwin1.dll");
-	      if (what == PRINT_KEY)
-		printf ("%s\n", access (path, F_OK) ? " (ORPHANED)" : "");
-	      else if (access (path, F_OK))
-		{
-		  RegDeleteValue (key, name);
-		  /* Start over since index is not reliable anymore. */
-		  --i;
-		  break;
-		}
-	    }
-	RegCloseKey (key);
-      }
-  if (what == PRINT_KEY)
-    printf ("\n");
-}
-
-void
-print_reg_installations ()
-{
-  handle_reg_installation (PRINT_KEY);
-}
-
-void
-del_orphaned_reg_installations ()
-{
-  handle_reg_installation (DELETE_KEY);
-}
-
-/* Unfortunately neither mingw nor Windows know this function. */
-char *
-memmem (char *haystack, size_t haystacklen,
-	const char *needle, size_t needlelen)
-{
-  if (needlelen == 0)
-    return haystack;
-  while (needlelen <= haystacklen)
-    {
-      if (!memcmp (haystack, needle, needlelen))
-	return haystack;
-      haystack++;
-      haystacklen--;
-    }
-  return NULL;
-}
-
-int
-handle_unique_object_name (int opt, char *path)
-{
-  HANDLE fh, fm;
-  void *haystack = NULL;
-
-  if (!path || !*path)
-    usage (stderr, 1);
-
-  DWORD access, share, protect, mapping;
-
-  if (opt == CO_SHOW_UON)
-    {
-      access = GENERIC_READ;
-      share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-      protect = PAGE_READONLY;
-      mapping = FILE_MAP_READ;
-    }
-  else
-    {
-      access = GENERIC_READ | GENERIC_WRITE;
-      share = 0;
-      protect = PAGE_READWRITE;
-      mapping = FILE_MAP_WRITE;
-    }
-
-  fh = CreateFile (path, access, share, NULL, OPEN_EXISTING,
-		   FILE_FLAG_BACKUP_SEMANTICS, NULL);
-  if (fh == INVALID_HANDLE_VALUE)
-    {
-      DWORD err = GetLastError ();
-      switch (err)
-	{
-	case ERROR_SHARING_VIOLATION:
-	  display_error ("%s still used by other Cygwin processes.\n"
-			 "Please stop all of them and retry.", path);
-	  break;
-	case ERROR_ACCESS_DENIED:
-	  display_error (
-	    "Your permissions are not sufficient to change the file \"%s\"",
-	    path);
-	  break;
-	case ERROR_FILE_NOT_FOUND:
-	  display_error ("%s: No such file.", path);
-	  break;
-	default:
-	  display_error (path, true, false);
-	  break;
-	}
-      return 1;
-    }
-  if (!(fm = CreateFileMapping (fh, NULL, protect, 0, 0, NULL)))
-    display_error ("CreateFileMapping");
-  else if (!(haystack = MapViewOfFile (fm, mapping, 0, 0, 0)))
-    display_error ("MapViewOfFile");
-  else
-    {
-      size_t haystacklen = GetFileSize (fh, NULL);
-      cygwin_props_t *cygwin_props = (cygwin_props_t *)
-	       memmem ((char *) haystack, haystacklen,
-		       CYGWIN_PROPS_MAGIC, sizeof (CYGWIN_PROPS_MAGIC));
-      if (!cygwin_props)
-	display_error ("Can't find Cygwin properties in %s", path);
-      else
-	{
-	  if (opt != CO_SHOW_UON)
-	    cygwin_props->disable_key = opt - CO_ENABLE_UON;
-	  printf ("Unique object names are %s\n",
-		  cygwin_props->disable_key ? "disabled" : "enabled");
-	  UnmapViewOfFile (haystack);
-	  CloseHandle (fm);
-	  CloseHandle (fh);
-	  return 0;
-	}
-    }
-  if (haystack)
-    UnmapViewOfFile (haystack);
-  if (fm)
-    CloseHandle (fm);
-  CloseHandle (fh);
-  return 1;
-}
-
 static void
 dump_sysinfo ()
 {
@@ -1396,249 +1040,104 @@ dump_sysinfo ()
   time_t now;
   char *found_cygwin_dll;
   bool is_nt = false;
-  bool more_info = true;
-  char osname[128];
-  DWORD obcaseinsensitive = 1;
-  HKEY key;
 
   printf ("\nCygwin Configuration Diagnostics\n");
   time (&now);
   printf ("Current System Time: %s\n", ctime (&now));
 
-  OSVERSIONINFOEX osversion;
-  osversion.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEX);
-  if (!GetVersionEx (reinterpret_cast<LPOSVERSIONINFO>(&osversion)))
-    {
-      more_info = false;
-      osversion.dwOSVersionInfoSize = sizeof (OSVERSIONINFO);
-      if (!GetVersionEx (reinterpret_cast<LPOSVERSIONINFO>(&osversion)))
-	display_error ("dump_sysinfo: GetVersionEx()");
-    }
-
-  HMODULE k32 = GetModuleHandleW (L"kernel32.dll");
-
+  OSVERSIONINFO osversion;
+  osversion.dwOSVersionInfoSize = sizeof (osversion);
+  if (!GetVersionEx (&osversion))
+    display_error ("dump_sysinfo: GetVersionEx()");
+  const char *osname = "unknown OS";
   switch (osversion.dwPlatformId)
     {
     case VER_PLATFORM_WIN32s:
-      strcpy (osname, "32s (not supported)");
+      osname = "32s";
       break;
     case VER_PLATFORM_WIN32_WINDOWS:
-      strcpy (osname, "95/98/Me (not supported)");
+      switch (osversion.dwMinorVersion)
+	{
+	case 0:
+	  if (strchr (osversion.szCSDVersion, 'C'))
+	    osname = "95 OSR2";
+	  else
+	    osname = "95";
+	  break;
+	case 10:
+	  if (strchr (osversion.szCSDVersion, 'A'))
+	    osname = "98 SE";
+	  else
+	    osname = "98";
+	  break;
+	case 90:
+	  osname = "ME";
+	  break;
+	default:
+	  osname = "9X";
+	  break;
+	}
       break;
     case VER_PLATFORM_WIN32_NT:
       is_nt = true;
       if (osversion.dwMajorVersion == 6)
-	{
-	  BOOL (WINAPI *GetProductInfo) (DWORD, DWORD, DWORD, DWORD, PDWORD) =
-		  (BOOL (WINAPI *)(DWORD, DWORD, DWORD, DWORD, PDWORD))
-		  GetProcAddress (k32, "GetProductInfo");
-	  switch (osversion.dwMinorVersion)
-	    {
-	    case 0:
-	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "Vista" : "2008");
-	      break;
-	    case 1:
-	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "7" : "2008 R2");
-	      break;
-	    default:
-	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "8" : "2012");
-	      break;
-	    }
-	  DWORD prod;
-	  if (GetProductInfo (osversion.dwMajorVersion,
-			      osversion.dwMinorVersion,
-			      osversion.wServicePackMajor,
-			      osversion.wServicePackMinor,
-			      &prod))
-	    {
-#define       PRODUCT_UNLICENSED 0xabcdabcd
-#ifndef PRODUCT_PROFESSIONAL_WMC
-#define       PRODUCT_PROFESSIONAL_WMC 0x00000067
-#endif
-	      const char *products[] =
-		{
- /* 0x00000000 */ "",
- /* 0x00000001 */ " Ultimate",
- /* 0x00000002 */ " Home Basic",
- /* 0x00000003 */ " Home Premium",
- /* 0x00000004 */ " Enterprise",
- /* 0x00000005 */ " Home Basic N",
- /* 0x00000006 */ " Business",
- /* 0x00000007 */ " Server Standard",
- /* 0x00000008 */ " Server Datacenter",
- /* 0x00000009 */ " Small Business Server",
- /* 0x0000000a */ " Server Enterprise",
- /* 0x0000000b */ " Starter",
- /* 0x0000000c */ " Server Datacenter Core",
- /* 0x0000000d */ " Server Standard Core",
- /* 0x0000000e */ " Server Enterprise Core",
- /* 0x0000000f */ " Server Enterprise for Itanium-based Systems",
- /* 0x00000010 */ " Business N",
- /* 0x00000011 */ " Web Server",
- /* 0x00000012 */ " HPC Edition",
- /* 0x00000013 */ " Home Server",
- /* 0x00000014 */ " Storage Server Express",
- /* 0x00000015 */ " Storage Server Standard",
- /* 0x00000016 */ " Storage Server Workgroup",
- /* 0x00000017 */ " Storage Server Enterprise",
- /* 0x00000018 */ " for Windows Essential Server Solutions",
- /* 0x00000019 */ " Small Business Server Premium",
- /* 0x0000001a */ " Home Premium N",
- /* 0x0000001b */ " Enterprise N",
- /* 0x0000001c */ " Ultimate N",
- /* 0x0000001d */ " Web Server Core",
- /* 0x0000001e */ " Essential Business Server Management Server",
- /* 0x0000001f */ " Essential Business Server Security Server"
- /* 0x00000020 */ " Essential Business Server Messaging Server",
- /* 0x00000021 */ " Server Foundation",
- /* 0x00000022 */ " Home Server 2011",
- /* 0x00000023 */ " without Hyper-V for Windows Essential Server Solutions",
- /* 0x00000024 */ " Server Standard without Hyper-V",
- /* 0x00000025 */ " Server Datacenter without Hyper-V",
- /* 0x00000026 */ " Server Enterprise without Hyper-V",
- /* 0x00000027 */ " Server Datacenter Core without Hyper-V",
- /* 0x00000028 */ " Server Standard Core without Hyper-V",
- /* 0x00000029 */ " Server Enterprise Core without Hyper-V",
- /* 0x0000002a */ " Hyper-V Server",
- /* 0x0000002b */ " Storage Server Express Core",
- /* 0x0000002c */ " Storage Server Standard Core",
- /* 0x0000002d */ " Storage Server Workgroup Core",
- /* 0x0000002e */ " Storage Server Enterprise Core",
- /* 0x0000002f */ " Starter N",
- /* 0x00000030 */ " Professional",
- /* 0x00000031 */ " Professional N",
- /* 0x00000032 */ " Small Business Server 2011 Essentials"
- /* 0x00000033 */ " Server For SB Solutions",
- /* 0x00000034 */ " Server Solutions Premium",
- /* 0x00000035 */ " Server Solutions Premium Core",
- /* 0x00000036 */ " Server For SB Solutions EM", /* per MSDN, 2012-09-01 */
- /* 0x00000037 */ " Server For SB Solutions EM", /* per MSDN, 2012-09-01 */
- /* 0x00000038 */ " Multipoint Server",
- /* 0x00000039 */ "",
- /* 0x0000003a */ "",
- /* 0x0000003b */ " Essential Server Solution Management",
- /* 0x0000003c */ " Essential Server Solution Additional",
- /* 0x0000003d */ " Essential Server Solution Management SVC",
- /* 0x0000003e */ " Essential Server Solution Additional SVC",
- /* 0x0000003f */ " Small Business Server Premium Core",
- /* 0x00000040 */ " Server Hyper Core V",
- /* 0x00000041 */ "",
- /* 0x00000042 */ " Starter E",
- /* 0x00000043 */ " Home Basic E",
- /* 0x00000044 */ " Home Premium E",
- /* 0x00000045 */ " Professional E",
- /* 0x00000046 */ " Enterprise E",
- /* 0x00000047 */ " Ultimate E"
- /* 0x00000048 */ " Server Enterprise (Evaluation inst.)",
- /* 0x00000049 */ "",
- /* 0x0000004a */ "",
- /* 0x0000004b */ "",
- /* 0x0000004c */ " MultiPoint Server Standard",
- /* 0x0000004d */ " MultiPoint Server Premium",
- /* 0x0000004e */ "",
- /* 0x0000004f */ " Server Standard (Evaluation inst.)",
- /* 0x00000050 */ " Server Datacenter (Evaluation inst.)",
- /* 0x00000051 */ "",
- /* 0x00000052 */ "",
- /* 0x00000053 */ "",
- /* 0x00000054 */ " Enterprise N (Evaluation inst.)",
- /* 0x00000055 */ "",
- /* 0x00000056 */ "",
- /* 0x00000057 */ "",
- /* 0x00000058 */ "",
- /* 0x00000059 */ "",
- /* 0x0000005a */ "",
- /* 0x0000005b */ "",
- /* 0x0000005c */ "",
- /* 0x0000005d */ "",
- /* 0x0000005e */ "",
- /* 0x0000005f */ " Storage Server Workgroup (Evaluation inst.)",
- /* 0x00000060 */ " Storage Server Standard (Evaluation inst.)",
- /* 0x00000061 */ "",
- /* 0x00000062 */ " N",			/* "8 N" */
- /* 0x00000063 */ " China",		/* "8 China" */
- /* 0x00000064 */ " Single Language",	/* "8 Single Language" */
- /* 0x00000065 */ "",			/* "8" */
- /* 0x00000066 */ "",
- /* 0x00000067 */ " Professional with Media Center"
-		};
-	      if (prod == PRODUCT_UNLICENSED)
-		strcat (osname, "Unlicensed");
-	      else if (prod > PRODUCT_PROFESSIONAL_WMC)
-		strcat (osname, "");
-	      else
-		strcat (osname, products[prod]);
-	    }
-	  else
-	    {
-	    }
-	}
+	osname = "Longhorn/Vista (not yet supported!)";
       else if (osversion.dwMajorVersion == 5)
 	{
+	  BOOL more_info = FALSE;
+	  OSVERSIONINFOEX osversionex;
+	  osversionex.dwOSVersionInfoSize = sizeof (osversionex);
+	  if (GetVersionEx ((OSVERSIONINFO *) &osversionex))
+	    more_info = TRUE;
 	  if (osversion.dwMinorVersion == 0)
 	    {
-	      strcpy (osname, "2000");
-	      if (osversion.wProductType == VER_NT_WORKSTATION)
-		strcat (osname, " Professional");
-	      else if (osversion.wSuiteMask & VER_SUITE_DATACENTER)
-		strcat (osname, " Datacenter Server");
-	      else if (osversion.wSuiteMask & VER_SUITE_ENTERPRISE)
-		strcat (osname, " Advanced Server");
+	      if (!more_info)
+		osname = "2000";
+	      else if (osversionex.wProductType == VER_NT_SERVER
+		       || osversionex.wProductType == VER_NT_DOMAIN_CONTROLLER)
+		{
+		  if (osversionex.wSuiteMask & VER_SUITE_DATACENTER)
+		    osname = "2000 Datacenter Server";
+		  else if (osversionex.wSuiteMask & VER_SUITE_ENTERPRISE)
+		    osname = "2000 Advanced Server";
+		  else
+		    osname = "2000 Server";
+		}
 	      else
-		strcat (osname, " Server");
+		osname = "2000 Professional";
 	    }
 	  else if (osversion.dwMinorVersion == 1)
 	    {
-	      strcpy (osname, "XP");
 	      if (GetSystemMetrics (SM_MEDIACENTER))
-		strcat (osname, " Media Center Edition");
+	        osname = "XP Media Center Edition";
 	      else if (GetSystemMetrics (SM_TABLETPC))
-		strcat (osname, " Tablet PC Edition");
-	      else if (GetSystemMetrics (SM_STARTER))
-		strcat (osname, " Starter Edition");
-	      else if (osversion.wSuiteMask & VER_SUITE_PERSONAL)
-		strcat (osname, " Home Edition");
+	        osname = "XP Tablet PC Edition";
+	      else if (!more_info)
+		osname = "XP";
+	      else if (osversionex.wSuiteMask & VER_SUITE_PERSONAL)
+	        osname = "XP Home Edition";
 	      else
-		strcat (osname, " Professional");
+	        osname = "XP Professional";
 	    }
 	  else if (osversion.dwMinorVersion == 2)
 	    {
-	      strcpy (osname, "2003 Server");
-	      if (GetSystemMetrics (SM_SERVERR2))
-		strcat (osname, " R2");
-	      if (osversion.wSuiteMask & VER_SUITE_BLADE)
-		strcat (osname, " Web Edition");
-	      else if (osversion.wSuiteMask & VER_SUITE_DATACENTER)
-		strcat (osname, " Datacenter Edition");
-	      else if (osversion.wSuiteMask & VER_SUITE_ENTERPRISE)
-		strcat (osname, " Enterprise Edition");
-	      else if (osversion.wSuiteMask & VER_SUITE_COMPUTE_SERVER)
-		strcat (osname, " Compute Cluster Edition");
-	    }
-	}
-      else if (osversion.dwMajorVersion == 4)
-	{
-	  strcpy (osname, "NT 4");
-	  if (more_info)
-	    {
-	      if (osversion.wProductType == VER_NT_WORKSTATION)
-		strcat (osname, " Workstation");
+	      if (!more_info)
+		osname = "2003 Server";
+	      else if (osversionex.wSuiteMask & VER_SUITE_BLADE)
+		osname = "2003 Web Server";
+	      else if (osversionex.wSuiteMask & VER_SUITE_DATACENTER)
+		osname = "2003 Datacenter Server";
+	      else if (osversionex.wSuiteMask & VER_SUITE_ENTERPRISE)
+		osname = "2003 Enterprise Server";
 	      else
-		{
-		  strcat (osname, " Server");
-		  if (osversion.wSuiteMask & VER_SUITE_ENTERPRISE)
-		    strcat (osname, " Enterprise Edition");
-		}
+		osname = "2003 Server";
 	    }
 	}
       else
-	strcpy (osname, "NT");
+	osname = "NT";
       break;
     default:
-      strcpy (osname, "??");
+      osname = "??";
       break;
     }
   printf ("Windows %s Ver %lu.%lu Build %lu %s\n", osname,
@@ -1648,9 +1147,7 @@ dump_sysinfo ()
 	  osversion.dwPlatformId == VER_PLATFORM_WIN32_NT ?
 	  osversion.szCSDVersion : "");
 
-  if (osversion.dwPlatformId == VER_PLATFORM_WIN32s
-      || osversion.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS)
-    exit (EXIT_FAILURE);
+  HMODULE k32 = LoadLibrary ("kernel32.dll");
 
   BOOL (WINAPI *wow64_func) (HANDLE, PBOOL) = (BOOL (WINAPI *) (HANDLE, PBOOL))
     GetProcAddress (k32, "IsWow64Process");
@@ -1658,12 +1155,12 @@ dump_sysinfo ()
   if (wow64_func && wow64_func (GetCurrentProcess (), &is_wow64) && is_wow64)
     {
       void (WINAPI *nativinfo) (LPSYSTEM_INFO) = (void (WINAPI *)
-	(LPSYSTEM_INFO)) GetProcAddress (k32, "GetNativeSystemInfo");
+        (LPSYSTEM_INFO)) GetProcAddress (k32, "GetNativeSystemInfo");
       SYSTEM_INFO natinfo;
       nativinfo (&natinfo);
       fputs ("\nRunning under WOW64 on ", stdout);
       switch (natinfo.wProcessorArchitecture)
-	{
+        {
 	  case PROCESSOR_ARCHITECTURE_IA64:
 	    puts ("IA64");
 	    break;
@@ -1703,7 +1200,17 @@ dump_sysinfo ()
 
   fflush (stdout);
 
-  pretty_id ();
+  char *cygwin = getenv ("CYGWIN");
+  if (cygwin)
+    cygwin -= strlen ("CYGWIN=");
+  else
+    cygwin = const_cast <char *> ("CYGWIN=");
+  size_t cyglen = strlen (cygwin);
+  cygwin = strcpy ((char *) malloc (cyglen + sizeof (" nontsec")), cygwin);
+  pretty_id ("nontsec", cygwin, cyglen);
+  pretty_id ("ntsec", cygwin, cyglen);
+  cygwin[cyglen] = 0;
+  putenv (cygwin);
 
   if (!GetSystemDirectory (tmp, 4000))
     display_error ("dump_sysinfo: GetSystemDirectory()");
@@ -1764,28 +1271,23 @@ dump_sysinfo ()
   if (registry)
     {
       if (givehelp)
-	printf ("Scanning registry for keys with 'Cygwin' in them...\n");
-      scan_registry (0, HKEY_CURRENT_USER,
-		     (char *) "HKEY_CURRENT_USER", 0, false);
-      scan_registry (0, HKEY_LOCAL_MACHINE,
-		     (char *) "HKEY_LOCAL_MACHINE", 0, false);
+	printf ("Scanning registry for keys with 'Cygnus' in them...\n");
+#if 0
+      /* big and not generally useful */
+      scan_registry (0, HKEY_CLASSES_ROOT, (char *) "HKEY_CLASSES_ROOT", 0);
+#endif
+      scan_registry (0, HKEY_CURRENT_CONFIG,
+		     (char *) "HKEY_CURRENT_CONFIG", 0);
+      scan_registry (0, HKEY_CURRENT_USER, (char *) "HKEY_CURRENT_USER", 0);
+      scan_registry (0, HKEY_LOCAL_MACHINE, (char *) "HKEY_LOCAL_MACHINE", 0);
+#if 0
+      /* the parts we need are duplicated in HKEY_CURRENT_USER anyway */
+      scan_registry (0, HKEY_USERS, (char *) "HKEY_USERS", 0);
+#endif
       printf ("\n");
     }
   else
     printf ("Use '-r' to scan registry\n\n");
-
-  if (RegOpenKeyEx (HKEY_LOCAL_MACHINE,
-		  "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
-		  0, KEY_READ, &key) == ERROR_SUCCESS)
-    {
-      DWORD size;
-      RegQueryValueEx (key, "obcaseinsensitive", NULL, NULL,
-		       (LPBYTE) &obcaseinsensitive, &size);
-      RegCloseKey (key);
-    }
-  printf ("obcaseinsensitive set to %lu\n\n", obcaseinsensitive);
-
-  print_reg_installations ();
 
   if (givehelp)
     {
@@ -1806,7 +1308,7 @@ dump_sysinfo ()
 	continue;
       char drive[4], name[200], fsname[200];
       DWORD serno = 0, maxnamelen = 0, flags = 0;
-      name[0] = fsname[0] = 0;
+      name[0] = name[0] = fsname[0] = 0;
       sprintf (drive, "%c:\\", i + 'a');
       /* Report all errors, except if the Volume is ERROR_NOT_READY.
 	 ERROR_NOT_READY is returned when removeable media drives are empty
@@ -1887,6 +1389,8 @@ dump_sysinfo ()
 	      name);
     }
 
+  if (!FreeLibrary (k32))
+    display_error ("dump_sysinfo: FreeLibrary()");
   SetErrorMode (prev_mode);
   if (givehelp)
     {
@@ -1935,11 +1439,13 @@ dump_sysinfo ()
     }
   printf ("\n");
 
+  add_path ((char *) "\\bin", 4);	/* just in case */
+
   if (givehelp)
     printf
       ("Looking to see where common programs can be found, if at all...\n");
   for (i = 0; common_apps[i].name; i++)
-    if (!find_app_on_path ((char *) common_apps[i].name, 1))
+    if (!find_on_path ((char *) common_apps[i].name, (char *) ".exe", 1, 0))
       {
 	if (common_apps[i].missing_is_good)
 	  printf ("Not Found: %s (good!)\n", common_apps[i].name);
@@ -1951,38 +1457,31 @@ dump_sysinfo ()
   if (givehelp)
     printf ("Looking for various Cygwin DLLs...  (-v gives version info)\n");
   int cygwin_dll_count = 0;
-  char cygdll_path[32768];
-  for (pathlike *pth = paths; pth->dir; pth++)
+  for (i = 1; i < num_paths; i++)
     {
-      WIN32_FIND_DATAW ffinfo;
-      sprintf (tmp, "%s*.*", pth->dir);
-      wide_path wpath (tmp);
-      HANDLE ff = FindFirstFileW (wpath, &ffinfo);
+      WIN32_FIND_DATA ffinfo;
+      sprintf (tmp, "%s/*.*", paths[i]);
+      HANDLE ff = FindFirstFile (tmp, &ffinfo);
       int found = (ff != INVALID_HANDLE_VALUE);
       found_cygwin_dll = NULL;
       while (found)
 	{
-	  char f[FILENAME_MAX + 1];
-	  wcstombs (f, ffinfo.cFileName, sizeof f);
+	  char *f = ffinfo.cFileName;
 	  if (strcasecmp (f + strlen (f) - 4, ".dll") == 0)
 	    {
 	      if (strncasecmp (f, "cyg", 3) == 0)
 		{
-		  sprintf (tmp, "%s%s", pth->dir, f);
+		  sprintf (tmp, "%s\\%s", paths[i], f);
 		  if (strcasecmp (f, "cygwin1.dll") == 0)
 		    {
-		      if (!cygwin_dll_count)
-			strcpy (cygdll_path, pth->dir);
-		      if (!cygwin_dll_count
-			  || strcasecmp (cygdll_path, pth->dir) != 0)
-			cygwin_dll_count++;
+		      cygwin_dll_count++;
 		      found_cygwin_dll = strdup (tmp);
 		    }
 		  else
 		    ls (tmp);
 		}
 	    }
-	  found = FindNextFileW (ff, &ffinfo);
+	  found = FindNextFile (ff, &ffinfo);
 	}
       if (found_cygwin_dll)
 	{
@@ -2006,7 +1505,7 @@ dump_sysinfo ()
 static int
 check_keys ()
 {
-  HANDLE h = CreateFileW (L"CONIN$", GENERIC_READ | GENERIC_WRITE,
+  HANDLE h = CreateFileA ("CONIN$", GENERIC_READ | GENERIC_WRITE,
 			  FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
 			  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
@@ -2032,14 +1531,14 @@ check_keys ()
   INPUT_RECORD in, prev_in;
 
   // Drop first <RETURN> key
-  ReadConsoleInputW (h, &in, 1, &mode);
+  ReadConsoleInput (h, &in, 1, &mode);
 
   memset (&in, 0, sizeof in);
 
   do
     {
       prev_in = in;
-      if (!ReadConsoleInputW (h, &in, 1, &mode))
+      if (!ReadConsoleInput (h, &in, 1, &mode))
 	display_error ("check_keys: ReadConsoleInput()");
 
       if (!memcmp (&in, &prev_in, sizeof in))
@@ -2048,12 +1547,12 @@ check_keys ()
       switch (in.EventType)
 	{
 	case KEY_EVENT:
-	  printf ("%s %ux VK: 0x%04x VS: 0x%04x C: 0x%04x CTRL: ",
+	  printf ("%s %ux VK: 0x%02x VS: 0x%02x A: 0x%02x CTRL: ",
 		  in.Event.KeyEvent.bKeyDown ? "Pressed " : "Released",
 		  in.Event.KeyEvent.wRepeatCount,
 		  in.Event.KeyEvent.wVirtualKeyCode,
 		  in.Event.KeyEvent.wVirtualScanCode,
-		  (unsigned char) in.Event.KeyEvent.uChar.UnicodeChar);
+		  (unsigned char) in.Event.KeyEvent.uChar.AsciiChar);
 	  fputs (in.Event.KeyEvent.dwControlKeyState & CAPSLOCK_ON ?
 		 "CL " : "-- ", stdout);
 	  fputs (in.Event.KeyEvent.dwControlKeyState & ENHANCED_KEY ?
@@ -2081,7 +1580,7 @@ check_keys ()
     }
   while (in.EventType != KEY_EVENT ||
 	 in.Event.KeyEvent.bKeyDown != FALSE ||
-	 in.Event.KeyEvent.uChar.UnicodeChar != L'q');
+	 in.Event.KeyEvent.uChar.AsciiChar != 'q');
 
   CloseHandle (h);
   return 0;
@@ -2092,7 +1591,7 @@ static const char safe_chars[] = "$-_.+!*'(),";
 
 /* the URL to query.  */
 static const char base_url[] =
-	"http://cygwin.com/cgi-bin2/package-grep.cgi?text=1&grep=";
+        "http://cygwin.com/cgi-bin2/package-grep.cgi?text=1&grep=";
 
 /* Queries Cygwin web site for packages containing files matching a regexp.
    Return value is 1 if there was a problem, otherwise 0.  */
@@ -2107,7 +1606,7 @@ package_grep (char *search)
   if (!(hWinInet = LoadLibrary ("wininet.dll")))
     {
       fputs ("Unable to locate WININET.DLL.  This feature requires Microsoft "
-	     "Internet Explorer v3 or later to function.\n", stderr);
+             "Internet Explorer v3 or later to function.\n", stderr);
       return 1;
     }
 
@@ -2116,25 +1615,25 @@ package_grep (char *search)
      and call GetProcAddress for each of them with the following macro.  */
 
   pInternetCloseHandle = (BOOL (WINAPI *) (HINTERNET))
-			    GetProcAddress (hWinInet, "InternetCloseHandle");
+                            GetProcAddress (hWinInet, "InternetCloseHandle");
 #define make_func_pointer(name, ret, args) ret (WINAPI * p##name) args = \
-	    (ret (WINAPI *) args) GetProcAddress (hWinInet, #name);
+            (ret (WINAPI *) args) GetProcAddress (hWinInet, #name);
   make_func_pointer (InternetAttemptConnect, DWORD, (DWORD));
-  make_func_pointer (InternetOpenA, HINTERNET, (LPCSTR, DWORD, LPCSTR, LPCSTR,
-						DWORD));
-  make_func_pointer (InternetOpenUrlA, HINTERNET, (HINTERNET, LPCSTR, LPCSTR,
-						   DWORD, DWORD, DWORD));
+  make_func_pointer (InternetOpenA, HINTERNET, (LPCSTR, DWORD, LPCSTR, LPCSTR, 
+                                                DWORD));
+  make_func_pointer (InternetOpenUrlA, HINTERNET, (HINTERNET, LPCSTR, LPCSTR, 
+                                                   DWORD, DWORD, DWORD));
   make_func_pointer (InternetReadFile, BOOL, (HINTERNET, PVOID, DWORD, PDWORD));
   make_func_pointer (HttpQueryInfoA, BOOL, (HINTERNET, DWORD, PVOID, PDWORD,
-					    PDWORD));
+                                            PDWORD));
 #undef make_func_pointer
 
   if(!pInternetCloseHandle || !pInternetAttemptConnect || !pInternetOpenA
      || !pInternetOpenUrlA || !pInternetReadFile || !pHttpQueryInfoA)
     {
       fputs ("Unable to load one or more functions from WININET.DLL.  This "
-	     "feature requires Microsoft Internet Explorer v3 or later to "
-	     "function.\n", stderr);
+             "feature requires Microsoft Internet Explorer v3 or later to "
+             "function.\n", stderr);
       return 1;
     }
 
@@ -2146,16 +1645,16 @@ package_grep (char *search)
   for (dest = &url[sizeof (base_url) - 1]; *search; search++)
     {
       if (isalnum (*search)
-	  || memchr (safe_chars, *search, sizeof (safe_chars) - 1))
-	{
-	  *dest++ = *search;
-	}
+          || memchr (safe_chars, *search, sizeof (safe_chars) - 1))
+        {
+          *dest++ = *search;
+        }
       else
-	{
-	  *dest++ = '%';
-	  sprintf (dest, "%02x", (unsigned char) *search);
-	  dest += 2;
-	}
+        {
+          *dest++ = '%';
+          sprintf (dest, "%02x", (unsigned char) *search);
+          dest += 2;
+        }
     }
   *dest = 0;
 
@@ -2173,18 +1672,18 @@ package_grep (char *search)
 
   if (!(hurl = pInternetOpenUrlA (hi, url, NULL, 0, 0, 0)))
     return display_internet_error ("unable to contact cygwin.com site, "
-				   "InternetOpenUrl() failed", hi, NULL);
+                                   "InternetOpenUrl() failed", hi, NULL);
 
   /* Check the HTTP response code.  */
   DWORD rc = 0, rc_s = sizeof (DWORD);
   if (!pHttpQueryInfoA (hurl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-		      (void *) &rc, &rc_s, NULL))
+                      (void *) &rc, &rc_s, NULL))
     return display_internet_error ("HttpQueryInfo() failed", hurl, hi, NULL);
 
   if (rc != HTTP_STATUS_OK)
     {
       sprintf (buf, "error retrieving results from cygwin.com site, "
-		    "HTTP status code %lu", rc);
+                    "HTTP status code %lu", rc);
       return display_internet_error (buf, hurl, hi, NULL);
     }
 
@@ -2193,9 +1692,9 @@ package_grep (char *search)
   do
     {
       if (!pInternetReadFile (hurl, (void *) buf, sizeof (buf), &numread))
-	return display_internet_error ("InternetReadFile failed", hurl, hi, NULL);
+        return display_internet_error ("InternetReadFile failed", hurl, hi, NULL);
       if (numread)
-	fwrite ((void *) buf, (size_t) numread, 1, stdout);
+        fwrite ((void *) buf, (size_t) numread, 1, stdout);
     }
   while (numread);
 
@@ -2208,50 +1707,32 @@ static void
 usage (FILE * stream, int status)
 {
   fprintf (stream, "\
-Usage: cygcheck [-v] [-h] PROGRAM\n\
-       cygcheck -c [-d] [PACKAGE]\n\
-       cygcheck -s [-r] [-v] [-h]\n\
+Usage: cygcheck PROGRAM [ -v ] [ -h ]\n\
+       cygcheck -c [ PACKAGE ] [ -d ]\n\
+       cygcheck -s [ -r ] [ -v ] [ -h ]\n\
        cygcheck -k\n\
-       cygcheck -f FILE [FILE]...\n\
-       cygcheck -l [PACKAGE]...\n\
+       cygcheck -f FILE [ FILE ... ]\n\
+       cygcheck -l [ PACKAGE ] [ PACKAGE ... ]\n\
        cygcheck -p REGEXP\n\
-       cygcheck --delete-orphaned-installation-keys\n\
-       cygcheck --enable-unique-object-names Cygwin-DLL\n\
-       cygcheck --disable-unique-object-names Cygwin-DLL\n\
-       cygcheck --show-unique-object-names Cygwin-DLL\n\
-       cygcheck -h\n\n\
 List system information, check installed packages, or query package database.\n\
 \n\
 At least one command option or a PROGRAM is required, as shown above.\n\
 \n\
   PROGRAM              list library (DLL) dependencies of PROGRAM\n\
   -c, --check-setup    show installed version of PACKAGE and verify integrity\n\
-		       (or for all installed packages if none specified)\n\
+                       (or for all installed packages if none specified)\n\
   -d, --dump-only      just list packages, do not verify (with -c)\n\
-  -s, --sysinfo        produce diagnostic system information (implies -c)\n\
+  -s, --sysinfo        produce diagnostic system information (implies -c -d)\n\
   -r, --registry       also scan registry for Cygwin settings (with -s)\n\
   -k, --keycheck       perform a keyboard check session (must be run from a\n\
-		       plain console only, not from a pty/rxvt/xterm)\n\
-  -f, --find-package   find the package to which FILE belongs\n\
+                       plain console only, not from a pty/rxvt/xterm)\n\
+  -f, --find-package   find the package that FILE belongs to\n\
   -l, --list-package   list contents of PACKAGE (or all packages if none given)\n\
   -p, --package-query  search for REGEXP in the entire cygwin.com package\n\
-		       repository (requires internet connectivity)\n\
-  --delete-orphaned-installation-keys\n\
-		       Delete installation keys of old, now unused\n\
-		       installations from the registry.  Requires the right\n\
-		       to change the registry.\n\
-  --enable-unique-object-names Cygwin-DLL\n\
-  --disable-unique-object-names Cygwin-DLL\n\
-  --show-unique-object-names Cygwin-DLL\n\
-		       Enable, disable, or show the setting of the\n\
-		       \"unique object names\" setting in the Cygwin DLL\n\
-		       given as argument to this option.  The DLL path must\n\
-		       be given as valid Windows(!) path.\n\
-		       See the users guide for more information.\n\
-		       If you don't know what this means, don't change it.\n\
+                       repository (requies internet connectivity)\n\
   -v, --verbose        produce more verbose output\n\
   -h, --help           annotate output with explanatory comments when given\n\
-		       with another command, otherwise print this help\n\
+                       with another command, otherwise print this help\n\
   -V, --version        print the version of cygcheck and exit\n\
 \n\
 Note: -c, -f, and -l only report on packages that are currently installed. To\n\
@@ -2271,10 +1752,6 @@ struct option longopts[] = {
   {"find-package", no_argument, NULL, 'f'},
   {"list-package", no_argument, NULL, 'l'},
   {"package-query", no_argument, NULL, 'p'},
-  {"delete-orphaned-installation-keys", no_argument, NULL, CO_DELETE_KEYS},
-  {"enable-unique-object-names", no_argument, NULL, CO_ENABLE_UON},
-  {"disable-unique-object-names", no_argument, NULL, CO_DISABLE_UON},
-  {"show-unique-object-names", no_argument, NULL, CO_SHOW_UON},
   {"help", no_argument, NULL, 'h'},
   {"version", no_argument, 0, 'V'},
   {0, no_argument, NULL, 0}
@@ -2285,22 +1762,31 @@ static char opts[] = "cdsrvkflphV";
 static void
 print_version ()
 {
-  printf ("cygcheck (cygwin) %d.%d.%d\n"
-	  "System Checker for Cygwin\n"
-	  "Copyright (C) 1998 - %s Red Hat, Inc.\n"
-	  "This is free software; see the source for copying conditions.  There is NO\n"
-	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-	  CYGWIN_VERSION_DLL_MAJOR / 1000,
-	  CYGWIN_VERSION_DLL_MAJOR % 1000,
-	  CYGWIN_VERSION_DLL_MINOR,
-	  strrchr (__DATE__, ' ') + 1);
+  const char *v = strchr (version, ':');
+  int len;
+  if (!v)
+    {
+      v = "?";
+      len = 1;
+    }
+  else
+    {
+      v += 2;
+      len = strchr (v, ' ') - v;
+    }
+  printf ("\
+cygcheck version %.*s\n\
+System Checker for Cygwin\n\
+Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.\n\
+Compiled on %s\n\
+", len, v, __DATE__);
 }
 
 void
 nuke (char *ev)
 {
   int n = 1 + strchr (ev, '=') - ev;
-  char *s = (char *) malloc (n + 1);
+  char *s = (char *) alloca (n + 1);
   memcpy (s, ev, n);
   s[n] = '\0';
   putenv (s);
@@ -2308,7 +1794,6 @@ nuke (char *ev)
 
 extern "C" {
 unsigned long (*cygwin_internal) (int, ...);
-WCHAR cygwin_dll_path[32768];
 };
 
 static void
@@ -2318,44 +1803,35 @@ load_cygwin (int& argc, char **&argv)
 
   if (!(h = LoadLibrary ("cygwin1.dll")))
     return;
-  GetModuleFileNameW (h, cygwin_dll_path, 32768);
-  if ((cygwin_internal = (DWORD (*) (int, ...)) GetProcAddress (h, "cygwin_internal")))
+  if (!(cygwin_internal = (DWORD (*) (int, ...)) GetProcAddress (h, "cygwin_internal")))
+    return;
+
+  char **av = (char **) cygwin_internal (CW_ARGV);
+  if (av && ((DWORD) av != (DWORD) -1))
+    for (argc = 0, argv = av; *av; av++)
+      argc++;
+
+  char **envp = (char **) cygwin_internal (CW_ENVP);
+  if (envp && ((DWORD) envp != (DWORD) -1))
     {
-      char **av = (char **) cygwin_internal (CW_ARGV);
-      if (av && ((DWORD) av != (DWORD) -1))
+      /* Store path and revert to this value, otherwise path gets overwritten
+	 by the POSIXy Cygwin variation, which breaks cygcheck.
+	 Another approach would be to use the Cygwin PATH and convert it to
+	 Win32 again. */
+      char *path = NULL;
+      char **env;
+      while (*(env = _environ))
 	{
-	  /* Copy cygwin's idea of the argument list into this Window application. */
-	  for (argc = 0; av[argc]; argc++)
-	    continue;
-	  argv = (char **) calloc (argc + 1, sizeof (char *));
-	  for (char **argvp = argv; *av; av++)
-	    *argvp++ = strdup (*av);
+	  if (strncmp (*env, "PATH=", 5) == 0)
+	    path = strdup (*env);
+	  nuke (*env);
 	}
-
-
-      char **envp = (char **) cygwin_internal (CW_ENVP);
-      if (envp && ((DWORD) envp != (DWORD) -1))
-	{
-	  /* Store path and revert to this value, otherwise path gets overwritten
-	     by the POSIXy Cygwin variation, which breaks cygcheck.
-	     Another approach would be to use the Cygwin PATH and convert it to
-	     Win32 again. */
-	  char *path = NULL;
-	  char **env;
-	  while (*(env = _environ))
-	    {
-	      if (strncmp (*env, "PATH=", 5) == 0)
-		path = strdup (*env);
-	      nuke (*env);
-	    }
-	  for (char **ev = envp; *ev; ev++)
-	    if (strncmp (*ev, "PATH=", 5) != 0)
-	      putenv (strdup (*ev));
-	  if (path)
-	    putenv (path);
-	}
+      for (char **ev = envp; *ev; ev++)
+	if (strncmp (*ev, "PATH=", 5) != 0)
+	 putenv (*ev);
+      if (path)
+	putenv (path);
     }
-  FreeLibrary (h);
 }
 
 int
@@ -2369,7 +1845,7 @@ main (int argc, char **argv)
      user's original environment.  */
   char *posixly = getenv ("POSIXLY_CORRECT");
   if (posixly == NULL)
-    (void) putenv ("POSIXLY_CORRECT=1");
+    (void) putenv("POSIXLY_CORRECT=1");
   while ((i = getopt_long (argc, argv, opts, longopts, NULL)) != EOF)
     switch (i)
       {
@@ -2398,56 +1874,36 @@ main (int argc, char **argv)
 	list_package = 1;
 	break;
       case 'p':
-	grep_packages = 1;
-	break;
+        grep_packages = 1;
+        break;
       case 'h':
 	givehelp = 1;
-	break;
-      case CO_DELETE_KEYS:
-	del_orphaned_reg = 1;
-	break;
-      case CO_ENABLE_UON:
-      case CO_DISABLE_UON:
-      case CO_SHOW_UON:
-	unique_object_name_opt = i;
 	break;
       case 'V':
 	print_version ();
 	exit (0);
       default:
-	fprintf (stderr, "Try `cygcheck --help' for more information.\n");
-	exit (1);
-       /*NOTREACHED*/
-    }
+	usage (stderr, 1);
+       /*NOTREACHED*/}
   argc -= optind;
   argv += optind;
   if (posixly == NULL)
     putenv ("POSIXLY_CORRECT=");
 
-  if ((argc == 0) && !sysinfo && !keycheck && !check_setup && !list_package
-      && !del_orphaned_reg)
-    {
-      if (givehelp)
-	usage (stdout, 0);
-      else
-	usage (stderr, 1);
-    }
+  if (argc == 0 && !sysinfo && !keycheck && !check_setup && !list_package)
+    if (givehelp)
+      usage (stdout, 0);
+    else
+      usage (stderr, 1);
 
-  if ((check_setup || sysinfo || find_package || list_package || grep_packages
-       || del_orphaned_reg || unique_object_name_opt)
+  if ((check_setup || sysinfo || find_package || list_package || grep_packages)
       && keycheck)
     usage (stderr, 1);
 
-  if ((find_package || list_package || grep_packages)
-      && (check_setup || del_orphaned_reg))
+  if ((find_package || list_package || grep_packages) && check_setup)
     usage (stderr, 1);
 
-  if ((check_setup || sysinfo || find_package || list_package || grep_packages
-       || del_orphaned_reg)
-      && unique_object_name_opt)
-    usage (stderr, 1);
-
-  if (dump_only && !check_setup && !sysinfo)
+  if (dump_only && !check_setup)
     usage (stderr, 1);
 
   if (find_package + list_package + grep_packages > 1)
@@ -2455,10 +1911,6 @@ main (int argc, char **argv)
 
   if (keycheck)
     return check_keys ();
-  if (unique_object_name_opt)
-    return handle_unique_object_name (unique_object_name_opt, *argv);
-  if (del_orphaned_reg)
-    del_orphaned_reg_installations ();
   if (grep_packages)
     return package_grep (*argv);
 
@@ -2495,7 +1947,7 @@ main (int argc, char **argv)
       if (!check_setup)
 	{
 	  puts ("");
-	  dump_setup (verbose, NULL, !dump_only);
+	  dump_setup (verbose, NULL, false);
 	}
 
       if (!givehelp)

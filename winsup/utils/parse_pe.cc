@@ -1,6 +1,6 @@
 /* parse_pe.cc
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2012 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003, 2004 Red Hat, Inc.
 
    Written by Egor Duda <deo@logos-m.ru>
 
@@ -20,7 +20,6 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.  */
 
-#define PACKAGE
 #include <bfd.h>
 #include <stdio.h>
 #include <stdlib.h>
