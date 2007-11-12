@@ -12,11 +12,30 @@
 extern "C" {
 #endif
 
-#ifndef _TIMEVAL_DEFINED
-#define _TIMEVAL_DEFINED
+#ifndef _WINSOCK_H
 struct timeval {
   time_t      tv_sec;
   suseconds_t tv_usec;
+};
+
+struct timezone {
+  int tz_minuteswest;
+  int tz_dsttime;
+};
+
+#ifdef __CYGWIN__
+#include <cygwin/sys_time.h>
+#endif /* __CYGWIN__ */
+
+#endif /* _WINSOCK_H */
+
+#define ITIMER_REAL     0
+#define ITIMER_VIRTUAL  1
+#define ITIMER_PROF     2
+
+struct  itimerval {
+  struct  timeval it_interval;
+  struct  timeval it_value;
 };
 
 /* BSD time macros used by RTEMS code */
@@ -50,31 +69,8 @@ struct timeval {
     }									      \
   } while (0)
 #endif /* defined (__rtems__) || defined (__CYGWIN__) */
-#endif /* !_TIMEVAL_DEFINED */
 
-struct timezone {
-  int tz_minuteswest;
-  int tz_dsttime;
-};
-
-#ifdef __CYGWIN__
-#include <cygwin/sys_time.h>
-#endif /* __CYGWIN__ */
-
-#define ITIMER_REAL     0
-#define ITIMER_VIRTUAL  1
-#define ITIMER_PROF     2
-
-struct  itimerval {
-  struct  timeval it_interval;
-  struct  timeval it_value;
-};
-
-#ifdef _COMPILING_NEWLIB
-int _EXFUN(_gettimeofday, (struct timeval *__p, void *__tz));
-#endif
-
-int _EXFUN(gettimeofday, (struct timeval *__p, void *__tz));
+int _EXFUN(gettimeofday, (struct timeval *__p, void *__z));
 int _EXFUN(settimeofday, (const struct timeval *, const struct timezone *));
 int _EXFUN(utimes, (const char *__path, const struct timeval *__tvp));
 int _EXFUN(getitimer, (int __which, struct itimerval *__value));
