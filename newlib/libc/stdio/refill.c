@@ -43,9 +43,7 @@ _DEFUN(__srefill_r, (ptr, fp),
 {
   /* make sure stdio is set up */
 
-  CHECK_INIT (ptr, fp);
-
-  ORIENT (fp, -1);
+  CHECK_INIT (ptr);
 
   fp->_r = 0;			/* largely a convenience for callers */
 
@@ -102,21 +100,12 @@ _DEFUN(__srefill_r, (ptr, fp),
    * flush all line buffered output files, per the ANSI C
    * standard.
    */
+
   if (fp->_flags & (__SLBF | __SNBF))
-    {
-      /* Ignore this file in _fwalk to avoid potential deadlock. */
-      short orig_flags = fp->_flags;
-      fp->_flags = 1;
-      _CAST_VOID _fwalk (_GLOBAL_REENT, lflush);
-      fp->_flags = orig_flags;
-
-      /* Now flush this file without locking it. */
-      if ((fp->_flags & (__SLBF|__SWR)) == (__SLBF|__SWR))
-	__sflush_r (ptr, fp);
-    }
-
+    _CAST_VOID _fwalk (_GLOBAL_REENT, lflush);
   fp->_p = fp->_bf._base;
   fp->_r = fp->_read (ptr, fp->_cookie, (char *) fp->_p, fp->_bf._size);
+  fp->_flags &= ~__SMOD;	/* buffer contents are again pristine */
 #ifndef __CYGWIN__
   if (fp->_r <= 0)
 #else

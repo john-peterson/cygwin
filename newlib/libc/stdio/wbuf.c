@@ -42,7 +42,7 @@ _DEFUN(__swbuf_r, (ptr, c, fp),
 
   /* Ensure stdio has been initialized.  */
 
-  CHECK_INIT (ptr, fp);
+  CHECK_INIT (ptr);
 
   /*
    * In case we cannot write, or longjmp takes us out early,
@@ -54,10 +54,12 @@ _DEFUN(__swbuf_r, (ptr, c, fp),
 
   fp->_w = fp->_lbfsize;
   if (cantwrite (ptr, fp))
-    return EOF;
+    {
+      fp->_flags |= __SERR;
+      ptr->_errno = EBADF;
+      return EOF;
+    }
   c = (unsigned char) c;
-
-  ORIENT (fp, -1);
 
   /*
    * If it is completely full, flush it out.  Then, in any case,

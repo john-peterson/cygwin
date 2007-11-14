@@ -15,7 +15,6 @@
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 /* This code was copied from sprintf.c */
-/* doc in sprintf.c */
 
 #include <_ansi.h>
 #include <reent.h>
@@ -40,12 +39,12 @@ _DEFUN(_asprintf_r, (ptr, strp, fmt),
   f._bf._size = f._w = 0;
   f._file = -1;  /* No file. */
   va_start (ap, fmt);
-  ret = _svfprintf_r (ptr, &f, fmt, ap);
+  ret = _vfprintf_r (ptr, &f, fmt, ap);
   va_end (ap);
   if (ret >= 0)
     {
       *f._p = 0;
-      *strp = (char *) f._bf._base;
+      *strp = f._bf._base;
     }
   return (ret);
 }
@@ -67,12 +66,12 @@ _DEFUN(asprintf, (strp, fmt),
   f._bf._size = f._w = 0;
   f._file = -1;  /* No file. */
   va_start (ap, fmt);
-  ret = _svfprintf_r (_REENT, &f, fmt, ap);
+  ret = _vfprintf_r (_REENT, &f, fmt, ap);
   va_end (ap);
   if (ret >= 0)
     {
       *f._p = 0;
-      *strp = (char *) f._bf._base;
+      *strp = f._bf._base;
     }
   return (ret);
 }

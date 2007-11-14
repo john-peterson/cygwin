@@ -32,111 +32,14 @@
 # include <io.h>
 #endif
 
-/* The following macros are supposed to replace calls to _flockfile/_funlockfile
-   and __sfp_lock_acquire/__sfp_lock_release.  In case of multi-threaded
-   environments using pthreads, it's not sufficient to lock the stdio functions
-   against concurrent threads accessing the same data, the locking must also be
-   secured against thread cancellation.
 
-   The below macros have to be used in pairs.  The _newlib_XXX_start macro
-   starts with a opening curly brace, the _newlib_XXX_end macro ends with a
-   closing curly brace, so the start macro and the end macro mark the code
-   start and end of a critical section.  In case the code leaves the critical
-   section before reaching the end of the critical section's code end, use
-   the appropriate _newlib_XXX_exit macro. */
-
-#if !defined (__SINGLE_THREAD__) && defined (_POSIX_THREADS)
-#include <pthread.h>
-
-/* Start a stream oriented critical section: */
-# define _newlib_flockfile_start(_fp) \
-	{ \
-	  int __oldfpcancel; \
-	  pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &__oldfpcancel); \
-	  _flockfile (_fp)
-
-/* Exit from a stream oriented critical section prematurely: */
-# define _newlib_flockfile_exit(_fp) \
-	  _funlockfile (_fp); \
-	  pthread_setcancelstate (__oldfpcancel, &__oldfpcancel);
-
-/* End a stream oriented critical section: */
-# define _newlib_flockfile_end(_fp) \
-	  _funlockfile (_fp); \
-	  pthread_setcancelstate (__oldfpcancel, &__oldfpcancel); \
-	}
-
-/* Start a stream list oriented critical section: */
-# define _newlib_sfp_lock_start() \
-	{ \
-	  int __oldsfpcancel; \
-	  pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &__oldsfpcancel); \
-	  __sfp_lock_acquire ()
-
-/* Exit from a stream list oriented critical section prematurely: */
-# define _newlib_sfp_lock_exit() \
-	  __sfp_lock_release (); \
-	  pthread_setcancelstate (__oldsfpcancel, &__oldsfpcancel);
-
-/* End a stream list oriented critical section: */
-# define _newlib_sfp_lock_end() \
-	  __sfp_lock_release (); \
-	  pthread_setcancelstate (__oldsfpcancel, &__oldsfpcancel); \
-	}
-
-#else /* __SINGLE_THREAD__ || !_POSIX_THREADS */
-
-# define _newlib_flockfile_start(_fp) \
-	{ \
-		_flockfile(_fp)
-
-# define _newlib_flockfile_exit(_fp) \
-		_funlockfile(_fp); \
-
-# define _newlib_flockfile_end(_fp) \
-		_funlockfile(_fp); \
-	}
-
-# define _newlib_sfp_lock_start() \
-	{ \
-		__sfp_lock_acquire ()
-
-# define _newlib_sfp_lock_exit() \
-		__sfp_lock_release ();
-
-# define _newlib_sfp_lock_end() \
-		__sfp_lock_release (); \
-	}
-
-#endif /* !__SINGLE_THREAD__ && _POSIX_THREADS */
-
-extern u_char *_EXFUN(__sccl, (char *, u_char *fmt));
 extern int    _EXFUN(__svfscanf_r,(struct _reent *,FILE *, _CONST char *,va_list));
-extern int    _EXFUN(__ssvfscanf_r,(struct _reent *,FILE *, _CONST char *,va_list));
 extern int    _EXFUN(__svfiscanf_r,(struct _reent *,FILE *, _CONST char *,va_list));
-extern int    _EXFUN(__ssvfiscanf_r,(struct _reent *,FILE *, _CONST char *,va_list));
-extern int    _EXFUN(__svfwscanf_r,(struct _reent *,FILE *, _CONST wchar_t *,va_list));
-extern int    _EXFUN(__ssvfwscanf_r,(struct _reent *,FILE *, _CONST wchar_t *,va_list));
-extern int    _EXFUN(__svfiwscanf_r,(struct _reent *,FILE *, _CONST wchar_t *,va_list));
-extern int    _EXFUN(__ssvfiwscanf_r,(struct _reent *,FILE *, _CONST wchar_t *,va_list));
-int	      _EXFUN(_svfprintf_r,(struct _reent *, FILE *, const char *, 
-				  va_list)
-               			_ATTRIBUTE ((__format__ (__printf__, 3, 0))));
-int	      _EXFUN(_svfiprintf_r,(struct _reent *, FILE *, const char *, 
-				  va_list)
-               			_ATTRIBUTE ((__format__ (__printf__, 3, 0))));
-int	      _EXFUN(_svfwprintf_r,(struct _reent *, FILE *, const wchar_t *, 
-				  va_list));
-int	      _EXFUN(_svfiwprintf_r,(struct _reent *, FILE *, const wchar_t *, 
-				  va_list));
 extern FILE  *_EXFUN(__sfp,(struct _reent *));
 extern int    _EXFUN(__sflags,(struct _reent *,_CONST char*, int*));
-extern int    _EXFUN(__sflush_r,(struct _reent *,FILE *));
 extern int    _EXFUN(__srefill_r,(struct _reent *,FILE *));
 extern _READ_WRITE_RETURN_TYPE _EXFUN(__sread,(struct _reent *, void *, char *,
 					       int));
-extern _READ_WRITE_RETURN_TYPE _EXFUN(__seofread,(struct _reent *, void *,
-						  char *, int));
 extern _READ_WRITE_RETURN_TYPE _EXFUN(__swrite,(struct _reent *, void *,
 						const char *, int));
 extern _fpos_t _EXFUN(__sseek,(struct _reent *, void *, _fpos_t, int));
@@ -148,7 +51,6 @@ extern _VOID   _EXFUN(__smakebuf_r,(struct _reent *, FILE *));
 extern int    _EXFUN(_fwalk,(struct _reent *, int (*)(FILE *)));
 extern int    _EXFUN(_fwalk_reent,(struct _reent *, int (*)(struct _reent *, FILE *)));
 struct _glue * _EXFUN(__sfmoreglue,(struct _reent *,int n));
-extern int _EXFUN(__submore, (struct _reent *, FILE *));
 
 #ifdef __LARGE64_FILES
 extern _fpos64_t _EXFUN(__sseek64,(struct _reent *, void *, _fpos64_t, int));
@@ -158,31 +60,7 @@ extern _READ_WRITE_RETURN_TYPE _EXFUN(__swrite64,(struct _reent *, void *,
 
 /* Called by the main entry point fns to ensure stdio has been initialized.  */
 
-#ifdef _REENT_SMALL
-#define CHECK_INIT(ptr, fp) \
-  do						\
-    {						\
-      if ((ptr) && !(ptr)->__sdidinit)		\
-	__sinit (ptr);				\
-      if ((fp) == (FILE *)&__sf_fake_stdin)	\
-	(fp) = _stdin_r(ptr);			\
-      else if ((fp) == (FILE *)&__sf_fake_stdout) \
-	(fp) = _stdout_r(ptr);			\
-      else if ((fp) == (FILE *)&__sf_fake_stderr) \
-	(fp) = _stderr_r(ptr);			\
-    }						\
-  while (0)
-#else /* !_REENT_SMALL   */
-#define CHECK_INIT(ptr, fp) \
-  do						\
-    {						\
-      if ((ptr) && !(ptr)->__sdidinit)		\
-	__sinit (ptr);				\
-    }						\
-  while (0)
-#endif /* !_REENT_SMALL  */
-
-#define CHECK_STD_INIT(ptr) \
+#define CHECK_INIT(ptr) \
   do						\
     {						\
       if ((ptr) && !(ptr)->__sdidinit)		\
@@ -190,8 +68,7 @@ extern _READ_WRITE_RETURN_TYPE _EXFUN(__swrite64,(struct _reent *, void *,
     }						\
   while (0)
 
-/* Return true and set errno and stream error flag iff the given FILE
-   cannot be written now.  */
+/* Return true iff the given FILE cannot be written now.  */
 
 #define	cantwrite(ptr, fp)                                     \
   ((((fp)->_flags & __SWR) == 0 || (fp)->_bf._base == NULL) && \
@@ -212,24 +89,6 @@ extern _READ_WRITE_RETURN_TYPE _EXFUN(__swrite64,(struct _reent *, void *,
 #define	HASLB(fp) ((fp)->_lb._base != NULL)
 #define	FREELB(ptr, fp) { _free_r(ptr,(char *)(fp)->_lb._base); \
       (fp)->_lb._base = NULL; }
-
-/*
- * Set the orientation for a stream. If o > 0, the stream has wide-
- * orientation. If o < 0, the stream has byte-orientation.
- */
-#define ORIENT(fp,ori)					\
-  do								\
-    {								\
-      if (!((fp)->_flags & __SORD))	\
-	{							\
-	  (fp)->_flags |= __SORD;				\
-	  if (ori > 0)						\
-	    (fp)->_flags2 |= __SWID;				\
-	  else							\
-	    (fp)->_flags2 &= ~__SWID;				\
-	}							\
-    }								\
-  while (0)
 
 /* WARNING: _dcvt is defined in the stdlib directory, not here!  */
 
@@ -256,51 +115,3 @@ _VOID _EXFUN(__sfp_lock_release,(_VOID));
 _VOID _EXFUN(__sinit_lock_acquire,(_VOID));
 _VOID _EXFUN(__sinit_lock_release,(_VOID));
 #endif
-
-/* Types used in positional argument support in vfprinf/vfwprintf.
-   The implementation is char/wchar_t dependent but the class and state
-   tables are only defined once in vfprintf.c. */
-typedef enum {
-  ZERO,   /* '0' */
-  DIGIT,  /* '1-9' */
-  DOLLAR, /* '$' */
-  MODFR,  /* spec modifier */
-  SPEC,   /* format specifier */
-  DOT,    /* '.' */
-  STAR,   /* '*' */
-  FLAG,   /* format flag */
-  OTHER,  /* all other chars */
-  MAX_CH_CLASS /* place-holder */
-} __CH_CLASS;
-
-typedef enum {
-  START,  /* start */
-  SFLAG,  /* seen a flag */
-  WDIG,   /* seen digits in width area */
-  WIDTH,  /* processed width */
-  SMOD,   /* seen spec modifier */
-  SDOT,   /* seen dot */
-  VARW,   /* have variable width specifier */
-  VARP,   /* have variable precision specifier */
-  PREC,   /* processed precision */
-  VWDIG,  /* have digits in variable width specification */
-  VPDIG,  /* have digits in variable precision specification */
-  DONE,   /* done */
-  MAX_STATE, /* place-holder */
-} __STATE;
-
-typedef enum {
-  NOOP,  /* do nothing */
-  NUMBER, /* build a number from digits */
-  SKIPNUM, /* skip over digits */
-  GETMOD,  /* get and process format modifier */
-  GETARG,  /* get and process argument */
-  GETPW,   /* get variable precision or width */
-  GETPWB,  /* get variable precision or width and pushback fmt char */
-  GETPOS,  /* get positional parameter value */
-  PWPOS,   /* get positional parameter value for variable width or precision */
-} __ACTION;
-
-extern _CONST __CH_CLASS __chclass[256];
-extern _CONST __STATE __state_table[MAX_STATE][MAX_CH_CLASS];
-extern _CONST __ACTION __action_table[MAX_STATE][MAX_CH_CLASS];

@@ -719,7 +719,8 @@ return(0);
 
 /* Return nonzero if internal format number is infinite. */
 static int 
-eiisinf (unsigned short x[])
+eiisinf (x)
+     unsigned short x[];
 {
 
 #ifdef NANS
@@ -2867,10 +2868,10 @@ unsigned short e[NI];
 LDPARMS rnd;
 LDPARMS *ldp = &rnd;
 
-union uconv du;
-
 rnd.rlast = -1;
 rnd.rndprc = NBITS;
+
+union uconv du;
 du.d = *d;
 #if LDBL_MANT_DIG == 24
 e24toe( &du.pe, e, ldp );
@@ -3152,7 +3153,7 @@ if( digit > 4 )
 		emovo( y, t, ldp );
 		if( ecmp(t,ezero) != 0 )
 			goto roun;	/* round to nearest */
-		if( ndigs < 0 || (*(s-1-(*(s-1)=='.')) & 1) == 0 )
+		if( (*(s-1) & 1) == 0 )
 			goto doexp;	/* round to even */
 		}
 /* Round up and propagate carry-outs */

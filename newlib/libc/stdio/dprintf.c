@@ -10,11 +10,7 @@ FUNCTION
 INDEX
 	dprintf
 INDEX
-	_dprintf_r
-INDEX
 	vdprintf
-INDEX
-	_vdprintf_r
 
 ANSI_SYNOPSIS
 	#include <stdio.h>
@@ -25,6 +21,30 @@ ANSI_SYNOPSIS
 			const char *<[format]>, ...);
 	int _vdprintf_r(struct _reent *<[ptr]>, int <[fd]>,
 			const char *<[format]>, va_list <[ap]>);
+
+TRAD_SYNOPSIS
+        #include <stdio.h>
+        #include <varargs.h>
+
+        int dprintf(<[fd]>, <[format]> [, <[arg]>, ...])
+	int <[fd]>;
+        char *<[format]>;
+
+        int vdprintf(<[fd]>, <[fmt]>, <[list]>)
+	int <[fd]>;
+        char *<[fmt]>;
+        va_list <[list]>;
+
+        int _dprintf_r(<[ptr]>, <[fd]>, <[format]> [, <[arg]>, ...])
+	struct _reent *<[ptr]>;
+	int <[fd]>;
+        char *<[format]>;
+
+        int _vdprintf_r(<[ptr]>, <[fd]>, <[fmt]>, <[list]>)
+	struct _reent *<[ptr]>;
+	int <[fd]>;
+        char *<[fmt]>;
+        va_list <[list]>;
 
 DESCRIPTION
 <<dprintf>> and <<vdprintf>> allow printing a format, similarly to
@@ -49,7 +69,6 @@ Supporting OS subroutines required: <<sbrk>>, <<write>>.
 #include <stdio.h>
 #include <unistd.h>
 #include <stdarg.h>
-#include "local.h"
 
 int
 _DEFUN(_dprintf_r, (ptr, fd, format),

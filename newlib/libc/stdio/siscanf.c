@@ -17,33 +17,29 @@
 
 /*
 FUNCTION
-<<siscanf>>, <<fiscanf>>, <<iscanf>>---scan and format non-floating input
+<<iscanf>>, <<fiscanf>>, <<siscanf>>---scan and format non-floating input
 
 INDEX
 	iscanf
 INDEX
-	_iscanf_r
-INDEX
 	fiscanf
 INDEX
-	_fiscanf_r
-INDEX
 	siscanf
-INDEX
-	_siscanf_r
 
 ANSI_SYNOPSIS
         #include <stdio.h>
 
-        int iscanf(const char *<[format]>, ...);
-        int fiscanf(FILE *<[fd]>, const char *<[format]>, ...);
-        int siscanf(const char *<[str]>, const char *<[format]>, ...);
+        int iscanf(const char *<[format]> [, <[arg]>, ...]);
+        int fiscanf(FILE *<[fd]>, const char *<[format]> [, <[arg]>, ...]);
+        int siscanf(const char *<[str]>, const char *<[format]> 
+                   [, <[arg]>, ...]);
 
-        int _iscanf_r(struct _reent *<[ptr]>, const char *<[format]>, ...);
-        int _fiscanf_r(struct _reent *<[ptr]>, FILE *<[fd]>, 
-                       const char *<[format]>, ...);
+        int _iscanf_r(struct _reent *<[ptr]>, const char *<[format]>
+                   [, <[arg]>, ...]);
+        int _fiscanf_r(struct _reent *<[ptr]>, FILE *<[fd]>, const char *<[format]>
+                   [, <[arg]>, ...]);
         int _siscanf_r(struct _reent *<[ptr]>, const char *<[str]>,
-                   const char *<[format]>, ...);
+                   const char *<[format]> [, <[arg]>, ...]);
 
 
 TRAD_SYNOPSIS
@@ -113,6 +109,18 @@ Supporting OS subroutines required: <<close>>, <<fstat>>, <<isatty>>,
 #endif
 #include "local.h"
 
+/* | ARGSUSED */
+/*SUPPRESS 590*/
+static _READ_WRITE_RETURN_TYPE
+_DEFUN(eofread, (ptr, cookie, buf, len),
+       struct _reent *ptr _AND
+       _PTR cookie _AND
+       char *buf   _AND
+       int len)
+{
+  return 0;
+}
+
 #ifndef _REENT_ONLY 
 
 #ifdef _HAVE_STDC
@@ -135,7 +143,7 @@ siscanf(str, fmt, va_alist)
   f._flags = __SRD | __SSTR;
   f._bf._base = f._p = (unsigned char *) str;
   f._bf._size = f._r = strlen (str);
-  f._read = __seofread;
+  f._read = eofread;
   f._ub._base = NULL;
   f._lb._base = NULL;
   f._file = -1;  /* No file. */
@@ -144,7 +152,7 @@ siscanf(str, fmt, va_alist)
 #else
   va_start (ap);
 #endif
-  ret = __ssvfiscanf_r (_REENT, &f, fmt, ap);
+  ret = __svfiscanf_r (_REENT, &f, fmt, ap);
   va_end (ap);
   return ret;
 }
@@ -173,7 +181,7 @@ _siscanf_r(ptr, str, fmt, va_alist)
   f._flags = __SRD | __SSTR;
   f._bf._base = f._p = (unsigned char *) str;
   f._bf._size = f._r = strlen (str);
-  f._read = __seofread;
+  f._read = eofread;
   f._ub._base = NULL;
   f._lb._base = NULL;
   f._file = -1;  /* No file. */
@@ -182,7 +190,7 @@ _siscanf_r(ptr, str, fmt, va_alist)
 #else
   va_start (ap);
 #endif
-  ret = __ssvfiscanf_r (ptr, &f, fmt, ap);
+  ret = __svfiscanf_r (ptr, &f, fmt, ap);
   va_end (ap);
   return ret;
 }

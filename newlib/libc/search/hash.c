@@ -53,7 +53,6 @@ static char sccsid[] = "@(#)hash.c	8.9 (Berkeley) 6/16/94";
 #include <assert.h>
 #endif
 
-#define __DBINTERFACE_PRIVATE	/* activate prototypes from db_local.h */
 #include "db_local.h"
 #include "hash.h"
 #include "page.h"
@@ -71,7 +70,7 @@ static void *hash_realloc(SEGMENT **, int, int);
 static int   hash_seq(const DB *, DBT *, DBT *, __uint32_t);
 static int   hash_sync(const DB *, __uint32_t);
 static int   hdestroy(HTAB *);
-static HTAB *init_hash(HTAB *, const char *, const HASHINFO *);
+static HTAB *init_hash(HTAB *, const char *, HASHINFO *);
 static int   init_htab(HTAB *, int);
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 static void  swap_header(HTAB *);
@@ -104,12 +103,10 @@ int hash_accesses, hash_collisions, hash_expansions, hash_overflows;
 /* OPEN/CLOSE */
 
 extern DB *
-_DEFUN(__hash_open, (file, flags, mode, info, dflags),
-	const char *file _AND
-	int flags _AND
-	int mode _AND
-	int dflags _AND
-	const HASHINFO *info)	/* Special directives for create */
+__hash_open(file, flags, mode, info, dflags)
+	const char *file;
+	int flags, mode, dflags;
+	const HASHINFO *info;	/* Special directives for create */
 {
 	HTAB *hashp;
 
@@ -141,9 +138,9 @@ _DEFUN(__hash_open, (file, flags, mode, info, dflags),
 	new_table = 0;
 	if (!file || (flags & O_TRUNC) ||
 #ifdef __USE_INTERNAL_STAT64
-	    (_stat64(file, &statbuf) && (errno == ENOENT))) {
+	    (stat64(file, &statbuf) && (errno == ENOENT))) {
 #else
-	    (_stat(file, &statbuf) && (errno == ENOENT))) {
+	    (stat(file, &statbuf) && (errno == ENOENT))) {
 #endif
 		if (errno == ENOENT)
 			errno = 0; /* Just in case someone looks at errno */
@@ -157,9 +154,9 @@ _DEFUN(__hash_open, (file, flags, mode, info, dflags),
 		   a new .db file, then reinitialize the database */
 		if ((flags & O_CREAT) &&
 #ifdef __USE_INTERNAL_STAT64
-		     _fstat64(hashp->fp, &statbuf) == 0 && statbuf.st_size == 0)
+		     fstat64(hashp->fp, &statbuf) == 0 && statbuf.st_size == 0)
 #else
-		     _fstat(hashp->fp, &statbuf) == 0 && statbuf.st_size == 0)
+		     fstat(hashp->fp, &statbuf) == 0 && statbuf.st_size == 0)
 #endif
 			new_table = 1;
 
@@ -314,13 +311,9 @@ static HTAB *
 init_hash(hashp, file, info)
 	HTAB *hashp;
 	const char *file;
-	const HASHINFO *info;
+	HASHINFO *info;
 {
-#ifdef __USE_INTERNAL_STAT64
-        struct stat64 statbuf;
-#else
 	struct stat statbuf;
-#endif
 	int nelem;
 
 	nelem = 1;
@@ -339,9 +332,9 @@ init_hash(hashp, file, info)
 	/* Fix bucket size to be optimal for file system */
 	if (file != NULL) {
 #ifdef __USE_INTERNAL_STAT64
-		if (_stat64(file, &statbuf))
+		if (stat64(file, &statbuf))
 #else
-		if (_stat(file, &statbuf))
+		if (stat(file, &statbuf))
 #endif
 			return (NULL);
 		hashp->BSIZE = statbuf.st_blksize;

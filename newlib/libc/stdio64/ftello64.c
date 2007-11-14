@@ -97,23 +97,20 @@ _DEFUN (_ftello64_r, (ptr, fp),
 
   /* Ensure stdio is set up.  */
 
-  CHECK_INIT (ptr, fp);
+  CHECK_INIT (ptr);
 
-  _newlib_flockfile_start(fp);
+  _flockfile(fp);
 
   if (fp->_seek64 == NULL)
     {
       ptr->_errno = ESPIPE;
-      _newlib_flockfile_exit(fp);
+      _funlockfile(fp);
       return -1L;
     }
 
-  /* Find offset of underlying I/O object, then adjust for buffered
-     bytes.  Flush a write stream, since the offset may be altered if
-     the stream is appending.  Do not flush a read stream, since we
-     must not lose the ungetc buffer.  */
-  if (fp->_flags & __SWR)
-    _fflush_r (ptr, fp);
+  /* Find offset of underlying I/O object, then
+     adjust for buffered bytes.  */
+  _fflush_r (ptr, fp);           /* may adjust seek offset on append stream */
   if (fp->_flags & __SOFF)
     pos = fp->_offset;
   else
@@ -121,7 +118,7 @@ _DEFUN (_ftello64_r, (ptr, fp),
       pos = fp->_seek64 (ptr, fp->_cookie, (_fpos64_t) 0, SEEK_CUR);
       if (pos == -1L)
         {
-          _newlib_flockfile_exit(fp);
+          _funlockfile(fp);
           return pos;
         }
     }
@@ -146,7 +143,7 @@ _DEFUN (_ftello64_r, (ptr, fp),
       pos += fp->_p - fp->_bf._base;
     }
 
-  _newlib_flockfile_end(fp);
+  _funlockfile(fp);
   return pos;
 }
 

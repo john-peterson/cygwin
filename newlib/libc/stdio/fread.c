@@ -31,7 +31,8 @@ ANSI_SYNOPSIS
 
 	#include <stdio.h>
 	size_t _fread_r(struct _reent *<[ptr]>, void *<[buf]>,
-	                size_t <[size]>, size_t <[count]>, FILE *<[fp]>);
+	                size_t <[size]>, size_t <[count]>,
+		        FILE *<[fp]>);
 
 TRAD_SYNOPSIS
 	#include <stdio.h>
@@ -87,7 +88,7 @@ _DEFUN(crlf_r, (ptr, fp, buf, count, eof),
        size_t count _AND
        int eof)
 {
-  int r;
+  int newcount = 0, r;
   char *s, *d, *e;
 
   if (count == 0)
@@ -144,10 +145,9 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
   if ((resid = count * size) == 0)
     return 0;
 
-  CHECK_INIT(ptr, fp);
+  CHECK_INIT(ptr);
 
-  _newlib_flockfile_start (fp);
-  ORIENT (fp, -1);
+  _flockfile (fp);
   if (fp->_r < 0)
     fp->_r = 0;
   total = resid;
@@ -179,9 +179,9 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 	  void * old_p = fp->_p;
 	  int old_size = fp->_bf._size;
 	  /* allow __refill to use user's buffer */
-	  fp->_bf._base = (unsigned char *) p;
+	  fp->_bf._base = p;
 	  fp->_bf._size = resid;
-	  fp->_p = (unsigned char *) p;
+	  fp->_p = p;
 	  rc = __srefill_r (ptr, fp);
 	  /* restore fp buffering back to original state */
 	  fp->_bf._base = old_base;
@@ -195,11 +195,11 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 #ifdef __SCLE
               if (fp->_flags & __SCLE)
 	        {
-	          _newlib_flockfile_exit (fp);
+	          _funlockfile (fp);
 	          return crlf_r (ptr, fp, buf, total-resid, 1) / size;
 	        }
 #endif
-	      _newlib_flockfile_exit (fp);
+	      _funlockfile (fp);
 	      return (total - resid) / size;
 	    }
 	}
@@ -220,11 +220,11 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 #ifdef __SCLE
 	      if (fp->_flags & __SCLE)
 		{
-		  _newlib_flockfile_exit (fp);
+		  _funlockfile (fp);
 		  return crlf_r (ptr, fp, buf, total-resid, 1) / size;
 		}
 #endif
-	      _newlib_flockfile_exit (fp);
+	      _funlockfile (fp);
 	      return (total - resid) / size;
 	    }
 	}
@@ -237,11 +237,11 @@ _DEFUN(_fread_r, (ptr, buf, size, count, fp),
 #ifdef __SCLE
   if (fp->_flags & __SCLE)
     {
-      _newlib_flockfile_exit (fp);
+      _funlockfile (fp);
       return crlf_r(ptr, fp, buf, total, 0) / size;
     }
 #endif
-  _newlib_flockfile_end (fp);
+  _funlockfile (fp);
   return count;
 }
 

@@ -26,15 +26,6 @@
 #include <sys/lock.h>
 #include "local.h"
 
-#ifdef _REENT_SMALL
-const struct __sFILE_fake __sf_fake_stdin =
-    {_NULL, 0, 0, 0, 0, {_NULL, 0}, 0, _NULL};
-const struct __sFILE_fake __sf_fake_stdout =
-    {_NULL, 0, 0, 0, 0, {_NULL, 0}, 0, _NULL};
-const struct __sFILE_fake __sf_fake_stderr =
-    {_NULL, 0, 0, 0, 0, {_NULL, 0}, 0, _NULL};
-#endif
-
 static _VOID
 _DEFUN(std, (ptr, flags, file, data),
             FILE *ptr _AND
@@ -46,12 +37,10 @@ _DEFUN(std, (ptr, flags, file, data),
   ptr->_r = 0;
   ptr->_w = 0;
   ptr->_flags = flags;
-  ptr->_flags2 = 0;
   ptr->_file = file;
   ptr->_bf._base = 0;
   ptr->_bf._size = 0;
   ptr->_lbfsize = 0;
-  memset (&ptr->_mbstate, 0, sizeof (_mbstate_t));
   ptr->_cookie = ptr;
   ptr->_read = __sread;
 #ifndef __LARGE64_FILES
@@ -108,7 +97,7 @@ _DEFUN(__sfp, (d),
   int n;
   struct _glue *g;
 
-  _newlib_sfp_lock_start ();
+  __sfp_lock_acquire ();
 
   if (!_GLOBAL_REENT->__sdidinit)
     __sinit (_GLOBAL_REENT);
@@ -121,18 +110,17 @@ _DEFUN(__sfp, (d),
 	  (g->_next = __sfmoreglue (d, NDYNAMIC)) == NULL)
 	break;
     }
-  _newlib_sfp_lock_exit ();
+  __sfp_lock_release ();
   d->_errno = ENOMEM;
   return NULL;
 
 found:
   fp->_file = -1;		/* no file */
   fp->_flags = 1;		/* reserve this slot; caller sets real flags */
-  fp->_flags2 = 0;
 #ifndef __SINGLE_THREAD__
   __lock_init_recursive (fp->_lock);
 #endif
-  _newlib_sfp_lock_end ();
+  __sfp_lock_release ();
 
   fp->_p = NULL;		/* no current pointer */
   fp->_w = 0;			/* nothing to read or write */
@@ -140,7 +128,6 @@ found:
   fp->_bf._base = NULL;		/* no buffer */
   fp->_bf._size = 0;
   fp->_lbfsize = 0;		/* not line buffered */
-  memset (&fp->_mbstate, 0, sizeof (_mbstate_t));
   /* fp->_cookie = <any>; */	/* caller sets cookie, _read/_write etc */
   fp->_ub._base = NULL;		/* no ungetc buffer */
   fp->_ub._size = 0;
@@ -192,6 +179,7 @@ _DEFUN(__sinit, (s),
 
   /* make sure we clean up on exit */
   s->__cleanup = _cleanup_r;	/* conservative */
+  s->__sdidinit = 1;
 
   s->__sglue._next = NULL;
 #ifndef _REENT_SMALL
@@ -200,11 +188,6 @@ _DEFUN(__sinit, (s),
 #else
   s->__sglue._niobs = 0;
   s->__sglue._iobs = NULL;
-  /* Avoid infinite recursion when calling __sfp  for _GLOBAL_REENT.  The
-     problem is that __sfp checks for _GLOBAL_REENT->__sdidinit and calls
-     __sinit if it's 0. */
-  if (s == _GLOBAL_REENT)
-    s->__sdidinit = 1;
   s->_stdin = __sfp(s);
   s->_stdout = __sfp(s);
   s->_stderr = __sfp(s);
@@ -227,8 +210,6 @@ _DEFUN(__sinit, (s),
   /* POSIX requires stderr to be opened for reading and writing, even
      when the underlying fd 2 is write-only.  */
   std (s->_stderr, __SRW | __SNBF, 2, s);
-
-  s->__sdidinit = 1;
 
   __sinit_lock_release ();
 }

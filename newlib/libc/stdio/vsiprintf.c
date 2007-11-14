@@ -14,7 +14,7 @@
  * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
-/* doc in viprintf.c */
+/* doc in vfiprintf.c */
 
 #if defined(LIBC_SCCS) && !defined(lint)
 static char sccsid[] = "%W% (Berkeley) %G%";
@@ -25,8 +25,6 @@ static char sccsid[] = "%W% (Berkeley) %G%";
 #include <stdio.h>
 #include <limits.h>
 #include <stdarg.h>
-
-#include "local.h"
 
 #ifndef _REENT_ONLY
 
@@ -55,7 +53,7 @@ _DEFUN(_vsiprintf_r, (ptr, str, fmt, ap),
   f._bf._base = f._p = (unsigned char *) str;
   f._bf._size = f._w = INT_MAX;
   f._file = -1;  /* No file. */
-  ret = _svfiprintf_r (ptr, &f, fmt, ap);
+  ret = _vfiprintf_r (ptr, &f, fmt, ap);
   *f._p = 0;
   return ret;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1990 The Regents of the University of California.
+ * Copyright (c) 1990, 2007 The Regents of the University of California.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms are permitted
@@ -26,8 +26,6 @@ static char sccsid[] = "%W% (Berkeley) %G%";
 #include <limits.h>
 #include <stdarg.h>
 #include <errno.h>
-
-#include "local.h"
 
 #ifndef _REENT_ONLY
 
@@ -63,7 +61,7 @@ _DEFUN(_vsnprintf_r, (ptr, str, size, fmt, ap),
   f._bf._base = f._p = (unsigned char *) str;
   f._bf._size = f._w = (size > 0 ? size - 1 : 0);
   f._file = -1;  /* No file. */
-  ret = _svfprintf_r (ptr, &f, fmt, ap);
+  ret = _vfprintf_r (ptr, &f, fmt, ap);
   if (ret < EOF)
     ptr->_errno = EOVERFLOW;
   if (size > 0)

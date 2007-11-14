@@ -5,16 +5,12 @@
 
 /*
 FUNCTION
-<<diprintf>>, <<vdiprintf>>---print to a file descriptor (integer only)
+<<diprintf>>, <<vdiprintf>>---print to a file descriptor
 
 INDEX
 	diprintf
 INDEX
-	_diprintf_r
-INDEX
 	vdiprintf
-INDEX
-	_vdiprintf_r
 
 ANSI_SYNOPSIS
 	#include <stdio.h>
@@ -23,15 +19,12 @@ ANSI_SYNOPSIS
 	int vdiprintf(int <[fd]>, const char *<[format]>, va_list <[ap]>);
 	int _diprintf_r(struct _reent *<[ptr]>, int <[fd]>,
 			const char *<[format]>, ...);
-	int _vdiprintf_r(struct _reent *<[ptr]>, int <[fd]>,
+	int _vidprintf_r(struct _reent *<[ptr]>, int <[fd]>,
 			const char *<[format]>, va_list <[ap]>);
 
 DESCRIPTION
 <<diprintf>> and <<vdiprintf>> are similar to <<dprintf>> and <<vdprintf>>,
 except that only integer format specifiers are processed.
-
-The functions <<_diprintf_r>> and <<_vdiprintf_r>> are simply
-reentrant versions of the functions above.
 
 RETURNS
 Similar to <<dprintf>> and <<vdprintf>>.
