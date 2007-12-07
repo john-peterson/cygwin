@@ -13,19 +13,13 @@ command-line utilities support the <literal>--help</literal> and
 <sect2 id="cygcheck"><title>cygcheck</title>
 
 <screen>
-Usage: cygcheck [-v] [-h] PROGRAM
-       cygcheck -c [-d] [PACKAGE]
-       cygcheck -s [-r] [-v] [-h]
+Usage: cygcheck PROGRAM [ -v ] [ -h ]
+       cygcheck -c [ PACKAGE ... ] [ -d ]
+       cygcheck -s [ -r ] [ -v ] [ -h ]
        cygcheck -k
-       cygcheck -f FILE [FILE]...
-       cygcheck -l [PACKAGE]...
+       cygcheck -f FILE [ FILE ... ]
+       cygcheck -l [ PACKAGE ... ]
        cygcheck -p REGEXP
-       cygcheck --delete-orphaned-installation-keys
-       cygcheck --enable-unique-object-names Cygwin-DLL
-       cygcheck --disable-unique-object-names Cygwin-DLL
-       cygcheck --show-unique-object-names Cygwin-DLL
-       cygcheck -h
-
 List system information, check installed packages, or query package database.
 
 At least one command option or a PROGRAM is required, as shown above.
@@ -38,23 +32,10 @@ At least one command option or a PROGRAM is required, as shown above.
   -r, --registry       also scan registry for Cygwin settings (with -s)
   -k, --keycheck       perform a keyboard check session (must be run from a
                        plain console only, not from a pty/rxvt/xterm)
-  -f, --find-package   find the package to which FILE belongs
+  -f, --find-package   find the package that FILE belongs to
   -l, --list-package   list contents of PACKAGE (or all packages if none given)
   -p, --package-query  search for REGEXP in the entire cygwin.com package
-                       repository (requires internet connectivity)
-  --delete-orphaned-installation-keys
-                       Delete installation keys of old, now unused
-                       installations from the registry.  Requires the right
-                       to change the registry.
-  --enable-unique-object-names Cygwin-DLL
-  --disable-unique-object-names Cygwin-DLL
-  --show-unique-object-names Cygwin-DLL
-                       Enable, disable, or show the setting of the
-                       \"unique object names\" setting in the Cygwin DLL
-                       given as argument to this option.  The DLL path must
-                       be given as valid Windows(!) path.
-                       See the users guide for more information.
-                       If you don't know what this means, don't change it.
+                       repository (requies internet connectivity)
   -v, --verbose        produce more verbose output
   -h, --help           annotate output with explanatory comments when given
                        with another command, otherwise print this help
@@ -100,7 +81,7 @@ The <literal>-f</literal> option helps you to track down which package a
 file came from, and <literal>-l</literal> lists all files in a package.
 For example, to find out about <filename>/usr/bin/less</filename> and its
 package:
-<example id="utils-cygcheck-ex"><title>Example <command>cygcheck</command> usage</title>
+<example><title>Example <command>cygcheck</command> usage</title>
 <screen>
 $ cygcheck -f /usr/bin/less
 less-381-1
@@ -130,7 +111,7 @@ directories on the PATH.  </para>
 
 <para>The <literal>-r</literal> option causes
 <command>cygcheck</command> to search your registry for information
-that is relevant to Cygwin programs.  These registry entries are the
+that is relevent to Cygwin programs.  These registry entries are the
 ones that have "Cygwin" in the name.  If you are paranoid about
 privacy, you may remove information from this report, but please keep
 in mind that doing so makes it harder to diagnose your problems.</para>
@@ -141,13 +122,13 @@ to search the entire official Cygwin package repository.  It takes as argument
 a Perl-compatible regular expression which is used to match package names, 
 package descriptions, and path/filenames of the contents of packages.  This
 feature requires an active internet connection, since it must query the
-<literal>cygwin.com</literal> web site.  In fact, it is equivalent to the
+<literal>cygwin.com</literal> web site.  In fact, it is equalivant to the
 search that is available on the <ulink url="http://cygwin.com/packages/">Cygwin
 package listing</ulink> page.</para>
 
 <para>For example, perhaps you are getting an error because you are missing a
 certain DLL and you want to know which package includes that file:
-<example id="utils-search-ex"><title>Searching all packages for a file</title>
+<example><title>Searching all packages for a file</title>
 <screen>
 $ cygcheck -p 'cygintl-2\.dll'
 Found 1 matches for 'cygintl-2\.dll'.
@@ -200,67 +181,8 @@ When asked to run this command save the output so that you can email it,
 for example:</para>
 
 <screen>
-<prompt>$</prompt> <userinput>cygcheck -s -v -r -h &gt; cygcheck_output.txt</userinput>
+<prompt>C:\cygwin&gt;</prompt> <userinput>cygcheck -s -v -r -h &gt; cygcheck_output.txt</userinput>
 </screen>
-
-<para>
-Each Cygwin DLL stores its path and installation key in the registry.
-This allows troubleshooting of problems which could be a result of having
-multiple concurrent Cygwin installations.  However, if you're experimenting
-a lot with different Cygwin installation paths, your registry could 
-accumulate a lot of old Cygwin installation entries for which the
-installation doesn't exist anymore.  To get rid of these orphaned registry
-entries, use the <command>cygcheck --delete-orphaned-installation-keys</command>
-command.</para>
-
-<para>
-Each Cygwin DLL generates a key value from its installation path.  This
-value is not only stored in the registry, it's also used to generate
-global object names used for interprocess communication.   This keeps
-different Cygwin installations separate.  Processes running under a
-Cygwin DLL installed in C:\cygwin don't see processes running under a
-Cygwin DLL installed in C:\Program Files\cygwin.  This allows
-running multiple versions of Cygwin DLLs without these versions to
-interfere with each other, or to run small third-party installations
-for a specific purpose independently from a Cygwin net distribution.
-</para>
-
-<para>
-For debugging purposes it could be desired that the various Cygwin DLLs
-use the same key, independently from their installation paths.  If the
-DLLs have different versions, trying to run processes under these DLLs
-concurrently will result in error messages like this one:</para>
-
-<screen>
-*** shared version mismatch detected - 0x8A88009C/0x75BE0074.
-This problem is probably due to using incompatible versions of the Cygwin DLL.
-Search for cygwin1.dll using the Windows Start->Find/Search facility
-and delete all but the most recent version.  The most recent version *should*
-reside in x:\\cygwin\\bin, where 'x' is the drive on which you have
-installed the cygwin distribution.  Rebooting is also suggested if you
-are unable to find another Cygwin DLL.
-</screen>
-
-<para>
-To disable the usage of a unique key value of a certain Cygwin DLL, use
-the <command>cygcheck --disable-unique-object-names Cygwin-DLL</command>
-command.  <literal>Cygwin-DLL</literal> is the Windows path (*not* a 
-Cygwin POSIX path) to the DLL for which you want to disable this feature.
-Note that you have to stop all Cygwin processes running under this DLL,
-before you're allowed to change this setting.  For instance, run
-<command>cygcheck</command> from a DOS command line for this purpose.</para>
-
-<para>To re-enable the usage of a unique key, use the
-<command>cygcheck --enable-unique-object-names Cygwin-DLL</command> command.
-This option has the same characteristics as the
-<literal>--disable-unique-object-names</literal> option</para>
-
-<para>Finally, you can use
-<command>cygcheck --show-unique-object-names Cygwin-DLL</command> to find out
-if the given Cygwin DLL use unique object names or not.  In contrast to the
-<literal>--disable-...</literal> and <literal>--enable-...</literal> options,
-the <literal>--show-unique-object-names</literal> option also works for
-Cygwin DLLs which are currently in use.</para>
 
 </sect2>
 
@@ -269,51 +191,35 @@ Cygwin DLLs which are currently in use.</para>
 <screen>
 Usage: cygpath (-d|-m|-u|-w|-t TYPE) [-f FILE] [OPTION]... NAME...
        cygpath [-c HANDLE] 
-       cygpath [-ADHOPSW] 
-       cygpath [-F ID] 
-
+       cygpath [-ADHPSW] 
 Convert Unix and Windows format paths, or output system path information
 
 Output type options:
-
   -d, --dos             print DOS (short) form of NAMEs (C:\PROGRA~1\)
   -m, --mixed           like --windows, but with regular slashes (C:/WINNT)
-  -M, --mode            report on mode of file (currently binmode or textmode)
+  -M, --mode		report on mode of file (currently binmode or textmode)
   -u, --unix            (default) print Unix form of NAMEs (/cygdrive/c/winnt)
   -w, --windows         print Windows form of NAMEs (C:\WINNT)
   -t, --type TYPE       print TYPE form: 'dos', 'mixed', 'unix', or 'windows'
-
 Path conversion options:
-
   -a, --absolute        output absolute path
   -l, --long-name       print Windows long form of NAMEs (with -w, -m only)
   -p, --path            NAME is a PATH list (i.e., '/bin:/usr/bin')
   -s, --short-name      print DOS (short) form of NAMEs (with -w, -m only)
-  -C, --codepage CP     print DOS, Windows, or mixed pathname in Windows
-                        codepage CP.  CP can be a numeric codepage identifier,
-                        or one of the reserved words ANSI, OEM, or UTF8.
-                        If this option is missing, cygpath defaults to the
-                        character set defined by the current locale.
-
 System information:
-
   -A, --allusers        use `All Users' instead of current user for -D, -P
   -D, --desktop         output `Desktop' directory and exit
   -H, --homeroot        output `Profiles' directory (home root) and exit
-  -O, --mydocs          output `My Documents' directory and exit
   -P, --smprograms      output Start Menu `Programs' directory and exit
   -S, --sysdir          output system directory and exit
   -W, --windir          output `Windows' directory and exit
-  -F, --folder ID       output special folder with numeric ID and exit
-
 Other options:
-
   -f, --file FILE       read FILE for input; use - to read from STDIN
   -o, --option          read options from FILE as well (for use with --file)
   -c, --close HANDLE    close HANDLE (for use in captured process)
   -i, --ignore          ignore missing argument
   -h, --help            output usage information and exit
-  -V, --version         output version information and exit
+  -v, --version         output version information and exit
 </screen>
 
 <para>The <command>cygpath</command> program is a utility that
@@ -340,29 +246,11 @@ the <literal>-l</literal> and <literal>-s</literal> options to use normal
 identical to <literal>-w</literal> and <literal>-s</literal> together.
 </para>
 
-<para>The <literal>-C</literal> option allows to specify a Windows codepage
-to print DOS and Windows paths created with one of the <literal>-d</literal>,
-<literal>-m</literal>, or <literal>-w</literal> options.  The default is to
-use the character set of the current locale defined by one of the
-internationalization environment variables <envar>LC_ALL</envar>,
-<envar>LC_CTYPE</envar>, or <envar>LANG</envar>, see
-<xref linkend="setup-locale"></xref>.  This is sometimes not sufficient for
-interaction with native Windows tools, which might expect native, non-ASCII
-characters in a specific Windows codepage.  Console tools, for instance, might
-expect pathnames in the current OEM codepage, while graphical tools like
-Windows Explorer might expect pathnames in the current ANSI codepage.</para>
-
-<para>The <literal>-C</literal> option takes a single parameter:</para>
-<itemizedlist spacing="compact">
-<listitem><para><literal>ANSI</literal>, to specify the current ANSI codepage</para></listitem>
-<listitem><para><literal>OEM</literal>, to specify the current OEM (console) codepage</para></listitem>
-<listitem><para><literal>UTF8</literal>, to specify UTF-8.</para></listitem>
-<listitem><para>A numerical, decimal codepage number, for instance 936 for GBK,
-28593 for ISO-8859-3, etc.  A full list of supported codepages is listed on the
-Microsoft MSDN page
-<ulink url="http://msdn.microsoft.com/en-us/library/dd317756(VS.85).aspx">Code Page Identifiers</ulink>.  A codepage of 0 is the same as if the
-<literal>-C</literal> hasn't been specified at all.</para></listitem>
-</itemizedlist>
+<para>Caveat: The <literal>-l</literal> option does not work if the
+<emphasis>check_case</emphasis> parameter of <emphasis>CYGWIN</emphasis> 
+is set to <emphasis>strict</emphasis>, since Cygwin is not able to match 
+any Windows short path in this mode.
+</para>
 
 <para>The <literal>-p</literal> option means that you want to convert
 a path-style string rather than a single filename.  For example, the
@@ -379,7 +267,7 @@ contain spaces (C:\Program Files) so should be enclosed in quotes.
 </para>
 
 
-<example id="utils-cygpath-ex"><title>Example <command>cygpath</command> usage</title>
+<example><title>Example <command>cygpath</command> usage</title>
 <screen>
 <![CDATA[
 #!/bin/sh
@@ -387,7 +275,7 @@ if [ "${1}" = "" ];
 	then
 		XPATH=".";
 	else
-		XPATH="$(cygpath -C ANSI -w "${1}")";
+		XPATH="$(cygpath -w "${1}")";
 fi
 explorer $XPATH &
 ]]>
@@ -398,18 +286,14 @@ explorer $XPATH &
 <literal>-D</literal>, <literal>-H</literal>, <literal>-P</literal>, 
 <literal>-S</literal>, and <literal>-W</literal> output directories used 
 by Windows that are not the same on all systems, for example 
-<literal>-S</literal> might output C:\WINNT\system32 or C:\Windows\System32. 
+<literal>-S</literal> might output C:\WINNT\SYSTEM32 or C:\WINDOWS\SYSTEM. 
 The <literal>-H</literal> shows the Windows profiles directory that can 
 be used as root of home.  The <literal>-A</literal> option forces use of 
 the "All Users" directories instead of the current user for the 
-<literal>-D</literal>, <literal>-O</literal> and <literal>-P</literal> 
-options.
-The <literal>-F</literal> outputs other special folders specified by
-their internal numeric code (decimal or 0x-prefixed hex). For valid codes and
-symbolic names, see the CSIDL_* definitions in the include file
-/usr/include/w32api/shlobj.h from package w32api. The current valid
-range of codes for folders is 0 (Desktop) to 59 (CDBurn area).
-By default the output is in UNIX (POSIX) format; 
+<literal>-D</literal> and <literal>-P</literal> options. 
+On Win9x systems with only a single user, <literal>-A</literal> has no
+effect; <literal>-D</literal> and <literal>-AD</literal> would have the
+same output.  By default the output is in UNIX (POSIX) format; 
 use the <literal>-w</literal> or <literal>-d</literal> options to get
 other formats.</para>
 
@@ -419,13 +303,12 @@ other formats.</para>
 
 <screen>
 Usage: dumper [OPTION] FILENAME WIN32PID
-
 Dump core from WIN32PID to FILENAME.core
 
 -d, --verbose  be verbose while dumping
 -h, --help     output help information and exit
 -q, --quiet    be quiet while dumping (default)
--V, --version  output version information and exit
+-v, --version  output version information and exit
 </screen>
 
 <para>The <command>dumper</command> utility can be used to create a
@@ -464,59 +347,10 @@ the same directories as on the machine where the core dump was created.
 
 </sect2>
 
-<sect2 id="getconf"><title>getconf</title>
-
-<screen>
-Usage: getconf [-v specification] variable_name [pathname]
-       getconf -a [pathname]
-
-Get configuration values
-
-  -v specification     Indicate specific version for which configuration
-                       values shall be fetched.
-  -a, --all            Print all known configuration values
-
-Other options:
-
-  -h, --help           This text
-  -V, --version        Print program version and exit
-</screen>
-
-<para>The <command>getconf</command> utility prints the value of the
-configuration variable specified by <literal>variable_name</literal>.
-If no <literal>pathname</literal> is given, <command>getconf</command>
-serves as a wrapper for the <literal>confstr</literal> and
-<literal>sysconf</literal> functions, supporting the symbolic constants
-defined in the <literal>limits.h</literal> and <literal>unistd.h</literal>
-headers, without their respective <literal>_CS_</literal> or
-<literal>_SC_</literal> prefixes.
-</para>
-
-<para>If <literal>pathname</literal> is given, <command>getconf</command>
-prints the value of the configuration variable for the specified pathname.
-In this form, <command>getconf</command> serves as a wrapper for the
-<literal>pathconf</literal> function, supporting the symbolic constants defined
-in the <literal>unistd.h</literal> header, without the <literal>_PC_</literal> 
-prefix. </para>
-
-<para>If you specify the <literal>-v</literal> option, the parameter
-denotes a specification for which the value of the configuration variable
-should be printed. Note that the only specifications supported by Cygwin
-are <literal>POSIX_V7_ILP32_OFFBIG</literal> and the legacy
-<literal>POSIX_V6_ILP32_OFFBIG</literal> and
-<literal>XBS5_ILP32_OFFBIG</literal> equivalents.</para>
-
-<para>Use the <literal>-a</literal> option to print a list of all available
-configuration variables for the system, or given <literal>pathname</literal>,
-and their values.</para>
-
-</sect2>
-
 <sect2 id="getfacl"><title>getfacl</title>
 
 <screen>
 Usage: getfacl [-adn] FILE [FILE2...]
-
 Display file and directory access control lists (ACLs).
 
   -a, --all      display the filename, the owner, the group, and
@@ -525,7 +359,7 @@ Display file and directory access control lists (ACLs).
                  the default ACL of the directory, if it exists
   -h, --help     output usage information and exit
   -n, --noname   display user and group IDs instead of names
-  -V, --version  output version information and exit
+  -v, --version  output version information and exit
 
 When multiple files are specified on the command line, a blank
 line separates the ACLs for each file.
@@ -538,7 +372,7 @@ ACL.  For directories <command>getfacl</command> displays additionally the
 default ACL.  With no options specified, <command>getfacl</command> displays 
 the filename, the owner, the group, and both the ACL and the default ACL, if 
 it exists. For more information on Cygwin and Windows ACLs, see
-<xref linkend="ntsec"></xref> in the Cygwin User's Guide.
+see <xref linkend="ntsec"></xref> in the Cygwin User's Guide.
 The format for ACL output is as follows:
 <screen>
      # file: filename
@@ -565,14 +399,13 @@ The format for ACL output is as follows:
 <screen>
 Usage: kill [-f] [-signal] [-s signal] pid1 [pid2 ...]
        kill -l [signal]
-
 Send signals to processes
 
  -f, --force     force, using win32 interface if necessary
  -l, --list      print a list of signal names
  -s, --signal    send signal (use kill --list for a list)
  -h, --help      output usage information and exit
- -V, --version   output version information and exit
+ -v, --version   output version information and exit
 </screen>
 
 <para>The <command>kill</command> program allows you to send arbitrary
@@ -608,9 +441,9 @@ given signal, or a list of all signal names if no signal is given.</para>
 
 <para>To send a specific signal, use the <literal>-signN</literal>
 option, either with a signal number or a signal name (minus the "SIG"
-part), as shown in these examples:</para>
+part), like these examples:</para>
 
-<example id="utils-kill-ex"><title>Using the kill command</title>
+<example><title>Using the kill command</title>
 <screen>
 <prompt>$</prompt> <userinput>kill 123</userinput>
 <prompt>$</prompt> <userinput>kill -1 123</userinput>
@@ -645,10 +478,8 @@ SIGSTOP     17    sendable stop signal not from tty
 SIGTSTP     18    stop signal from tty
 SIGCONT     19    continue a stopped process
 SIGCHLD     20    to parent on child stop or exit
-SIGCLD      20    System V name for SIGCHLD
 SIGTTIN     21    to readers pgrp upon background tty read
 SIGTTOU     22    like TTIN for output if (tp-&gt;t_local&amp;LTOSTOP)
-SIGIO       23    input/output possible
 SIGPOLL     23    System V name for SIGIO
 SIGXCPU     24    exceeded CPU time limit
 SIGXFSZ     25    exceeded file size limit
@@ -656,179 +487,8 @@ SIGVTALRM   26    virtual time alarm
 SIGPROF     27    profiling time alarm
 SIGWINCH    28    window changed
 SIGLOST     29    resource lost (eg, record-lock lost)
-SIGPWR      29    power failure
 SIGUSR1     30    user defined signal 1
 SIGUSR2     31    user defined signal 2
-</screen>
-
-</sect2>
-
-<sect2 id="ldd"><title>ldd</title>
-
-<screen>
-Usage: ldd [OPTION]... FILE...
-
-Print shared library dependencies
-
-  -h, --help              print this help and exit
-  -V, --version           print version information and exit
-  -r, --function-relocs   process data and function relocations
-                          (currently unimplemented)
-  -u, --unused            print unused direct dependencies
-                          (currently unimplemented)
-  -v, --verbose           print all information
-                          (currently unimplemented)
-</screen>
-
-<para><command>ldd</command> prints the shared libraries (DLLs) an executable
-or DLL is linked against.  No modifying option is implemented yet.</para>
-
-</sect2>
-
-<sect2 id="locale"><title>locale</title>
-
-<screen>
-Usage: locale [-amvhV]
-   or: locale [-ck] NAME
-   or: locale [-usfnU]
-
-Get locale-specific information.
-
-System information:
-
-  -a, --all-locales    List all available supported locales
-  -m, --charmaps       List all available character maps
-  -v, --verbose        More verbose output
-
-Modify output format:
-
-  -c, --category-name  List information about given category NAME
-  -k, --keyword-name   Print information about given keyword NAME
-
-Default locale information:
-
-  -u, --user           Print locale of user's default UI language
-  -s, --system         Print locale of system default UI language
-  -f, --format         Print locale of user's regional format settings
-                       (time, numeric &amp; monetary)
-  -n, --no-unicode     Print system default locale for non-Unicode programs
-  -U, --utf            Attach \".UTF-8\" to the result
-
-Other options:
-
-  -h, --help           This text
-  -V, --version        Print program version and exit
-</screen>
-
-<para><command>locale</command> without parameters prints information about
-the current locale environment settings.</para>
-
-<para>The <literal>-u</literal>, <literal>-s</literal>, <literal>-f</literal>,
-and <literal>-n</literal> options can be used to request the various Windows
-locale settings.  The purpose is to use this command in scripts to set the
-POSIX locale variables.</para>
-
-<para>The <literal>-u</literal> option prints the current user's Windows
-UI locale to stdout.  In Windows Vista and Windows 7 this setting is called
-the "Display Language"; there was no corresponding user setting in Windows XP.
-The <literal>-s</literal> option prints the systems default instead.
-The <literal>-f</literal> option prints the user's setting for time, date,
-number and currency.  That's equivalent to the setting in the "Formats" or
-"Regional Options" tab in the "Region and Language" or "Regional and Language
-Options" dialog.  With the <literal>-U</literal> option
-<command>locale</command> appends a ".UTF-8".</para>
-
-<para>Usage example:</para>
-
-<screen>
-bash$ export LANG=$(locale -uU)
-bash$ echo $LANG
-en_US.UTF-8
-bash$ export LC_TIME=$(locale -fU)
-bash$ echo $LC_TIME
-de_DE.UTF-8
-</screen>
-
-<para>The <literal>-a</literal> option is helpful to learn which locales
-are supported by your Windows machine.  It prints all available locales
-and the allowed modifiers.  Example:</para>
-
-<screen>
-bash$ locale -a
-C
-C.utf8
-POSIX
-af_ZA
-af_ZA.utf8
-am_ET
-am_ET.utf8
-...
-be_BY
-be_BY.utf8
-be_BY@latin
-...
-ca_ES
-ca_ES.utf8
-ca_ES@euro
-catalan
-...
-</screen>
-
-<para>The <literal>-v</literal> option prints more detailed information about
-each available locale.  Example:</para>
-
-<screen>
-bash$ locale -av
-locale: af_ZA           archive: /cygdrive/c/Windows/system32/kernel32.dll
--------------------------------------------------------------------------------
- language | Afrikaans
-territory | South Africa
-  codeset | ISO-8859-1
-
-locale: af_ZA.utf8      archive: /cygdrive/c/Windows/system32/kernel32.dll
--------------------------------------------------------------------------------
- language | Afrikaans
-territory | South Africa
-  codeset | UTF-8
-
-...
-
-locale: ca_ES@euro      archive: /cygdrive/c/Windows/system32/kernel32.dll
--------------------------------------------------------------------------------
- language | Catalan
-territory | Spain
-  codeset | ISO-8859-15
-
-locale: catalan         archive: /usr/share/locale/locale.alias
--------------------------------------------------------------------------------
- language | Catalan
-territory | Spain
-  codeset | ISO-8859-1
-
-...
-</screen>
-
-<para>The <literal>-m</literal> option prints the names of the available
-charmaps supported by Cygwin to stdout.</para>
-
-<para>Otherwise, if arguments are given, <command>locale</command> prints
-the values assigned to these arguments.  Arguments can be names of locale
-categories (for instance: LC_CTYPE, LC_MONETARY), or names of keywords
-supported in the locale categories (for instance: thousands_sep, charmap).
-The <literal>-c</literal> option prints additionally the name of the category.
-The <literal>-k</literal> option prints additionally the name of the keyword.
-Example:</para>
-
-<screen>
-bash$ locale -ck LC_MESSAGES
-LC_MESSAGES
-yesexpr="^[yY]"
-noexpr="^[nN]"
-yesstr="yes"
-nostr="no"
-messages-codeset="UTF-8"
-bash$ locale noexpr
-^[nN]
 </screen>
 
 </sect2>
@@ -836,96 +496,69 @@ bash$ locale noexpr
 <sect2 id="mkgroup"><title>mkgroup</title>
 
 <screen>
-Usage: mkgroup [OPTION]...
-
-Print /etc/group file to stdout
+Usage: mkgroup [OPTION]... [domain]...
+Prints /etc/group file to stdout
 
 Options:
+   -l,--local             print local group information
+   -c,--current           print current group, if a domain account
+   -d,--domain            print global group information (from current
+                          domain if no domains specified).
+   -o,--id-offset offset  change the default offset (10000) added to gids
+                          in domain accounts.
+   -s,--no-sids           don't print SIDs in pwd field
+                          (this affects ntsec)
+   -u,--users             print user list in gr_mem field
+   -g,--group groupname   only return information for the specified group\n");
+   -h,--help              print this message
 
-   -l,--local [machine[,offset]]
-                           print local groups with gid offset offset
-                           (from local machine if no machine specified)
-   -L,--Local [machine[,offset]]
-                           ditto, but generate groupname with machine prefix
-   -d,--domain [domain[,offset]]
-                           print domain groups with gid offset offset
-                           (from current domain if no domain specified)
-   -D,--Domain [domain[,offset]]
-                           ditto, but generate groupname with machine prefix
-   -c,--current            print current group
-   -C,--Current            ditto, but generate groupname with machine or
-                           domain prefix
-   -S,--separator char     for -L, -D, -C use character char as domain\group
-                           separator in groupname instead of the default '\'
-   -o,--id-offset offset   change the default offset (10000) added to gids
-                           in domain or foreign server accounts.
-   -g,--group groupname    only return information for the specified group
-                           one of -l, -L, -d, -D must be specified, too
-   -b,--no-builtin         don't print BUILTIN groups
-   -U,--unix grouplist     additionally print UNIX groups when using -l or -L
-                           on a UNIX Samba server
-                           grouplist is a comma-separated list of groupnames
-                           or gid ranges (root,-25,50-100).
-			   (enumerating large ranges can take a long time!)
-   -s,--no-sids            (ignored)
-   -u,--users              (ignored)
-   -h,--help               print this message
-   -V,--version            print version information and exit
+   -v,--version           print version information and exit
 
-Default is to print local groups on stand-alone machines, plus domain
-groups on domain controllers and domain member machines.
+One of `-l' or `-d' must be given on NT/W2K.
 </screen>
 
 <para>The <command>mkgroup</command> program can be used to help
-configure Cygwin by creating a <filename>/etc/group</filename>
-file.  Its use is essential to include Windows security information.</para>
-
-<para>The command is initially called by <command>setup.exe</command> to
-create a default <filename>/etc/group</filename>.  This should be
-sufficient in most circumstances.  However, especially when working
-in a multi-domain environment, you can use <command>mkgroup</command>
-manually to create a more complete <filename>/etc/group</filename> file for
-all domains.  Especially when you have the same group name used on
-multiple machines or in multiple domains, you can use the <literal>-D</literal>,
-<literal>-L</literal> and <literal>-C</literal> options to create unique
-domain\group style groupnames.</para>
+configure your Windows system to be more UNIX-like by creating an
+initial <filename>/etc/group</filename>.
+Its use is essential on the NT series (Windows NT, 2000, and XP) to
+include Windows security information.
+It can also be used on the Win9x series (Windows 95, 98, and Me) to
+create a file with the correct format.
+To initially set up your machine if you are a local user, you'd do
+something like this:</para>
   
+<example><title>Setting up the groups file for local accounts</title>
+<screen>
+<prompt>$</prompt> <userinput>mkdir /etc</userinput>
+<prompt>$</prompt> <userinput>mkgroup -l &gt; /etc/group</userinput>
+</screen>
+</example>
+
 <para>Note that this information is static.  If you change the group
 information in your system, you'll need to regenerate the group file
 for it to have the new information.</para>
 
-<para>The <literal>-d/-D</literal> and <literal>-l/-L</literal> options
+<para>The <literal>-d</literal> and <literal>-l</literal> options
 allow you to specify where the information comes from, the
-local SAM of a machine or from the domain, or both.
-With the <literal>-d/-D</literal> options the program contacts a Domain
+local machine or the domain (default or given), or both.
+With the  <literal>-d</literal> option the program contacts the Domain
 Controller, which my be unreachable or have restricted access.
-Comma-separated from the machine or domain, you can specify an offset
-which is used as base added to the group's RID to compute the gid
-(offset + RID = gid).  This allows you to create the same gids every time you
-re-run <command>mkgroup</command>.
-For very simple needs, an entry for the current user's group can be
-created by using the option <literal>-c</literal> or <literal>-C</literal>.
-If you want to use one of the <literal>-D</literal>, <literal>-L</literal>
-or <literal>-C</literal> options, but you don't like the backslash as
-domain/group separator, you can specify another separator using the
-<literal>-S</literal> option, for instance:</para>
-
-<example id="utils-mkgroup-ex"><title>Setting up group entry for current user with different domain/group separator</title>
-<screen>
-<prompt>$</prompt> <userinput>mkgroup -C -S+ &gt; /etc/group</userinput>
-<prompt>$</prompt> <userinput>cat /etc/group</userinput>
-DOMAIN+my_group:S-1-5-21-2913048732-1697188782-3448811101-1144:11144:
-</screen>
-</example>
-
-<para>The <literal>-o</literal> option allows for special cases
+An entry for the current domain user can then be created by using the
+option <literal>-c</literal> together with <literal>-l</literal>,
+but <literal>-c</literal> has no effect when used with <literal>-d</literal>.
+The <literal>-o</literal> option allows for special cases
 (such as multiple domains) where the GIDs might match otherwise.
-The <literal>-g</literal> option only prints the information for one group.
-The <literal>-U</literal> option allows you to enumerate the standard UNIX
-groups on a Samba machine.  It's used together with
-<literal>-l samba-server</literal> or <literal>-L samba-server</literal>.
-The normal UNIX groups are usually not enumerated, but they can show
-up as a group in <command>ls -l</command> output.
+The <literal>-s</literal>
+option omits the NT Security Identifier (SID).  For more information on 
+SIDs, see <xref linkend="ntsec"></xref> in the Cygwin User's Guide.  The
+<literal>-u</literal> option causes <command>mkgroup</command> to 
+enumerate the users for each group, placing the group members in the 
+gr_mem (last) field.  Note that this can greatly increase
+the time for <command>mkgroup</command> to run in a large domain.
+Having gr_mem fields is helpful when a domain user logs in remotely
+while the local machine is disconnected from the Domain Controller.
+The <literal>-g</literal> option only prints the information for
+one group.
 </para>
 
 </sect2>
@@ -933,105 +566,83 @@ up as a group in <command>ls -l</command> output.
 <sect2 id="mkpasswd"><title>mkpasswd</title>
 
 <screen>
-Usage: mkpasswd [OPTIONS]...
-
-Print /etc/passwd file to stdout
+Usage: mkpasswd [OPTION]... [domain]...
+Prints /etc/passwd file to stdout
 
 Options:
-
-   -l,--local [machine[,offset]]
-                           print local user accounts with uid offset offset
-                           (from local machine if no machine specified)
-   -L,--Local [machine[,offset]]
-                           ditto, but generate username with machine prefix
-   -d,--domain [domain[,offset]]
-                           print domain accounts with uid offset offset
-                           (from current domain if no domain specified)
-   -D,--Domain [domain[,offset]]
-                           ditto, but generate username with domain prefix
-   -c,--current            print current user
-   -C,--Current            ditto, but generate username with machine or
-                           domain prefix
-   -S,--separator char     for -L, -D, -C use character char as domain\user
-                           separator in username instead of the default '\'
+   -l,--local              print local user accounts
+   -c,--current            print current account, if a domain account
+   -d,--domain             print domain accounts (from current domain
+                           if no domains specified)
    -o,--id-offset offset   change the default offset (10000) added to uids
-                           in domain or foreign server accounts.
+                           in domain accounts.
+   -g,--local-groups       print local group information too
+                           if no domains specified
+   -m,--no-mount           don't use mount points for home dir
+   -s,--no-sids            don't print SIDs in GCOS field
+                           (this affects ntsec)
+   -p,--path-to-home path  use specified path and not user account home dir or /home
    -u,--username username  only return information for the specified user
-                           one of -l, -L, -d, -D must be specified, too
-   -p,--path-to-home path  use specified path instead of user account home dir
-                           or /home prefix
-   -U,--unix userlist      additionally print UNIX users when using -l or -L\
-                           on a UNIX Samba server
-                           userlist is a comma-separated list of usernames
-                           or uid ranges (root,-25,50-100).
-                           (enumerating large ranges can take a long time!)
-   -s,--no-sids            (ignored)
-   -m,--no-mount           (ignored)
-   -g,--local-groups       (ignored)
    -h,--help               displays this message
-   -V,--version            version information and exit
+   -v,--version            version information and exit
 
-Default is to print local accounts on stand-alone machines, domain accounts
-on domain controllers and domain member machines.
+One of `-l', `-d' or `-g' must be given on NT/W2K.
 </screen>
 
 <para>The <command>mkpasswd</command> program can be used to help
-configure Cygwin by creating a <filename>/etc/passwd</filename> from
-your system information.
-Its use is essential to include Windows security information.  However,
-the actual passwords are determined by Windows, not by the content of
-<filename>/etc/passwd</filename>.</para>
-
-<para>The command is initially called by <command>setup.exe</command> to
-create a default <filename>/etc/passwd</filename>.  This should be
-sufficient in most circumstances.  However, especially when working
-in a multi-domain environment, you can use <command>mkpasswd</command>
-manually to create a more complete <filename>/etc/passwd</filename> file for
-all domains.  Especially when you have the same user name used on
-multiple machines or in multiple domains, you can use the <literal>-D</literal>,
-<literal>-L</literal> and <literal>-C</literal> options to create unique
-domain\user style usernames.</para>
+configure your Windows system to be more UNIX-like by creating an
+initial <filename>/etc/passwd</filename> from your system information.
+Its use is essential on the NT series (Windows NT, 2000, and XP) to
+include Windows security information, but the actual passwords are
+determined by Windows, not by the content of <filename>/etc/passwd</filename>.
+On the Win9x series (Windows 95, 98, and Me) the password field must be
+replaced by the output of <userinput>crypt your_password</userinput>
+if remote access is desired.
+To initially set up your machine if you are a local user, you'd do
+something like this:</para>
   
+<example><title>Setting up the passwd file for local accounts</title>
+<screen>
+<prompt>$</prompt> <userinput>mkdir /etc</userinput>
+<prompt>$</prompt> <userinput>mkpasswd -l &gt; /etc/passwd</userinput>
+</screen>
+</example>
+
 <para>Note that this information is static.  If you change the user
 information in your system, you'll need to regenerate the passwd file
 for it to have the new information.</para>
 
-<para>The <literal>-d/-D</literal> and <literal>-l/-L</literal> options
+<para>The <literal>-d</literal> and <literal>-l</literal> options
 allow you to specify where the information comes from, the
 local machine or the domain (default or given), or both.
-With the  <literal>-d/-D</literal> options the program contacts the Domain
-Controller, which may be unreachable or have restricted access.
-Comma-separated from the machine or domain, you can specify an offset
-which is used as base added to the user's RID to compute the uid
-(offset + RID = uid).  This allows to create the same uids every time you
-re-run <command>mkpasswd</command>.
-An entry for the current user can be created by using the
-option <literal>-c</literal> or  <literal>-C</literal>.
-If you want to use one of the <literal>-D</literal>, <literal>-L</literal>
-or <literal>-C</literal> options, but you don't like the backslash as
-domain/group separator, you can specify another separator using the
-<literal>-S</literal> option, similar to the <command>mkgroup</command>.
+With the  <literal>-d</literal> option the program contacts the Domain
+Controller, which my be unreachable or have restricted access.
+An entry for the current domain user can then be created by using the
+option <literal>-c</literal> together with <literal>-l</literal>,
+but <literal>-c</literal> has no effect when used with <literal>-d</literal>.
 The <literal>-o</literal> option allows for special cases
 (such as multiple domains) where the UIDs might match otherwise.
-The <literal>-p</literal> option causes <command>mkpasswd</command> to
+The <literal>-g</literal> option creates a local
+user that corresponds to each local group. This is because NT assigns groups
+file ownership.  The <literal>-m</literal> option bypasses the current
+mount table so that, for example, two users who have a Windows home 
+directory of H: could mount them differently.  The <literal>-s</literal>
+option omits the NT Security Identifier (SID).  For more information on
+SIDs, see <xref linkend="ntsec"></xref> in the Cygwin User's Guide.  The
+<literal>-p</literal> option causes <command>mkpasswd</command> to
 use the specified prefix instead of the account home dir or <literal>/home/
 </literal>. For example, this command:
 
-<example id="utils-althome-ex"><title>Using an alternate home root</title>
+<example><title>Using an alternate home root</title>
 <screen>
 <prompt>$</prompt> <userinput>mkpasswd -l -p "$(cygpath -H)" &gt; /etc/passwd</userinput>
 </screen>
 </example>
 
 would put local users' home directories in the Windows 'Profiles' directory. 
-The <literal>-u</literal> option creates just an entry for
-the specified user.
-The <literal>-U</literal> option allows you to enumerate the standard UNIX
-users on a Samba machine.  It's used together with
-<literal>-l samba-server</literal> or <literal>-L samba-server</literal>.
-The normal UNIX users are usually not enumerated, but they can show
-up as file owners in <command>ls -l</command> output.
-</para>
+On Win9x machines the <literal>-u</literal> option creates an entry for
+the specified user. On the NT series it restricts the output to that user,
+greatly reducing the amount of time it takes in a large domain.</para>
 
 </sect2>
 
@@ -1039,87 +650,129 @@ up as file owners in <command>ls -l</command> output.
 
 <screen>
 Usage: mount [OPTION] [&lt;win32path&gt; &lt;posixpath&gt;]
-       mount -a
-       mount &lt;posixpath&gt;
-
 Display information about mounted filesystems, or mount a filesystem
 
-  -a, --all                     mount all filesystems mentioned in fstab
+  -b, --binary     (default)    text files are equivalent to binary files
+                                (newline = \n)
   -c, --change-cygdrive-prefix  change the cygdrive path prefix to &lt;posixpath&gt;
   -f, --force                   force mount, don't warn about missing mount
                                 point directories
   -h, --help                    output usage information and exit
-  -m, --mount-entries           write fstab entries to replicate mount points
-                                and cygdrive prefixes
+  -m, --mount-commands          write mount commands to replicate user and
+                                system mount points and cygdrive prefixes
   -o, --options X[,X...]        specify mount options
   -p, --show-cygdrive-prefix    show user and/or system cygdrive path prefix
-  -V, --version                 output version information and exit
+  -s, --system     (default)    add system-wide mount point
+  -t, --text                    text files get \r\n line endings
+  -u, --user                    add user-only mount point
+  -v, --version                 output version information and exit
+  -x, --executable              treat all files under mount point as executables
+  -E, --no-executable           treat all files under mount point as 
+                                non-executables
+  -X, --cygwin-executable       treat all files under mount point as cygwin
+                                executables
 </screen>
 
 <para>The <command>mount</command> program is used to map your drives
 and shares onto Cygwin's simulated POSIX directory tree, much like as is
-done by mount commands on typical UNIX systems.  However, in contrast to
-mount points given in <filename>/etc/fstab</filename>, mount points
-created or changed with <command>mount</command> are not persistent.  They
-disappear immediately after the last process of the current user exited.
-Please see <xref linkend="mount-table"></xref> for more information on the
-concepts behind the Cygwin POSIX file system and strategies for using
-mounts. To remove mounts temporarily, use <command>umount</command></para>
+done by mount commands on typical UNIX systems.  Please see
+<xref linkend="mount-table"></xref> for more information on the concepts
+behind the Cygwin POSIX file system and strategies for using
+mounts. To remove mounts, use <command>umount</command></para>
 
-<sect3 id="utils-mount"><title>Using mount</title>
+<sect3><title>Using mount</title>
 
 <para>If you just type <command>mount</command> with no parameters, it
 will display the current mount table for you.</para>
 
-<example id="utils-mount-ex">
+<example>
 <title>Displaying the current set of mount points</title>
 <screen>
-<prompt>$</prompt> <userinput>mount</userinput>
-C:/cygwin/bin on /usr/bin type ntfs (binary)
-C:/cygwin/lib on /usr/lib type ntfs (binary)
-C:/cygwin on / type ntfs (binary)
-C: on /mnt/c type ntfs (binary,user,noumount)
-D: on /mnt/d type fat (binary,user,noumount)
+<prompt>c:\cygwin\&gt;</prompt> <userinput>mount</userinput>
+c:\cygwin\bin on /usr/bin type system (binmode)
+c:\cygwin\lib on /usr/lib type system (binmode)
+c:\cygwin on / type system (binmode)
+c: on /c type user (binmode,noumount)
+d: on /d type user (binmode,noumount)
 </screen>
 </example>
 
-<para>In this example, c:/cygwin is the POSIX root and the D drive is
-mapped to <filename>/mnt/d</filename>.  Note that in this case, the root
-mount is a system-wide mount point that is visible to all users running
-Cygwin programs, whereas the <filename>/mnt/d</filename> mount is only
-visible to the current user.</para>
+<para>In this example, c:\cygwin is the POSIX root and D drive is mapped to
+<filename>/d</filename>.  Note that in this case, the root mount is a
+system-wide mount point that is visible to all users running Cygwin
+programs, whereas the <filename>/d</filename> mount is only visible
+to the current user.</para>
 
 <para>The <command>mount</command> utility is also the mechanism for
-adding new mounts to the mount table in memory.  The following example
+adding new mounts to the mount table.  The following example
 demonstrates how to mount the directory
-<filename>//pollux/home/joe/data</filename> to <filename>/data</filename>
-for the duration of the current session.
+<filename>\\pollux\home\joe\data</filename> to <filename>/data</filename>.
 </para>
 
-<example id="utils-mount-add-ex">
+<example>
 <title>Adding mount points</title>
 <screen>
-<prompt>$</prompt> <userinput>ls /data</userinput>
+<prompt>c:\cygwin\&gt;</prompt> <userinput>ls /data</userinput>
 ls: /data: No such file or directory
-<prompt>$</prompt> <userinput>mount //pollux/home/joe/data /data</userinput>
+<prompt>c:\cygwin\&gt;</prompt> <userinput>mount \\pollux\home\joe\data /data</userinput>
 mount: warning - /data does not exist!
-<prompt>$</prompt> <userinput>mount</userinput>
-//pollux/home/joe/data on /data type smbfs (binary)
-C:/cygwin/bin on /usr/bin type ntfs (binary)
-C:/cygwin/lib on /usr/lib type ntfs (binary)
-C:/cygwin on / type ntfs (binary)
-C: on /c type ntfs (binary,user,noumount)
-D: on /d type fat (binary,user,noumount)
+<prompt>c:\cygwin\&gt;</prompt> <userinput>mount</userinput>
+\\pollux\home\joe\data on /data type sytem (binmode)
+c:\cygwin\bin on /usr/bin type system (binmode)
+c:\cygwin\lib on /usr/lib type system (binmode)
+c:\cygwin on / type system (binmode)
+c: on /c type user (binmode,noumount)
+d: on /d type user (binmode,noumount)
 </screen>
 </example>
 
-<para>A given POSIX path may only exist once in the mount table.  Attempts to
-replace the mount will fail with a busy error.  The <literal>-f</literal>
-(force) option causes the old mount to be silently replaced with the new one,
-provided the old mount point was a user mount point.  It's not valid to
-replace system-wide mount points.  Additionally, the <literal>-f</literal>
-option will silence warnings about the non-existence of directories at the
-Win32 path location.</para>
+<para>Note that <command>mount</command> was invoked from the Windows
+command shell in the previous example.  In many Unix shells, including
+bash, it is legal and convenient to use the forward "/" in Win32
+pathnames since the "\" is the shell's escape character. </para>
+
+<para>The <literal>-s</literal> flag to <command>mount</command> is used to add a mount
+in the system-wide mount table used by all Cygwin users on the system,
+instead of the user-specific one.  System-wide mounts are displayed
+by <command>mount</command> as being of the "system" type, as is the
+case for the <filename>/</filename> partition in the last example.
+Under Windows NT, only those users with Administrator priviledges are
+permitted to modify the system-wide mount table.</para>
+
+<para>Note that a given POSIX path may only exist once in the user
+table and once in the global, system-wide table.  Attempts to replace
+the mount will fail with a busy error.  The <literal>-f</literal> (force) flag causes
+the old mount to be silently replaced with the new one.  It will also
+silence warnings about the non-existence of directories at the Win32
+path location.</para>
+
+<para>The <literal>-b</literal> flag is used to instruct Cygwin to treat binary and
+text files in the same manner by default.  Binary mode mounts are
+marked as "binmode" in the Flags column of <command>mount</command>
+output.  By default, mounts are in text mode ("textmode" in the Flags
+column).</para>
+
+<para>Normally, files ending in certain extensions (.exe, .com, .bat, .cmd) 
+are assumed to be executable.  Files whose first two characters begin with 
+'#!' are also considered to be executable.  
+The <literal>-x</literal> flag is used to instruct Cygwin that the 
+mounted file is "executable".  If the <literal>-x</literal> flag is used 
+with a directory then all files in the directory are executable.  
+This option allows other files to be marked as executable and avoids the 
+overhead of opening each file to check for a '#!'.  The <literal>-X</literal>
+option is very similar to <literal>-x</literal>, but also prevents Cygwin
+from setting up commands and environment variables for a normal Windows 
+program, adding another small performance gain.  The opposite of these 
+flags is the <literal>-E</literal> flag, which means that no files should be 
+marked as executable.  </para>
+
+<para>
+The <literal>-m</literal> option causes the <command>mount</command> utility
+to output a series of commands that could recreate both user and system mount 
+points. You can save this output as a backup when experimenting with the
+mount table. It also makes moving your settings to a different machine
+much easier.
+</para>
 
 <para>
 The <literal>-o</literal> option is the method via which various options about
@@ -1127,90 +780,20 @@ the mount point may be recorded.  The following options are available (note that
 most of the options are duplicates of other mount flags):</para>
 
 <screen>
-  acl        - Use the filesystem's access control lists (ACLs) to
-               implement real POSIX permissions (default).
-  binary     - Files default to binary mode (default).
-  bind       - Allows to remount part of the file hierarchy somewhere else.
-               Different from other mount calls, the first argument 
-	       specifies an absolute POSIX path, rather than a Win32 path.
-	       This POSIX path is remounted to the POSIX path specified as
-	       the second parameter.  The conversion to a Win32 path is done
-	       within Cygwin immediately at the time of the call.  Note that
-	       symlinks are ignored while performing this path conversion.
-  cygexec    - Treat all files below mount point as cygwin executables.
-  dos        - Always convert leading spaces and trailing dots and spaces to
-	       characters in the UNICODE private use area.  This allows to use
-	       broken filesystems which only allow DOS filenames, even if they
-	       are not recognized as such by Cygwin.
-  exec       - Treat all files below mount point as executable.
-  ihash      - Always fake inode numbers rather than using the ones returned
-	       by the filesystem.  This allows to use broken filesystems which
-	       don't return unambiguous inode numbers, even if they are not
-	       recognized as such by Cygwin.
-  noacl      - Ignore ACLs and fake POSIX permissions.
-  nosuid     - No suid files are allowed (currently unimplemented)
-  notexec    - Treat all files below mount point as not executable.
-  override   - Override immutable mount points.
-  posix=0    - Switch off case sensitivity for paths under this mount point.
-  posix=1    - Switch on case sensitivity for paths under this mount point
-               (default).
-  sparse     - Switch on support for sparse files.  This option only makes
-	       sense on NTFS and then only if you really need sparse files.
-  text       - Files default to CRLF text mode line endings.
+  user       - mount lives user-specific mount
+  system     - mount lives in system table (default)
+  binary     - files default to binary mode (default)
+  text       - files default to CRLF text mode line endings
+  exec       - files below mount point are all executable
+  notexec    - files below mount point are not executable
+  cygexec    - files below mount point are all cygwin executables
+  nosuid     - no suid files are allowed (currently unimplemented)
+  managed    - directory is managed by cygwin.  Mixed case and special
+               characters in filenames are allowed.
 </screen>
-
-<para>For a more complete description of the mount options and the
-<filename>/etc/fstab</filename> file, see
-<xref linkend="mount-table"></xref>.</para>
-
-<para>Note that all mount points added with <command>mount</command> are
-user mount points.  System mount points can only be specified in
-the <filename>/etc/fstab</filename> file.</para>
-
-<para>If you added mount points to <filename>/etc/fstab</filename> or your
-<filename>/etc/fstab.d/&lt;username&gt;</filename> file, you can add these
-mount points to your current user session using the <literal>-a/--all</literal>
-option, or by specifing the posix path alone on the command line.  As an
-example, consider you added a mount point with the POSIX path
-<filename>/my/mount</filename>.  You can add this mount point with either
-one of the following two commands to your current user session.</para>
-
-<screen>
-<prompt>$</prompt> <userinput>mount /my/mount</userinput>
-<prompt>$</prompt> <userinput>mount -a</userinput>
-</screen>
-
-<para>The first command just adds the <filename>/my/mount</filename> mount
-point to your current session, the <command>mount -a</command> adds all
-new mount points to your user session.</para>
-
-<para>If you change a mount point to point to another native path, or
-if you changed the flags of a mount point, you have to <command>umount</command>
-the mount point first, before you can add it again.  Please note that
-all such added mount points are added as user mount points, and that the
-rule that system mount points can't be removed or replaced in a running
-session still applies.</para>
-
-<para>To bind a POSIX path to another POSIX path, use the
-<literal>bind</literal> mount flag.</para>
-
-<screen>
-<prompt>$</prompt> <userinput>mount -o bind /var /usr/var</userinput>
-</screen>
-
-<para>This command makes the file hirarchy under <filename>/var</filename>
-additionally available under <filename>/usr/var</filename>.</para>
-
-<para>
-The <literal>-m</literal> option causes the <command>mount</command> utility
-to output the current mount table in a series of fstab entries.
-You can save this output as a backup when experimenting with the mount table.
-Copy the output to <filename>/etc/fstab</filename> to restore the old state.
-It also makes moving your settings to a different machine much easier.</para>
-
 </sect3>
 
-<sect3 id="utils-cygdrive"><title>Cygdrive mount points</title>
+<sect3><title>Cygdrive mount points</title>
 
 <para>Whenever Cygwin cannot use any of the existing mounts to convert
 from a particular Win32 path to a POSIX one, Cygwin will, instead,
@@ -1221,41 +804,32 @@ mount table, then <filename>z:\</filename> will be accessible as
 <filename>/cygdrive/z</filename>.  The <command>mount</command> utility 
 can be used to change this default automount prefix through the use of the
 "--change-cygdrive-prefix" option.  In the following example, we will
-set the automount prefix to <filename>/mnt</filename>:</para>
+set the automount prefix to <filename>/</filename>:</para>
 
-<example id="utils-cygdrive-ex">
+<example>
 <title>Changing the default prefix</title>
 <screen>
-<prompt>$</prompt> <userinput>mount --change-cygdrive-prefix /mnt</userinput>
+<prompt>c:\cygwin\&gt;</prompt> <userinput>mount --change-cygdrive-prefix /</userinput>
 </screen>
 </example>
 
 <para>Note that the cygdrive prefix can be set both per-user and system-wide, 
 and that as with all mounts, a user-specific mount takes precedence over the 
 system-wide setting.  The <command>mount</command> utility creates system-wide 
-mounts by default if you do not specify a type.
+mounts by default if you do not specify a type.  Use the <literal>-s</literal> 
+or <literal>-u</literal> flag to indicate a system or user mount, respectively.
 You can always see the user and system cygdrive prefixes with the 
-<literal>-p</literal> option.  Using the <literal>--options</literal>
+<literal>-p</literal> option.  Using the <literal>-b</literal>
 flag with <literal>--change-cygdrive-prefix</literal> makes all new 
-automounted filesystems default to this set of options.  For instance
-(using the short form of the command line flags)</para>
-
-<example id="utils-cygdrive-ex2">
-<title>Changing the default prefix with specific mount options</title>
-<screen>
-<prompt>$</prompt> <userinput>mount -c /mnt -o binary,noacl</userinput>
-</screen>
-</example>
-
+automounted filesystems default to binary mode file accesses.</para>
 
 </sect3>
 
-<sect3 id="utils-limitations"><title>Limitations</title>
+<sect3><title>Limitations</title>
 
-<para>Limitations: there is a hard-coded limit of 64 mount points
-(up to Cygwin 1.7.9: 30 mount points).  Also, although you can mount
-to pathnames that do not start with "/", there is no way to make use
-of such mount points.</para>
+<para>Limitations: there is a hard-coded limit of 30 mount
+points.  Also, although you can mount to pathnames that do not start
+with "/", there is no way to make use of such mount points.</para>
 
 <para>Normally the POSIX mount point in Cygwin is an existing empty
 directory, as in standard UNIX. If this is the case, or if there is a
@@ -1291,7 +865,6 @@ find <filename>mtpt</filename>.
 
 <screen>
 Usage: passwd [OPTION] [USER]
-
 Change USER's password or password attributes.
 
 User operations:
@@ -1304,9 +877,6 @@ User operations:
                            password aging rule.
   -p, --pwd-not-required   no password required for USER.
   -P, --pwd-required       password is required for USER.
-  -R, --reg-store-pwd      enter password to store it in the registry for
-                           later usage by services to be able to switch
-                           to this user context with network credentials.
 
 System operations:
   -i, --inactive NUM       set NUM of days before inactive accounts are disabled
@@ -1316,26 +886,14 @@ System operations:
   -L, --length LEN         set system minimum password length to LEN.
 
 Other options:
-  -d, --logonserver SERVER connect to SERVER (e.g. domain controller).
-                           Default server is the local system, unless
-                           changing the current user, in which case the
-                           default is the content of $LOGONSERVER.
   -S, --status             display password status for USER (locked, expired,
                            etc.) plus global system password settings.
   -h, --help               output usage information and exit.
-  -V, --version            output version information and exit.
+  -v, --version            output version information and exit.
 
 If no option is given, change USER's password.  If no user name is given,
 operate on current user.  System operations must not be mixed with user
 operations.  Don't specify a USER when triggering a system operation. 
-
-Don't specify a user or any other option together with the -R option.
-Non-Admin users can only store their password if cygserver is running.
-Note that storing even obfuscated passwords in the registry is not overly
-secure.  Use this feature only if the machine is adequately locked down.
-Don't use this feature if you don't need network access within a remote
-session.  You can delete your stored password by using `passwd -R' and
-specifying an empty password.
 </screen>
 
 <para> <command>passwd</command> changes passwords for user accounts.
@@ -1396,60 +954,8 @@ to <emphasis>LEN</emphasis> characters.  Allowed values for the minimum
 password length are 0 to 14.  In any of the above cases, a value of 0
 means `no restrictions'.</para>
 
-<para>
-All operations affecting the current user are by default run against
-the logon server of the current user (taken from the environment
-variable <envar>LOGONSERVER</envar>.  When password or account information
-of other users should be changed, the default server is the local system.
-To change a user account on a remote machine, use the <literal>-d</literal>
-option to specify the machine to run the command against.  Note that the
-current user must be a valid member of the administrators group on the remote
-machine to perform such actions.
-</para>
-
-<para>Users can use the <command>passwd -R</command> to enter
-a password which then gets stored in a special area of the registry on the
-local system, which is also used by Windows to store passwords of accounts
-running Windows services.  When a privileged Cygwin application calls the
-<command>set{e}uid(user_id)</command> system call, Cygwin checks if a
-password for that user has been stored in this registry area.  If so, it
-uses this password to switch to this user account using that password.
-This allows you to logon through, for instance, <command>ssh</command> with
-public key authentication and get a full qualified user token with
-all credentials for network access.  However, the method has some
-drawbacks security-wise.  This is explained in more detail in
-<xref linkend="ntsec"></xref>.</para>
-
-<para>Please note that storing passwords in that registry area is a
-privileged operation which only administrative accounts are allowed to
-do.  Administrators can enter the password for other user accounts into
-the registry by specifying the username on the commandline.  If normal,
-non-admin users should be allowed to enter their passwords using
-<command>passwd -R</command>, it's required to run <command>cygserver</command>
-as a service under the LocalSystem account before running
-<command>passwd -R</command>.  This only affects storing passwords.  Using
-passwords in privileged processes does not require <command>cygserver</command>
-to run.</para>
-
 <para>Limitations: Users may not be able to change their password on
 some systems.</para>
-
-</sect2>
-
-<sect2 id="pldd"><title>pldd</title>
-
-<screen>
-Usage: pldd [OPTION...] PID
-
-List dynamic shared objects loaded into a process.
-
-  -?, --help                 Give this help list
-      --usage                Give a short usage message
-  -V, --version              Print program version
-</screen>
-
-<para><command>pldd</command> prints the shared libraries (DLLs) loaded
-by the process with the given PID.</para>
 
 </sect2>
 
@@ -1457,7 +963,6 @@ by the process with the given PID.</para>
 
 <screen>
 Usage: ps [-aefls] [-u UID]
-
 Report process status
 
  -a, --all       show processes of all users
@@ -1468,7 +973,7 @@ Report process status
  -p, --process   show information for specified PID
  -s, --summary   show process summary
  -u, --user      list processes owned by UID
- -V, --version   output version information and exit
+ -v, --version   output version information and exit
  -W, --windows   show windows as well as cygwin processes
 With no options, ps outputs the long format by default
 </screen>
@@ -1495,7 +1000,7 @@ waiting to output.
 </para>
 
 <para>
-By default, <command>ps</command> will only show processes owned by the
+By default <command>ps</command> will only show processes owned by the
 current user. With either the <literal>-a</literal> or <literal>-e</literal>
 option, all user's processes (and system processes) are listed. There are
 historical UNIX reasons for the synonomous options, which are functionally
@@ -1519,11 +1024,9 @@ option.
 
 <screen>
 Usage: regtool [OPTION] (add|check|get|list|remove|unset|load|unload|save) KEY
-
 View or edit the Win32 registry
 
 Actions:
-
  add KEY\SUBKEY             add new SUBKEY
  check KEY                  exit 0 if KEY exists, 1 if not
  get KEY\VALUE              prints VALUE to stdout
@@ -1536,34 +1039,24 @@ Actions:
  save KEY\SUBKEY PATH       save SUBKEY into new hive PATH
 
 Options for 'list' Action:
-
  -k, --keys           print only KEYs
  -l, --list           print only VALUEs
  -p, --postfix        like ls -p, appends '\' postfix to KEY names
 
 Options for 'get' Action:
-
  -b, --binary         print REG_BINARY data as hex bytes
- -n, --none           print data as stream of bytes as stored in registry
- -x, --hex            print numerical data as hex numbers
 
 Options for 'set' Action:
-
  -b, --binary         set type to REG_BINARY (hex args or '-')
- -D, --dword-be       set type to REG_DWORD_BIG_ENDIAN
  -e, --expand-string  set type to REG_EXPAND_SZ
  -i, --integer        set type to REG_DWORD
  -m, --multi-string   set type to REG_MULTI_SZ
- -n, --none           set type to REG_NONE
- -Q, --qword          set type to REG_QWORD
  -s, --string         set type to REG_SZ
 
 Options for 'set' and 'unset' Actions:
-
  -K&lt;c&gt;, --key-separator[=]&lt;c&gt;  set key separator to &lt;c&gt; instead of '\'
 
 Other Options:
-
  -h, --help     output usage information and exit
  -q, --quiet    no error output, just nonzero return if KEY/VALUE missing
  -v, --verbose  verbose output, including VALUE contents when applicable
@@ -1595,18 +1088,18 @@ Conversely, the <literal>-q</literal> option supresses error messages,
 so you can use the exit status of the program to detect if a key
 exists or not (for example).</para>
 
-<para>The <literal>-w</literal> option allows you to access the 64 bit view
-of the registry.  Several subkeys exist in a 32 bit and a 64 bit version
+<para>The <literal>-w</literal> option allows to access the 64 bit view
+on the registry.  Several subkeys exist in a 32 bit and a 64 bit version
 when running on Windows 64.  Since Cygwin is running in 32 bit mode, it
-only has access to the 32 bit view of these registry keys.  When using
-the <literal>-w</literal> switch, the 64 bit view is used and
+has only access to the 32 bit view of these registry keys.  When using
+the <literal>-w</literal> the 64 bit view is used and
 <command>regtool</command> can access the entire registry.
 This option is simply ignored when running on 32 bit Windows versions.
 </para>
 
-<para>The <literal>-W</literal> option allows you to access the 32 bit view
-on the registry.  The purpose of this option is mainly for symmetry.  It
-permits creation of OS agnostic scripts which would also work in a hypothetical
+<para>The <literal>-W</literal> option allows to access the 32 bit view
+on the registry.  The purpose of this  option is mainly symmetry.  It
+allows to create OS agnostic scripts which would also work in a hypothetic
 64 bit version of Cygwin.</para>
 
 <para>You must provide <command>regtool</command> with an 
@@ -1619,7 +1112,7 @@ the action must be <literal>add</literal>, <literal>set</literal>,
 <para>The <literal>add</literal> action adds a new key.  The 
 <literal>check</literal> action checks to see if a key exists (the 
 exit code of the program is zero if it does, nonzero if it does not).
-The <literal>get</literal> action gets the value of a key,
+The <literal>get</literal> action gets the value of a value of a key,
 and prints it (and nothing else) to stdout.  Note: if the value
 doesn't exist, an error message is printed and the program returns a
 non-zero exit code.  If you give <literal>-q</literal>, it doesn't
@@ -1638,35 +1131,23 @@ before you may remove it, but don't rely on this stopping you from
 accidentally removing too much.  
 </para>
 
-<para>The <literal>get</literal> action prints a value within a key.
-With the <literal>-b</literal> option, data is printed as hex bytes.
-<literal>-n</literal> allows to print the data as a typeless stream of
-bytes.  Integer values (REG_DWORD, REG_QWORD) are usually printed
-as decimal values.  The <literal>-x</literal> option allows to print
-the numbers as hexadecimal values.</para>
-
 <para>The <literal>set</literal> action sets a value within a key.
 <literal>-b</literal> means it's binary data (REG_BINARY).
 The binary values are specified as hex bytes in the argument list.
 If the argument is <literal>'-'</literal>, binary data is read
 from stdin instead.
-<literal>-d</literal> or <literal>-i</literal> means the value is a 32 bit
-integer value (REG_DWORD).
-<literal>-D</literal> means the value is a 32 bit integer value in
-Big Endian representation (REG_DWORD_BIG_ENDIAN).
-<literal>-Q</literal> means the value is a 64 bit integer value (REG_QWORD).
-<literal>-s</literal> means the value is a string (REG_SZ).
 <literal>-e</literal> means it's an expanding string (REG_EXPAND_SZ)
 that contains embedded environment variables.  
+<literal>-i</literal> means the value is an integer (REG_DWORD).
 <literal>-m</literal> means it's a multi-string (REG_MULTI_SZ).  
+<literal>-s</literal> means the value is a string (REG_SZ).
 If you don't specify one of these, <command>regtool</command> tries to
 guess the type based on the value you give.  If it looks like a
-number, it's a DWORD, unless it's value doesn't fit into 32 bit, in which
-case it's a QWORD.  If it starts with a percent, it's an expanding
+number, it's a DWORD.  If it starts with a percent, it's an expanding
 string.  If you give multiple values, it's a multi-string.  Else, it's
-a regular string.</para>
-
-<para>The <literal>unset</literal> action removes a value from a key.</para>
+a regular string.
+The <literal>unset</literal> action removes a value from a key.
+</para>
 
 <para>The <literal>load</literal> action adds a new subkey and loads
 the contents of a registry hive into it.
@@ -1692,7 +1173,6 @@ an alternate key/value separator character.
 <screen>
 Usage: setfacl [-r] (-f ACL_FILE | -s acl_entries) FILE...
        setfacl [-r] ([-d acl_entries] [-m acl_entries]) FILE...
-
 Modify file and directory access control lists (ACLs)
 
   -d, --delete     delete one or more specified ACL entries
@@ -1704,7 +1184,7 @@ Modify file and directory access control lists (ACLs)
   -s, --substitute substitute specified ACL entries for the
                    ACL of FILE
   -h, --help       output usage information and exit
-  -V, --version    output version information and exit
+  -v, --version    output version information and exit
 
 At least one of (-d, -f, -m, -s) must be specified
 </screen>
@@ -1838,33 +1318,10 @@ account currently.
 
 </sect2>
 
-<sect2 id="setmetamode"><title>setmetamode</title>
-
-<screen>
-Usage: setmetamode [metabit|escprefix]
-
-Get or set keyboard meta mode
-
-  Without argument, it shows the current meta key mode.
-  metabit|meta|bit     The meta key sets the top bit of the character.
-  escprefix|esc|prefix The meta key sends an escape prefix.
-
-Other options:
-
-  -h, --help           This text
-  -V, --version        Print program version and exit
-</screen>
-
-<para><command>setmetamode</command> can be used to determine and set the
-key code sent by the meta (aka <literal>Alt</literal>) key.</para>
-
-</sect2>
-
 <sect2 id="ssp"><title>ssp</title>
 
 <screen>
 Usage: ssp [options] low_pc high_pc command...
-
 Single-step profile COMMAND
 
  -c, --console-trace  trace every EIP value to the console. *Lots* slower.
@@ -1904,7 +1361,7 @@ are seconds, they really are instruction counts.  More on that later.
 </para>
 
 <para>
-Because the SSP was originally designed to profile the Cygwin DLL, it
+Because the SSP was originally designed to profile the cygwin DLL, it
 does not automatically select a block of code to report statistics on.
 You must specify the range of memory addresses to keep track of
 manually, but it's not hard to figure out what to specify.  Use the
@@ -2062,7 +1519,6 @@ $ ssp <literal>-v</literal> <literal>-s</literal> <literal>-l</literal> <literal
 <screen>
 Usage: strace.exe [OPTIONS] &lt;command-line&gt;
 Usage: strace.exe [OPTIONS] -p &lt;pid&gt;
-
 Trace system calls and signals
 
   -b, --buffer-size=SIZE       set size of output file buffer
@@ -2080,9 +1536,9 @@ Trace system calls and signals
   -t, --timestamp              use an absolute hh:mm:ss timestamp insted of 
                                the default microsecond timestamp.  Implies -d
   -T, --toggle                 toggle tracing in a process already being
-                               traced. Requires -p &lt;pid&gt;
   -u, --usecs                  toggle printing of microseconds timestamp
-  -V, --version                output version information and exit
+                               traced. Requires -p &lt;pid&gt;
+  -v, --version                output version information and exit
   -w, --new-window             spawn program under test in a new window
 
     MASK can be any combination of the following mnemonics and/or hex values
@@ -2092,27 +1548,24 @@ Trace system calls and signals
 
     Mnemonic Hex     Corresponding Def  Description
     =========================================================================
-    all      0x000001 (_STRACE_ALL)      All strace messages.
-    flush    0x000002 (_STRACE_FLUSH)    Flush output buffer after each message.
-    inherit  0x000004 (_STRACE_INHERIT)  Children inherit mask from parent.
-    uhoh     0x000008 (_STRACE_UHOH)     Unusual or weird phenomenon.
-    syscall  0x000010 (_STRACE_SYSCALL)  System calls.
-    startup  0x000020 (_STRACE_STARTUP)  argc/envp printout at startup.
-    debug    0x000040 (_STRACE_DEBUG)    Info to help debugging. 
-    paranoid 0x000080 (_STRACE_PARANOID) Paranoid info.
-    termios  0x000100 (_STRACE_TERMIOS)  Info for debugging termios stuff.
-    select   0x000200 (_STRACE_SELECT)   Info on ugly select internals.
-    wm       0x000400 (_STRACE_WM)       Trace Windows msgs (enable _strace_wm).
-    sigp     0x000800 (_STRACE_SIGP)     Trace signal and process handling.
-    minimal  0x001000 (_STRACE_MINIMAL)  Very minimal strace output.
-    pthread  0x002000 (_STRACE_PTHREAD)	Pthread calls.
-    exitdump 0x004000 (_STRACE_EXITDUMP) Dump strace cache on exit.
-    system   0x008000 (_STRACE_SYSTEM)   Serious error; goes to console and log.
-    nomutex  0x010000 (_STRACE_NOMUTEX)  Don't use mutex for synchronization.
-    malloc   0x020000 (_STRACE_MALLOC)   Trace malloc calls.
-    thread   0x040000 (_STRACE_THREAD)   Thread-locking calls.
-    special  0x100000 (_STRACE_SPECIAL)  Special debugging printfs for
-                                         non-checked-in code
+    all      0x00001 (_STRACE_ALL)      All strace messages.
+    flush    0x00002 (_STRACE_FLUSH)    Flush output buffer after each message.
+    inherit  0x00004 (_STRACE_INHERIT)  Children inherit mask from parent.
+    uhoh     0x00008 (_STRACE_UHOH)     Unusual or weird phenomenon.
+    syscall  0x00010 (_STRACE_SYSCALL)  System calls.
+    startup  0x00020 (_STRACE_STARTUP)  argc/envp printout at startup.
+    debug    0x00040 (_STRACE_DEBUG)    Info to help debugging. 
+    paranoid 0x00080 (_STRACE_PARANOID) Paranoid info.
+    termios  0x00100 (_STRACE_TERMIOS)  Info for debugging termios stuff.
+    select   0x00200 (_STRACE_SELECT)   Info on ugly select internals.
+    wm       0x00400 (_STRACE_WM)       Trace Windows msgs (enable _strace_wm).
+    sigp     0x00800 (_STRACE_SIGP)     Trace signal and process handling.
+    minimal  0x01000 (_STRACE_MINIMAL)  Very minimal strace output.
+    exitdump 0x04000 (_STRACE_EXITDUMP) Dump strace cache on exit.
+    system   0x08000 (_STRACE_SYSTEM)   Serious error; goes to console and log.
+    nomutex  0x10000 (_STRACE_NOMUTEX)  Don't use mutex for synchronization.
+    malloc   0x20000 (_STRACE_MALLOC)   Trace malloc calls.
+    thread   0x40000 (_STRACE_THREAD)   Thread-locking calls.
 </screen>
 
 <para>The <command>strace</command> program executes a program, and
@@ -2136,54 +1589,38 @@ This program is mainly useful for debugging the Cygwin DLL itself.</para>
 
 </sect2>
 
-<sect2 id="tzset"><title>tzset</title>
-
-<screen>
-Usage: tzset [OPTION]
-
-Print POSIX-compatible timezone ID from current Windows timezone setting
-
-Options:
-  -h, --help               output usage information and exit.
-  -V, --version            output version information and exit.
-
-Use tzset to set your TZ variable. In POSIX-compatible shells like bash,
-dash, mksh, or zsh:
-
-      export TZ=$(tzset)
-
-In csh-compatible shells like tcsh:
-
-      setenv TZ `tzset`
-</screen>
-
-<para>The <command>tzset</command> tool reads the current timezone from Windows
-and generates a POSIX-compatible timezone information for the TZ environment
-variable from that information.  That's all there is to it.  For the way how
-to use it, see the above usage information.</para>
-
-</sect2>
-
 <sect2 id="umount"><title>umount</title>
 
 <screen>
 Usage: umount.exe [OPTION] [&lt;posixpath&gt;]
-
 Unmount filesystems
 
+  -A, --remove-all-mounts       remove all mounts
+  -c, --remove-cygdrive-prefix  remove cygdrive prefix
   -h, --help                    output usage information and exit
+  -s, --system                  remove system mount (default)
+  -S, --remove-system-mounts    remove all system mounts
+  -u, --user                    remove user mount
   -U, --remove-user-mounts      remove all user mounts
-  -V, --version                 output version information and exit
+  -v, --version                 output version information and exit
 </screen>
 
 <para>The <command>umount</command> program removes mounts from the
-mount table in the current session.  If you specify a POSIX path that
-corresponds to a current mount point, <command>umount</command> will
-remove it from the current mount table.  Note that you can only remove
-user mount points.  The <literal>-U</literal> flag may be used to
-specify removing all user mount points from the current user session.</para>
+mount table.  If you specify a POSIX path that corresponds to a
+current mount point, <command>umount</command> will remove it from the
+system registry area.  (Administrator priviledges are required).
+The <literal>-u</literal> flag may be used to specify removing the mount 
+from the user-specific registry area instead.</para>
 
-<para>See <xref linkend="mount-table"></xref> for more information on the mount
+<para>The <command>umount</command> utility may also be used to remove
+all mounts of a particular type.  With the extended options it is
+possible to remove all mounts (<literal>-A</literal>), all 
+cygdrive automatically-mounted mounts (<literal>-c</literal>), all
+mounts in the current user's registry area (<literal>-U</literal>), 
+or all mounts in the system-wide registry area (<literal>-S</literal>) 
+(with Administrator privileges).</para>
+
+<para>See <xref linkend="mount"></xref> for more information on the mount
 table.</para>
 </sect2>
 

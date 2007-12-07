@@ -1,7 +1,6 @@
 /* regtool.cc
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011 Red Hat Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat Inc.
 
 This file is part of Cygwin.
 
@@ -13,16 +12,19 @@ details. */
 #include <stdlib.h>
 #include <errno.h>
 #include <ctype.h>
-#include <wchar.h>
 #include <getopt.h>
-#include <locale.h>
 #define WINVER 0x0502
 #include <windows.h>
 #include <sys/cygwin.h>
-#include <cygwin/version.h>
-#include "loadlib.h"
 
 #define DEFAULT_KEY_SEPARATOR '\\'
+
+#ifndef KEY_WOW64_32KEY
+#define KEY_WOW64_32KEY 0x0200
+#endif
+#ifndef KEY_WOW64_64KEY
+#define KEY_WOW64_64KEY 0x0100
+#endif
 
 #define REG_AUTO -1
 
@@ -34,13 +36,14 @@ char key_sep = DEFAULT_KEY_SEPARATOR;
 #define LIST_VALS	0x02
 #define LIST_ALL	(LIST_KEYS | LIST_VALS)
 
+static const char version[] = "$Revision$";
 static char *prog_name;
 
 static struct option longopts[] =
 {
   {"binary", no_argument, NULL, 'b' },
   {"dword", no_argument, NULL, 'd' },
-  {"dword-be", no_argument, NULL, 'D' },
+  {"dword-le", no_argument, NULL, 'D' },
   {"expand-string", no_argument, NULL, 'e' },
   {"help", no_argument, NULL, 'h' },
   {"integer", no_argument, NULL, 'i' },
@@ -88,21 +91,19 @@ DWORD wow64 = 0;
 char **argv;
 
 HKEY key;
-wchar_t *value;
+char *value;
 
 static void
 usage (FILE *where = stderr)
 {
   fprintf (where, ""
   "Usage: %s [OPTION] ACTION KEY [data...]\n"
-  "\n"
   "View or edit the Win32 registry\n"
   "\n", prog_name);
   if (where == stdout)
     {
       fprintf (where, ""
       "Actions:\n"
-      "\n"
       " add KEY\\SUBKEY             add new SUBKEY\n"
       " check KEY                  exit 0 if KEY exists, 1 if not\n"
       " get KEY\\VALUE              prints VALUE to stdout\n"
@@ -116,22 +117,19 @@ usage (FILE *where = stderr)
       "\n");
       fprintf (where, ""
       "Options for 'list' Action:\n"
-      "\n"
       " -k, --keys           print only KEYs\n"
       " -l, --list           print only VALUEs\n"
       " -p, --postfix        like ls -p, appends '\\' postfix to KEY names\n"
       "\n"
       "Options for 'get' Action:\n"
-      "\n"
       " -b, --binary         print data as printable hex bytes\n"
       " -n, --none           print data as stream of bytes as stored in registry\n"
       " -x, --hex            print numerical data as hex numbers\n"
       "\n"
       "Options for 'set' Action:\n"
-      "\n"
       " -b, --binary         set type to REG_BINARY (hex args or '-')\n"
       " -d, --dword          set type to REG_DWORD\n"
-      " -D, --dword-be       set type to REG_DWORD_BIG_ENDIAN\n"
+      " -D, --dword-le       set type to REG_DWORD_LITTLE_ENDIAN\n"
       " -e, --expand-string  set type to REG_EXPAND_SZ\n"
       " -i, --integer        set type to REG_DWORD\n"
       " -m, --multi-string   set type to REG_MULTI_SZ\n"
@@ -140,11 +138,9 @@ usage (FILE *where = stderr)
       " -s, --string         set type to REG_SZ\n"
       "\n"
       "Options for 'set' and 'unset' Actions:\n"
-      "\n"
       " -K<c>, --key-separator[=]<c>  set key-value separator to <c> instead of '\\'\n"
       "\n"
       "Other Options:\n"
-      "\n"
       " -h, --help     output usage information and exit\n"
       " -q, --quiet    no error output, just nonzero return if KEY/VALUE missing\n"
       " -v, --verbose  verbose output, including VALUE contents when applicable\n"
@@ -165,28 +161,37 @@ usage (FILE *where = stderr)
       "as separator and the backslash can be used as escape character.\n");
       fprintf (where, ""
       "Example:\n"
-      "%s list '/machine/SOFTWARE/Classes/MIME/Database/Content Type/audio\\/wav'\n\n", prog_name);
+      "%s list '/machine/SOFTWARE/Classes/MIME/Database/Content Type/audio\\/wav'\n", prog_name);
     }
   if (where == stderr)
     fprintf (where,
     "ACTION is one of add, check, get, list, remove, set, unset, load, unload, save\n"
     "\n"
-    "Try `%s --help' for more information.\n", prog_name);
+    "Try '%s --help' for more information.\n", prog_name);
   exit (where == stderr ? 1 : 0);
 }
 
 static void
 print_version ()
 {
-  printf ("regtool (cygwin) %d.%d.%d\n"
-	  "Registry tool\n"
-	  "Copyright (C) 2000 - %s Red Hat, Inc.\n"
-	  "This is free software; see the source for copying conditions.  There is NO\n"
-	  "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-	  CYGWIN_VERSION_DLL_MAJOR / 1000,
-	  CYGWIN_VERSION_DLL_MAJOR % 1000,
-	  CYGWIN_VERSION_DLL_MINOR,
-	  strrchr (__DATE__, ' ') + 1);
+  const char *v = strchr (version, ':');
+  int len;
+  if (!v)
+    {
+      v = "?";
+      len = 1;
+    }
+  else
+    {
+      v += 2;
+      len = strchr (v, ' ') - v;
+    }
+  printf ("\
+%s (cygwin) %.*s\n\
+Registry Tool\n\
+Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006 Red Hat, Inc.\n\
+Compiled on %s\n\
+", prog_name, len, v, __DATE__);
 }
 
 void
@@ -204,7 +209,7 @@ Fail (DWORD rv)
   exit (1);
 }
 
-static struct
+struct
 {
   const char *string;
   HKEY key;
@@ -318,8 +323,6 @@ find_key (int howmanyparts, REGSAM access, int option = 0)
   char *n = argv[0], *e, *h, c;
   char* host = NULL;
   int i;
-  size_t len;
-
   if (*n == '/')
     translate (n);
   if (*n != '\\')
@@ -373,21 +376,13 @@ find_key (int howmanyparts, REGSAM access, int option = 0)
       if (*e != key_sep)
 	{
 	  key = wkprefixes[i].key;
-	  if (value)
-	    free (value);
-	  len = mbstowcs (NULL, n, 0) + 1;
-	  value = (wchar_t *) malloc (len * sizeof (wchar_t));
-	  mbstowcs (value, n, len);
+	  value = n;
 	  return;
 	}
       else
 	{
 	  *e = 0;
-	  if (value)
-	    free (value);
-	  len = mbstowcs (NULL, e + 1, 0) + 1;
-	  value = (wchar_t *) malloc (len * sizeof (wchar_t));
-	  mbstowcs (value, e + 1, len);
+	  value = e + 1;
 	}
     }
   if (host)
@@ -404,52 +399,46 @@ find_key (int howmanyparts, REGSAM access, int option = 0)
     key = base;
   else
     {
-      len = mbstowcs (NULL, n, 0) + 1;
-      wchar_t name[len];
-      mbstowcs (name, n, len);
       if (access)
 	{
-	  rv = RegOpenKeyExW (base, name, 0, access | wow64, &key);
+	  rv = RegOpenKeyEx (base, n, 0, access | wow64, &key);
 	  if (option && (rv == ERROR_SUCCESS || rv == ERROR_ACCESS_DENIED))
 	    {
-	      /* reopen with desired option due to missing option support in
-		 RegOpenKeyE */
-	      /* FIXME: may create the key in rare cases (e.g. access denied
-		 in parent) */
+	      /* reopen with desired option due to missing option support in RegOpenKeyE */
+	      /* FIXME: may create the key in rare cases (e.g. access denied in parent) */
 	      HKEY key2;
-	      if (RegCreateKeyExW (base, name, 0, NULL, option, access | wow64,
-				  NULL, &key2, NULL)
+	      if (RegCreateKeyEx (base, n, 0, NULL, option, access | wow64, NULL, &key2, NULL)
 		  == ERROR_SUCCESS)
-		{
+	        {
 		  if (rv == ERROR_SUCCESS)
 		    RegCloseKey (key);
 		  key = key2;
 		  rv = ERROR_SUCCESS;
-		}
+	        }
 	    }
 	  if (rv != ERROR_SUCCESS)
 	    Fail (rv);
 	}
       else if (argv[1])
-	{
-	  ssize_t len = cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], NULL, 0);
-	  wchar_t win32_path[len];
-	  cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], win32_path, len);
-	  rv = RegLoadKeyW (base, name, win32_path);
+	{ 
+	  char win32_path[MAX_PATH];
+	  cygwin_conv_to_win32_path (argv[1], win32_path);
+	  rv = RegLoadKey (base, n, win32_path);
 	  if (rv != ERROR_SUCCESS)
 	    Fail (rv);
 	  if (verbose)
-	    printf ("key %ls loaded from file %ls\n", name, win32_path);
+	    printf ("key %s loaded from file %s\n", n, win32_path);
 	}
       else
-	{
-	  rv = RegUnLoadKeyW (base, name);
+	{ 
+	  rv = RegUnLoadKey (base, n);
 	  if (rv != ERROR_SUCCESS)
 	    Fail (rv);
 	  if (verbose)
-	    printf ("key %ls unloaded\n", name);
+	    printf ("key %s unloaded\n", n);
 	}
     }
+  //printf("key `%s' value `%s'\n", n, value);
 }
 
 
@@ -458,18 +447,18 @@ cmd_list ()
 {
   DWORD num_subkeys, maxsubkeylen, num_values, maxvalnamelen, maxvaluelen;
   DWORD maxclasslen;
-  wchar_t *subkey_name, *value_name, *class_name, *vd;
-  unsigned char *value_data;
+  char *subkey_name, *value_name, *class_name;
+  unsigned char *value_data, *vd;
   DWORD i, j, m, n, t;
   int v;
 
   find_key (1, KEY_READ);
-  RegQueryInfoKeyW (key, 0, 0, 0, &num_subkeys, &maxsubkeylen, &maxclasslen,
-		    &num_values, &maxvalnamelen, &maxvaluelen, 0, 0);
+  RegQueryInfoKey (key, 0, 0, 0, &num_subkeys, &maxsubkeylen, &maxclasslen,
+		   &num_values, &maxvalnamelen, &maxvaluelen, 0, 0);
 
-  subkey_name = (wchar_t *) malloc ((maxsubkeylen + 1) * sizeof (wchar_t));
-  class_name = (wchar_t *) malloc ((maxclasslen + 1) * sizeof (wchar_t));
-  value_name = (wchar_t *) malloc ((maxvalnamelen + 1) * sizeof (wchar_t));
+  subkey_name = (char *) malloc (maxsubkeylen + 1);
+  class_name = (char *) malloc (maxclasslen + 1);
+  value_name = (char *) malloc (maxvalnamelen + 1);
   value_data = (unsigned char *) malloc (maxvaluelen + 1);
 
   if (!listwhat)
@@ -478,15 +467,15 @@ cmd_list ()
   if (listwhat & LIST_KEYS)
     for (i = 0; i < num_subkeys; i++)
       {
-	m = (maxsubkeylen + 1) * sizeof (wchar_t);
-	n = (maxclasslen + 1) * sizeof (wchar_t);
-	RegEnumKeyExW (key, i, subkey_name, &m, 0, class_name, &n, 0);
-	printf ("%ls", subkey_name);
+	m = maxsubkeylen + 1;
+	n = maxclasslen + 1;
+	RegEnumKeyEx (key, i, subkey_name, &m, 0, class_name, &n, 0);
+	fputs (subkey_name, stdout);
 	if (postfix || verbose)
 	  fputc (key_sep, stdout);
 
 	if (verbose)
-	  printf (" (%ls)", class_name);
+	  printf (" (%s)", class_name);
 
 	puts ("");
       }
@@ -494,18 +483,19 @@ cmd_list ()
   if (listwhat & LIST_VALS)
     for (i = 0; i < num_values; i++)
       {
-	m = (maxvalnamelen + 1) * sizeof (wchar_t);
+	m = maxvalnamelen + 1;
 	n = maxvaluelen + 1;
-	RegEnumValueW (key, i, value_name, &m, 0, &t, (BYTE *) value_data, &n);
+	RegEnumValue (key, i, value_name, &m, 0, &t, (BYTE *) value_data, &n);
 	value_data[n] = 0;
 	if (!verbose)
-	  printf ("%ls\n", value_name);
+	  printf ("%s\n", value_name);
 	else
 	  {
-	    printf ("%ls (%s) = ", value_name, types[t]);
+	    printf ("%s (%s) = ", value_name, types[t]);
 	    switch (t)
 	      {
 	      case REG_NONE:
+	      case REG_LINK:
 	      case REG_BINARY:
 		for (j = 0; j < 8 && j < n; j++)
 		  printf ("%02x ", value_data[j]);
@@ -529,15 +519,14 @@ cmd_list ()
 		break;
 	      case REG_EXPAND_SZ:
 	      case REG_SZ:
-	      case REG_LINK:
-		printf ("\"%ls\"\n", (wchar_t *) value_data);
+		printf ("\"%s\"\n", value_data);
 		break;
 	      case REG_MULTI_SZ:
-		vd = (wchar_t *) value_data;
+		vd = value_data;
 		while (vd && *vd)
 		  {
-		    printf ("\"%ls\"", vd);
-		    vd = vd + wcslen (vd) + 1;
+		    printf ("\"%s\"", vd);
+		    vd = vd + strlen ((const char *) vd) + 1;
 		    if (*vd)
 		      printf (", ");
 		  }
@@ -558,23 +547,23 @@ cmd_add ()
   find_key (2, KEY_ALL_ACCESS);
   HKEY newkey;
   DWORD newtype;
-  int rv = RegCreateKeyExW (key, value, 0, NULL, REG_OPTION_NON_VOLATILE,
-			    KEY_ALL_ACCESS | wow64, 0, &newkey, &newtype);
+  int rv = RegCreateKeyEx (key, value, 0, (char *) "", REG_OPTION_NON_VOLATILE,
+			   KEY_ALL_ACCESS | wow64, 0, &newkey, &newtype);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
 
   if (verbose)
     {
       if (newtype == REG_OPENED_EXISTING_KEY)
-	printf ("Key %ls already exists\n", value);
+	printf ("Key %s already exists\n", value);
       else
-	printf ("Key %ls created\n", value);
+	printf ("Key %s created\n", value);
     }
   return 0;
 }
 
 extern "C" {
-  LONG WINAPI (*regDeleteKeyEx)(HKEY, LPCWSTR, REGSAM, DWORD);
+WINADVAPI LONG WINAPI (*regDeleteKeyEx)(HKEY, LPCSTR, REGSAM, DWORD);
 }
 
 int
@@ -587,16 +576,16 @@ cmd_remove ()
     {
       HMODULE mod = LoadLibrary ("advapi32.dll");
       if (mod)
-	regDeleteKeyEx = (LONG WINAPI (*)(HKEY, LPCWSTR, REGSAM, DWORD)) GetProcAddress (mod, "RegDeleteKeyExW");
+        regDeleteKeyEx = (WINADVAPI LONG WINAPI (*)(HKEY, LPCSTR, REGSAM, DWORD)) GetProcAddress (mod, "RegDeleteKeyExA");
     }
   if (regDeleteKeyEx)
     rv = (*regDeleteKeyEx) (key, value, wow64, 0);
   else
-    rv = RegDeleteKeyW (key, value);
+    rv = RegDeleteKey (key, value);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
   if (verbose)
-    printf ("subkey %ls deleted\n", value);
+    printf ("subkey %s deleted\n", value);
   return 0;
 }
 
@@ -612,7 +601,7 @@ cmd_check ()
 int
 cmd_set ()
 {
-  int i, n, max_n;
+  int i, n;
   DWORD v, rv;
   unsigned long long llval;
   char *a = argv[1], *data = 0;
@@ -639,7 +628,7 @@ cmd_set ()
     case REG_NONE:
     case REG_BINARY:
       for (n = 0; argv[n+1]; n++)
-	;
+        ;
       if (n == 1 && strcmp (argv[1], "-") == 0)
 	{ /* read from stdin */
 	  i = n = 0;
@@ -672,11 +661,11 @@ cmd_set ()
 	      data[i] = (char) v;
 	    }
 	}
-      rv = RegSetValueExW (key, value, 0, value_type, (const BYTE *) data, n);
+      rv = RegSetValueEx (key, value, 0, value_type, (const BYTE *) data, n);
       break;
     case REG_DWORD:
       v = strtoul (a, 0, 0);
-      rv = RegSetValueExW (key, value, 0, REG_DWORD, (const BYTE *) &v,
+      rv = RegSetValueEx (key, value, 0, REG_DWORD, (const BYTE *) &v,
 			  sizeof (v));
       break;
     case REG_DWORD_BIG_ENDIAN:
@@ -685,33 +674,33 @@ cmd_set ()
 	   | ((v & 0xff00) << 8)
 	   | ((v & 0xff0000) >> 8)
 	   | ((v & 0xff000000) >> 24));
-      rv = RegSetValueExW (key, value, 0, REG_DWORD_BIG_ENDIAN,
+      rv = RegSetValueEx (key, value, 0, REG_DWORD_BIG_ENDIAN,
 			  (const BYTE *) &v, sizeof (v));
       break;
     case REG_QWORD:
       llval = strtoul (a, 0, 0);
-      rv = RegSetValueExW (key, value, 0, REG_QWORD, (const BYTE *) &llval,
+      rv = RegSetValueEx (key, value, 0, REG_QWORD, (const BYTE *) &llval,
 			  sizeof (llval));
       break;
     case REG_SZ:
+      rv = RegSetValueEx (key, value, 0, REG_SZ, (const BYTE *) a, strlen (a) + 1);
+      break;
     case REG_EXPAND_SZ:
-      {
-	n = mbstowcs (NULL, a, 0);
-	wchar_t w[n + 1];
-	mbstowcs (w, a, n + 1);
-	rv = RegSetValueExW (key, value, 0, value_type,
-			     (const BYTE *) w, (n + 1) * sizeof (wchar_t));
-      }
+      rv = RegSetValueEx (key, value, 0, REG_EXPAND_SZ, (const BYTE *) a,
+			  strlen (a) + 1);
       break;
     case REG_MULTI_SZ:
-      for (i = 1, max_n = 1; argv[i]; i++)
-	max_n += mbstowcs (NULL, argv[i], 0) + 1;
-      data = (char *) malloc (max_n * sizeof (wchar_t));
+      for (i = 1, n = 1; argv[i]; i++)
+	n += strlen (argv[i]) + 1;
+      data = (char *) malloc (n);
       for (i = 1, n = 0; argv[i]; i++)
-	n += mbstowcs ((wchar_t *) data + n, argv[i], max_n - n) + 1;
-      ((wchar_t *)data)[n] = L'\0';
-      rv = RegSetValueExW (key, value, 0, REG_MULTI_SZ, (const BYTE *) data,
-			   (n + 1) * sizeof (wchar_t));
+	{
+	  strcpy (data + n, argv[i]);
+	  n += strlen (argv[i]) + 1;
+	}
+      data[n] = 0;
+      rv = RegSetValueEx (key, value, 0, REG_MULTI_SZ, (const BYTE *) data,
+			  n + 1);
       break;
     case REG_AUTO:
       rv = ERROR_SUCCESS;
@@ -720,7 +709,7 @@ cmd_set ()
       rv = ERROR_INVALID_CATEGORY;
       break;
     }
-
+ 
   if (data)
     free(data);
 
@@ -734,11 +723,11 @@ int
 cmd_unset ()
 {
   find_key (2, KEY_ALL_ACCESS);
-  DWORD rv = RegDeleteValueW (key, value);
+  DWORD rv = RegDeleteValue (key, value);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
   if (verbose)
-    printf ("value %ls deleted\n", value);
+    printf ("value %s deleted\n", value);
   return 0;
 }
 
@@ -747,14 +736,12 @@ cmd_get ()
 {
   find_key (2, KEY_READ);
   DWORD vtype, dsize, rv;
-  PBYTE data;
-  wchar_t *vd;
-
-  rv = RegQueryValueExW (key, value, 0, &vtype, 0, &dsize);
+  char *data, *vd;
+  rv = RegQueryValueEx (key, value, 0, &vtype, 0, &dsize);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
-  data = (PBYTE) malloc (dsize + 1);
-  rv = RegQueryValueExW (key, value, 0, &vtype, data, &dsize);
+  data = (char *) malloc (dsize + 1);
+  rv = RegQueryValueEx (key, value, 0, &vtype, (BYTE *) data, &dsize);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
   if (value_type == REG_BINARY)
@@ -770,6 +757,7 @@ cmd_get ()
       {
       case REG_NONE:
       case REG_BINARY:
+      case REG_LINK:
 	fwrite (data, dsize, 1, stdout);
 	break;
       case REG_DWORD:
@@ -786,28 +774,27 @@ cmd_get ()
 	printf (hex ? "0x%016llx\n" : "%llu\n", *(unsigned long long *) data);
 	break;
       case REG_SZ:
-      case REG_LINK:
-	printf ("%ls\n", (wchar_t *) data);
+	printf ("%s\n", data);
 	break;
       case REG_EXPAND_SZ:
 	if (value_type == REG_EXPAND_SZ)	// hack
 	  {
-	    wchar_t *buf;
+	    char *buf;
 	    DWORD bufsize;
-	    bufsize = ExpandEnvironmentStringsW ((wchar_t *) data, 0, 0);
-	    buf = (wchar_t *) malloc (bufsize + 1);
-	    ExpandEnvironmentStringsW ((wchar_t *) data, buf, bufsize + 1);
+	    bufsize = ExpandEnvironmentStrings (data, 0, 0);
+	    buf = (char *) malloc (bufsize + 1);
+	    ExpandEnvironmentStrings (data, buf, bufsize + 1);
 	    free (data);
-	    data = (PBYTE) buf;
+	    data = buf;
 	  }
-	printf ("%ls\n", (wchar_t *) data);
+	printf ("%s\n", data);
 	break;
       case REG_MULTI_SZ:
-	vd = (wchar_t *) data;
+	vd = data;
 	while (vd && *vd)
 	  {
-	    printf ("%ls\n", vd);
-	    vd = vd + wcslen (vd) + 1;
+	    printf ("%s\n", vd);
+	    vd = vd + strlen ((const char *) vd) + 1;
 	  }
 	break;
       }
@@ -839,7 +826,7 @@ cmd_unload ()
 }
 
 DWORD
-set_privilege (const char *name)
+set_privilege (const char * name)
 {
   TOKEN_PRIVILEGES tp;
   if (!LookupPrivilegeValue (NULL, name, &tp.Privileges[0].Luid))
@@ -869,18 +856,18 @@ cmd_save ()
   set_privilege (SE_BACKUP_NAME);
   /* REG_OPTION_BACKUP_RESTORE is necessary to save /HKLM/SECURITY */
   find_key (1, KEY_QUERY_VALUE, REG_OPTION_BACKUP_RESTORE);
-  ssize_t len = cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], NULL, 0);
-  wchar_t win32_path[len];
-  cygwin_conv_path (CCP_POSIX_TO_WIN_W, argv[1], win32_path, len);
-  DWORD rv = RegSaveKeyW (key, win32_path, NULL);
+  char win32_path[MAX_PATH];
+  cygwin_conv_to_win32_path (argv[1], win32_path);
+  DWORD rv = RegSaveKey (key, win32_path, NULL);
   if (rv != ERROR_SUCCESS)
     Fail (rv);
   if (verbose)
-    printf ("key saved to %ls\n", win32_path);
+    printf ("key saved to %s\n", win32_path);
   return 0;
 }
 
-static struct
+
+struct
 {
   const char *name;
   int (*func) ();
@@ -904,9 +891,13 @@ main (int argc, char **_argv)
 {
   int g;
 
-  setlocale (LC_ALL, "");
-
-  prog_name = program_invocation_short_name;
+  prog_name = strrchr (_argv[0], '/');
+  if (prog_name == NULL)
+    prog_name = strrchr (_argv[0], '\\');
+  if (prog_name == NULL)
+    prog_name = _argv[0];
+  else
+    prog_name++;
 
   while ((g = getopt_long (argc, _argv, opts, longopts, NULL)) != EOF)
     switch (g)
@@ -971,9 +962,7 @@ main (int argc, char **_argv)
 	  key_sep = *optarg;
 	  break;
 	default :
-	  fprintf (stderr, "Try `%s --help' for more information.\n",
-		   prog_name);
-	  return 1;
+	  usage ();
 	}
 
   if ((_argv[optind] == NULL) || (_argv[optind+1] == NULL))
