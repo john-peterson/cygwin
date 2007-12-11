@@ -33,7 +33,7 @@
 	float z;
 	struct exception exc;
 	z = __ieee754_log10f(x);
-	if(_LIB_VERSION == _IEEE_ || isnan(x)) return z;
+	if(_LIB_VERSION == _IEEE_ || isnanf(x)) return z;
 	if(x<=(float)0.0) {
 #ifndef HUGE_VAL 
 #define HUGE_VAL inf
@@ -54,7 +54,7 @@
 	        if (_LIB_VERSION == _POSIX_)
 	           errno = ERANGE;
 	        else if (!matherr(&exc)) {
-	           errno = ERANGE;
+	           errno = EDOM;
 	        }
 	    } else { 
 	        /* log10f(x<0) */

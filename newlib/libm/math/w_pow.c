@@ -24,14 +24,14 @@ INDEX
 ANSI_SYNOPSIS
 	#include <math.h>
 	double pow(double <[x]>, double <[y]>);
-	float powf(float <[x]>, float <[y]>);
+	float pow(float <[x]>, float <[y]>);
 
 TRAD_SYNOPSIS
 	#include <math.h>
 	double pow(<[x]>, <[y]>);
 	double <[x]>, <[y]>;
 
-	float powf(<[x]>, <[y]>);
+	float pow(<[x]>, <[y]>);
 	float <[x]>, <[y]>;
 
 DESCRIPTION

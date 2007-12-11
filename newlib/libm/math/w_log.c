@@ -95,7 +95,7 @@ PORTABILITY
 	    if (_LIB_VERSION == _POSIX_)
 	       errno = ERANGE;
 	    else if (!matherr(&exc)) {
-	       errno = ERANGE;
+	       errno = EDOM;
 	    }
 	} else { 
 	    /* log(x<0) */
