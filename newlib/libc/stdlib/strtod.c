@@ -112,7 +112,6 @@ THIS SOFTWARE.
 
 #include <_ansi.h>
 #include <errno.h>
-#include <stdlib.h>
 #include <string.h>
 #include "mprec.h"
 #include "gdtoa.h"
@@ -122,7 +121,9 @@ THIS SOFTWARE.
 /* #include <fenv.h> */
 /* #endif */
 
+#ifdef USE_LOCALE
 #include "locale.h"
+#endif
 
 #ifdef IEEE_Arith
 #ifndef NO_IEEE_Scale
@@ -217,8 +218,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 	int bb2, bb5, bbe, bd2, bd5, bbbits, bs2, c, decpt, dsign,
 		 e, e1, esign, i, j, k, nd, nd0, nf, nz, nz0, sign;
 	_CONST char *s, *s0, *s1;
-	double aadj, adj;
-	U aadj1, rv, rv0;
+	double aadj, aadj1, adj, rv, rv0;
 	Long L;
 	__ULong y, z;
 	_Bigint *bb, *bb1, *bd, *bd0, *bs, *delta;
@@ -286,7 +286,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					copybits(bits, fpi.nbits, bb);
 					Bfree(ptr,bb);
 					}
-				ULtod(rv.i, bits, exp, i);
+				ULtod(((U*)&rv)->L, bits, exp, i);
 			  }}
 			goto ret;
 		  }
@@ -299,20 +299,20 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 		}
 	s0 = s;
 	y = z = 0;
-	for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++) {
-		if (nd < DBL_DIG + 1) {
-			if (nd < 9)
-				y = 10*y + c - '0';
-			else
-				z = 10*z + c - '0';
-		}
-        }
+	for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++)
+		if (nd < 9)
+			y = 10*y + c - '0';
+		else if (nd < 16)
+			z = 10*z + c - '0';
 	nd0 = nd;
-	if (strncmp (s, _localeconv_r (ptr)->decimal_point,
-		     strlen (_localeconv_r (ptr)->decimal_point)) == 0)
+#ifdef USE_LOCALE
+	if (c == *localeconv()->decimal_point)
+#else
+	if (c == '.')
+#endif
 		{
 		decpt = 1;
-		c = *(s += strlen (_localeconv_r (ptr)->decimal_point));
+		c = *++s;
 		if (!nd) {
 			for(; c == '0'; c = *++s)
 				nz++;
@@ -329,20 +329,15 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 			nz++;
 			if (c -= '0') {
 				nf += nz;
-				for(i = 1; i < nz; i++) {
-					if (nd++ <= DBL_DIG + 1) {
-						if (nd < 10)
-							y *= 10;
-						else
-							z *= 10;
-					}
-				}
-				if (nd++ <= DBL_DIG + 1) {
-					if (nd < 10)
-						y = 10*y + c;
-					else
-						z = 10*z + c;
-				}
+				for(i = 1; i < nz; i++)
+					if (nd++ < 9)
+						y *= 10;
+					else if (nd <= DBL_DIG + 1)
+						z *= 10;
+				if (nd++ < 9)
+					y = 10*y + c;
+				else if (nd <= DBL_DIG + 1)
+					z = 10*z + c;
 				nz = 0;
 				}
 			}
@@ -401,9 +396,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					if (!match(&s,"inity"))
 						++s;
 					dword0(rv) = 0x7ff00000;
-#ifndef _DOUBLE_IS_32BITS
 					dword1(rv) = 0;
-#endif /*!_DOUBLE_IS_32BITS*/
 					goto ret;
 					}
 				break;
@@ -415,16 +408,12 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					 && hexnan(&s, &fpinan, bits)
 							== STRTOG_NaNbits) {
 						dword0(rv) = 0x7ff00000 | bits[1];
-#ifndef _DOUBLE_IS_32BITS
 						dword1(rv) = bits[0];
-#endif /*!_DOUBLE_IS_32BITS*/
 						}
 					else {
 #endif
 						dword0(rv) = NAN_WORD0;
-#ifndef _DOUBLE_IS_32BITS
 						dword1(rv) = NAN_WORD1;
-#endif /*!_DOUBLE_IS_32BITS*/
 #ifndef No_Hex_NaN
 						}
 #endif
@@ -474,7 +463,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 #ifdef Honor_FLT_ROUNDS
 				/* round correctly FLT_ROUNDS = 2 or 3 */
 				if (sign) {
-					dval(rv) = -dval(rv);
+					rv = -rv;
 					sign = 0;
 					}
 #endif
@@ -490,7 +479,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 #ifdef Honor_FLT_ROUNDS
 				/* round correctly FLT_ROUNDS = 2 or 3 */
 				if (sign) {
-					dval(rv) = -dval(rv);
+					rv = -rv;
 					sign = 0;
 					}
 #endif
@@ -518,7 +507,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 #ifdef Honor_FLT_ROUNDS
 			/* round correctly FLT_ROUNDS = 2 or 3 */
 			if (sign) {
-				dval(rv) = -dval(rv);
+				rv = -rv;
 				sign = 0;
 				}
 #endif
@@ -648,8 +637,8 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 #ifndef _DOUBLE_IS_32BITS
 				else
 					dword1(rv) &= 0xffffffff << j;
-#endif /*!_DOUBLE_IS_32BITS*/
 				}
+#endif /*!_DOUBLE_IS_32BITS*/
 #else
 			for(j = 0; e1 > 1; j++, e1 >>= 1)
 				if (e1 & 1)
@@ -981,14 +970,14 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 			}
 		if ((aadj = ratio(delta, bs)) <= 2.) {
 			if (dsign)
-				aadj = dval(aadj1) = 1.;
+				aadj = aadj1 = 1.;
 			else if (dword1(rv) || dword0(rv) & Bndry_mask) {
 #ifndef Sudden_Underflow
 				if (dword1(rv) == Tiny1 && !dword0(rv))
 					goto undfl;
 #endif
 				aadj = 1.;
-				dval(aadj1) = -1.;
+				aadj1 = -1.;
 				}
 			else {
 				/* special case -- power of FLT_RADIX to be */
@@ -998,24 +987,24 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					aadj = 1./FLT_RADIX;
 				else
 					aadj *= 0.5;
-				dval(aadj1) = -aadj;
+				aadj1 = -aadj;
 				}
 			}
 		else {
 			aadj *= 0.5;
-			dval(aadj1) = dsign ? aadj : -aadj;
+			aadj1 = dsign ? aadj : -aadj;
 #ifdef Check_FLT_ROUNDS
 			switch(Rounding) {
 				case 2: /* towards +infinity */
-					dval(aadj1) -= 0.5;
+					aadj1 -= 0.5;
 					break;
 				case 0: /* towards 0 */
 				case 3: /* towards -infinity */
-					dval(aadj1) += 0.5;
+					aadj1 += 0.5;
 				}
 #else
 			if (Flt_Rounds == 0)
-				dval(aadj1) += 0.5;
+				aadj1 += 0.5;
 #endif /*Check_FLT_ROUNDS*/
 			}
 		y = dword0(rv) & Exp_mask;
@@ -1025,7 +1014,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 		if (y == Exp_msk1*(DBL_MAX_EXP+Bias-1)) {
 			dval(rv0) = dval(rv);
 			dword0(rv) -= P*Exp_msk1;
-			adj = dval(aadj1) * ulp(dval(rv));
+			adj = aadj1 * ulp(dval(rv));
 			dval(rv) += adj;
 			if ((dword0(rv) & Exp_mask) >=
 					Exp_msk1*(DBL_MAX_EXP+Bias-P)) {
@@ -1047,18 +1036,18 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					if ((z = aadj) <= 0)
 						z = 1;
 					aadj = z;
-					dval(aadj1) = dsign ? aadj : -aadj;
+					aadj1 = dsign ? aadj : -aadj;
 					}
 				dword0(aadj1) += (2*P+1)*Exp_msk1 - y;
 				}
-			adj = dval(aadj1) * ulp(dval(rv));
+			adj = aadj1 * ulp(dval(rv));
 			dval(rv) += adj;
 #else
 #ifdef Sudden_Underflow
 			if ((dword0(rv) & Exp_mask) <= P*Exp_msk1) {
 				dval(rv0) = dval(rv);
 				dword0(rv) += P*Exp_msk1;
-				adj = dval(aadj1) * ulp(dval(rv));
+				adj = aadj1 * ulp(dval(rv));
 				dval(rv) += adj;
 #ifdef IBM
 				if ((dword0(rv) & Exp_mask) <  P*Exp_msk1)
@@ -1081,7 +1070,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 					dword0(rv) -= P*Exp_msk1;
 				}
 			else {
-				adj = dval(aadj1) * ulp(dval(rv));
+				adj = aadj1 * ulp(dval(rv));
 				dval(rv) += adj;
 				}
 #else /*Sudden_Underflow*/
@@ -1093,11 +1082,11 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 			 * example: 1.2e-307 .
 			 */
 			if (y <= (P-1)*Exp_msk1 && aadj > 1.) {
-				dval(aadj1) = (double)(int)(aadj + 0.5);
+				aadj1 = (double)(int)(aadj + 0.5);
 				if (!dsign)
-					dval(aadj1) = -dval(aadj1);
+					aadj1 = -aadj1;
 				}
-			adj = dval(aadj1) * ulp(dval(rv));
+			adj = aadj1 * ulp(dval(rv));
 			dval(rv) += adj;
 #endif /*Sudden_Underflow*/
 #endif /*Avoid_Underflow*/
@@ -1130,9 +1119,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 	if (inexact) {
 		if (!oldinexact) {
 			dword0(rv0) = Exp_1 + (70 << Exp_shift);
-#ifndef _DOUBLE_IS_32BITS
 			dword1(rv0) = 0;
-#endif /*!_DOUBLE_IS_32BITS*/
 			dval(rv0) += 1.;
 			}
 		}
@@ -1142,9 +1129,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 #ifdef Avoid_Underflow
 	if (scale) {
 		dword0(rv0) = Exp_1 - 2*P*Exp_msk1;
-#ifndef _DOUBLE_IS_32BITS
 		dword1(rv0) = 0;
-#endif /*!_DOUBLE_IS_32BITS*/
 		dval(rv) *= dval(rv0);
 #ifndef NO_ERRNO
 		/* try to avoid the bug of testing an 8087 register value */
@@ -1172,7 +1157,7 @@ _DEFUN (_strtod_r, (ptr, s00, se),
 	return sign ? -dval(rv) : dval(rv);
 }
 
-#ifndef _REENT_ONLY
+#ifndef NO_REENT
 
 double
 _DEFUN (strtod, (s00, se),
