@@ -1,60 +1,8 @@
-2009-11-11  Kevin Buettner  <kevinb@redhat.com>
+2008-06-11  Michael Snyder  <msnyder@specifix.com>
 
-	Update configury:
-	acinclude.m4: Include toplevel libtool related files.  Don't
-	include gettext-sister.m4.
-	configure.in (ZW_GNU_GETTEXT_SISTER_DIR): Delete.
-	aclocal.m4, configure, Makefile.in: Regenerate.
-	samples/Makefile.am (INCLUDES): Rename to AM_CPPFLAGS.
-	lib/Makefile.in, qe/Makefile.in, samples/Makefile.in: Regenerate.
-	unix/acinclude.m4: Include toplevel libtool related files.
-	unix/aclocal.m4, unix/configure, unix/Makefile.in: Regenerate.
-
-2009-11-06  Kevin Buettner  <kevinb@redhat.com>
-
-	From Michael Snyder (circa 2004):
-	* lib/gdbserv-output.c (gdbserv_output_string_as_bytes): 
-	Pull strlen out of loop for optimization.
-	(gdbserv_output_string): Ditto.
-
-2008-07-03  Kevin Buettner  <kevinb@redhat.com>
-
-	* HOWTO, HOWTO.old: Preserve old HOWTO document as HOWTO.old.  It
-	may still contain some useful information about the library
-	internals.  Revise HOWTO, providing significantly more detail
-	about how to create a new RDA application than was found in the
-	original document.
-
-2007-05-24  Steve Ellcey  <sje@cup.hp.com>
-
-	* Makefile.in: Regnerate.
-	* configure: Regenerate.
-	* aclocal.m4: Regenerate.
-	* rda/lib/Makefile.in: Regenerate.
-	* rda/qe/Makefile.in: Regenerate.
-	* rda/samples/Makefile.in: Regenerate.
-
-2007-04-14  Steve Ellcey  <sje@cup.hp.com>
-
-	* Makefile.am: Add ACLOCAL_AMFLAGS.
-	* Makefile.in: Regenerate.
-
-2006-05-31  Daniel Jacobowitz  <dan@codesourcery.com>
-
-	* samples/Makefile.am: Replace INTLLIBS and INTLDEPS with LIBINTL
-	and LIBINTL_DEP everywhere.
-	* acinclude.m4: Include new gettext macros.
-	* configure.in: Use ZW_GNU_GETTEXT_SISTER_DIR.
-	* Makefile.in, aclocal.m4, configure, lib/Makefile.in,
-	qe/Makefile.in, samples/Makefile.in: Regenerated.
-
-2006-03-16  Kevin Buettner  <kevinb@redhat.com>
-
-	* include/gdbloop.h (gdbloop, gdbloop_poll): Revise comments
-	to indicate that timeout granulatiry is now in milliseconds
-	rather than seconds.
-	* lib/gdbloop.c (poll_gdbsocket): Change ``timeout'' granulatiry
-	from seconds to milliseconds.
+	* gdbserv-state.c (gdbserv_data_packet): Parse reverse step
+	and reverse continue packets.  For now, uses an ugly global
+	variable to export the reverse flag.
 
 2005-03-03  Kevin Buettner  <kevinb@redhat.com>
 
