@@ -1,12 +1,12 @@
-/* Process record and replay target for GDB, the GNU debugger.
+/* Record and reverse target for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3 of the License, or
+   the Free Software Foundation; either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -20,20 +20,67 @@
 #ifndef _RECORD_H_
 #define _RECORD_H_
 
-#define RECORD_IS_USED	(current_target.to_stratum == record_stratum)
+#define RECORD_IS_USED		(current_target.beneath == &record_ops)
+#define RECORD_IS_REPLAY	(record_list->next || record_execdir == EXEC_REVERSE)
 
-extern unsigned int record_debug;
-extern int record_memory_query;
+typedef struct record_reg_s
+{
+  int num;
+  gdb_byte *val;
+} record_reg_t;
 
-extern int record_arch_list_add_reg (struct regcache *regcache, int num);
+typedef struct record_mem_s
+{
+  CORE_ADDR addr;
+  int len;
+  gdb_byte *val;
+} record_mem_t;
+
+enum record_type
+{
+  record_end = 0,
+  record_reg,
+  record_mem
+};
+
+/* This is the core struct of record function.
+   An entity of record_t is a record of the value change of a register
+   ("record_reg") or a part of memory ("record_mem"). And Each instruction must
+   has a record_t ("record_end") that point out this is the last record_t of
+   this instruction.
+   Each record_t is linked to "record_list" by "prev" and "next". 
+ */
+typedef struct record_s
+{
+  struct record_s *prev;
+  struct record_s *next;
+  enum record_type type;
+  union
+  {
+    /* reg */
+    record_reg_t reg;
+    /* mem */
+    record_mem_t mem;
+    /* end */
+    int need_dasm;
+  } u;
+} record_t;
+
+extern int record_debug;
+extern record_t *record_list;
+extern record_t *record_arch_list_head;
+extern record_t *record_arch_list_tail;
+extern struct regcache *record_regcache;
+
+extern struct target_ops record_ops;
+extern int record_resume_step;
+extern int record_regcache_raw_write_regnum;
+extern enum exec_direction_kind record_execdir;
+
+extern int record_arch_list_add_reg (int num);
 extern int record_arch_list_add_mem (CORE_ADDR addr, int len);
-extern int record_arch_list_add_end (void);
-extern struct cleanup *record_gdb_operation_disable_set (void);
-
-/* Wrapper for target_read_memory that prints a debug message if
-   reading memory fails.  */
-extern int record_read_memory (struct gdbarch *gdbarch,
-			       CORE_ADDR memaddr, gdb_byte *myaddr,
-			       ssize_t len);
+extern int record_arch_list_add_end (int need_dasm);
+extern void record_message (struct gdbarch *gdbarch);
+extern void record_not_record_set (void);
 
 #endif /* _RECORD_H_ */
