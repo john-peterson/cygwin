@@ -1,7 +1,7 @@
 /* Print Motorola 68k instructions.
    Copyright 1986, 1987, 1989, 1991, 1992, 1993, 1994, 1995, 1996, 1997,
-   1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2012  Free Software Foundation, Inc.
+   1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
+   Free Software Foundation, Inc.
 
    This file is part of the GNU opcodes library.
 
@@ -64,7 +64,7 @@ static char *const reg_half_names[] =
   do						\
     {						\
       p += 2;					\
-      if (!FETCH_DATA (info, p))		\
+      if (FETCH_DATA (info, p) < 0)		\
 	return -3;				\
       val = COERCE_SIGNED_CHAR (p[-1]);		\
     }						\
@@ -77,7 +77,7 @@ static char *const reg_half_names[] =
   do						\
     {						\
       p += 2;					\
-      if (!FETCH_DATA (info, p))		\
+      if (FETCH_DATA (info, p) < 0)		\
 	return ret_val;				\
       val = COERCE16 ((p[-2] << 8) + p[-1]);	\
     }						\
@@ -90,7 +90,7 @@ static char *const reg_half_names[] =
   do									\
     {									\
       p += 4;								\
-      if (!FETCH_DATA (info, p))					\
+      if (FETCH_DATA (info, p) < 0)					\
 	return ret_val;							\
       val = COERCE32 ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1]); \
     }									\
@@ -101,7 +101,7 @@ static char *const reg_half_names[] =
   do									\
     {									\
       p += 4;								\
-      if (!FETCH_DATA (info, p))					\
+      if (FETCH_DATA (info, p) < 0)					\
 	return -3;							\
       val = (unsigned int) ((((((p[-4] << 8) + p[-3]) << 8) + p[-2]) << 8) + p[-1]); \
     }									\
@@ -112,7 +112,7 @@ static char *const reg_half_names[] =
   do								\
     {								\
       p += 4;							\
-      if (!FETCH_DATA (info, p))				\
+      if (FETCH_DATA (info, p) < 0)				\
 	return -3;						\
       floatformat_to_double (& floatformat_ieee_single_big,	\
 			     (char *) p - 4, & val);		\
@@ -124,7 +124,7 @@ static char *const reg_half_names[] =
   do								\
     {								\
       p += 8;							\
-      if (!FETCH_DATA (info, p))				\
+      if (FETCH_DATA (info, p) , 0)				\
 	return -3;						\
       floatformat_to_double (& floatformat_ieee_double_big,	\
 			     (char *) p - 8, & val);		\
@@ -136,7 +136,7 @@ static char *const reg_half_names[] =
   do							\
     {							\
       p += 12;						\
-      if (!FETCH_DATA (info, p))			\
+      if (FETCH_DATA (info, p) < 0)			\
 	return -3;					\
       floatformat_to_double (& floatformat_m68881_ext,	\
 			     (char *) p - 12, & val);	\
@@ -151,7 +151,7 @@ static char *const reg_half_names[] =
   do						\
     {						\
       p += 12;					\
-      if (!FETCH_DATA (info, p))		\
+      if (FETCH_DATA (info, p) < 0)		\
 	return -3;				\
       val = 0.0;				\
     }						\
@@ -170,6 +170,9 @@ struct private
   bfd_byte the_buffer[MAXLEN];
   bfd_vma insn_start;
 };
+
+static fprintf_ftype save_printer;
+static void (* save_print_address) (bfd_vma, struct disassemble_info *);
 
 /* Make sure that bytes from INFO->PRIVATE_DATA->BUFFER (inclusive)
    to ADDR (exclusive) are valid.  Returns 1 for success, 0 on error.  */
@@ -191,6 +194,8 @@ fetch_data (struct disassemble_info *info, bfd_byte *addr)
   if (status != 0)
     {
       (*info->memory_error_func) (status, start, info);
+      info->fprintf_func = save_printer;
+      info->print_address_func = save_print_address;
       return 0;
     }
   else
@@ -654,7 +659,7 @@ print_insn_arg (const char *d,
       {
         static char *const cacheFieldName[] = { "nc", "dc", "ic", "bc" };
         FETCH_ARG (2, val);
-	(*info->fprintf_func) (info->stream, "%s", cacheFieldName[val]);
+	(*info->fprintf_func) (info->stream, cacheFieldName[val]);
         break;
       }
 
@@ -699,64 +704,35 @@ print_insn_arg (const char *d,
     case 'J':
       {
 	/* FIXME: There's a problem here, different m68k processors call the
-	   same address different names.  The tables below try to get it right
-	   using info->mach, but only for v4e.  */
-	struct regname { char * name; int value; };
-	static const struct regname names[] =
-	  {
-	    {"%sfc", 0x000}, {"%dfc", 0x001}, {"%cacr", 0x002},
-	    {"%tc",  0x003}, {"%itt0",0x004}, {"%itt1", 0x005},
-	    {"%dtt0",0x006}, {"%dtt1",0x007}, {"%buscr",0x008},
-	    {"%rgpiobar", 0x009}, {"%acr4",0x00c},
-	    {"%acr5",0x00d}, {"%acr6",0x00e}, {"%acr7", 0x00f},
-	    {"%usp", 0x800}, {"%vbr", 0x801}, {"%caar", 0x802},
-	    {"%msp", 0x803}, {"%isp", 0x804},
-	    {"%pc", 0x80f},
-	    /* Reg c04 is sometimes called flashbar or rambar.
-	       Reg c05 is also sometimes called rambar.  */
-	    {"%rambar0", 0xc04}, {"%rambar1", 0xc05},
+	   same address different names. This table can't get it right
+	   because it doesn't know which processor it's disassembling for.  */
+	static const struct { char *name; int value; } names[]
+	  = {{"%sfc", 0x000}, {"%dfc", 0x001}, {"%cacr", 0x002},
+	     {"%tc",  0x003}, {"%itt0",0x004}, {"%itt1", 0x005},
+             {"%dtt0",0x006}, {"%dtt1",0x007}, {"%buscr",0x008},
+	     {"%usp", 0x800}, {"%vbr", 0x801}, {"%caar", 0x802},
+	     {"%msp", 0x803}, {"%isp", 0x804},
+	     /* reg c04 is sometimes called flashbar or rambar.
+		rec c05 is also sometimes called rambar.  */
+	     {"%rambar0", 0xc04}, {"%rambar1", 0xc05},
 
-	    /* reg c0e is sometimes called mbar2 or secmbar.
-	       reg c0f is sometimes called mbar.  */
-	    {"%mbar0", 0xc0e}, {"%mbar1", 0xc0f},
+	     /* Should we be calling this psr like we do in case 'Y'?  */
+	     {"%mmusr",0x805},
 
-	    /* Should we be calling this psr like we do in case 'Y'?  */
-	    {"%mmusr",0x805},
+             {"%urp", 0x806}, {"%srp", 0x807}, {"%pcr", 0x808},
 
-	    {"%urp", 0x806}, {"%srp", 0x807}, {"%pcr", 0x808},
+	     /* Fido added these.  */
+             {"%cac", 0xffe}, {"%mbo", 0xfff}};
 
-	    /* Fido added these.  */
-	    {"%cac", 0xffe}, {"%mbo", 0xfff}
-	};
-	/* Alternate names for v4e (MCF5407/5445x/MCF547x/MCF548x), at least.  */
-	static const struct regname names_v4e[] =
-	  {
-	    {"%asid",0x003}, {"%acr0",0x004}, {"%acr1",0x005},
-	    {"%acr2",0x006}, {"%acr3",0x007}, {"%mmubar",0x008},
-	  };
-	unsigned int arch_mask;
-
-	arch_mask = bfd_m68k_mach_to_features (info->mach);
 	FETCH_ARG (12, val);
-	if (arch_mask & (mcfisa_b | mcfisa_c))
-	  {
-	    for (regno = ARRAY_SIZE (names_v4e); --regno >= 0;)
-	      if (names_v4e[regno].value == val)
-		{
-		  (*info->fprintf_func) (info->stream, "%s", names_v4e[regno].name);
-		  break;
-		}
-	    if (regno >= 0)
-	      break;
-	  }
-	for (regno = ARRAY_SIZE (names) - 1; regno >= 0; regno--)
+	for (regno = sizeof names / sizeof names[0] - 1; regno >= 0; regno--)
 	  if (names[regno].value == val)
 	    {
 	      (*info->fprintf_func) (info->stream, "%s", names[regno].name);
 	      break;
 	    }
 	if (regno < 0)
-	  (*info->fprintf_func) (info->stream, "0x%x", val);
+	  (*info->fprintf_func) (info->stream, "%d", val);
       }
       break;
 
@@ -792,7 +768,7 @@ print_insn_arg (const char *d,
 	  static char *const scalefactor_name[] = { "<<", ">>" };
 
 	  FETCH_ARG (1, val);
-	  (*info->fprintf_func) (info->stream, "%s", scalefactor_name[val]);
+	  (*info->fprintf_func) (info->stream, scalefactor_name[val]);
 	}
       else
 	{
@@ -1111,7 +1087,7 @@ print_insn_arg (const char *d,
 		  return -1;
 	      }
 	      if (flt_p)	/* Print a float? */
-		(*info->fprintf_func) (info->stream, "#0e%g", flval);
+		(*info->fprintf_func) (info->stream, "#%g", flval);
 	      else
 		(*info->fprintf_func) (info->stream, "#%d", val);
 	      break;
@@ -1232,6 +1208,7 @@ print_insn_arg (const char *d,
     case '2':
     case '3':
       {
+	int val;
 	char *name = 0;
 
 	FETCH_ARG (5, val);
@@ -1423,12 +1400,14 @@ match_insn_m68k (bfd_vma memaddr,
 
       if (eaten >= 0)
 	p += eaten;
-      else if (eaten == -1 || eaten == -3)
+      else if (eaten == -1)
 	{
 	  info->fprintf_func = save_printer;
 	  info->print_address_func = save_print_address;
 	  return 0;
 	}
+      else if (eaten == -3)
+	return 0;
       else
 	{
 	  /* We must restore the print functions before trying to print the
@@ -1595,11 +1574,18 @@ m68k_scan_mask (bfd_vma memaddr, disassemble_info *info,
 int
 print_insn_m68k (bfd_vma memaddr, disassemble_info *info)
 {
+  fprintf_ftype save_printer;
+  void (* save_print_address) (bfd_vma, struct disassemble_info *);
   unsigned int arch_mask;
   struct private priv;
   int val;
 
   bfd_byte *buffer = priv.the_buffer;
+
+  /* Save these printing functions in case we need to restore them
+     later.  */
+  save_printer = info->fprintf_func;
+  save_print_address = info->print_address_func;
 
   info->private_data = & priv;
   /* Tell objdump to use two bytes per chunk
@@ -1626,7 +1612,11 @@ print_insn_m68k (bfd_vma memaddr, disassemble_info *info)
 
   if (val == 0)
     /* Handle undefined instructions.  */
-    info->fprintf_func (info->stream, ".short 0x%04x", (buffer[0] << 8) + buffer[1]);
+    info->fprintf_func (info->stream, "0%o", (buffer[0] << 8) + buffer[1]);
+
+  /* Restore print functions.  */
+  info->fprintf_func = save_printer;
+  info->print_address_func = save_print_address;
 
   return val ? val : 2;
 }
