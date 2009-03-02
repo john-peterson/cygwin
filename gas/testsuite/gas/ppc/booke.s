@@ -1,6 +1,6 @@
 # Motorola PowerPC BookE tests
 #as: -mbooke
-	.text
+	.section ".text"
 
 branch_target_1:	
 	icbt	5, 8, 9	
@@ -36,7 +36,3 @@ branch_target_2:
 	mfsprg7 0
 	mtsprg 7, 0
 	mtsprg7 0
-
-	dcbt 5,6
-	dcbt 0,5,6
-	dcbt 8,5,6
