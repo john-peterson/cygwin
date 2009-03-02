@@ -1,4 +1,4 @@
-	.text
+	.section ".text"
 start:
 	lwz	6,0(7)
 	lwz	6,16(7)
@@ -34,6 +34,3 @@ start:
 	dcbz    1, 2
 	dcbzl   3, 4
 	dcbz    5, 6
-	dcbt    5,6
-	dcbt    5,6,0
-	dcbt    5,6,8
