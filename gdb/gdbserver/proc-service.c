@@ -1,5 +1,6 @@
 /* libthread_db helper functions for the remote server for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2005, 2006, 2007, 2008
+   Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -63,9 +64,30 @@ ps_pglobal_lookup (gdb_ps_prochandle_t ph, const char *obj,
 		   const char *name, psaddr_t *sym_addr)
 {
   CORE_ADDR addr;
+  char *uscorename;
 
-  if (thread_db_look_up_one_symbol (name, &addr) == 0)
-    return PS_NOSYM;
+  /* First try name, then the name with an underscore prepended.  Older ARC
+     toolchains prepend an underscore to all symbol names.  */
+
+  if (look_up_one_symbol (name, &addr) == 0)
+    {
+      int err;
+
+      uscorename = (char *)malloc (strlen(name)+2);
+      if (!uscorename)
+	{
+	  fatal ("%s: malloc failed", __FUNCTION__);
+	}
+
+      /* Prepend underscore.  */
+      uscorename[0] = '_';
+      strcpy(uscorename+1, name);
+
+      err = look_up_one_symbol (uscorename, &addr);
+      free (uscorename);
+      if (err == 0)
+	return PS_NOSYM;
+    }
 
   *sym_addr = (psaddr_t) (unsigned long) addr;
   return PS_OK;
@@ -98,19 +120,20 @@ ps_err_e
 ps_lgetregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, prgregset_t gregset)
 {
 #ifdef HAVE_REGSETS
-  struct lwp_info *lwp;
+  struct process_info *process;
   struct thread_info *reg_inferior, *save_inferior;
-  struct regcache *regcache;
 
-  lwp = find_lwp_pid (pid_to_ptid (lwpid));
-  if (lwp == NULL)
+  process = (struct process_info *) find_inferior_id (&all_processes,
+						      lwpid);
+  if (process == NULL)
     return PS_ERR;
 
-  reg_inferior = get_lwp_thread (lwp);
+  reg_inferior = get_process_thread (process);
   save_inferior = current_inferior;
   current_inferior = reg_inferior;
-  regcache = get_thread_regcache (current_inferior, 1);
-  gregset_info ()->fill_function (regcache, gregset);
+
+  the_target->fetch_registers (0);
+  gregset_info()->fill_function (gregset);
 
   current_inferior = save_inferior;
   return PS_OK;
@@ -155,5 +178,7 @@ ps_lsetfpregs (gdb_ps_prochandle_t ph, lwpid_t lwpid, void *fpregset)
 pid_t
 ps_getpid (gdb_ps_prochandle_t ph)
 {
-  return pid_of (get_thread_lwp (current_inferior));
+  return ph->pid;
 }
+
+

@@ -1,4 +1,5 @@
-# Copyright 2000-2013 Free Software Foundation, Inc.
+# Copyright 2000, 2002, 2003, 2004, 2005, 2006, 2007, 2008
+# Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,8 +22,6 @@
 #
 #   set_board_info gdb_protocol "remote"
 #	Unles you have a gdbserver that uses a different protocol...
-#	After GDB starts you should check global $gdbserver_protocol instead as
-#	the testfile may force a specific different target protocol itself.
 #
 #   set_board_info gdb_server_prog
 #	This will be the path to the gdbserver program you want to test.
@@ -36,8 +35,6 @@
 #   set_board_info gdb,socketport
 #	Port id to use for socket connection.  If not set explicitly,
 #	it will start at "2345" and increment for each use.
-#	After GDB starts you should check global $gdbserver_gdbport for the
-#	real port used.  It is not useful if $gdbserver_reconnect_p was not set.
 #
 
 #
@@ -66,10 +63,6 @@ proc gdb_target_cmd { targetname serialport } {
 		return 0
 	    }
 	    -re "Remote debugging using .*$serialport_re.*$gdb_prompt $" {
-		verbose "Set target to $targetname"
-		return 0
-	    }
-	    -re "Remote debugging using stdio.*$gdb_prompt $" {
 		verbose "Set target to $targetname"
 		return 0
 	    }
@@ -112,11 +105,6 @@ set portnum "2345"
 
 proc find_gdbserver { } {
   global GDB
-  global GDBSERVER
-
-  if [info exists GDBSERVER] {
-    return ${GDBSERVER}
-  }
 
   if [target_info exists gdb_server_prog] {
     return [target_info gdb_server_prog]
@@ -146,10 +134,8 @@ proc skip_gdbserver_tests { } {
 
 # Download the currently loaded program to the target if necessary.
 # Return the target system filename.
-# NOTE: This was named "gdbserver_download", but that collides with the
-# dejagnu "download" API function when using load_generic_config "gdbserver".
 
-proc gdbserver_download_current_prog { } {
+proc gdbserver_download { } {
     global gdbserver_host_exec
     global gdbserver_host_mtime
     global gdbserver_server_exec
@@ -186,12 +172,6 @@ proc gdbserver_download_current_prog { } {
     return $gdbserver_server_exec
 }
 
-# Default routine to compute the argument to "target remote".
-
-proc gdbserver_default_get_remote_address { host port } {
-    return "$host$port"
-}
-
 # Start a gdbserver process with initial OPTIONS and trailing ARGUMENTS.
 # The port will be filled in between them automatically.
 #
@@ -215,15 +195,6 @@ proc gdbserver_start { options arguments } {
 	set debughost "localhost:"
     }
 
-    # Some boards use a different value for the port that is passed to
-    # gdbserver and the port that is passed to the "target remote" command.
-    # One example is the stdio gdbserver support.
-    if [target_info exists gdb,get_remote_address] {
-	set get_remote_address [target_info gdb,get_remote_address]
-    } else {
-	set get_remote_address gdbserver_default_get_remote_address
-    }
-
     # Extract the protocol
     if [target_info exists gdb_protocol] {
 	set protocol [target_info gdb_protocol]
@@ -233,48 +204,26 @@ proc gdbserver_start { options arguments } {
 
     set gdbserver [find_gdbserver]
 
-    # Loop till we find a free port.
-    while 1 {
-	# Fire off the debug agent.
-	set gdbserver_command "$gdbserver"
+    # Export the host:port pair.
+    set gdbport $debughost$portnum
 
-	# If gdbserver_reconnect will be called $gdbserver_reconnect_p must be
-	# set to true already during gdbserver_start.
-	global gdbserver_reconnect_p
-	if {![info exists gdbserver_reconnect_p] || !$gdbserver_reconnect_p} {
-	    # GDB client could accidentally connect to a stale server.
-	    # append gdbserver_command " --debug --once"
-	    append gdbserver_command " --once"
-	}
+    # Fire off the debug agent.
+    set gdbserver_command "$gdbserver"
+    if { $options != "" } {
+	append gdbserver_command " $options"
+    }
+    append gdbserver_command " :$portnum"
+    if { $arguments != "" } {
+	append gdbserver_command " $arguments"
+    }
 
-	if { $options != "" } {
-	    append gdbserver_command " $options"
-	}
-	if { $portnum != "" } {
-	    append gdbserver_command " :$portnum"
-	}
-	if { $arguments != "" } {
-	    append gdbserver_command " $arguments"
-	}
+    set server_spawn_id [remote_spawn target $gdbserver_command]
 
-	set server_spawn_id [remote_spawn target $gdbserver_command]
-
-	# Wait for the server to open its TCP socket, so that GDB can connect.
-	expect {
-	    -i $server_spawn_id
-	    -notransfer
-	    -re "Listening on" { }
-	    -re "Can't bind address: Address already in use\\.\r\n" {
-		verbose -log "Port $portnum is already in use."
-		if ![target_info exists gdb,socketport] {
-		    # Bump the port number to avoid the conflict.
-		    wait -i $expect_out(spawn_id)
-		    incr portnum
-		    continue
-		}
-	    }
-	}
-	break
+    # Wait for the server to open its TCP socket, so that GDB can connect.
+    expect {
+	-i $server_spawn_id
+	-notransfer
+	-re "Listening on" { }
     }
 
     # We can't just call close, because if gdbserver is local then that means
@@ -290,7 +239,7 @@ proc gdbserver_start { options arguments } {
 	}
     }
 
-    return [list $protocol [$get_remote_address $debughost $portnum]]
+    return [list $protocol $gdbport]
 }
 
 # Start a gdbserver process running SERVER_EXEC, and connect GDB
@@ -299,8 +248,12 @@ proc gdbserver_start { options arguments } {
 # Returns the target protocol and socket to connect to.
 
 proc gdbserver_spawn { child_args } {
-    set target_exec [gdbserver_download_current_prog]
+    set target_exec [gdbserver_download]
 
+    if [target_info exists tests_dir] {
+        set tests_dir [target_info tests_dir]
+        set gdbserver_server_exec $tests_dir/$gdbserver_server_exec
+    }
     # Fire off the debug agent.  This flavour of gdbserver takes as
     # arguments the port information, the name of the executable file to
     # be debugged, and any arguments.
@@ -346,63 +299,14 @@ proc gdbserver_reconnect { } {
     global gdbserver_protocol
     global gdbserver_gdbport
 
-    global gdbserver_reconnect_p;
-    if {![info exists gdbserver_reconnect_p] || !$gdbserver_reconnect_p} {
-	error "gdbserver_reconnect_p is not set before gdbserver_reconnect"
-	return 0
-    }
-
     return [gdb_target_cmd $gdbserver_protocol $gdbserver_gdbport]
 }
 
-# Start and connect to a gdbserver in extended mode.  Note this frobs
-# $gdbserver_protocol, so should be used only from a board that
-# usually connects in target remote mode.
+# Start and connect to a gdbserver in extended mode.
 proc gdbserver_start_extended { } {
-    global gdbserver_protocol
-    global gdbserver_gdbport
-    global use_gdb_stub
-
     set res [gdbserver_start "--multi" ""]
-    set gdbserver_protocol [lindex $res 0]
-    if { [string first "extended-" $gdbserver_protocol] != 0} {
-	set gdbserver_protocol "extended-$gdbserver_protocol"
-    }
-    set gdbserver_gdbport [lindex $res 1]
-
-    # Even if the board file is testing with target remote, our caller
-    # wants to test against gdbserver in extended-remote mode.  Make sure to
-    # disable stub-like techniques.
-    set use_gdb_stub 0
-
-    return [gdb_target_cmd $gdbserver_protocol $gdbserver_gdbport]
-}
-
-# Start and connect to a gdbserver in extended/multi mode.  Unlike
-# gdbserver_start_extended, this does not frob $gdbserver_protocol.
-
-proc gdbserver_start_multi { } {
-    global gdbserver_protocol
-    global gdbserver_gdbport
-
-    set res [gdbserver_start "--multi" ""]
-    set gdbserver_protocol [lindex $res 0]
+    set gdbserver_protocol "extended-[lindex $res 0]"
     set gdbserver_gdbport [lindex $res 1]
 
     return [gdb_target_cmd $gdbserver_protocol $gdbserver_gdbport]
-}
-
-# Start a gdbserver process in multi/extended mode, and have GDB
-# connect to it (MI version).  Return 0 on success, or non-zero on
-# failure.
-
-proc mi_gdbserver_start_multi { } {
-    global gdbserver_protocol
-    global gdbserver_gdbport
-
-    set res [gdbserver_start "--multi" ""]
-    set gdbserver_protocol [lindex $res 0]
-    set gdbserver_gdbport [lindex $res 1]
-
-    return [mi_gdb_target_cmd $gdbserver_protocol $gdbserver_gdbport]
 }

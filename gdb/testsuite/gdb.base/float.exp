@@ -1,4 +1,4 @@
-# Copyright 2003-2013 Free Software Foundation, Inc.
+# Copyright 2003, 2007, 2008 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,14 +18,29 @@
 
 # This file is part of the gdb testsuite.
 
+if $tracelevel {
+    strace $tracelevel
+}
+
 #
 # Test floating-point related functionality.
 #
 
+set prms_id 0
+set bug_id 0
 
-if { [prepare_for_testing float.exp float float.c] } {
+set testfile "run"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
+if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+    untested float.exp
     return -1
 }
+
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 # Set it up at a breakpoint so we have its registers.
 
@@ -38,20 +53,10 @@ if ![runto_main] then {
 
 if { [istarget "alpha*-*-*"] } then {
     gdb_test "info float" "f0.*" "info float"
-} elseif { [istarget "arm*-*-*"] } then {
-    gdb_test_multiple "info float" "info float" {
-	-re "Software FPU type.*mask:.*flags:.*$gdb_prompt $" {
-	    pass "info float (FPA)"
-	}
-	-re "fpscr.*s0.*s1.*s31.*$gdb_prompt $" {
-	    # Only check for single precision; d0 might be a vector register
-	    # if we have NEON.
-	    pass "info float (VFP)"
-	}
-        -re "No floating.point info available for this processor.*" {
-            pass "info float (without FPU)"
-	}
-    }
+} elseif { [istarget "arm*-*-*"] || \
+	[istarget "xscale*-*-*"] || \
+	[istarget "strongarm*-*-*"] } then {
+    gdb_test "info float" "Software FPU type.*mask:.*flags:.*" "info float"
 } elseif { [istarget "i?86-*-*"] || [istarget "x86_64-*-*"] } then {
     gdb_test "info float" "R7:.*Status Word:.*Opcode:.*" "info float"
 } elseif [istarget "ia64-*-*"] then {
@@ -92,9 +97,8 @@ if { [istarget "alpha*-*-*"] } then {
     gdb_test "info float" "fr4.*fr4R.*fr31R.*" "info float"
 } elseif [istarget "sparc*-*-*"] then {
     gdb_test "info float" "f0.*f1.*f31.*d0.*d30.*" "info float"
+} elseif [istarget "arc*-*-*"] then {
+    gdb_test "info float" "Software FPU.*"
 } else {
     gdb_test "info float" "No floating.point info available for this processor." "info float (unknown target)"
 }
-
-gdb_test "step"
-gdb_test "finish" "Value returned is .* = (inf|nan).*"

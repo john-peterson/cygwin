@@ -1,5 +1,5 @@
 /* Remote target system call support.
-   Copyright 1997-2013 Free Software Foundation, Inc.
+   Copyright 1997, 1998, 2002, 2004, 2007, 2008 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
 
    This file is part of GDB.
@@ -75,8 +75,8 @@ char *simulator_sysroot = "";
 /* Utility of cb_syscall to fetch a path name or other string from the target.
    The result is 0 for success or a host errno value.  */
 
-int
-cb_get_string (cb, sc, buf, buflen, addr)
+static int
+get_string (cb, sc, buf, buflen, addr)
      host_callback *cb;
      CB_SYSCALL *sc;
      char *buf;
@@ -92,7 +92,7 @@ cb_get_string (cb, sc, buf, buflen, addr)
 	 path name along with the syscall request, and cache the file
 	 name somewhere (or otherwise tweak this as desired).  */
       unsigned int count = (*sc->read_mem) (cb, sc, addr, p, 1);
-
+				    
       if (count != 1)
 	return EINVAL;
       if (*p == 0)
@@ -109,7 +109,7 @@ cb_get_string (cb, sc, buf, buflen, addr)
    simulator_sysroot if the string starts with '/'.
    If an error occurs, no buffer is left malloc'd.  */
 
-static int
+int
 get_path (cb, sc, addr, bufp)
      host_callback *cb;
      CB_SYSCALL *sc;
@@ -120,7 +120,7 @@ get_path (cb, sc, addr, bufp)
   int result;
   int sysroot_len = strlen (simulator_sysroot);
 
-  result = cb_get_string (cb, sc, buf, MAX_PATH_LEN - sysroot_len, addr);
+  result = get_string (cb, sc, buf, MAX_PATH_LEN - sysroot_len, addr);
   if (result == 0)
     {
       /* Prepend absolute paths with simulator_sysroot.  Relative paths
@@ -344,12 +344,12 @@ cb_syscall (cb, sc)
 		errcode = EINVAL;
 		goto FinishSyscall;
 	      }
-	    if (cb_is_stdout (cb, fd))
+	    if (cb_is_stdout(cb, fd))
 	      {
 		result = (int) (*cb->write_stdout) (cb, buf, bytes_read);
 		(*cb->flush_stdout) (cb);
 	      }
-	    else if (cb_is_stderr (cb, fd))
+	    else if (cb_is_stderr(cb, fd))
 	      {
 		result = (int) (*cb->write_stderr) (cb, buf, bytes_read);
 		(*cb->flush_stderr) (cb);
