@@ -20,7 +20,7 @@ static void	TableModifyRC _ANSI_ARGS_((register Table *tablePtr,
 			int outOfBounds));
 
 /* insert/delete subcommands */
-static CONST84 char *modCmdNames[] = {
+static char *modCmdNames[] = {
     "active", "cols", "rows", (char *)NULL
 };
 enum modCmd {
@@ -28,7 +28,7 @@ enum modCmd {
 };
 
 /* insert/delete row/col switches */
-static CONST84 char *rcCmdNames[] = {
+static char *rcCmdNames[] = {
     "-keeptitles",	"-holddimensions",	"-holdselection",
     "-holdtags",	"-holdwindows",	"--",
     (char *) NULL
