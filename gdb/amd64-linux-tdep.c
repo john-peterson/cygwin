@@ -1,6 +1,7 @@
 /* Target-dependent code for GNU/Linux x86-64.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2003, 2004, 2005, 2006, 2007, 2008, 2009
+   Free Software Foundation, Inc.
    Contributed by Jiri Smid, SuSE Labs.
 
    This file is part of GDB.
@@ -27,23 +28,14 @@
 #include "symtab.h"
 #include "gdbtypes.h"
 #include "reggroups.h"
-#include "regset.h"
 #include "amd64-linux-tdep.h"
-#include "i386-linux-tdep.h"
 #include "linux-tdep.h"
-#include "i386-xstate.h"
 
 #include "gdb_string.h"
 
 #include "amd64-tdep.h"
 #include "solib-svr4.h"
 #include "xml-syscall.h"
-#include "glibc-tdep.h"
-
-#include "features/i386/amd64-linux.c"
-#include "features/i386/amd64-avx-linux.c"
-#include "features/i386/x32-linux.c"
-#include "features/i386/x32-avx-linux.c"
 
 /* The syscall's XML filename for i386.  */
 #define XML_SYSCALL_FILENAME_AMD64 "syscalls/amd64-linux.xml"
@@ -51,20 +43,11 @@
 #include "record.h"
 #include "linux-record.h"
 
-/* Supported register note sections.  */
-static struct core_regset_section amd64_linux_regset_sections[] =
-{
-  { ".reg", 27 * 8, "general-purpose" },
-  { ".reg2", 512, "floating-point" },
-  { ".reg-xstate", I386_XSTATE_MAX_SIZE, "XSAVE extended state" },
-  { NULL, 0 }
-};
-
 /* Mapping between the general-purpose registers in `struct user'
    format and GDB's register cache layout.  */
 
 /* From <sys/reg.h>.  */
-int amd64_linux_gregset_reg_offset[] =
+static int amd64_linux_gregset_reg_offset[] =
 {
   10 * 8,			/* %rax */
   5 * 8,			/* %rbx */
@@ -74,7 +57,7 @@ int amd64_linux_gregset_reg_offset[] =
   14 * 8,			/* %rdi */
   4 * 8,			/* %rbp */
   19 * 8,			/* %rsp */
-  9 * 8,			/* %r8 ...  */
+  9 * 8,			/* %r8 ... */
   8 * 8,
   7 * 8,
   6 * 8,
@@ -89,14 +72,7 @@ int amd64_linux_gregset_reg_offset[] =
   23 * 8,			/* %ds */
   24 * 8,			/* %es */
   25 * 8,			/* %fs */
-  26 * 8,			/* %gs */
-  -1, -1, -1, -1, -1, -1, -1, -1,
-  -1, -1, -1, -1, -1, -1, -1, -1,
-  -1, -1, -1, -1, -1, -1, -1, -1,
-  -1, -1, -1, -1, -1, -1, -1, -1, -1,
-  -1, -1, -1, -1, -1, -1, -1, -1,
-  -1, -1, -1, -1, -1, -1, -1, -1,
-  15 * 8			/* "orig_rax" */
+  26 * 8			/* %gs */
 };
 
 
@@ -107,7 +83,7 @@ int amd64_linux_gregset_reg_offset[] =
 #define LINUX_SIGTRAMP_INSN1	0x0f	/* syscall */
 #define LINUX_SIGTRAMP_OFFSET1	7
 
-static const gdb_byte amd64_linux_sigtramp_code[] =
+static const gdb_byte linux_sigtramp_code[] =
 {
   /* mov $__NR_rt_sigreturn, %rax */
   LINUX_SIGTRAMP_INSN0, 0xc7, 0xc0, 0x0f, 0x00, 0x00, 0x00,
@@ -115,15 +91,7 @@ static const gdb_byte amd64_linux_sigtramp_code[] =
   LINUX_SIGTRAMP_INSN1, 0x05
 };
 
-static const gdb_byte amd64_x32_linux_sigtramp_code[] =
-{
-  /* mov $__NR_rt_sigreturn, %rax.  */
-  LINUX_SIGTRAMP_INSN0, 0xc7, 0xc0, 0x01, 0x02, 0x00, 0x40,
-  /* syscall */
-  LINUX_SIGTRAMP_INSN1, 0x05
-};
-
-#define LINUX_SIGTRAMP_LEN (sizeof amd64_linux_sigtramp_code)
+#define LINUX_SIGTRAMP_LEN (sizeof linux_sigtramp_code)
 
 /* If PC is in a sigtramp routine, return the address of the start of
    the routine.  Otherwise, return 0.  */
@@ -131,8 +99,6 @@ static const gdb_byte amd64_x32_linux_sigtramp_code[] =
 static CORE_ADDR
 amd64_linux_sigtramp_start (struct frame_info *this_frame)
 {
-  struct gdbarch *gdbarch;
-  const gdb_byte *sigtramp_code;
   CORE_ADDR pc = get_frame_pc (this_frame);
   gdb_byte buf[LINUX_SIGTRAMP_LEN];
 
@@ -156,12 +122,7 @@ amd64_linux_sigtramp_start (struct frame_info *this_frame)
 	return 0;
     }
 
-  gdbarch = get_frame_arch (this_frame);
-  if (gdbarch_ptr_bit (gdbarch) == 32)
-    sigtramp_code = amd64_x32_linux_sigtramp_code;
-  else
-    sigtramp_code = amd64_linux_sigtramp_code;
-  if (memcmp (buf, sigtramp_code, LINUX_SIGTRAMP_LEN) != 0)
+  if (memcmp (buf, linux_sigtramp_code, LINUX_SIGTRAMP_LEN) != 0)
     return 0;
 
   return pc;
@@ -174,7 +135,7 @@ static int
 amd64_linux_sigtramp_p (struct frame_info *this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
+  char *name;
 
   find_pc_partial_function (pc, &name, NULL, NULL);
 
@@ -273,6 +234,26 @@ static int amd64_linux_sc_reg_offset[] =
   -1				/* %gs */
 };
 
+/* Replacement register functions which know about %orig_rax.  */
+
+static const char *
+amd64_linux_register_name (struct gdbarch *gdbarch, int reg)
+{
+  if (reg == AMD64_LINUX_ORIG_RAX_REGNUM)
+    return "orig_rax";
+
+  return amd64_register_name (gdbarch, reg);
+}
+
+static struct type *
+amd64_linux_register_type (struct gdbarch *gdbarch, int reg)
+{
+  if (reg == AMD64_LINUX_ORIG_RAX_REGNUM)
+    return builtin_type (gdbarch)->builtin_int64;
+
+  return amd64_register_type (gdbarch, reg);
+}
+
 static int
 amd64_linux_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
 				 struct reggroup *group)
@@ -281,7 +262,7 @@ amd64_linux_register_reggroup_p (struct gdbarch *gdbarch, int regnum,
     return (group == system_reggroup
             || group == save_reggroup
             || group == restore_reggroup);
-  return i386_register_reggroup_p (gdbarch, regnum, group);
+  return default_register_reggroup_p (gdbarch, regnum, group);
 }
 
 /* Set the program counter for process PTID to PC.  */
@@ -356,9 +337,9 @@ amd64_all_but_ip_registers_record (struct regcache *regcache)
    process record.  */
 
 static enum gdb_syscall
-amd64_canonicalize_syscall (enum amd64_syscall syscall_number)
+amd64_canonicalize_syscall (enum amd64_syscall syscall)
 {
-  switch (syscall_number) {
+  switch (syscall) {
   case amd64_sys_read:
     return gdb_sys_read;
 
@@ -1191,24 +1172,25 @@ amd64_linux_syscall_record (struct regcache *regcache)
       break;
 
     case amd64_sys_arch_prctl:
-      {
-	ULONGEST arg3;
+      if (syscall_native == amd64_sys_arch_prctl)
+        {
+          ULONGEST arg3;
 
-	regcache_raw_read_unsigned (regcache, amd64_linux_record_tdep.arg3,
-				    &arg3);
-	if (arg3 == RECORD_ARCH_GET_FS || arg3 == RECORD_ARCH_GET_GS)
-	  {
-	    CORE_ADDR addr;
+          regcache_raw_read_unsigned (regcache, amd64_linux_record_tdep.arg3,
+                                      &arg3);
+          if (arg3 == RECORD_ARCH_GET_FS || arg3 == RECORD_ARCH_GET_GS)
+            {
+	      CORE_ADDR addr;
 
-	    regcache_raw_read_unsigned (regcache,
-					amd64_linux_record_tdep.arg2,
-					&addr);
-	    if (record_arch_list_add_mem (addr,
-					  amd64_linux_record_tdep.size_ulong))
-	      return -1;
-	  }
-	goto record_regs;
-      }
+	      regcache_raw_read_unsigned (regcache,
+                                          amd64_linux_record_tdep.arg2,
+                                          &addr);
+	      if (record_arch_list_add_mem (addr,
+                                            amd64_linux_record_tdep.size_ulong))
+                return -1;
+            }
+          goto record_regs;
+        }
       break;
     }
 
@@ -1243,10 +1225,10 @@ amd64_linux_syscall_record (struct regcache *regcache)
 #define AMD64_LINUX_xstate     512
 #define AMD64_LINUX_frame_size 560
 
-static int
+int
 amd64_linux_record_signal (struct gdbarch *gdbarch,
                            struct regcache *regcache,
-                           enum gdb_signal signal)
+                           enum target_signal signal)
 {
   ULONGEST rsp;
 
@@ -1278,48 +1260,32 @@ amd64_linux_record_signal (struct gdbarch *gdbarch,
   return 0;
 }
 
-/* Get Linux/x86 target description from core dump.  */
-
-static const struct target_desc *
-amd64_linux_core_read_description (struct gdbarch *gdbarch,
-				  struct target_ops *target,
-				  bfd *abfd)
-{
-  /* Linux/x86-64.  */
-  uint64_t xcr0 = i386_linux_core_read_xcr0 (gdbarch, target, abfd);
-  switch ((xcr0 & I386_XSTATE_AVX_MASK))
-    {
-    case I386_XSTATE_AVX_MASK:
-      if (gdbarch_ptr_bit (gdbarch) == 32)
-	return tdesc_x32_avx_linux;
-      else
-	return tdesc_amd64_avx_linux;
-    default:
-      if (gdbarch_ptr_bit (gdbarch) == 32)
-	return tdesc_x32_linux;
-      else
-	return tdesc_amd64_linux;
-    }
-}
-
 static void
-amd64_linux_init_abi_common(struct gdbarch_info info, struct gdbarch *gdbarch)
+amd64_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
-  linux_init_abi (info, gdbarch);
+  tdep->gregset_reg_offset = amd64_linux_gregset_reg_offset;
+  tdep->gregset_num_regs = ARRAY_SIZE (amd64_linux_gregset_reg_offset);
+  tdep->sizeof_gregset = 27 * 8;
+
+  amd64_init_abi (info, gdbarch);
 
   tdep->sigtramp_p = amd64_linux_sigtramp_p;
   tdep->sigcontext_addr = amd64_linux_sigcontext_addr;
   tdep->sc_reg_offset = amd64_linux_sc_reg_offset;
   tdep->sc_num_regs = ARRAY_SIZE (amd64_linux_sc_reg_offset);
 
-  tdep->xsave_xcr0_offset = I386_LINUX_XSAVE_XCR0_OFFSET;
+  /* GNU/Linux uses SVR4-style shared libraries.  */
+  set_solib_svr4_fetch_link_map_offsets
+    (gdbarch, svr4_lp64_fetch_link_map_offsets);
 
   /* Add the %orig_rax register used for syscall restarting.  */
   set_gdbarch_write_pc (gdbarch, amd64_linux_write_pc);
-
-  tdep->register_reggroup_p = amd64_linux_register_reggroup_p;
+  set_gdbarch_num_regs (gdbarch, AMD64_LINUX_NUM_REGS);
+  set_gdbarch_register_name (gdbarch, amd64_linux_register_name);
+  set_gdbarch_register_type (gdbarch, amd64_linux_register_type);
+  set_gdbarch_register_reggroup_p (gdbarch, amd64_linux_register_reggroup_p);
 
   /* Functions for 'catch syscall'.  */
   set_xml_syscall_file_name (XML_SYSCALL_FILENAME_AMD64);
@@ -1332,15 +1298,6 @@ amd64_linux_init_abi_common(struct gdbarch_info info, struct gdbarch *gdbarch)
 
   /* GNU/Linux uses SVR4-style shared libraries.  */
   set_gdbarch_skip_trampoline_code (gdbarch, find_solib_trampoline_target);
-
-  /* GNU/Linux uses the dynamic linker included in the GNU C Library.  */
-  set_gdbarch_skip_solib_resolver (gdbarch, glibc_skip_solib_resolver);
-
-  /* Install supported register note sections.  */
-  set_gdbarch_core_regset_sections (gdbarch, amd64_linux_regset_sections);
-
-  set_gdbarch_core_read_description (gdbarch,
-				     amd64_linux_core_read_description);
 
   /* Displaced stepping.  */
   set_gdbarch_displaced_step_copy_insn (gdbarch,
@@ -1525,88 +1482,6 @@ amd64_linux_init_abi_common(struct gdbarch_info info, struct gdbarch *gdbarch)
 
   tdep->i386_syscall_record = amd64_linux_syscall_record;
 }
-
-static void
-amd64_linux_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-  const struct target_desc *tdesc = info.target_desc;
-  struct tdesc_arch_data *tdesc_data = (void *) info.tdep_info;
-  const struct tdesc_feature *feature;
-  int valid_p;
-
-  gdb_assert (tdesc_data);
-
-  tdep->gregset_reg_offset = amd64_linux_gregset_reg_offset;
-  tdep->gregset_num_regs = ARRAY_SIZE (amd64_linux_gregset_reg_offset);
-  tdep->sizeof_gregset = 27 * 8;
-
-  amd64_init_abi (info, gdbarch);
-
-  /* Reserve a number for orig_rax.  */
-  set_gdbarch_num_regs (gdbarch, AMD64_LINUX_NUM_REGS);
-
-  if (! tdesc_has_registers (tdesc))
-    tdesc = tdesc_amd64_linux;
-  tdep->tdesc = tdesc;
-
-  feature = tdesc_find_feature (tdesc, "org.gnu.gdb.i386.linux");
-  if (feature == NULL)
-    return;
-
-  valid_p = tdesc_numbered_register (feature, tdesc_data,
-				     AMD64_LINUX_ORIG_RAX_REGNUM,
-				     "orig_rax");
-  if (!valid_p)
-    return;
-
-  amd64_linux_init_abi_common (info, gdbarch);
-
-  /* GNU/Linux uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_lp64_fetch_link_map_offsets);
-}
-
-static void
-amd64_x32_linux_init_abi(struct gdbarch_info info, struct gdbarch *gdbarch)
-{
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-  const struct target_desc *tdesc = info.target_desc;
-  struct tdesc_arch_data *tdesc_data = (void *) info.tdep_info;
-  const struct tdesc_feature *feature;
-  int valid_p;
-
-  gdb_assert (tdesc_data);
-
-  tdep->gregset_reg_offset = amd64_linux_gregset_reg_offset;
-  tdep->gregset_num_regs = ARRAY_SIZE (amd64_linux_gregset_reg_offset);
-  tdep->sizeof_gregset = 27 * 8;
-
-  amd64_x32_init_abi (info, gdbarch);
-
-  /* Reserve a number for orig_rax.  */
-  set_gdbarch_num_regs (gdbarch, AMD64_LINUX_NUM_REGS);
-
-  if (! tdesc_has_registers (tdesc))
-    tdesc = tdesc_x32_linux;
-  tdep->tdesc = tdesc;
-
-  feature = tdesc_find_feature (tdesc, "org.gnu.gdb.i386.linux");
-  if (feature == NULL)
-    return;
-
-  valid_p = tdesc_numbered_register (feature, tdesc_data,
-				     AMD64_LINUX_ORIG_RAX_REGNUM,
-				     "orig_rax");
-  if (!valid_p)
-    return;
-
-  amd64_linux_init_abi_common (info, gdbarch);
-
-  /* GNU/Linux uses SVR4-style shared libraries.  */
-  set_solib_svr4_fetch_link_map_offsets
-    (gdbarch, svr4_ilp32_fetch_link_map_offsets);
-}
 
 
 /* Provide a prototype to silence -Wmissing-prototypes.  */
@@ -1617,12 +1492,4 @@ _initialize_amd64_linux_tdep (void)
 {
   gdbarch_register_osabi (bfd_arch_i386, bfd_mach_x86_64,
 			  GDB_OSABI_LINUX, amd64_linux_init_abi);
-  gdbarch_register_osabi (bfd_arch_i386, bfd_mach_x64_32,
-			  GDB_OSABI_LINUX, amd64_x32_linux_init_abi);
-
-  /* Initialize the Linux target description.  */
-  initialize_tdesc_amd64_linux ();
-  initialize_tdesc_amd64_avx_linux ();
-  initialize_tdesc_x32_linux ();
-  initialize_tdesc_x32_avx_linux ();
 }
