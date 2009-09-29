@@ -3,11 +3,11 @@ test -z "${BIG_OUTPUT_FORMAT}" && BIG_OUTPUT_FORMAT=${OUTPUT_FORMAT}
 test -z "${LITTLE_OUTPUT_FORMAT}" && LITTLE_OUTPUT_FORMAT=${OUTPUT_FORMAT}
 if [ -z "$MACHINE" ]; then OUTPUT_ARCH=${ARCH}; else OUTPUT_ARCH=${ARCH}:${MACHINE}; fi
 test "$LD_FLAG" = "N" && DATA_ADDR=.
-INTERP=".interp   ${RELOCATING-0} : { *(.interp) 	}"
-PLT=".plt    ${RELOCATING-0} : { *(.plt)	}"
+INTERP=".interp    : { *(.interp) 	}"
+PLT=".plt     : { *(.plt)	}"
 
 
-CTOR=".ctors ${CONSTRUCTING-0} : 
+CTOR=".ctors  : 
   {
     ${CONSTRUCTING+${CTOR_START}}
     /* gcc uses crtbegin.o to find the start of
@@ -34,7 +34,7 @@ CTOR=".ctors ${CONSTRUCTING-0} :
     ${CONSTRUCTING+${CTOR_END}}
   }"
 
-DTOR=" .dtors       ${CONSTRUCTING-0} :
+DTOR=" .dtors        :
   {
     ${CONSTRUCTING+${DTOR_START}}
     KEEP (*crtbegin.o(.dtors))
@@ -87,10 +87,10 @@ SECTIONS
   .text ${RELOCATING+${TEXT_START_ADDR}} :
   {
     ${RELOCATING+${TEXT_START_SYMBOLS}}
-    KEEP (*(SORT_NONE(.init)))
-    KEEP (*(SORT_NONE(.init.*)))
-    KEEP (*(SORT_NONE(.fini)))
-    KEEP (*(SORT_NONE(.fini.*)))
+    KEEP (*(.init))
+    KEEP (*(.init.*))
+    KEEP (*(.fini))
+    KEEP (*(.fini.*))
     *(.text)
     *(.text.*)
     /* .gnu.warning sections are handled specially by elf32.em.  */
@@ -106,12 +106,12 @@ SECTIONS
     *(.rodata.*)
   } ${RELOCATING+ >DATA}
 
-  .rodata1 ${RELOCATING-0} : {
+  .rodata1  : {
     *(.rodata1)
     *(.rodata1.*)
    } ${RELOCATING+ >DATA}
 
-  .data  ${RELOCATING-0} :
+  .data   :
   {
     ${RELOCATING+${DATA_START_SYMBOLS}}
     *(.data)
@@ -120,7 +120,7 @@ SECTIONS
     ${CONSTRUCTING+CONSTRUCTORS}
   } ${RELOCATING+ >DATA}
 
-  .data1 ${RELOCATING-0} : {
+  .data1  : {
     *(.data1)
     *(.data1.*)
   } ${RELOCATING+ >DATA}
@@ -131,7 +131,7 @@ SECTIONS
   /* We want the small data sections together, so single-instruction offsets
      can access them all, and initialized data all before uninitialized, so
      we can shorten the on-disk segment size.  */
-  .sdata   ${RELOCATING-0} : {
+  .sdata    : {
     *(.sdata)
     *(.sdata.*)
   } ${RELOCATING+ >DATA}
@@ -139,8 +139,8 @@ SECTIONS
   ${RELOCATING+_edata = .;}
   ${RELOCATING+PROVIDE (edata = .);}
   ${RELOCATING+__bss_start = .;}
-  .sbss    ${RELOCATING-0} : { *(.sbss) *(.scommon) } ${RELOCATING+ >DATA}
-  .bss     ${RELOCATING-0} :
+  .sbss     : { *(.sbss) *(.scommon) } ${RELOCATING+ >DATA}
+  .bss      :
   {
    *(.dynbss)
    *(.dynbss.*)
@@ -194,13 +194,5 @@ SECTIONS
   .debug_funcnames 0 : { *(.debug_funcnames) }
   .debug_typenames 0 : { *(.debug_typenames) }
   .debug_varnames  0 : { *(.debug_varnames) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
-  
 }
 EOF

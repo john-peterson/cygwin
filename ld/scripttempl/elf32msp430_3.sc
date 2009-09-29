@@ -13,79 +13,79 @@ SECTIONS
 {
   /* Read-only sections, merged into text segment.  */
   ${TEXT_DYNAMIC+${DYNAMIC}}
-  .hash        ${RELOCATING-0} : { *(.hash)             }
-  .dynsym      ${RELOCATING-0} : { *(.dynsym)           }
-  .dynstr      ${RELOCATING-0} : { *(.dynstr)           }
-  .gnu.version ${RELOCATING-0} : { *(.gnu.version)      }
-  .gnu.version_d ${RELOCATING-0} : { *(.gnu.version_d)  }
-  .gnu.version_r ${RELOCATING-0} : { *(.gnu.version_r)  }
+  .hash         : { *(.hash)             }
+  .dynsym       : { *(.dynsym)           }
+  .dynstr       : { *(.dynstr)           }
+  .gnu.version  : { *(.gnu.version)      }
+  .gnu.version_d  : { *(.gnu.version_d)  }
+  .gnu.version_r  : { *(.gnu.version_r)  }
 
-  .rel.init    ${RELOCATING-0} : { *(.rel.init) }
-  .rela.init   ${RELOCATING-0} : { *(.rela.init)        }
-  .rel.text    ${RELOCATING-0} :
+  .rel.init     : { *(.rel.init) }
+  .rela.init    : { *(.rela.init)        }
+  .rel.text     :
     {
       *(.rel.text)
       ${RELOCATING+*(.rel.text.*)}
       ${RELOCATING+*(.rel.gnu.linkonce.t*)}
     }
-  .rela.text   ${RELOCATING-0} :
+  .rela.text    :
     {
       *(.rela.text)
       ${RELOCATING+*(.rela.text.*)}
       ${RELOCATING+*(.rela.gnu.linkonce.t*)}
     }
-  .rel.fini    ${RELOCATING-0} : { *(.rel.fini) }
-  .rela.fini   ${RELOCATING-0} : { *(.rela.fini)        }
-  .rel.rodata  ${RELOCATING-0} :
+  .rel.fini     : { *(.rel.fini) }
+  .rela.fini    : { *(.rela.fini)        }
+  .rel.rodata   :
     {
       *(.rel.rodata)
       ${RELOCATING+*(.rel.rodata.*)}
       ${RELOCATING+*(.rel.gnu.linkonce.r*)}
     }
-  .rela.rodata ${RELOCATING-0} :
+  .rela.rodata  :
     {
       *(.rela.rodata)
       ${RELOCATING+*(.rela.rodata.*)}
       ${RELOCATING+*(.rela.gnu.linkonce.r*)}
     }
-  .rel.data    ${RELOCATING-0} :
+  .rel.data     :
     {
       *(.rel.data)
       ${RELOCATING+*(.rel.data.*)}
       ${RELOCATING+*(.rel.gnu.linkonce.d*)}
     }
-  .rela.data   ${RELOCATING-0} :
+  .rela.data    :
     {
       *(.rela.data)
       ${RELOCATING+*(.rela.data.*)}
       ${RELOCATING+*(.rela.gnu.linkonce.d*)}
     }
-  .rel.ctors   ${RELOCATING-0} : { *(.rel.ctors)        }
-  .rela.ctors  ${RELOCATING-0} : { *(.rela.ctors)       }
-  .rel.dtors   ${RELOCATING-0} : { *(.rel.dtors)        }
-  .rela.dtors  ${RELOCATING-0} : { *(.rela.dtors)       }
-  .rel.got     ${RELOCATING-0} : { *(.rel.got)          }
-  .rela.got    ${RELOCATING-0} : { *(.rela.got)         }
-  .rel.bss     ${RELOCATING-0} : { *(.rel.bss)          }
-  .rela.bss    ${RELOCATING-0} : { *(.rela.bss)         }
-  .rel.plt     ${RELOCATING-0} : { *(.rel.plt)          }
-  .rela.plt    ${RELOCATING-0} : { *(.rela.plt)         }
+  .rel.ctors    : { *(.rel.ctors)        }
+  .rela.ctors   : { *(.rela.ctors)       }
+  .rel.dtors    : { *(.rel.dtors)        }
+  .rela.dtors   : { *(.rela.dtors)       }
+  .rel.got      : { *(.rel.got)          }
+  .rela.got     : { *(.rela.got)         }
+  .rel.bss      : { *(.rel.bss)          }
+  .rela.bss     : { *(.rela.bss)         }
+  .rel.plt      : { *(.rel.plt)          }
+  .rela.plt     : { *(.rela.plt)         }
 
   /* Internal text space.  */
   .text :
   {
     ${RELOCATING+. = ALIGN(2);}
-    *(SORT_NONE(.init))
-    *(SORT_NONE(.init0))  /* Start here after reset.  */
-    *(SORT_NONE(.init1))
-    *(SORT_NONE(.init2))
-    *(SORT_NONE(.init3))
-    *(SORT_NONE(.init4))
-    *(SORT_NONE(.init5))
-    *(SORT_NONE(.init6)) /* C++ constructors.  */
-    *(SORT_NONE(.init7))
-    *(SORT_NONE(.init8))
-    *(SORT_NONE(.init9))  /* Call main().  */
+    *(.init)
+    *(.init0)  /* Start here after reset.  */
+    *(.init1)
+    *(.init2)
+    *(.init3)
+    *(.init4)
+    *(.init5)
+    *(.init6)  /* C++ constructors.  */
+    *(.init7)
+    *(.init8)
+    *(.init9)  /* Call main().  */
 
     ${CONSTRUCTING+ __ctors_start = . ; }
     ${CONSTRUCTING+ *(.ctors) }
@@ -100,22 +100,22 @@ SECTIONS
     *(.text.*)
 
     ${RELOCATING+. = ALIGN(2);}
-    *(SORT_NONE(.fini9))
-    *(SORT_NONE(.fini8))
-    *(SORT_NONE(.fini7))
-    *(SORT_NONE(.fini6))  /* C++ destructors.  */
-    *(SORT_NONE(.fini5))
-    *(SORT_NONE(.fini4))
-    *(SORT_NONE(.fini3))
-    *(SORT_NONE(.fini2))
-    *(SORT_NONE(.fini1))
-    *(SORT_NONE(.fini0))  /* Infinite loop after program termination.  */
-    *(SORT_NONE(.fini))
+    *(.fini9)
+    *(.fini8)
+    *(.fini7)
+    *(.fini6)  /* C++ destructors.  */
+    *(.fini5)
+    *(.fini4)
+    *(.fini3)
+    *(.fini2)
+    *(.fini1)
+    *(.fini0)  /* Infinite loop after program termination.  */
+    *(.fini)
 
     ${RELOCATING+ _etext = . ; }
   } ${RELOCATING+ > text}
 
-  .data ${RELOCATING-0} : ${RELOCATING+AT (ADDR (.text) + SIZEOF (.text))}
+  .data  : ${RELOCATING+AT (ADDR (.text) + SIZEOF (.text))}
   {  
     ${RELOCATING+ PROVIDE (__data_start = .) ; }
     *(.data)
@@ -142,7 +142,7 @@ SECTIONS
     ${RELOCATING+ _end = . ;  }
   } ${RELOCATING+ > data}
 
-  .vectors ${RELOCATING-0}:
+  .vectors :
   {
     ${RELOCATING+ PROVIDE (__vectors_start = .) ; }
     *(.vectors*)
@@ -182,13 +182,6 @@ SECTIONS
   .debug_str      0 : { *(.debug_str) }
   .debug_loc      0 : { *(.debug_loc) }
   .debug_macinfo  0 : { *(.debug_macinfo) }
-
-  /* DWARF 3 */
-  .debug_pubtypes 0 : { *(.debug_pubtypes) }
-  .debug_ranges   0 : { *(.debug_ranges) }
-
-  /* DWARF Extension.  */
-  .debug_macro    0 : { *(.debug_macro) } 
 
   PROVIDE (__stack = ${STACK}) ;
   PROVIDE (__data_start_rom = _etext) ;
