@@ -1,5 +1,5 @@
 /* Low level interface to SPUs, for the remote server for GDB.
-   Copyright (C) 2006-2013 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
 
    Contributed by Ulrich Weigand <uweigand@de.ibm.com>.
 
@@ -20,7 +20,7 @@
 
 #include "server.h"
 
-#include "gdb_wait.h"
+#include <sys/wait.h>
 #include <stdio.h>
 #include <sys/ptrace.h>
 #include <fcntl.h>
@@ -50,6 +50,9 @@
 /* PPU side system calls.  */
 #define INSTR_SC	0x44000002
 #define NR_spu_run	0x0116
+
+/* Get current thread ID (Linux task ID).  */
+#define current_ptid ((struct inferior_list_entry *)current_inferior)->id
 
 /* These are used in remote-utils.c.  */
 int using_threads = 0;
@@ -203,14 +206,14 @@ store_ppc_memory (CORE_ADDR memaddr, char *myaddr, int len)
 static int
 parse_spufs_run (int *fd, CORE_ADDR *addr)
 {
-  unsigned int insn;
+  char buf[4];
   CORE_ADDR pc = fetch_ppc_register (32);  /* nip */
 
   /* Fetch instruction preceding current NIP.  */
-  if (fetch_ppc_memory (pc-4, (char *) &insn, 4) != 0)
+  if (fetch_ppc_memory (pc-4, buf, 4) != 0)
     return 0;
   /* It should be a "sc" instruction.  */
-  if (insn != INSTR_SC)
+  if (*(unsigned int *)buf != INSTR_SC)
     return 0;
   /* System call number should be NR_spu_run.  */
   if (fetch_ppc_register (0) != NR_spu_run)
@@ -352,15 +355,14 @@ spu_detach (int pid)
 }
 
 static void
-spu_mourn (struct process_info *process)
-{
-  remove_process (process);
-}
-
-static void
 spu_join (int pid)
 {
   int status, ret;
+  struct process_info *process;
+
+  process = find_process_pid (pid);
+  if (process == NULL)
+    return;
 
   do {
     ret = waitpid (pid, &status, 0);
@@ -446,14 +448,16 @@ spu_wait (ptid_t ptid, struct target_waitstatus *ourstatus, int options)
       ourstatus->kind =  TARGET_WAITKIND_EXITED;
       ourstatus->value.integer = WEXITSTATUS (w);
       clear_inferiors ();
+      remove_process (find_process_pid (ret));
       return pid_to_ptid (ret);
     }
   else if (!WIFSTOPPED (w))
     {
       fprintf (stderr, "\nChild terminated with signal = %x \n", WTERMSIG (w));
       ourstatus->kind = TARGET_WAITKIND_SIGNALLED;
-      ourstatus->value.sig = gdb_signal_from_host (WTERMSIG (w));
+      ourstatus->value.sig = target_signal_from_host (WTERMSIG (w));
       clear_inferiors ();
+      remove_process (find_process_pid (ret));
       return pid_to_ptid (ret);
     }
 
@@ -462,18 +466,18 @@ spu_wait (ptid_t ptid, struct target_waitstatus *ourstatus, int options)
   if (!server_waiting)
     {
       ourstatus->kind = TARGET_WAITKIND_STOPPED;
-      ourstatus->value.sig = GDB_SIGNAL_0;
+      ourstatus->value.sig = TARGET_SIGNAL_0;
       return ptid_build (ret, ret, 0);
     }
 
   ourstatus->kind = TARGET_WAITKIND_STOPPED;
-  ourstatus->value.sig = gdb_signal_from_host (WSTOPSIG (w));
+  ourstatus->value.sig = target_signal_from_host (WSTOPSIG (w));
   return ptid_build (ret, ret, 0);
 }
 
 /* Fetch inferior registers.  */
 static void
-spu_fetch_registers (struct regcache *regcache, int regno)
+spu_fetch_registers (int regno)
 {
   int fd;
   CORE_ADDR addr;
@@ -484,14 +488,14 @@ spu_fetch_registers (struct regcache *regcache, int regno)
 
   /* The ID register holds the spufs file handle.  */
   if (regno == -1 || regno == SPU_ID_REGNUM)
-    supply_register (regcache, SPU_ID_REGNUM, (char *)&fd);
+    supply_register (SPU_ID_REGNUM, (char *)&fd);
 
   /* The NPC register is found at ADDR.  */
   if (regno == -1 || regno == SPU_PC_REGNUM)
     {
       char buf[4];
       if (fetch_ppc_memory (addr, buf, 4) == 0)
-	supply_register (regcache, SPU_PC_REGNUM, buf);
+	supply_register (SPU_PC_REGNUM, buf);
     }
 
   /* The GPRs are found in the "regs" spufs file.  */
@@ -504,13 +508,13 @@ spu_fetch_registers (struct regcache *regcache, int regno)
       sprintf (annex, "%d/regs", fd);
       if (spu_proc_xfer_spu (annex, buf, NULL, 0, sizeof buf) == sizeof buf)
 	for (i = 0; i < SPU_NUM_CORE_REGS; i++)
-	  supply_register (regcache, i, buf + i*16);
+	  supply_register (i, buf + i*16);
     }
 }
 
 /* Store inferior registers.  */
 static void
-spu_store_registers (struct regcache *regcache, int regno)
+spu_store_registers (int regno)
 {
   int fd;
   CORE_ADDR addr;
@@ -527,7 +531,7 @@ spu_store_registers (struct regcache *regcache, int regno)
   if (regno == -1 || regno == SPU_PC_REGNUM)
     {
       char buf[4];
-      collect_register (regcache, SPU_PC_REGNUM, buf);
+      collect_register (SPU_PC_REGNUM, buf);
       store_ppc_memory (addr, buf, 4);
     }
 
@@ -539,7 +543,7 @@ spu_store_registers (struct regcache *regcache, int regno)
       int i;
 
       for (i = 0; i < SPU_NUM_CORE_REGS; i++)
-	collect_register (regcache, i, buf + i*16);
+	collect_register (i, buf + i*16);
 
       sprintf (annex, "%d/regs", fd);
       spu_proc_xfer_spu (annex, NULL, buf, 0, sizeof buf);
@@ -553,8 +557,7 @@ spu_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 {
   int fd, ret;
   CORE_ADDR addr;
-  char annex[32], lslr_annex[32], buf[32];
-  CORE_ADDR lslr;
+  char annex[32];
 
   /* We must be stopped on a spu_run system call.  */
   if (!parse_spufs_run (&fd, &addr))
@@ -563,22 +566,6 @@ spu_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
   /* Use the "mem" spufs file to access SPU local store.  */
   sprintf (annex, "%d/mem", fd);
   ret = spu_proc_xfer_spu (annex, myaddr, NULL, memaddr, len);
-  if (ret > 0)
-    return ret == len ? 0 : EIO;
-
-  /* SPU local store access wraps the address around at the
-     local store limit.  We emulate this here.  To avoid needing
-     an extra access to retrieve the LSLR, we only do that after
-     trying the original address first, and getting end-of-file.  */
-  sprintf (lslr_annex, "%d/lslr", fd);
-  memset (buf, 0, sizeof buf);
-  if (spu_proc_xfer_spu (lslr_annex, (unsigned char *)buf, NULL,
-			 0, sizeof buf) <= 0)
-    return ret;
-
-  lslr = strtoul (buf, NULL, 16);
-  ret = spu_proc_xfer_spu (annex, myaddr, NULL, memaddr & lslr, len);
-
   return ret == len ? 0 : EIO;
 }
 
@@ -591,8 +578,7 @@ spu_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
 {
   int fd, ret;
   CORE_ADDR addr;
-  char annex[32], lslr_annex[32], buf[32];
-  CORE_ADDR lslr;
+  char annex[32];
 
   /* We must be stopped on a spu_run system call.  */
   if (!parse_spufs_run (&fd, &addr))
@@ -601,22 +587,6 @@ spu_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
   /* Use the "mem" spufs file to access SPU local store.  */
   sprintf (annex, "%d/mem", fd);
   ret = spu_proc_xfer_spu (annex, NULL, myaddr, memaddr, len);
-  if (ret > 0)
-    return ret == len ? 0 : EIO;
-
-  /* SPU local store access wraps the address around at the
-     local store limit.  We emulate this here.  To avoid needing
-     an extra access to retrieve the LSLR, we only do that after
-     trying the original address first, and getting end-of-file.  */
-  sprintf (lslr_annex, "%d/lslr", fd);
-  memset (buf, 0, sizeof buf);
-  if (spu_proc_xfer_spu (lslr_annex, (unsigned char *)buf, NULL,
-			 0, sizeof buf) <= 0)
-    return ret;
-
-  lslr = strtoul (buf, NULL, 16);
-  ret = spu_proc_xfer_spu (annex, NULL, myaddr, memaddr & lslr, len);
-
   return ret == len ? 0 : EIO;
 }
 
@@ -638,15 +608,12 @@ static struct target_ops spu_target_ops = {
   spu_attach,
   spu_kill,
   spu_detach,
-  spu_mourn,
   spu_join,
   spu_thread_alive,
   spu_resume,
   spu_wait,
   spu_fetch_registers,
   spu_store_registers,
-  NULL, /* prepare_to_access_memory */
-  NULL, /* done_accessing_memory */
   spu_read_memory,
   spu_write_memory,
   spu_look_up_symbols,
