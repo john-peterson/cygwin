@@ -1,4 +1,4 @@
-# Copyright 2009-2013 Free Software Foundation, Inc.
+# Copyright 2009 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,29 +26,36 @@
 # inferior function call.  These tests test the functionality around
 # unwinding that sequence and also tests the flag behaviour gating this
 # functionality.
-#
-# PR c++/9600.
 
 # This test is largely based of gdb.base/callfuncs.exp.
 
-if { [skip_cplus_tests] } { continue }
-
-if [target_info exists gdb,nosignals] {
-    verbose "Skipping gdb2495.exp because of nosignals."
-    continue
+if $tracelevel then {
+    strace $tracelevel
 }
+
+if { [skip_cplus_tests] } { continue }
 
 # On SPU this test fails because the executable exceeds local storage size.
 if { [istarget "spu*-*-*"] } {
         return 0
 }
 
-standard_testfile .cc
+set prms_id 2495
+set bug_id 0
+
+set testfile "gdb2495"
+set srcfile ${testfile}.cc
+set binfile $objdir/$subdir/$testfile
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info "c++"] {
+if [get_compiler_info ${binfile} "c++"] {
     return -1
+}
+
+if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug c++}] != "" } {
+     untested gdb2495.exp
+     return -1
 }
 
 # Some targets can't do function calls, so don't even bother with this
@@ -59,9 +66,10 @@ if [target_info exists gdb,cannot_call_functions] {
     continue
 }
 
-if {[prepare_for_testing $testfile.exp $testfile $srcfile {debug c++}]} {
-    return -1
-}
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 if ![runto_main] then {
     perror "couldn't run to main"
@@ -92,7 +100,7 @@ gdb_test "bt" \
 # call and that the std::terminate breakpoint has evaporated and
 # cleaned-up.
 gdb_test "info breakpoints" \
-    "gdb2495\.cc.*"
+    "gdb.cp/gdb2495\.cc.*"
 
 # Turn off this new behaviour.
 gdb_test_multiple "set unwind-on-terminating-exception off" \
