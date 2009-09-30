@@ -7,22 +7,6 @@ $!
 $! Written by Klaus K"ampf (kkaempf@rmi.de)
 $! Rewritten by Tristan Gingold (gingold@adacore.com)
 $!
-$!   Copyright 2012 Free Software Foundation
-$!
-$! This file is free software; you can redistribute it and/or modify
-$! it under the terms of the GNU General Public License as published by
-$! the Free Software Foundation; either version 3 of the License, or
-$! (at your option) any later version.
-$! 
-$! This program is distributed in the hope that it will be useful,
-$! but WITHOUT ANY WARRANTY; without even the implied warranty of
-$! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-$! GNU General Public License for more details.
-$! 
-$! You should have received a copy of the GNU General Public License
-$! along with this program; see the file COPYING3.  If not see
-$! <http://www.gnu.org/licenses/>.
-$!
 $ arch=F$GETSYI("ARCH_NAME")
 $ arch=F$EDIT(arch,"LOWERCASE")
 $if arch .eqs. "alpha" then target = "alpha"
@@ -86,13 +70,13 @@ $DECK
    IF match_pos <> 0 THEN;
       POSITION(BEGINNING_OF(match_pos));
       ERASE(match_pos);
-      COPY_TEXT('1');
+      COPY_TEXT('0');
    ENDIF;
    match_pos := SEARCH_QUIETLY('@BFD_HOST_64BIT_LONG_LONG@', FORWARD, EXACT, rang);
    IF match_pos <> 0 THEN;
       POSITION(BEGINNING_OF(match_pos));
       ERASE(match_pos);
-      COPY_TEXT('1');
+      COPY_TEXT('0');
    ENDIF;
    match_pos := SEARCH_QUIETLY('@BFD_HOST_64_BIT_DEFINED@', FORWARD, EXACT, rang);
    IF match_pos <> 0 THEN;
@@ -271,13 +255,6 @@ $DECK
    WRITE_FILE(file, GET_INFO(COMMAND_LINE, "output_file"));
    QUIT
 $  EOD
-$!
-$!
-$! create bfd_stdint.h
-$!
-$ write sys$output "Generate `bfd_stdint.h'"
-$ create []bfd_stdint.h
-#include <inttypes.h>
 $!
 $!
 $! create targmatch.h
