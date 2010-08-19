@@ -1,5 +1,7 @@
 /* YACC parser for C expressions, for GDB.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997,
+   1998, 1999, 2000, 2003, 2004, 2006, 2007, 2008, 2009, 2010
+   Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -52,9 +54,6 @@
 #include "dfp.h"
 #include "gdb_assert.h"
 #include "macroscope.h"
-#include "objc-lang.h"
-#include "typeprint.h"
-#include "cp-abi.h"
 
 #define parse_type builtin_type (parse_gdbarch)
 
@@ -105,12 +104,6 @@
 #define yygindex c_yygindex
 #define yytable	 c_yytable
 #define yycheck	 c_yycheck
-#define yyss	c_yyss
-#define yysslim	c_yysslim
-#define yyssp	c_yyssp
-#define yystacksize c_yystacksize
-#define yyvs	c_yyvs
-#define yyvsp	c_yyvsp
 
 #ifndef YYDEBUG
 #define	YYDEBUG 1		/* Default to yydebug support */
@@ -157,33 +150,26 @@ void yyerror (char *);
     struct internalvar *ivar;
 
     struct stoken_vector svec;
-    VEC (type_ptr) *tvec;
+    struct type **tvec;
     int *ivec;
-
-    struct type_stack *type_stack;
-
-    struct objc_class_str class;
   }
 
 %{
 /* YYSTYPE gets defined by %union */
 static int parse_number (char *, int, int, YYSTYPE *);
 static struct stoken operator_stoken (const char *);
-static void check_parameter_typelist (VEC (type_ptr) *);
 %}
 
 %type <voidval> exp exp1 type_exp start variable qualified_name lcurly
 %type <lval> rcurly
 %type <tval> type typebase
-%type <tvec> nonempty_typelist func_mod parameter_typelist
+%type <tvec> nonempty_typelist
 /* %type <bval> block */
 
 /* Fancy type parsing.  */
+%type <voidval> func_mod direct_abs_decl abs_decl
 %type <tval> ptype
 %type <lval> array_mod
-%type <tval> conversion_type_id
-
-%type <type_stack> ptr_operator_ts abs_decl direct_abs_decl
 
 %token <typed_val_int> INT
 %token <typed_val_float> FLOAT
@@ -198,23 +184,15 @@ static void check_parameter_typelist (VEC (type_ptr) *);
    nonterminal "name", which matches either NAME or TYPENAME.  */
 
 %token <tsval> STRING
-%token <sval> NSSTRING		/* ObjC Foundation "NSString" literal */
-%token SELECTOR			/* ObjC "@selector" pseudo-operator   */
 %token <tsval> CHAR
 %token <ssym> NAME /* BLOCKNAME defined below to give it higher precedence. */
 %token <ssym> UNKNOWN_CPP_NAME
 %token <voidval> COMPLETE
 %token <tsym> TYPENAME
-%token <class> CLASSNAME	/* ObjC Class name */
 %type <sval> name
 %type <svec> string_exp
 %type <ssym> name_not_typename
 %type <tsym> typename
-
- /* This is like a '[' token, but is only generated when parsing
-    Objective C.  This lets us reuse the same parser without
-    erroneously parsing ObjC-specific expressions in C.  */
-%token OBJC_LBRAC
 
 /* A NAME_OR_INT is a symbol which is not known in the symbol table,
    but which would parse as a valid number in the current input radix.
@@ -230,9 +208,6 @@ static void check_parameter_typelist (VEC (type_ptr) *);
 %token NEW DELETE
 %type <sval> operator
 %token REINTERPRET_CAST DYNAMIC_CAST STATIC_CAST CONST_CAST
-%token ENTRY
-%token TYPEOF
-%token DECLTYPE
 
 /* Special type cases, put in to allow the parser to distinguish different
    legal basetypes.  */
@@ -263,13 +238,11 @@ static void check_parameter_typelist (VEC (type_ptr) *);
 %left '+' '-'
 %left '*' '/' '%'
 %right UNARY INCREMENT DECREMENT
-%right ARROW ARROW_STAR '.' DOT_STAR '[' OBJC_LBRAC '('
+%right ARROW ARROW_STAR '.' DOT_STAR '[' '('
 %token <ssym> BLOCKNAME 
 %token <bval> FILENAME
 %type <bval> block
 %left COLONCOLON
-
-%token DOTDOTDOT
 
 
 %%
@@ -282,20 +255,6 @@ type_exp:	type
 			{ write_exp_elt_opcode(OP_TYPE);
 			  write_exp_elt_type($1);
 			  write_exp_elt_opcode(OP_TYPE);}
-	|	TYPEOF '(' exp ')'
-			{
-			  write_exp_elt_opcode (OP_TYPEOF);
-			}
-	|	TYPEOF '(' type ')'
-			{
-			  write_exp_elt_opcode (OP_TYPE);
-			  write_exp_elt_type ($3);
-			  write_exp_elt_opcode (OP_TYPE);
-			}
-	|	DECLTYPE '(' exp ')'
-			{
-			  write_exp_elt_opcode (OP_DECLTYPE);
-			}
 	;
 
 /* Expressions, including the comma operator.  */
@@ -423,78 +382,6 @@ exp	:	exp '[' exp1 ']'
 			{ write_exp_elt_opcode (BINOP_SUBSCRIPT); }
 	;
 
-exp	:	exp OBJC_LBRAC exp1 ']'
-			{ write_exp_elt_opcode (BINOP_SUBSCRIPT); }
-	;
-
-/*
- * The rules below parse ObjC message calls of the form:
- *	'[' target selector {':' argument}* ']'
- */
-
-exp	: 	OBJC_LBRAC TYPENAME
-			{
-			  CORE_ADDR class;
-
-			  class = lookup_objc_class (parse_gdbarch,
-						     copy_name ($2.stoken));
-			  if (class == 0)
-			    error (_("%s is not an ObjC Class"),
-				   copy_name ($2.stoken));
-			  write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_type->builtin_int);
-			  write_exp_elt_longcst ((LONGEST) class);
-			  write_exp_elt_opcode (OP_LONG);
-			  start_msglist();
-			}
-		msglist ']'
-			{ write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			  end_msglist();
-			  write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			}
-	;
-
-exp	:	OBJC_LBRAC CLASSNAME
-			{
-			  write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (parse_type->builtin_int);
-			  write_exp_elt_longcst ((LONGEST) $2.class);
-			  write_exp_elt_opcode (OP_LONG);
-			  start_msglist();
-			}
-		msglist ']'
-			{ write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			  end_msglist();
-			  write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			}
-	;
-
-exp	:	OBJC_LBRAC exp
-			{ start_msglist(); }
-		msglist ']'
-			{ write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			  end_msglist();
-			  write_exp_elt_opcode (OP_OBJC_MSGCALL);
-			}
-	;
-
-msglist :	name
-			{ add_msglist(&$1, 0); }
-	|	msgarglist
-	;
-
-msgarglist :	msgarg
-	|	msgarglist msgarg
-	;
-
-msgarg	:	name ':' exp
-			{ add_msglist(&$1, 1); }
-	|	':' exp	/* Unnamed arg.  */
-			{ add_msglist(0, 1);   }
-	|	',' exp	/* Variable number of args.  */
-			{ add_msglist(0, 0);   }
-	;
-
 exp	:	exp '(' 
 			/* This is to save the value of arglist_len
 			   being accumulated by an outer function call.  */
@@ -543,21 +430,15 @@ arglist	:	arglist ',' exp   %prec ABOVE_COMMA
 			{ arglist_len++; }
 	;
 
-exp     :       exp '(' parameter_typelist ')' const_or_volatile
+exp     :       exp '(' nonempty_typelist ')' const_or_volatile
 			{ int i;
-			  VEC (type_ptr) *type_list = $3;
-			  struct type *type_elt;
-			  LONGEST len = VEC_length (type_ptr, type_list);
-
 			  write_exp_elt_opcode (TYPE_INSTANCE);
-			  write_exp_elt_longcst (len);
-			  for (i = 0;
-			       VEC_iterate (type_ptr, type_list, i, type_elt);
-			       ++i)
-			    write_exp_elt_type (type_elt);
-			  write_exp_elt_longcst(len);
+			  write_exp_elt_longcst ((LONGEST) $<ivec>3[0]);
+			  for (i = 0; i < $<ivec>3[0]; ++i)
+			    write_exp_elt_type ($<tvec>3[i + 1]);
+			  write_exp_elt_longcst((LONGEST) $<ivec>3[0]);
 			  write_exp_elt_opcode (TYPE_INSTANCE);
-			  VEC_free (type_ptr, type_list);
+			  free ($3);
 			}
 	;
 
@@ -571,12 +452,16 @@ exp	:	lcurly arglist rcurly	%prec ARROW
 			  write_exp_elt_opcode (OP_ARRAY); }
 	;
 
-exp	:	lcurly type_exp rcurly exp  %prec UNARY
-			{ write_exp_elt_opcode (UNOP_MEMVAL_TYPE); }
+exp	:	lcurly type rcurly exp  %prec UNARY
+			{ write_exp_elt_opcode (UNOP_MEMVAL);
+			  write_exp_elt_type ($2);
+			  write_exp_elt_opcode (UNOP_MEMVAL); }
 	;
 
-exp	:	'(' type_exp ')' exp  %prec UNARY
-			{ write_exp_elt_opcode (UNOP_CAST_TYPE); }
+exp	:	'(' type ')' exp  %prec UNARY
+			{ write_exp_elt_opcode (UNOP_CAST);
+			  write_exp_elt_type ($2);
+			  write_exp_elt_opcode (UNOP_CAST); }
 	;
 
 exp	:	'(' exp1 ')'
@@ -725,39 +610,38 @@ exp	:	VARIABLE
 			}
 	;
 
-exp	:	SELECTOR '(' name ')'
-			{
-			  write_exp_elt_opcode (OP_OBJC_SELECTOR);
-			  write_exp_string ($3);
-			  write_exp_elt_opcode (OP_OBJC_SELECTOR); }
-	;
-
 exp	:	SIZEOF '(' type ')'	%prec UNARY
 			{ write_exp_elt_opcode (OP_LONG);
-			  write_exp_elt_type (lookup_signed_typename
-					      (parse_language, parse_gdbarch,
-					       "int"));
+			  write_exp_elt_type (parse_type->builtin_int);
 			  CHECK_TYPEDEF ($3);
 			  write_exp_elt_longcst ((LONGEST) TYPE_LENGTH ($3));
 			  write_exp_elt_opcode (OP_LONG); }
 	;
 
-exp	:	REINTERPRET_CAST '<' type_exp '>' '(' exp ')' %prec UNARY
-			{ write_exp_elt_opcode (UNOP_REINTERPRET_CAST); }
+exp	:	REINTERPRET_CAST '<' type '>' '(' exp ')' %prec UNARY
+			{ write_exp_elt_opcode (UNOP_REINTERPRET_CAST);
+			  write_exp_elt_type ($3);
+			  write_exp_elt_opcode (UNOP_REINTERPRET_CAST); }
 	;
 
-exp	:	STATIC_CAST '<' type_exp '>' '(' exp ')' %prec UNARY
-			{ write_exp_elt_opcode (UNOP_CAST_TYPE); }
+exp	:	STATIC_CAST '<' type '>' '(' exp ')' %prec UNARY
+			{ write_exp_elt_opcode (UNOP_CAST);
+			  write_exp_elt_type ($3);
+			  write_exp_elt_opcode (UNOP_CAST); }
 	;
 
-exp	:	DYNAMIC_CAST '<' type_exp '>' '(' exp ')' %prec UNARY
-			{ write_exp_elt_opcode (UNOP_DYNAMIC_CAST); }
+exp	:	DYNAMIC_CAST '<' type '>' '(' exp ')' %prec UNARY
+			{ write_exp_elt_opcode (UNOP_DYNAMIC_CAST);
+			  write_exp_elt_type ($3);
+			  write_exp_elt_opcode (UNOP_DYNAMIC_CAST); }
 	;
 
-exp	:	CONST_CAST '<' type_exp '>' '(' exp ')' %prec UNARY
+exp	:	CONST_CAST '<' type '>' '(' exp ')' %prec UNARY
 			{ /* We could do more error checking here, but
 			     it doesn't seem worthwhile.  */
-			  write_exp_elt_opcode (UNOP_CAST_TYPE); }
+			  write_exp_elt_opcode (UNOP_CAST);
+			  write_exp_elt_type ($3);
+			  write_exp_elt_opcode (UNOP_CAST); }
 	;
 
 string_exp:
@@ -812,7 +696,7 @@ exp	:	string_exp
 				case C_STRING_32:
 				  if (type != C_STRING
 				      && type != $1.tokens[i].type)
-				    error (_("Undefined string concatenation."));
+				    error ("Undefined string concatenation.");
 				  type = $1.tokens[i].type;
 				  break;
 				default:
@@ -827,14 +711,6 @@ exp	:	string_exp
 			    free ($1.tokens[i].ptr);
 			  free ($1.tokens);
 			}
-	;
-
-exp     :	NSSTRING	/* ObjC NextStep NSString constant
-				 * of the form '@' '"' string '"'.
-				 */
-			{ write_exp_elt_opcode (OP_OBJC_NSSTRING);
-			  write_exp_string ($1);
-			  write_exp_elt_opcode (OP_OBJC_NSSTRING); }
 	;
 
 /* C++.  */
@@ -859,7 +735,7 @@ block	:	BLOCKNAME
 			  if ($1.sym)
 			    $$ = SYMBOL_BLOCK_VALUE ($1.sym);
 			  else
-			    error (_("No file or function \"%s\"."),
+			    error ("No file or function \"%s\".",
 				   copy_name ($1.stoken));
 			}
 	|	FILENAME
@@ -871,42 +747,20 @@ block	:	BLOCKNAME
 block	:	block COLONCOLON name
 			{ struct symbol *tem
 			    = lookup_symbol (copy_name ($3), $1,
-					     VAR_DOMAIN, NULL);
+					     VAR_DOMAIN, (int *) NULL);
 			  if (!tem || SYMBOL_CLASS (tem) != LOC_BLOCK)
-			    error (_("No function \"%s\" in specified context."),
+			    error ("No function \"%s\" in specified context.",
 				   copy_name ($3));
 			  $$ = SYMBOL_BLOCK_VALUE (tem); }
-	;
-
-variable:	name_not_typename ENTRY
-			{ struct symbol *sym = $1.sym;
-
-			  if (sym == NULL || !SYMBOL_IS_ARGUMENT (sym)
-			      || !symbol_read_needs_frame (sym))
-			    error (_("@entry can be used only for function "
-				     "parameters, not for \"%s\""),
-				   copy_name ($1.stoken));
-
-			  write_exp_elt_opcode (OP_VAR_ENTRY_VALUE);
-			  write_exp_elt_sym (sym);
-			  write_exp_elt_opcode (OP_VAR_ENTRY_VALUE);
-			}
 	;
 
 variable:	block COLONCOLON name
 			{ struct symbol *sym;
 			  sym = lookup_symbol (copy_name ($3), $1,
-					       VAR_DOMAIN, NULL);
+					       VAR_DOMAIN, (int *) NULL);
 			  if (sym == 0)
-			    error (_("No symbol \"%s\" in specified context."),
+			    error ("No symbol \"%s\" in specified context.",
 				   copy_name ($3));
-			  if (symbol_read_needs_frame (sym))
-			    {
-			      if (innermost_block == 0
-				  || contained_in (block_found,
-						   innermost_block))
-				innermost_block = block_found;
-			    }
 
 			  write_exp_elt_opcode (OP_VAR_VALUE);
 			  /* block_found is set by lookup_symbol.  */
@@ -922,8 +776,8 @@ qualified_name:	TYPENAME COLONCOLON name
 			  if (TYPE_CODE (type) != TYPE_CODE_STRUCT
 			      && TYPE_CODE (type) != TYPE_CODE_UNION
 			      && TYPE_CODE (type) != TYPE_CODE_NAMESPACE)
-			    error (_("`%s' is not defined as an aggregate type."),
-				   TYPE_SAFE_NAME (type));
+			    error ("`%s' is not defined as an aggregate type.",
+				   TYPE_NAME (type));
 
 			  write_exp_elt_opcode (OP_SCOPE);
 			  write_exp_elt_type (type);
@@ -938,8 +792,8 @@ qualified_name:	TYPENAME COLONCOLON name
 			  if (TYPE_CODE (type) != TYPE_CODE_STRUCT
 			      && TYPE_CODE (type) != TYPE_CODE_UNION
 			      && TYPE_CODE (type) != TYPE_CODE_NAMESPACE)
-			    error (_("`%s' is not defined as an aggregate type."),
-				   TYPE_SAFE_NAME (type));
+			    error ("`%s' is not defined as an aggregate type.",
+				   TYPE_NAME (type));
 
 			  tmp_token.ptr = (char*) alloca ($4.length + 2);
 			  tmp_token.length = $4.length + 1;
@@ -948,7 +802,7 @@ qualified_name:	TYPENAME COLONCOLON name
 			  tmp_token.ptr[tmp_token.length] = 0;
 
 			  /* Check for valid destructor name.  */
-			  destructor_name_p (tmp_token.ptr, $1.type);
+			  destructor_name_p (tmp_token.ptr, type);
 			  write_exp_elt_opcode (OP_SCOPE);
 			  write_exp_elt_type (type);
 			  write_exp_string (tmp_token);
@@ -959,7 +813,7 @@ qualified_name:	TYPENAME COLONCOLON name
 			  char *copy = copy_name ($3);
 			  error (_("No type \"%s\" within class "
 				   "or namespace \"%s\"."),
-				 copy, TYPE_SAFE_NAME ($1.type));
+				 copy, TYPE_NAME ($1.type));
 			}
 	;
 
@@ -972,7 +826,7 @@ variable:	qualified_name
 
 			  sym =
 			    lookup_symbol (name, (const struct block *) NULL,
-					   VAR_DOMAIN, NULL);
+					   VAR_DOMAIN, (int *) NULL);
 			  if (sym)
 			    {
 			      write_exp_elt_opcode (OP_VAR_VALUE);
@@ -986,9 +840,9 @@ variable:	qualified_name
 			  if (msymbol != NULL)
 			    write_exp_msymbol (msymbol);
 			  else if (!have_full_symbols () && !have_partial_symbols ())
-			    error (_("No symbol table is loaded.  Use the \"file\" command."));
+			    error ("No symbol table is loaded.  Use the \"file\" command.");
 			  else
-			    error (_("No symbol \"%s\" in current context."), name);
+			    error ("No symbol \"%s\" in current context.", name);
 			}
 	;
 
@@ -1038,16 +892,18 @@ variable:	name_not_typename
 			      if (msymbol != NULL)
 				write_exp_msymbol (msymbol);
 			      else if (!have_full_symbols () && !have_partial_symbols ())
-				error (_("No symbol table is loaded.  Use the \"file\" command."));
+				error ("No symbol table is loaded.  Use the \"file\" command.");
 			      else
-				error (_("No symbol \"%s\" in current context."),
+				error ("No symbol \"%s\" in current context.",
 				       copy_name ($1.stoken));
 			    }
 			}
 	;
 
 space_identifier : '@' NAME
-		{ insert_type_address_space (copy_name ($2.stoken)); }
+		{ push_type_address_space (copy_name ($2.stoken));
+		  push_type (tp_space_identifier);
+		}
 	;
 
 const_or_volatile: const_or_volatile_noopt
@@ -1066,31 +922,14 @@ const_or_volatile_or_space_identifier:
 	|
 	;
 
-ptr_operator:
-		ptr_operator '*'
-			{ insert_type (tp_pointer); }
-		const_or_volatile_or_space_identifier
-	|	'*' 
-			{ insert_type (tp_pointer); }
-		const_or_volatile_or_space_identifier
+abs_decl:	'*'
+			{ push_type (tp_pointer); $$ = 0; }
+	|	'*' abs_decl
+			{ push_type (tp_pointer); $$ = $2; }
 	|	'&'
-			{ insert_type (tp_reference); }
-	|	'&' ptr_operator
-			{ insert_type (tp_reference); }
-	;
-
-ptr_operator_ts: ptr_operator
-			{
-			  $$ = get_type_stack ();
-			  /* This cleanup is eventually run by
-			     c_parse.  */
-			  make_cleanup (type_stack_cleanup, $$);
-			}
-	;
-
-abs_decl:	ptr_operator_ts direct_abs_decl
-			{ $$ = append_type_stack ($2, $1); }
-	|	ptr_operator_ts 
+			{ push_type (tp_reference); $$ = 0; }
+	|	'&' abs_decl
+			{ push_type (tp_reference); $$ = $2; }
 	|	direct_abs_decl
 	;
 
@@ -1098,45 +937,32 @@ direct_abs_decl: '(' abs_decl ')'
 			{ $$ = $2; }
 	|	direct_abs_decl array_mod
 			{
-			  push_type_stack ($1);
 			  push_type_int ($2);
 			  push_type (tp_array);
-			  $$ = get_type_stack ();
 			}
 	|	array_mod
 			{
 			  push_type_int ($1);
 			  push_type (tp_array);
-			  $$ = get_type_stack ();
+			  $$ = 0;
 			}
 
 	| 	direct_abs_decl func_mod
-			{
-			  push_type_stack ($1);
-			  push_typelist ($2);
-			  $$ = get_type_stack ();
-			}
+			{ push_type (tp_function); }
 	|	func_mod
-			{
-			  push_typelist ($1);
-			  $$ = get_type_stack ();
-			}
+			{ push_type (tp_function); }
 	;
 
 array_mod:	'[' ']'
 			{ $$ = -1; }
-	|	OBJC_LBRAC ']'
-			{ $$ = -1; }
 	|	'[' INT ']'
-			{ $$ = $2.val; }
-	|	OBJC_LBRAC INT ']'
 			{ $$ = $2.val; }
 	;
 
 func_mod:	'(' ')'
-			{ $$ = NULL; }
-	|	'(' parameter_typelist ')'
-			{ $$ = $2; }
+			{ $$ = 0; }
+	|	'(' nonempty_typelist ')'
+			{ free ($2); $$ = 0; }
 	;
 
 /* We used to try to recognize pointer to member types here, but
@@ -1154,189 +980,85 @@ typebase  /* Implements (approximately): (type-qualifier)* type-specifier */
 	:	TYPENAME
 			{ $$ = $1.type; }
 	|	INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "int"); }
+			{ $$ = parse_type->builtin_int; }
 	|	LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	SHORT
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	SIGNED_KEYWORD LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long"); }
+			{ $$ = parse_type->builtin_long; }
 	|	UNSIGNED LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long"); }
+			{ $$ = parse_type->builtin_unsigned_long; }
 	|	LONG LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	LONG LONG SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	SIGNED_KEYWORD LONG LONG
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	SIGNED_KEYWORD LONG LONG INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "long long"); }
+			{ $$ = parse_type->builtin_long_long; }
 	|	UNSIGNED LONG LONG
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	UNSIGNED LONG LONG INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	LONG LONG UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	LONG LONG UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "long long"); }
+			{ $$ = parse_type->builtin_unsigned_long_long; }
 	|	SHORT INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	SHORT SIGNED_KEYWORD INT_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	SHORT SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "short"); }
+			{ $$ = parse_type->builtin_short; }
 	|	UNSIGNED SHORT INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	SHORT UNSIGNED 
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	SHORT UNSIGNED INT_KEYWORD
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "short"); }
+			{ $$ = parse_type->builtin_unsigned_short; }
 	|	DOUBLE_KEYWORD
-			{ $$ = lookup_typename (parse_language, parse_gdbarch,
-						"double", (struct block *) NULL,
-						0); }
+			{ $$ = parse_type->builtin_double; }
 	|	LONG DOUBLE_KEYWORD
-			{ $$ = lookup_typename (parse_language, parse_gdbarch,
-						"long double",
-						(struct block *) NULL, 0); }
+			{ $$ = parse_type->builtin_long_double; }
 	|	STRUCT name
 			{ $$ = lookup_struct (copy_name ($2),
 					      expression_context_block); }
-	|	STRUCT COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_STRUCT, "", 0);
-			  $$ = NULL;
-			}
-	|	STRUCT name COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_STRUCT, $2.ptr,
-					       $2.length);
-			  $$ = NULL;
-			}
 	|	CLASS name
 			{ $$ = lookup_struct (copy_name ($2),
 					      expression_context_block); }
-	|	CLASS COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_CLASS, "", 0);
-			  $$ = NULL;
-			}
-	|	CLASS name COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_CLASS, $2.ptr,
-					       $2.length);
-			  $$ = NULL;
-			}
 	|	UNION name
 			{ $$ = lookup_union (copy_name ($2),
 					     expression_context_block); }
-	|	UNION COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_UNION, "", 0);
-			  $$ = NULL;
-			}
-	|	UNION name COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_UNION, $2.ptr,
-					       $2.length);
-			  $$ = NULL;
-			}
 	|	ENUM name
 			{ $$ = lookup_enum (copy_name ($2),
 					    expression_context_block); }
-	|	ENUM COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_ENUM, "", 0);
-			  $$ = NULL;
-			}
-	|	ENUM name COMPLETE
-			{
-			  mark_completion_tag (TYPE_CODE_ENUM, $2.ptr,
-					       $2.length);
-			  $$ = NULL;
-			}
 	|	UNSIGNED typename
 			{ $$ = lookup_unsigned_typename (parse_language,
 							 parse_gdbarch,
 							 TYPE_NAME($2.type)); }
 	|	UNSIGNED
-			{ $$ = lookup_unsigned_typename (parse_language,
-							 parse_gdbarch,
-							 "int"); }
+			{ $$ = parse_type->builtin_unsigned_int; }
 	|	SIGNED_KEYWORD typename
 			{ $$ = lookup_signed_typename (parse_language,
 						       parse_gdbarch,
 						       TYPE_NAME($2.type)); }
 	|	SIGNED_KEYWORD
-			{ $$ = lookup_signed_typename (parse_language,
-						       parse_gdbarch,
-						       "int"); }
+			{ $$ = parse_type->builtin_int; }
                 /* It appears that this rule for templates is never
                    reduced; template recognition happens by lookahead
                    in the token processing code in yylex. */         
@@ -1355,67 +1077,38 @@ typename:	TYPENAME
 		{
 		  $$.stoken.ptr = "int";
 		  $$.stoken.length = 3;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "int");
+		  $$.type = parse_type->builtin_int;
 		}
 	|	LONG
 		{
 		  $$.stoken.ptr = "long";
 		  $$.stoken.length = 4;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "long");
+		  $$.type = parse_type->builtin_long;
 		}
 	|	SHORT
 		{
 		  $$.stoken.ptr = "short";
 		  $$.stoken.length = 5;
-		  $$.type = lookup_signed_typename (parse_language,
-						    parse_gdbarch,
-						    "short");
+		  $$.type = parse_type->builtin_short;
 		}
-	;
-
-parameter_typelist:
-		nonempty_typelist
-			{ check_parameter_typelist ($1); }
-	|	nonempty_typelist ',' DOTDOTDOT
-			{
-			  VEC_safe_push (type_ptr, $1, NULL);
-			  check_parameter_typelist ($1);
-			  $$ = $1;
-			}
 	;
 
 nonempty_typelist
 	:	type
-		{
-		  VEC (type_ptr) *typelist = NULL;
-		  VEC_safe_push (type_ptr, typelist, $1);
-		  $$ = typelist;
+		{ $$ = (struct type **) malloc (sizeof (struct type *) * 2);
+		  $<ivec>$[0] = 1;	/* Number of types in vector */
+		  $$[1] = $1;
 		}
 	|	nonempty_typelist ',' type
-		{
-		  VEC_safe_push (type_ptr, $1, $3);
-		  $$ = $1;
+		{ int len = sizeof (struct type *) * (++($<ivec>1[0]) + 1);
+		  $$ = (struct type **) realloc ((char *) $1, len);
+		  $$[$<ivec>$[0]] = $3;
 		}
 	;
 
 ptype	:	typebase
-	|	ptype abs_decl
-		{
-		  push_type_stack ($2);
-		  $$ = follow_types ($1);
-		}
-	;
-
-conversion_type_id: typebase conversion_declarator
+	|	ptype const_or_volatile_or_space_identifier abs_decl const_or_volatile_or_space_identifier
 		{ $$ = follow_types ($1); }
-	;
-
-conversion_declarator:  /* Nothing.  */
-	| ptr_operator conversion_declarator
 	;
 
 const_and_volatile: 	CONST_KEYWORD VOLATILE_KEYWORD
@@ -1423,13 +1116,13 @@ const_and_volatile: 	CONST_KEYWORD VOLATILE_KEYWORD
 	;
 
 const_or_volatile_noopt:  	const_and_volatile 
-			{ insert_type (tp_const);
-			  insert_type (tp_volatile); 
+			{ push_type (tp_const);
+			  push_type (tp_volatile); 
 			}
 	| 		CONST_KEYWORD
-			{ insert_type (tp_const); }
+			{ push_type (tp_const); }
 	| 		VOLATILE_KEYWORD
-			{ insert_type (tp_volatile); }
+			{ push_type (tp_volatile); }
 	;
 
 operator:	OPERATOR NEW
@@ -1439,10 +1132,6 @@ operator:	OPERATOR NEW
 	|	OPERATOR NEW '[' ']'
 			{ $$ = operator_stoken (" new[]"); }
 	|	OPERATOR DELETE '[' ']'
-			{ $$ = operator_stoken (" delete[]"); }
-	|	OPERATOR NEW OBJC_LBRAC ']'
-			{ $$ = operator_stoken (" new[]"); }
-	|	OPERATOR DELETE OBJC_LBRAC ']'
 			{ $$ = operator_stoken (" delete[]"); }
 	|	OPERATOR '+'
 			{ $$ = operator_stoken ("+"); }
@@ -1540,15 +1229,12 @@ operator:	OPERATOR NEW
 			{ $$ = operator_stoken ("()"); }
 	|	OPERATOR '[' ']'
 			{ $$ = operator_stoken ("[]"); }
-	|	OPERATOR OBJC_LBRAC ']'
-			{ $$ = operator_stoken ("[]"); }
-	|	OPERATOR conversion_type_id
+	|	OPERATOR ptype
 			{ char *name;
 			  long length;
 			  struct ui_file *buf = mem_fileopen ();
 
-			  c_print_type ($2, NULL, buf, -1, 0,
-					&type_print_raw_options);
+			  c_print_type ($2, NULL, buf, -1, 0);
 			  name = ui_file_xstrdup (buf, &length);
 			  ui_file_delete (buf);
 			  $$ = operator_stoken (name);
@@ -1577,15 +1263,11 @@ name_not_typename :	NAME
  */
 	|	operator
 			{
-			  struct field_of_this_result is_a_field_of_this;
-
 			  $$.stoken = $1;
 			  $$.sym = lookup_symbol ($1.ptr,
 						  expression_context_block,
 						  VAR_DOMAIN,
-						  &is_a_field_of_this);
-			  $$.is_a_field_of_this
-			    = is_a_field_of_this.type != NULL;
+						  &$$.is_a_field_of_this);
 			}
 	|	UNKNOWN_CPP_NAME
 	;
@@ -1608,37 +1290,6 @@ operator_stoken (const char *op)
   make_cleanup (free, st.ptr);
   return st;
 };
-
-/* Validate a parameter typelist.  */
-
-static void
-check_parameter_typelist (VEC (type_ptr) *params)
-{
-  struct type *type;
-  int ix;
-
-  for (ix = 0; VEC_iterate (type_ptr, params, ix, type); ++ix)
-    {
-      if (type != NULL && TYPE_CODE (check_typedef (type)) == TYPE_CODE_VOID)
-	{
-	  if (ix == 0)
-	    {
-	      if (VEC_length (type_ptr, params) == 1)
-		{
-		  /* Ok.  */
-		  break;
-		}
-	      VEC_free (type_ptr, params);
-	      error (_("parameter types following 'void'"));
-	    }
-	  else
-	    {
-	      VEC_free (type_ptr, params);
-	      error (_("'void' invalid as parameter type"));
-	    }
-	}
-    }
-}
 
 /* Take care of parsing a number (anything that starts with a digit).
    Set yylval and return the token type; update lexptr.
@@ -1672,6 +1323,11 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
 
   if (parsed_float)
     {
+      /* It's a float since it contains a point or an exponent.  */
+      char *s;
+      int num;	/* number of tokens scanned by scanf */
+      char saved_char;
+
       /* If it ends at "df", "dd" or "dl", take it as type of decimal floating
          point.  Return DECFLOAT.  */
 
@@ -1708,10 +1364,41 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
 	  return DECFLOAT;
 	}
 
-      if (! parse_c_float (parse_gdbarch, p, len,
-			   &putithere->typed_val_float.dval,
-			   &putithere->typed_val_float.type))
-	return ERROR;
+      s = malloc (len);
+      saved_char = p[len];
+      p[len] = 0;	/* null-terminate the token */
+      num = sscanf (p, "%" DOUBLEST_SCAN_FORMAT "%s",
+		    &putithere->typed_val_float.dval, s);
+      p[len] = saved_char;	/* restore the input stream */
+
+      if (num == 0)
+	{
+	  free (s);
+	  return ERROR;
+	}
+
+      if (num == 1)
+	putithere->typed_val_float.type = 
+	  parse_type->builtin_double;
+
+      if (num == 2 )
+	{
+	  /* See if it has any float suffix: 'f' for float, 'l' for long 
+	     double.  */
+	  if (!strcasecmp (s, "f"))
+	    putithere->typed_val_float.type = 
+	      parse_type->builtin_float;
+	  else if (!strcasecmp (s, "l"))
+	    putithere->typed_val_float.type = 
+	      parse_type->builtin_long_double;
+	  else
+	    {
+	      free (s);
+	      return ERROR;
+	    }
+	}
+
+      free (s);
       return FLOAT;
     }
 
@@ -1805,7 +1492,7 @@ parse_number (char *p, int len, int parsed_float, YYSTYPE *putithere)
       if (c != 'l' && c != 'u' && n != 0)
 	{	
 	  if ((unsigned_p && (ULONGEST) prevn >= (ULONGEST) n))
-	    error (_("Numeric constant too large."));
+	    error ("Numeric constant too large.");
 	}
       prevn = n;
     }
@@ -2055,7 +1742,6 @@ parse_string_or_char (char *tokptr, char **outptr, struct typed_stoken *value,
 {
   int quote;
   enum c_string_type type;
-  int is_objc = 0;
 
   /* Build the gdb internal form of the input string in tempbuf.  Note
      that the buffer is null byte terminated *only* for the
@@ -2086,13 +1772,6 @@ parse_string_or_char (char *tokptr, char **outptr, struct typed_stoken *value,
   else if (*tokptr == 'U')
     {
       type = C_STRING_32;
-      ++tokptr;
-    }
-  else if (*tokptr == '@')
-    {
-      /* An Objective C string.  */
-      is_objc = 1;
-      type = C_STRING;
       ++tokptr;
     }
   else
@@ -2130,9 +1809,9 @@ parse_string_or_char (char *tokptr, char **outptr, struct typed_stoken *value,
   if (*tokptr != quote)
     {
       if (quote == '"')
-	error (_("Unterminated string in expression."));
+	error ("Unterminated string in expression.");
       else
-	error (_("Unmatched single quote."));
+	error ("Unmatched single quote.");
     }
   ++tokptr;
 
@@ -2142,38 +1821,22 @@ parse_string_or_char (char *tokptr, char **outptr, struct typed_stoken *value,
 
   *outptr = tokptr;
 
-  return quote == '"' ? (is_objc ? NSSTRING : STRING) : CHAR;
+  return quote == '"' ? STRING : CHAR;
 }
-
-/* This is used to associate some attributes with a token.  */
-
-enum token_flags
-{
-  /* If this bit is set, the token is C++-only.  */
-
-  FLAG_CXX = 1,
-
-  /* If this bit is set, the token is conditional: if there is a
-     symbol of the same name, then the token is a symbol; otherwise,
-     the token is a keyword.  */
-
-  FLAG_SHADOW = 2
-};
 
 struct token
 {
   char *operator;
   int token;
   enum exp_opcode opcode;
-  enum token_flags flags;
+  int cxx_only;
 };
 
 static const struct token tokentab3[] =
   {
     {">>=", ASSIGN_MODIFY, BINOP_RSH, 0},
     {"<<=", ASSIGN_MODIFY, BINOP_LSH, 0},
-    {"->*", ARROW_STAR, BINOP_END, FLAG_CXX},
-    {"...", DOTDOTDOT, BINOP_END, 0}
+    {"->*", ARROW_STAR, BINOP_END, 1}
   };
 
 static const struct token tokentab2[] =
@@ -2200,54 +1863,48 @@ static const struct token tokentab2[] =
     {"!=", NOTEQUAL, BINOP_END, 0},
     {"<=", LEQ, BINOP_END, 0},
     {">=", GEQ, BINOP_END, 0},
-    {".*", DOT_STAR, BINOP_END, FLAG_CXX}
+    {".*", DOT_STAR, BINOP_END, 1}
   };
 
 /* Identifier-like tokens.  */
 static const struct token ident_tokens[] =
   {
     {"unsigned", UNSIGNED, OP_NULL, 0},
-    {"template", TEMPLATE, OP_NULL, FLAG_CXX},
+    {"template", TEMPLATE, OP_NULL, 1},
     {"volatile", VOLATILE_KEYWORD, OP_NULL, 0},
     {"struct", STRUCT, OP_NULL, 0},
     {"signed", SIGNED_KEYWORD, OP_NULL, 0},
     {"sizeof", SIZEOF, OP_NULL, 0},
     {"double", DOUBLE_KEYWORD, OP_NULL, 0},
-    {"false", FALSEKEYWORD, OP_NULL, FLAG_CXX},
-    {"class", CLASS, OP_NULL, FLAG_CXX},
+    {"false", FALSEKEYWORD, OP_NULL, 1},
+    {"class", CLASS, OP_NULL, 1},
     {"union", UNION, OP_NULL, 0},
     {"short", SHORT, OP_NULL, 0},
     {"const", CONST_KEYWORD, OP_NULL, 0},
     {"enum", ENUM, OP_NULL, 0},
     {"long", LONG, OP_NULL, 0},
-    {"true", TRUEKEYWORD, OP_NULL, FLAG_CXX},
+    {"true", TRUEKEYWORD, OP_NULL, 1},
     {"int", INT_KEYWORD, OP_NULL, 0},
-    {"new", NEW, OP_NULL, FLAG_CXX},
-    {"delete", DELETE, OP_NULL, FLAG_CXX},
-    {"operator", OPERATOR, OP_NULL, FLAG_CXX},
+    {"new", NEW, OP_NULL, 1},
+    {"delete", DELETE, OP_NULL, 1},
+    {"operator", OPERATOR, OP_NULL, 1},
 
-    {"and", ANDAND, BINOP_END, FLAG_CXX},
-    {"and_eq", ASSIGN_MODIFY, BINOP_BITWISE_AND, FLAG_CXX},
-    {"bitand", '&', OP_NULL, FLAG_CXX},
-    {"bitor", '|', OP_NULL, FLAG_CXX},
-    {"compl", '~', OP_NULL, FLAG_CXX},
-    {"not", '!', OP_NULL, FLAG_CXX},
-    {"not_eq", NOTEQUAL, BINOP_END, FLAG_CXX},
-    {"or", OROR, BINOP_END, FLAG_CXX},
-    {"or_eq", ASSIGN_MODIFY, BINOP_BITWISE_IOR, FLAG_CXX},
-    {"xor", '^', OP_NULL, FLAG_CXX},
-    {"xor_eq", ASSIGN_MODIFY, BINOP_BITWISE_XOR, FLAG_CXX},
+    {"and", ANDAND, BINOP_END, 1},
+    {"and_eq", ASSIGN_MODIFY, BINOP_BITWISE_AND, 1},
+    {"bitand", '&', OP_NULL, 1},
+    {"bitor", '|', OP_NULL, 1},
+    {"compl", '~', OP_NULL, 1},
+    {"not", '!', OP_NULL, 1},
+    {"not_eq", NOTEQUAL, BINOP_END, 1},
+    {"or", OROR, BINOP_END, 1},
+    {"or_eq", ASSIGN_MODIFY, BINOP_BITWISE_IOR, 1},
+    {"xor", '^', OP_NULL, 1},
+    {"xor_eq", ASSIGN_MODIFY, BINOP_BITWISE_XOR, 1},
 
-    {"const_cast", CONST_CAST, OP_NULL, FLAG_CXX },
-    {"dynamic_cast", DYNAMIC_CAST, OP_NULL, FLAG_CXX },
-    {"static_cast", STATIC_CAST, OP_NULL, FLAG_CXX },
-    {"reinterpret_cast", REINTERPRET_CAST, OP_NULL, FLAG_CXX },
-
-    {"__typeof__", TYPEOF, OP_TYPEOF, 0 },
-    {"__typeof", TYPEOF, OP_TYPEOF, 0 },
-    {"typeof", TYPEOF, OP_TYPEOF, FLAG_SHADOW },
-    {"__decltype", DECLTYPE, OP_DECLTYPE, FLAG_CXX },
-    {"decltype", DECLTYPE, OP_DECLTYPE, FLAG_CXX | FLAG_SHADOW }
+    {"const_cast", CONST_CAST, OP_NULL, 1 },
+    {"dynamic_cast", DYNAMIC_CAST, OP_NULL, 1 },
+    {"static_cast", STATIC_CAST, OP_NULL, 1 },
+    {"reinterpret_cast", REINTERPRET_CAST, OP_NULL, 1 }
   };
 
 /* When we find that lexptr (the global var defined in parse.c) is
@@ -2383,7 +2040,7 @@ lex_one_token (void)
   for (i = 0; i < sizeof tokentab3 / sizeof tokentab3[0]; i++)
     if (strncmp (tokstart, tokentab3[i].operator, 3) == 0)
       {
-	if ((tokentab3[i].flags & FLAG_CXX) != 0
+	if (tokentab3[i].cxx_only
 	    && parse_language->la_language != language_cplus)
 	  break;
 
@@ -2396,13 +2053,13 @@ lex_one_token (void)
   for (i = 0; i < sizeof tokentab2 / sizeof tokentab2[0]; i++)
     if (strncmp (tokstart, tokentab2[i].operator, 2) == 0)
       {
-	if ((tokentab2[i].flags & FLAG_CXX) != 0
+	if (tokentab2[i].cxx_only
 	    && parse_language->la_language != language_cplus)
 	  break;
 
 	lexptr += 2;
 	yylval.opcode = tokentab2[i].opcode;
-	if (parse_completion && tokentab2[i].token == ARROW)
+	if (in_parse_field && tokentab2[i].token == ARROW)
 	  last_was_structop = 1;
 	return tokentab2[i].token;
       }
@@ -2441,8 +2098,6 @@ lex_one_token (void)
     case '(':
       paren_depth++;
       lexptr++;
-      if (parse_language->la_language == language_objc && c == '[')
-	return OBJC_LBRAC;
       return c;
 
     case ']':
@@ -2465,7 +2120,7 @@ lex_one_token (void)
       /* Might be a floating point number.  */
       if (lexptr[1] < '0' || lexptr[1] > '9')
 	{
-	  if (parse_completion)
+	  if (in_parse_field)
 	    last_was_structop = 1;
 	  goto symbol;		/* Nope, must be a symbol. */
 	}
@@ -2528,41 +2183,12 @@ lex_one_token (void)
 
 	    memcpy (err_copy, tokstart, p - tokstart);
 	    err_copy[p - tokstart] = 0;
-	    error (_("Invalid number \"%s\"."), err_copy);
+	    error ("Invalid number \"%s\".", err_copy);
 	  }
 	lexptr = p;
 	return toktype;
       }
 
-    case '@':
-      {
-	char *p = &tokstart[1];
-	size_t len = strlen ("entry");
-
-	if (parse_language->la_language == language_objc)
-	  {
-	    size_t len = strlen ("selector");
-
-	    if (strncmp (p, "selector", len) == 0
-		&& (p[len] == '\0' || isspace (p[len])))
-	      {
-		lexptr = p + len;
-		return SELECTOR;
-	      }
-	    else if (*p == '"')
-	      goto parse_string;
-	  }
-
-	while (isspace (*p))
-	  p++;
-	if (strncmp (p, "entry", len) == 0 && !isalnum (p[len])
-	    && p[len] != '_')
-	  {
-	    lexptr = &p[len];
-	    return ENTRY;
-	  }
-      }
-      /* FALLTHRU */
     case '+':
     case '-':
     case '*':
@@ -2573,6 +2199,7 @@ lex_one_token (void)
     case '^':
     case '~':
     case '!':
+    case '@':
     case '<':
     case '>':
     case '?':
@@ -2592,8 +2219,6 @@ lex_one_token (void)
       /* Fall through.  */
     case '\'':
     case '"':
-
-    parse_string:
       {
 	int host_len;
 	int result = parse_string_or_char (tokstart, &lexptr, &yylval.tsval,
@@ -2601,7 +2226,7 @@ lex_one_token (void)
 	if (result == CHAR)
 	  {
 	    if (host_len == 0)
-	      error (_("Empty character constant."));
+	      error ("Empty character constant.");
 	    else if (host_len > 2 && c == '\'')
 	      {
 		++tokstart;
@@ -2609,7 +2234,7 @@ lex_one_token (void)
 		goto tryname;
 	      }
 	    else if (host_len > 1)
-	      error (_("Invalid character constant."));
+	      error ("Invalid character constant.");
 	  }
 	return result;
       }
@@ -2618,7 +2243,7 @@ lex_one_token (void)
   if (!(c == '_' || c == '$'
 	|| (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
     /* We must have come across a bad character (e.g. ';').  */
-    error (_("Invalid character '%c' in expression."), c);
+    error ("Invalid character '%c' in expression.", c);
 
   /* It's a name.  See how long it is.  */
   namelen = 0;
@@ -2688,25 +2313,9 @@ lex_one_token (void)
   for (i = 0; i < sizeof ident_tokens / sizeof ident_tokens[0]; i++)
     if (strcmp (copy, ident_tokens[i].operator) == 0)
       {
-	if ((ident_tokens[i].flags & FLAG_CXX) != 0
+	if (ident_tokens[i].cxx_only
 	    && parse_language->la_language != language_cplus)
 	  break;
-
-	if ((ident_tokens[i].flags & FLAG_SHADOW) != 0)
-	  {
-	    struct field_of_this_result is_a_field_of_this;
-
-	    if (lookup_symbol (copy, expression_context_block,
-			       VAR_DOMAIN,
-			       (parse_language->la_language == language_cplus
-				? &is_a_field_of_this
-				: NULL))
-		!= NULL)
-	      {
-		/* The keyword is shadowed.  */
-		break;
-	      }
-	  }
 
 	/* It is ok to always set this, even though we don't always
 	   strictly need to.  */
@@ -2717,7 +2326,7 @@ lex_one_token (void)
   if (*tokstart == '$')
     return VARIABLE;
 
-  if (parse_completion && *lexptr == '\0')
+  if (in_parse_field && *lexptr == '\0')
     saw_name_at_eof = 1;
   return NAME;
 }
@@ -2747,26 +2356,22 @@ static struct obstack name_obstack;
    in which lookups start; this can be NULL to mean the global
    scope.  */
 static int
-classify_name (const struct block *block)
+classify_name (struct block *block)
 {
   struct symbol *sym;
   char *copy;
-  struct field_of_this_result is_a_field_of_this;
+  int is_a_field_of_this = 0;
 
   copy = copy_name (yylval.sval);
 
-  /* Initialize this in case we *don't* use it in this call; that way
-     we can refer to it unconditionally below.  */
-  memset (&is_a_field_of_this, 0, sizeof (is_a_field_of_this));
-
   sym = lookup_symbol (copy, block, VAR_DOMAIN, 
-		       parse_language->la_name_of_this
-		       ? &is_a_field_of_this : NULL);
+		       parse_language->la_language == language_cplus
+		       ? &is_a_field_of_this : (int *) NULL);
 
   if (sym && SYMBOL_CLASS (sym) == LOC_BLOCK)
     {
       yylval.ssym.sym = sym;
-      yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+      yylval.ssym.is_a_field_of_this = is_a_field_of_this;
       return BLOCKNAME;
     }
   else if (!sym)
@@ -2779,26 +2384,6 @@ classify_name (const struct block *block)
 	{
 	  yylval.bval = BLOCKVECTOR_BLOCK (BLOCKVECTOR (symtab), STATIC_BLOCK);
 	  return FILENAME;
-	}
-
-      /* If we found a field of 'this', we might have erroneously
-	 found a constructor where we wanted a type name.  Handle this
-	 case by noticing that we found a constructor and then look up
-	 the type tag instead.  */
-      if (is_a_field_of_this.type != NULL
-	  && is_a_field_of_this.fn_field != NULL
-	  && TYPE_FN_FIELD_CONSTRUCTOR (is_a_field_of_this.fn_field->fn_fields,
-					0))
-	{
-	  struct field_of_this_result inner_is_a_field_of_this;
-
-	  sym = lookup_symbol (copy, block, STRUCT_DOMAIN,
-			       &inner_is_a_field_of_this);
-	  if (sym != NULL)
-	    {
-	      yylval.tsym.type = SYMBOL_TYPE (sym);
-	      return TYPENAME;
-	    }
 	}
     }
 
@@ -2814,20 +2399,6 @@ classify_name (const struct block *block)
   if (yylval.tsym.type != NULL)
     return TYPENAME;
 
-  /* See if it's an ObjC classname.  */
-  if (parse_language->la_language == language_objc && !sym)
-    {
-      CORE_ADDR Class = lookup_objc_class (parse_gdbarch, copy);
-      if (Class)
-	{
-	  yylval.class.class = Class;
-	  sym = lookup_struct_typedef (copy, expression_context_block, 1);
-	  if (sym)
-	    yylval.class.type = SYMBOL_TYPE (sym);
-	  return CLASSNAME;
-	}
-    }
-
   /* Input names that aren't symbols but ARE valid hex numbers, when
      the input radix permits them, can be names or numbers depending
      on the parse.  Note we support radixes > 16 here.  */
@@ -2840,18 +2411,17 @@ classify_name (const struct block *block)
       if (hextype == INT)
 	{
 	  yylval.ssym.sym = sym;
-	  yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+	  yylval.ssym.is_a_field_of_this = is_a_field_of_this;
 	  return NAME_OR_INT;
 	}
     }
 
   /* Any other kind of symbol */
   yylval.ssym.sym = sym;
-  yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+  yylval.ssym.is_a_field_of_this = is_a_field_of_this;
 
   if (sym == NULL
       && parse_language->la_language == language_cplus
-      && is_a_field_of_this.type == NULL
       && !lookup_minimal_symbol (copy, NULL, NULL))
     return UNKNOWN_CPP_NAME;
 
@@ -2860,12 +2430,13 @@ classify_name (const struct block *block)
 
 /* Like classify_name, but used by the inner loop of the lexer, when a
    name might have already been seen.  FIRST_NAME is true if the token
-   in `yylval' is the first component of a name, false otherwise.  */
-
+   in `yylval' is the first component of a name, false otherwise.  If
+   this function returns NAME, it might not have updated `yylval'.
+   This is ok because the caller only cares about TYPENAME.  */
 static int
-classify_inner_name (const struct block *block, int first_name)
+classify_inner_name (struct block *block, int first_name)
 {
-  struct type *type;
+  struct type *type, *new_type;
   char *copy;
 
   if (first_name)
@@ -2875,28 +2446,18 @@ classify_inner_name (const struct block *block, int first_name)
   if (TYPE_CODE (type) != TYPE_CODE_STRUCT
       && TYPE_CODE (type) != TYPE_CODE_UNION
       && TYPE_CODE (type) != TYPE_CODE_NAMESPACE)
-    return ERROR;
+    /* We know the caller won't expect us to update yylval.  */
+    return NAME;
 
   copy = copy_name (yylval.tsym.stoken);
-  yylval.ssym.sym = cp_lookup_nested_symbol (yylval.tsym.type, copy, block);
-  if (yylval.ssym.sym == NULL)
-    return ERROR;
+  new_type = cp_lookup_nested_type (type, copy, block);
 
-  switch (SYMBOL_CLASS (yylval.ssym.sym))
-    {
-    case LOC_BLOCK:
-    case LOC_LABEL:
-      return ERROR;
+  if (new_type == NULL)
+    /* We know the caller won't expect us to update yylval.  */
+    return NAME;
 
-    case LOC_TYPEDEF:
-      yylval.tsym.type = SYMBOL_TYPE (yylval.ssym.sym);;
-      return TYPENAME;
-
-    default:
-      yylval.ssym.is_a_field_of_this = 0;
-      return NAME;
-    }
-  internal_error (__FILE__, __LINE__, _("not reached"));
+  yylval.tsym.type = new_type;
+  return TYPENAME;
 }
 
 /* The outer level of a two-level lexer.  This calls the inner lexer
@@ -2956,7 +2517,7 @@ yylex (void)
 						first_iter);
 	  /* We keep going until we either run out of names, or until
 	     we have a qualified name which is not a type.  */
-	  if (classification != TYPENAME && classification != NAME)
+	  if (classification != TYPENAME)
 	    {
 	      /* Push the final component and leave the loop.  */
 	      VEC_safe_push (token_and_value, token_fifo, &next);
@@ -3061,5 +2622,5 @@ yyerror (char *msg)
   if (prev_lexptr)
     lexptr = prev_lexptr;
 
-  error (_("A %s in expression, near `%s'."), (msg ? msg : "error"), lexptr);
+  error ("A %s in expression, near `%s'.", (msg ? msg : "error"), lexptr);
 }
