@@ -37,8 +37,6 @@ config/obj-multi.c
 config/obj-multi.h
 config/obj-som.c
 config/obj-som.h
-config/tc-aarch64.c
-config/tc-aarch64.h
 config/tc-alpha.c
 config/tc-alpha.h
 config/tc-arc.c
@@ -61,8 +59,6 @@ config/tc-d30v.c
 config/tc-d30v.h
 config/tc-dlx.c
 config/tc-dlx.h
-config/tc-epiphany.c
-config/tc-epiphany.h
 config/tc-fr30.c
 config/tc-fr30.h
 config/tc-frv.c
@@ -126,8 +122,6 @@ config/tc-pj.c
 config/tc-pj.h
 config/tc-ppc.c
 config/tc-ppc.h
-config/tc-rl78.c
-config/tc-rl78.h
 config/tc-rx.c
 config/tc-rx.h
 config/tc-s390.c
@@ -150,18 +144,12 @@ config/tc-tic54x.c
 config/tc-tic54x.h
 config/tc-tic6x.c
 config/tc-tic6x.h
-config/tc-tilegx.c
-config/tc-tilegx.h
-config/tc-tilepro.c
-config/tc-tilepro.h
 config/tc-v850.c
 config/tc-v850.h
 config/tc-vax.c
 config/tc-vax.h
 config/tc-xc16x.c
 config/tc-xc16x.h
-config/tc-xgate.c
-config/tc-xgate.h
 config/tc-xstormy16.c
 config/tc-xstormy16.h
 config/tc-xtensa.c
