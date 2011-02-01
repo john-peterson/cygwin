@@ -1,7 +1,6 @@
 /* Support for HPPA 64-bit ELF
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+   2010  Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -20,8 +19,8 @@
    Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
    MA 02110-1301, USA.  */
 
-#include "sysdep.h"
 #include "alloca-conf.h"
+#include "sysdep.h"
 #include "bfd.h"
 #include "libbfd.h"
 #include "elf-bfd.h"
@@ -330,9 +329,9 @@ elf64_hppa_object_p (bfd *abfd)
   i_ehdrp = elf_elfheader (abfd);
   if (strcmp (bfd_get_target (abfd), "elf64-hppa-linux") == 0)
     {
-      /* GCC on hppa-linux produces binaries with OSABI=GNU,
+      /* GCC on hppa-linux produces binaries with OSABI=Linux,
 	 but the kernel produces corefiles with OSABI=SysV.  */
-      if (i_ehdrp->e_ident[EI_OSABI] != ELFOSABI_GNU
+      if (i_ehdrp->e_ident[EI_OSABI] != ELFOSABI_LINUX
 	  && i_ehdrp->e_ident[EI_OSABI] != ELFOSABI_NONE) /* aka SYSV */
 	return FALSE;
     }
@@ -416,16 +415,16 @@ get_reloc_section (bfd *abfd,
   if (!dynobj)
     hppa_info->root.dynobj = dynobj = abfd;
 
-  srel = bfd_get_linker_section (dynobj, srel_name);
+  srel = bfd_get_section_by_name (dynobj, srel_name);
   if (srel == NULL)
     {
-      srel = bfd_make_section_anyway_with_flags (dynobj, srel_name,
-						 (SEC_ALLOC
-						  | SEC_LOAD
-						  | SEC_HAS_CONTENTS
-						  | SEC_IN_MEMORY
-						  | SEC_LINKER_CREATED
-						  | SEC_READONLY));
+      srel = bfd_make_section_with_flags (dynobj, srel_name,
+					  (SEC_ALLOC
+					   | SEC_LOAD
+					   | SEC_HAS_CONTENTS
+					   | SEC_IN_MEMORY
+					   | SEC_LINKER_CREATED
+					   | SEC_READONLY));
       if (srel == NULL
 	  || !bfd_set_section_alignment (dynobj, srel, 3))
 	return FALSE;
@@ -476,7 +475,7 @@ hppa64_elf_local_refcounts (bfd *abfd)
 {
   Elf_Internal_Shdr *symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
   bfd_signed_vma *local_refcounts;
-
+                  
   local_refcounts = elf_local_got_refcounts (abfd);
   if (local_refcounts == NULL)
     {
@@ -796,7 +795,7 @@ elf64_hppa_check_relocs (bfd *abfd,
 	  else
 	    {
 	      bfd_signed_vma *local_dlt_refcounts;
-
+                  
 	      /* This is a DLT entry for a local symbol.  */
 	      local_dlt_refcounts = hppa64_elf_local_refcounts (abfd);
 	      if (local_dlt_refcounts == NULL)
@@ -821,7 +820,7 @@ elf64_hppa_check_relocs (bfd *abfd,
 	    {
 	      bfd_signed_vma *local_dlt_refcounts;
 	      bfd_signed_vma *local_plt_refcounts;
-
+                  
 	      /* This is a PLT entry for a local symbol.  */
 	      local_dlt_refcounts = hppa64_elf_local_refcounts (abfd);
 	      if (local_dlt_refcounts == NULL)
@@ -855,7 +854,7 @@ elf64_hppa_check_relocs (bfd *abfd,
 	    {
 	      bfd_signed_vma *local_dlt_refcounts;
 	      bfd_signed_vma *local_opd_refcounts;
-
+                  
 	      /* This is a OPD for a local symbol.  */
 	      local_dlt_refcounts = hppa64_elf_local_refcounts (abfd);
 	      if (local_dlt_refcounts == NULL)
@@ -937,6 +936,9 @@ elf64_hppa_mark_exported_functions (struct elf_link_hash_entry *eh, void *data)
   hppa_info = hppa_link_hash_table (info);
   if (hppa_info == NULL)
     return FALSE;
+
+  if (eh->root.type == bfd_link_hash_warning)
+    eh = (struct elf_link_hash_entry *) eh->root.u.i.link;
 
   if (eh
       && (eh->root.type == bfd_link_hash_defined
@@ -1054,6 +1056,10 @@ allocate_global_data_opd (struct elf_link_hash_entry *eh, void *data)
 
   if (hh && hh->want_opd)
     {
+      while (hh->eh.root.type == bfd_link_hash_indirect
+	     || hh->eh.root.type == bfd_link_hash_warning)
+	hh = hppa_elf_hash_entry (hh->eh.root.u.i.link);
+
       /* We never need an opd entry for a symbol which is not
 	 defined by this output file.  */
       if (hh && (hh->eh.root.type == bfd_link_hash_undefined
@@ -1132,7 +1138,7 @@ elf64_hppa_post_process_headers (bfd *abfd,
   Elf_Internal_Ehdr * i_ehdrp;
 
   i_ehdrp = elf_elfheader (abfd);
-
+  
   i_ehdrp->e_ident[EI_OSABI] = get_elf_backend_data (abfd)->elf_osabi;
   i_ehdrp->e_ident[EI_ABIVERSION] = 1;
 }
@@ -1157,12 +1163,12 @@ get_opd (bfd *abfd,
       if (!dynobj)
 	hppa_info->root.dynobj = dynobj = abfd;
 
-      opd = bfd_make_section_anyway_with_flags (dynobj, ".opd",
-						(SEC_ALLOC
-						 | SEC_LOAD
-						 | SEC_HAS_CONTENTS
-						 | SEC_IN_MEMORY
-						 | SEC_LINKER_CREATED));
+      opd = bfd_make_section_with_flags (dynobj, ".opd",
+					 (SEC_ALLOC
+					  | SEC_LOAD
+					  | SEC_HAS_CONTENTS
+					  | SEC_IN_MEMORY
+					  | SEC_LINKER_CREATED));
       if (!opd
 	  || !bfd_set_section_alignment (abfd, opd, 3))
 	{
@@ -1193,12 +1199,12 @@ get_plt (bfd *abfd,
       if (!dynobj)
 	hppa_info->root.dynobj = dynobj = abfd;
 
-      plt = bfd_make_section_anyway_with_flags (dynobj, ".plt",
-						(SEC_ALLOC
-						 | SEC_LOAD
-						 | SEC_HAS_CONTENTS
-						 | SEC_IN_MEMORY
-						 | SEC_LINKER_CREATED));
+      plt = bfd_make_section_with_flags (dynobj, ".plt",
+					 (SEC_ALLOC
+					  | SEC_LOAD
+					  | SEC_HAS_CONTENTS
+					  | SEC_IN_MEMORY
+					  | SEC_LINKER_CREATED));
       if (!plt
 	  || !bfd_set_section_alignment (abfd, plt, 3))
 	{
@@ -1229,12 +1235,12 @@ get_dlt (bfd *abfd,
       if (!dynobj)
 	hppa_info->root.dynobj = dynobj = abfd;
 
-      dlt = bfd_make_section_anyway_with_flags (dynobj, ".dlt",
-						(SEC_ALLOC
-						 | SEC_LOAD
-						 | SEC_HAS_CONTENTS
-						 | SEC_IN_MEMORY
-						 | SEC_LINKER_CREATED));
+      dlt = bfd_make_section_with_flags (dynobj, ".dlt",
+					 (SEC_ALLOC
+					  | SEC_LOAD
+					  | SEC_HAS_CONTENTS
+					  | SEC_IN_MEMORY
+					  | SEC_LINKER_CREATED));
       if (!dlt
 	  || !bfd_set_section_alignment (abfd, dlt, 3))
 	{
@@ -1265,12 +1271,12 @@ get_stub (bfd *abfd,
       if (!dynobj)
 	hppa_info->root.dynobj = dynobj = abfd;
 
-      stub = bfd_make_section_anyway_with_flags (dynobj, ".stub",
-						 (SEC_ALLOC | SEC_LOAD
-						  | SEC_HAS_CONTENTS
-						  | SEC_IN_MEMORY
-						  | SEC_READONLY
-						  | SEC_LINKER_CREATED));
+      stub = bfd_make_section_with_flags (dynobj, ".stub",
+					  (SEC_ALLOC | SEC_LOAD
+					   | SEC_HAS_CONTENTS
+					   | SEC_IN_MEMORY
+					   | SEC_READONLY
+					   | SEC_LINKER_CREATED));
       if (!stub
 	  || !bfd_set_section_alignment (abfd, stub, 3))
 	{
@@ -1345,45 +1351,45 @@ elf64_hppa_create_dynamic_sections (bfd *abfd,
   if (! get_opd (abfd, info, hppa_info))
     return FALSE;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".rela.dlt",
-					  (SEC_ALLOC | SEC_LOAD
-					   | SEC_HAS_CONTENTS
-					   | SEC_IN_MEMORY
-					   | SEC_READONLY
-					   | SEC_LINKER_CREATED));
+  s = bfd_make_section_with_flags (abfd, ".rela.dlt",
+				   (SEC_ALLOC | SEC_LOAD
+				    | SEC_HAS_CONTENTS
+				    | SEC_IN_MEMORY
+				    | SEC_READONLY
+				    | SEC_LINKER_CREATED));
   if (s == NULL
       || !bfd_set_section_alignment (abfd, s, 3))
     return FALSE;
   hppa_info->dlt_rel_sec = s;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".rela.plt",
-					  (SEC_ALLOC | SEC_LOAD
-					   | SEC_HAS_CONTENTS
-					   | SEC_IN_MEMORY
-					   | SEC_READONLY
-					   | SEC_LINKER_CREATED));
+  s = bfd_make_section_with_flags (abfd, ".rela.plt",
+				   (SEC_ALLOC | SEC_LOAD
+				    | SEC_HAS_CONTENTS
+				    | SEC_IN_MEMORY
+				    | SEC_READONLY
+				    | SEC_LINKER_CREATED));
   if (s == NULL
       || !bfd_set_section_alignment (abfd, s, 3))
     return FALSE;
   hppa_info->plt_rel_sec = s;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".rela.data",
-					  (SEC_ALLOC | SEC_LOAD
-					   | SEC_HAS_CONTENTS
-					   | SEC_IN_MEMORY
-					   | SEC_READONLY
-					   | SEC_LINKER_CREATED));
+  s = bfd_make_section_with_flags (abfd, ".rela.data",
+				   (SEC_ALLOC | SEC_LOAD
+				    | SEC_HAS_CONTENTS
+				    | SEC_IN_MEMORY
+				    | SEC_READONLY
+				    | SEC_LINKER_CREATED));
   if (s == NULL
       || !bfd_set_section_alignment (abfd, s, 3))
     return FALSE;
   hppa_info->other_rel_sec = s;
 
-  s = bfd_make_section_anyway_with_flags (abfd, ".rela.opd",
-					  (SEC_ALLOC | SEC_LOAD
-					   | SEC_HAS_CONTENTS
-					   | SEC_IN_MEMORY
-					   | SEC_READONLY
-					   | SEC_LINKER_CREATED));
+  s = bfd_make_section_with_flags (abfd, ".rela.opd",
+				   (SEC_ALLOC | SEC_LOAD
+				    | SEC_HAS_CONTENTS
+				    | SEC_IN_MEMORY
+				    | SEC_READONLY
+				    | SEC_LINKER_CREATED));
   if (s == NULL
       || !bfd_set_section_alignment (abfd, s, 3))
     return FALSE;
@@ -1506,15 +1512,19 @@ static bfd_boolean
 elf64_hppa_mark_milli_and_exported_functions (struct elf_link_hash_entry *eh,
 					      void *data)
 {
-  struct bfd_link_info *info = (struct bfd_link_info *) data;
+  struct elf_link_hash_entry *elf = eh;
+  struct bfd_link_info *info = (struct bfd_link_info *)data;
 
-  if (eh->type == STT_PARISC_MILLI)
+  if (elf->root.type == bfd_link_hash_warning)
+    elf = (struct elf_link_hash_entry *) elf->root.u.i.link;
+
+  if (elf->type == STT_PARISC_MILLI)
     {
-      if (eh->dynindx != -1)
+      if (elf->dynindx != -1)
 	{
-	  eh->dynindx = -1;
+	  elf->dynindx = -1;
 	  _bfd_elf_strtab_delref (elf_hash_table (info)->dynstr,
-				  eh->dynstr_index);
+				  elf->dynstr_index);
 	}
       return TRUE;
     }
@@ -1562,7 +1572,7 @@ elf64_hppa_size_dynamic_sections (bfd *output_bfd, struct bfd_link_info *info)
       /* Set the contents of the .interp section to the interpreter.  */
       if (info->executable)
 	{
-	  sec = bfd_get_linker_section (dynobj, ".interp");
+	  sec = bfd_get_section_by_name (dynobj, ".interp");
 	  BFD_ASSERT (sec != NULL);
 	  sec->size = sizeof ELF_DYNAMIC_INTERPRETER;
 	  sec->contents = (unsigned char *) ELF_DYNAMIC_INTERPRETER;
@@ -1575,7 +1585,7 @@ elf64_hppa_size_dynamic_sections (bfd *output_bfd, struct bfd_link_info *info)
 	 not actually use these entries.  Reset the size of .rela.dlt,
 	 which will cause it to get stripped from the output file
 	 below.  */
-      sec = bfd_get_linker_section (dynobj, ".rela.dlt");
+      sec = bfd_get_section_by_name (dynobj, ".rela.dlt");
       if (sec != NULL)
 	sec->size = 0;
     }
@@ -1639,7 +1649,7 @@ elf64_hppa_size_dynamic_sections (bfd *output_bfd, struct bfd_link_info *info)
 	    {
 	      *local_dlt = sec->size;
 	      sec->size += DLT_ENTRY_SIZE;
-	      if (info->shared)
+	      if (info->shared) 
 	        {
 		  srel->size += sizeof (Elf64_External_Rela);
 	        }
@@ -2213,7 +2223,7 @@ elf64_hppa_finalize_opd (struct elf_link_hash_entry *eh, void *data)
 
 	  nh = elf_link_hash_lookup (elf_hash_table (info),
 				     new_name, TRUE, TRUE, FALSE);
-
+ 
 	  /* All we really want from the new symbol is its dynamic
 	     symbol index.  */
 	  if (nh)
@@ -2492,7 +2502,7 @@ elf64_hppa_finish_dynamic_sections (bfd *output_bfd,
 			  elf64_hppa_finalize_dlt,
 			  info);
 
-  sdyn = bfd_get_linker_section (dynobj, ".dynamic");
+  sdyn = bfd_get_section_by_name (dynobj, ".dynamic");
 
   if (elf_hash_table (info)->dynamic_sections_created)
     {
@@ -2829,6 +2839,9 @@ elf_hppa_unmark_useless_dynamic_symbols (struct elf_link_hash_entry *h,
 {
   struct bfd_link_info *info = data;
 
+  if (h->root.type == bfd_link_hash_warning)
+    h = (struct elf_link_hash_entry *) h->root.u.i.link;
+
   /* If we are not creating a shared library, and this symbol is
      referenced by a shared library but is not defined anywhere, then
      the generic code will warn that it is undefined.
@@ -2859,6 +2872,9 @@ elf_hppa_remark_useless_dynamic_symbols (struct elf_link_hash_entry *h,
 					 void *data)
 {
   struct bfd_link_info *info = data;
+
+  if (h->root.type == bfd_link_hash_warning)
+    h = (struct elf_link_hash_entry *) h->root.u.i.link;
 
   /* If we are not creating a shared library, and this symbol is
      referenced by a shared library but is not defined anywhere, then
@@ -3190,7 +3206,7 @@ elf_hppa_final_link_relocate (Elf_Internal_Rela *rel,
 
   if (hppa_info == NULL)
     return bfd_reloc_notsupported;
-
+  
   symtab_hdr = &elf_tdata (input_bfd)->symtab_hdr;
   local_offsets = elf_local_got_offsets (input_bfd);
   insn = bfd_get_32 (input_bfd, hit_data);
@@ -3273,13 +3289,13 @@ elf_hppa_final_link_relocate (Elf_Internal_Rela *rel,
 	    && value + addend + max_branch_offset >= 2*max_branch_offset)
 	  {
 	    (*_bfd_error_handler)
-	      (_("%B(%A+0x" BFD_VMA_FMT "x): cannot reach %s"),
+	      (_("%B(%A+0x%lx): cannot reach %s"),
 	      input_bfd,
 	      input_section,
 	      offset,
-	      eh ? eh->root.root.string : "unknown");
+	      eh->root.root.string);
 	    bfd_set_error (bfd_error_bad_value);
-	    return bfd_reloc_overflow;
+	    return bfd_reloc_notsupported;
 	  }
 
 	/* Adjust for any field selectors.  */
@@ -3859,14 +3875,14 @@ elf64_hppa_relocate_section (bfd *output_bfd,
 	  /* This is not a local symbol.  */
 	  struct elf_link_hash_entry **sym_hashes = elf_sym_hashes (input_bfd);
 
-	  /* It seems this can happen with erroneous or unsupported
+	  /* It seems this can happen with erroneous or unsupported 
 	     input (mixing a.out and elf in an archive, for example.)  */
 	  if (sym_hashes == NULL)
 	    return FALSE;
 
 	  eh = sym_hashes[r_symndx - symtab_hdr->sh_info];
 
-	  while (eh->root.type == bfd_link_hash_indirect
+	  while (eh->root.type == bfd_link_hash_indirect 
 		 || eh->root.type == bfd_link_hash_warning)
 	    eh = (struct elf_link_hash_entry *) eh->root.u.i.link;
 
@@ -3920,9 +3936,9 @@ elf64_hppa_relocate_section (bfd *output_bfd,
             }
 	}
 
-      if (sym_sec != NULL && discarded_section (sym_sec))
+      if (sym_sec != NULL && elf_discarded_section (sym_sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					 rel, 1, relend, howto, 0, contents);
+					 rel, relend, howto, contents);
 
       if (info->relocatable)
 	continue;
@@ -4057,7 +4073,7 @@ const struct elf_size_info hppa64_elf_size_info =
 					elf64_hppa_finish_dynamic_sections
 #define elf_backend_grok_prstatus	elf64_hppa_grok_prstatus
 #define elf_backend_grok_psinfo		elf64_hppa_grok_psinfo
-
+ 
 /* Stuff for the BFD linker: */
 #define bfd_elf64_bfd_link_hash_table_create \
 	elf64_hppa_hash_table_create
@@ -4098,7 +4114,7 @@ const struct elf_size_info hppa64_elf_size_info =
 #undef TARGET_BIG_NAME
 #define TARGET_BIG_NAME			"elf64-hppa-linux"
 #undef ELF_OSABI
-#define ELF_OSABI			ELFOSABI_GNU
+#define ELF_OSABI			ELFOSABI_LINUX
 #undef elf_backend_post_process_headers
 #define elf_backend_post_process_headers _bfd_elf_set_osabi
 #undef elf64_bed

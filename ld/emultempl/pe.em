@@ -9,8 +9,7 @@ rm -f e${EMULATION_NAME}.c
 (echo;echo;echo;echo;echo)>e${EMULATION_NAME}.c # there, now line numbers match ;-)
 fragment <<EOF
 /* Copyright 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Free Software Foundation, Inc.
+   2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -57,7 +56,6 @@ fragment <<EOF
 #include "bfdlink.h"
 #include "getopt.h"
 #include "libiberty.h"
-#include "filenames.h"
 #include "ld.h"
 #include "ldmain.h"
 #include "ldexp.h"
@@ -165,7 +163,7 @@ gld_${EMULATION_NAME}_before_parse (void)
   ldfile_set_output_arch ("${OUTPUT_ARCH}", bfd_arch_`echo ${ARCH} | sed -e 's/:.*//'`);
   output_filename = "${EXECUTABLE_NAME:-a.exe}";
 #ifdef DLL_SUPPORT
-  input_flags.dynamic = TRUE;
+  config.dynamic_link = TRUE;
   config.has_shared = 1;
 EOF
 
@@ -261,7 +259,7 @@ fragment <<EOF
 #define OPTION_DYNAMIC_BASE		(OPTION_DISABLE_LONG_SECTION_NAMES + 1)
 #define OPTION_FORCE_INTEGRITY		(OPTION_DYNAMIC_BASE + 1)
 #define OPTION_NX_COMPAT		(OPTION_FORCE_INTEGRITY + 1)
-#define OPTION_NO_ISOLATION		(OPTION_NX_COMPAT + 1)
+#define OPTION_NO_ISOLATION		(OPTION_NX_COMPAT + 1) 
 #define OPTION_NO_SEH			(OPTION_NO_ISOLATION + 1)
 #define OPTION_NO_BIND			(OPTION_NO_SEH + 1)
 #define OPTION_WDM_DRIVER		(OPTION_NO_BIND + 1)
@@ -457,7 +455,7 @@ gld_${EMULATION_NAME}_list_options (FILE *file)
   fprintf (file, _("  --dll-search-prefix=<string>       When linking dynamically to a dll without\n\
                                        an importlib, use <string><basename>.dll\n\
                                        in preference to lib<basename>.dll \n"));
-  fprintf (file, _("  --enable-auto-import               Do sophisticated linking of _sym to\n\
+  fprintf (file, _("  --enable-auto-import               Do sophistcated linking of _sym to\n\
                                        __imp_sym for DATA references\n"));
   fprintf (file, _("  --disable-auto-import              Do not auto-import DATA items from DLLs\n"));
   fprintf (file, _("  --enable-runtime-pseudo-reloc      Work around auto-import limitations by\n\
@@ -944,7 +942,7 @@ gld_${EMULATION_NAME}_set_symbols (void)
       lang_assignment_statement_type *rv;
 
       rv = lang_add_assignment (exp_assign (GET_INIT_SYMBOL_NAME (j),
-					    exp_intop (val), FALSE));
+					    exp_intop (val)));
       if (init[j].size == sizeof (short))
 	*(short *) init[j].ptr = val;
       else if (init[j].size == sizeof (int))
@@ -1198,13 +1196,14 @@ This should work unless it involves constant data structures referencing symbols
 static bfd_boolean
 pr_sym (struct bfd_hash_entry *h, void *inf ATTRIBUTE_UNUSED)
 {
-  printf ("+%s\n", h->string);
+  if (pe_dll_extra_pe_debug)
+    printf ("+%s\n", h->string);
 
   return TRUE;
 }
 #endif /* DLL_SUPPORT */
 
-static void
+static void 
 debug_section_p (bfd *abfd ATTRIBUTE_UNUSED, asection *sect, void *obj)
 {
   int *found = (int *) obj;
@@ -1406,9 +1405,8 @@ gld_${EMULATION_NAME}_after_open (void)
 			    ? bfd_get_filename (blhe->u.def.section->owner->my_archive)
 			    : bfd_get_filename (blhe->u.def.section->owner);
 
-			if (filename_cmp (bfd_get_filename
-					    (is->the_bfd->my_archive),
-					  other_bfd_filename) == 0)
+			if (strcmp (bfd_get_filename (is->the_bfd->my_archive),
+				    other_bfd_filename) == 0)
 			  continue;
 
 			/* Rename this implib to match the other one.  */
@@ -1462,7 +1460,7 @@ gld_${EMULATION_NAME}_after_open (void)
 		       extension, and use that for the remainder of the
 		       comparisons.  */
 		    pnt = strrchr (is3->the_bfd->filename, '.');
-		    if (pnt != NULL && filename_cmp (pnt, ".dll") == 0)
+		    if (pnt != NULL && strcmp (pnt, ".dll") == 0)
 		      break;
 		  }
 
@@ -1479,11 +1477,11 @@ gld_${EMULATION_NAME}_after_open (void)
 			/* Skip static members, ie anything with a .obj
 			   extension.  */
 			pnt = strrchr (is2->the_bfd->filename, '.');
-			if (pnt != NULL && filename_cmp (pnt, ".obj") == 0)
+			if (pnt != NULL && strcmp (pnt, ".obj") == 0)
 			  continue;
 
-			if (filename_cmp (is3->the_bfd->filename,
-					  is2->the_bfd->filename))
+			if (strcmp (is3->the_bfd->filename,
+				    is2->the_bfd->filename))
 			  {
 			    is_ms_arch = 0;
 			    break;
@@ -1497,7 +1495,7 @@ gld_${EMULATION_NAME}_after_open (void)
 	       then leave the filename alone.  */
 	    pnt = strrchr (is->the_bfd->filename, '.');
 
-	    if (is_ms_arch && (filename_cmp (pnt, ".dll") == 0))
+	    if (is_ms_arch && (strcmp (pnt, ".dll") == 0))
 	      {
 		int idata2 = 0, reloc_count=0;
 		asection *sec;
@@ -1590,10 +1588,8 @@ gld_${EMULATION_NAME}_after_open (void)
 			/* If the symbol in the stub section has no other
 			   undefined references, exclude the stub section
 			   from the final link.  */
-			if (blhe != NULL
-			    && blhe->type == bfd_link_hash_defined
-			    && blhe->u.undef.next == NULL
-			    && blhe != link_info.hash->undefs_tail)
+			if (blhe && (blhe->type == bfd_link_hash_defined)
+			    && (blhe->u.undef.next == NULL))
 			  stub_sec->flags |= SEC_EXCLUDE;
 		      }
 		  }
@@ -1672,7 +1668,7 @@ gld_${EMULATION_NAME}_unrecognized_file (lang_input_statement_type *entry ATTRIB
 #ifdef DLL_SUPPORT
   const char *ext = entry->filename + strlen (entry->filename) - 4;
 
-  if (filename_cmp (ext, ".def") == 0 || filename_cmp (ext, ".DEF") == 0)
+  if (strcmp (ext, ".def") == 0 || strcmp (ext, ".DEF") == 0)
     {
       pe_def_file = def_file_parse (entry->filename, pe_def_file);
 
@@ -1721,9 +1717,8 @@ gld_${EMULATION_NAME}_unrecognized_file (lang_input_statement_type *entry ATTRIB
 		= pe_def_file->base_address;
 	      init[IMAGEBASEOFF].inited = 1;
 	      if (image_base_statement)
-		image_base_statement->exp
-		  = exp_assign ("__image_base__", exp_intop (pe.ImageBase),
-				FALSE);
+		image_base_statement->exp = exp_assign ("__image_base__",
+							exp_intop (pe.ImageBase));
 	    }
 
 	  if (pe_def_file->stack_reserve != -1
@@ -1916,7 +1911,7 @@ gld_${EMULATION_NAME}_place_orphan (asection *s,
 	       If the section already exists but does not have any flags set,
 	       then it has been created by the linker, probably as a result of
 	       a --section-start command line switch.  */
-	    lang_add_section (&add_child, s, NULL, os);
+	    lang_add_section (&add_child, s, os);
 	    break;
 	  }
 
@@ -1930,7 +1925,7 @@ gld_${EMULATION_NAME}_place_orphan (asection *s,
      unused one and use that.  */
   if (os == NULL && match_by_name)
     {
-      lang_add_section (&match_by_name->children, s, NULL, match_by_name);
+      lang_add_section (&match_by_name->children, s, match_by_name);
       return match_by_name;
     }
 
@@ -2012,17 +2007,10 @@ gld_${EMULATION_NAME}_place_orphan (asection *s,
 		     ->output_section_statement);
 	}
 
-      /* All sections in an executable must be aligned to a page boundary.
-	 In a relocatable link, just preserve the incoming alignment; the
-	 address is discarded by lang_insert_orphan in that case, anyway.  */
+      /* All sections in an executable must be aligned to a page boundary.  */
       address = exp_unop (ALIGN_K, exp_nameop (NAME, "__section_alignment__"));
       os = lang_insert_orphan (s, secname, constraint, after, place, address,
 			       &add_child);
-      if (link_info.relocatable)
-	{
-	  os->section_alignment = s->alignment_power;
-	  os->bfd_section->alignment_power = s->alignment_power;
-	}
     }
 
   /* If the section name has a '\$', sort it with the other '\$'
@@ -2095,7 +2083,7 @@ gld_${EMULATION_NAME}_open_dynamic_archive
   unsigned int i;
 
 
-  if (! entry->flags.maybe_archive)
+  if (! entry->maybe_archive)
     return FALSE;
 
   filename = entry->filename;

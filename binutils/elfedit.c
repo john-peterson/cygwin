@@ -1,5 +1,5 @@
 /* elfedit.c -- Update the ELF header of an ELF format file
-   Copyright 2010, 2011, 2012
+   Copyright 2010
    Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
@@ -19,8 +19,10 @@
    Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
    02110-1301, USA.  */
 
+#include "config.h"
 #include "sysdep.h"
 #include <assert.h>
+#include <sys/stat.h>
 
 #if __GNUC__ >= 2
 /* Define BFD64 here, even if our default architecture is 32 bit ELF
@@ -516,8 +518,8 @@ osabis[] =
   { ELFOSABI_NONE, "none" },
   { ELFOSABI_HPUX, "HPUX" },
   { ELFOSABI_NETBSD, "NetBSD" },
-  { ELFOSABI_GNU, "GNU" },
-  { ELFOSABI_GNU, "Linux" },
+  { ELFOSABI_LINUX, "Linux" },
+  { ELFOSABI_HURD, "Hurd" },
   { ELFOSABI_SOLARIS, "Solaris" },
   { ELFOSABI_AIX, "AIX" },
   { ELFOSABI_IRIX, "Irix" },
@@ -554,8 +556,6 @@ elf_machine (const char *mach)
 {
   if (strcasecmp (mach, "l1om") == 0)
     return EM_L1OM;
-  if (strcasecmp (mach, "k1om") == 0)
-    return EM_K1OM;
   if (strcasecmp (mach, "x86_64") == 0)
     return EM_X86_64;
   if (strcasecmp (mach, "x86-64") == 0)
@@ -576,7 +576,6 @@ elf_class (int mach)
   switch (mach)
     {
     case EM_L1OM:
-    case EM_K1OM:
     case EM_X86_64:
       return ELFCLASS64;
     case EM_NONE:

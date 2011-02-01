@@ -40,7 +40,6 @@ fragment <<EOF
 #include "bfdlink.h"
 #include "getopt.h"
 #include "libiberty.h"
-#include "filenames.h"
 #include "ld.h"
 #include "ldmain.h"
 #include "ldexp.h"
@@ -348,8 +347,7 @@ gld_${EMULATION_NAME}_set_symbols (void)
   for (j = 0; init[j].ptr; j++)
     {
       long val = init[j].value;
-      lang_add_assignment (exp_assign (init[j].symbol, exp_intop (val),
-				       FALSE));
+      lang_add_assignment (exp_assign (init[j].symbol, exp_intop (val)));
       if (init[j].size == sizeof(short))
 	*(short *)init[j].ptr = val;
       else if (init[j].size == sizeof(int))
@@ -398,13 +396,13 @@ sort_by_file_name (const void *a, const void *b)
   const lang_statement_union_type *const *rb = b;
   int i, a_sec, b_sec;
 
-  i = filename_cmp ((*ra)->input_section.section->owner->my_archive->filename,
-		    (*rb)->input_section.section->owner->my_archive->filename);
+  i = strcmp ((*ra)->input_section.section->owner->my_archive->filename,
+	      (*rb)->input_section.section->owner->my_archive->filename);
   if (i != 0)
     return i;
 
-  i = filename_cmp ((*ra)->input_section.section->owner->filename,
-		    (*rb)->input_section.section->owner->filename);
+  i = strcmp ((*ra)->input_section.section->owner->filename,
+		 (*rb)->input_section.section->owner->filename);
   if (i != 0)
     return i;
   /* the tail idata4/5 are the only ones without relocs to an
@@ -719,7 +717,7 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
      The sections still have to be sorted, but that has to wait until
      all such sections have been processed by us.  The sorting is done by
      sort_sections.  */
-  lang_add_section (&l->wild_statement.children, s, NULL, os);
+  lang_add_section (&l->wild_statement.children, s, os);
 
   return os;
 }
