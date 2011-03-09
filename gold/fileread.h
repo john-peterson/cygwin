@@ -52,12 +52,6 @@ struct Timespec
   int nanoseconds;
 };
 
-// Get the last modified time of an unopened file.  Returns false if the
-// file does not exist.
-
-bool
-get_mtime(const char* filename, Timespec* mtime);
-
 class Position_dependent_options;
 class Input_file_argument;
 class Dirsearch;
@@ -255,7 +249,7 @@ class File_read
     {
       // Data owned by File object - nothing done in destructor.
       DATA_NOT_OWNED,
-      // Data allocated with new[] and owned by this object - should
+      // Data alocated with new[] and owned by this object - should
       // use delete[].
       DATA_ALLOCATED_ARRAY,
       // Data mmapped and owned by this object - should munmap.
@@ -492,9 +486,6 @@ class Input_file
     : input_argument_(input_argument), found_name_(), file_(),
       is_in_sysroot_(false), format_(FORMAT_NONE)
   { }
-
-  // Create an input file given just a filename.
-  Input_file(const char* name);
 
   // Create an input file with the contents already provided.  This is
   // only used for testing.  With this path, don't call the open
