@@ -1,7 +1,7 @@
 /* thread.h: Locking and threading module definitions
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009,
-   2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007,
+   2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -9,27 +9,36 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#pragma once
+#ifndef _THREAD_H
+#define _THREAD_H
 
 #define LOCK_MMAP_LIST   1
 
 #define WRITE_LOCK 1
 #define READ_LOCK  2
 
-/* Default is a 1 Megs stack with a 4K guardpage.  The pthread stacksize
-   does not include the guardpage size, so we subtract the default guardpage
-   size. Additionally, the Windows stack handling disallows to use the last
-   two pages as guard page  (tested on XP and W7).  That results in a zone of
-   three pages which have to be subtract to get the actual stack size. */
-#define PTHREAD_DEFAULT_STACKSIZE (1024 * 1024 - 3 * wincap.page_size ())
-#define PTHREAD_DEFAULT_GUARDSIZE (wincap.page_size ())
-
 #include <pthread.h>
 #include <limits.h>
 #include "security.h"
 #include <errno.h>
-#include "cygerrno.h"
-#include "cygwait.h"
+
+enum cw_sig_wait
+{
+  cw_sig_nosig,
+  cw_sig_eintr,
+  cw_sig_resume
+};
+
+enum cw_cancel_action
+{
+  cw_cancel_self,
+  cw_no_cancel_self,
+  cw_no_cancel
+};
+
+DWORD cancelable_wait (HANDLE, DWORD, const cw_cancel_action = cw_cancel_self,
+		       const enum cw_sig_wait = cw_sig_nosig)
+  __attribute__ ((regparm (3)));
 
 class fast_mutex
 {
@@ -59,18 +68,18 @@ public:
 
   void lock ()
   {
-    if (InterlockedIncrement (&lock_counter) != 1)
-      cygwait (win32_obj_id, cw_infinite, cw_sig);
+    if (InterlockedIncrement ((long *) &lock_counter) != 1)
+      cancelable_wait (win32_obj_id, INFINITE, cw_no_cancel, cw_sig_resume);
   }
 
   void unlock ()
   {
-    if (InterlockedDecrement (&lock_counter))
+    if (InterlockedDecrement ((long *) &lock_counter))
       ::SetEvent (win32_obj_id);
   }
 
 private:
-  LONG lock_counter;
+  unsigned long lock_counter;
   HANDLE win32_obj_id;
 };
 
@@ -119,20 +128,18 @@ List_insert (list_node *&head, list_node *node)
     return;
   do
     node->next = head;
-  while (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					    node, node->next) != node->next);
+  while (InterlockedCompareExchangePointer (&head, node, node->next) != node->next);
 }
 
 template <class list_node> inline void
-List_remove (fast_mutex &mx, list_node *&head, list_node *node)
+List_remove (fast_mutex &mx, list_node *&head, list_node const *node)
 {
   if (!node)
     return;
   mx.lock ();
   if (head)
     {
-      if (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					     node->next, node) != node)
+      if (InterlockedCompareExchangePointer (&head, node->next, node) != node)
 	{
 	  list_node *cur = head;
 
@@ -242,9 +249,7 @@ public:
   int contentionscope;
   int inheritsched;
   struct sched_param schedparam;
-  void *stackaddr;
   size_t stacksize;
-  size_t guardsize;
 
   pthread_attr ();
   ~pthread_attr ();
@@ -299,7 +304,7 @@ public:
   }
 
 protected:
-  LONG lock_counter;
+  unsigned long lock_counter;
   HANDLE win32_obj_id;
   pthread_t owner;
 #ifdef DEBUGGING
@@ -346,6 +351,9 @@ public:
   pthread_spinlock (int);
 };
 
+#define WAIT_CANCELED   (WAIT_OBJECT_0 + 1)
+#define WAIT_SIGNALED  (WAIT_OBJECT_0 + 2)
+
 class _cygtls;
 class pthread: public verifyable_object
 {
@@ -357,7 +365,6 @@ public:
   void *return_ptr;
   bool valid;
   bool suspended;
-  bool canceled;
   int cancelstate, canceltype;
   _cygtls *cygtls;
   HANDLE cancel_event;
@@ -390,8 +397,7 @@ public:
   virtual int cancel ();
 
   virtual void testcancel ();
-  static HANDLE get_cancel_event ();
-  static void static_cancel_self () __attribute__ ((noreturn));
+  static void static_cancel_self ();
 
   virtual int setcancelstate (int state, int *oldstate);
   virtual int setcanceltype (int type, int *oldtype);
@@ -432,7 +438,7 @@ private:
   DWORD thread_id;
   __pthread_cleanup_handler *cleanup_stack;
   pthread_mutex mutex;
-  sigset_t parent_sigmask;
+  _cygtls *parent_tls;
 
   void suspend_except_self ();
   void resume ();
@@ -444,7 +450,7 @@ private:
   void postcreate ();
   bool create_cancel_event ();
   static void set_tls_self_pointer (pthread *);
-  void cancel_self () __attribute__ ((noreturn));
+  void cancel_self ();
   DWORD get_thread_id ();
 };
 
@@ -477,7 +483,6 @@ class pthread_condattr: public verifyable_object
 public:
   static bool is_good_object(pthread_condattr_t const *);
   int shared;
-  clockid_t clock_id;
 
   pthread_condattr ();
   ~pthread_condattr ();
@@ -494,7 +499,6 @@ public:
   static int init (pthread_cond_t *, const pthread_condattr_t *);
 
   int shared;
-  clockid_t clock_id;
 
   unsigned long waiting;
   unsigned long pending;
@@ -506,7 +510,7 @@ public:
   pthread_mutex_t mtx_cond;
 
   void unblock (const bool all);
-  int wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout = NULL);
+  int wait (pthread_mutex_t mutex, DWORD dwMilliseconds = INFINITE);
 
   pthread_cond (pthread_condattr *);
   ~pthread_cond ();
@@ -555,7 +559,6 @@ public:
     struct RWLOCK_READER *next;
     pthread_t thread;
     unsigned long n;
-    RWLOCK_READER (): next (NULL), thread (pthread::self ()), n (0) {}
   } *readers;
   fast_mutex readers_mx;
 
@@ -584,9 +587,9 @@ public:
 private:
   static List<pthread_rwlock> rwlocks;
 
-  RWLOCK_READER *add_reader ();
+  void add_reader (struct RWLOCK_READER *rd);
   void remove_reader (struct RWLOCK_READER *rd);
-  struct RWLOCK_READER *lookup_reader ();
+  struct RWLOCK_READER *lookup_reader (pthread_t thread);
 
   void release ()
   {
@@ -655,7 +658,6 @@ public:
   }
   static void terminate ()
   {
-    save_errno save;
     semaphores.for_each (&semaphore::_terminate);
   }
 
@@ -683,7 +685,7 @@ struct MTinterface
 {
   // General
   int concurrency;
-  LONG threadcount;
+  long int threadcount;
 
   callback *pthread_prepare;
   callback *pthread_child;
@@ -703,3 +705,4 @@ struct MTinterface
 };
 
 #define MT_INTERFACE user_data->threadinterface
+#endif // _THREAD_H

@@ -1,7 +1,6 @@
 /* pthread.cc: posix pthread interface for Cygwin
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2008, 2010, 2011,
-   2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2011 Red Hat, Inc.
 
    Originally written by Marco Fuykschot <marco@ddi.nl>
 
@@ -40,8 +39,7 @@ pthread_atfork (void (*prepare)(void), void (*parent)(void), void (*child)(void)
 void
 pthread_exit (void *value_ptr)
 {
-  pthread::self ()->exit (value_ptr);
-  __builtin_unreachable ();	/* FIXME: don't know why this is necessary */
+  return pthread::self ()->exit (value_ptr);
 }
 
 int
