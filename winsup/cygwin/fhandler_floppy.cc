@@ -1,8 +1,8 @@
 /* fhandler_floppy.cc.  See fhandler.h for a description of the
    fhandler classes.
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2011, 2012 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -13,7 +13,6 @@ details. */
 #include "winsup.h"
 #include <alloca.h>
 #include <unistd.h>
-#include <sys/param.h>
 #include <winioctl.h>
 #include <cygwin/rdevio.h>
 #include <cygwin/hdreg.h>
@@ -27,8 +26,6 @@ details. */
 #define IS_EOM(err)	((err) == ERROR_INVALID_PARAMETER \
 			 || (err) == ERROR_SEEK \
 			 || (err) == ERROR_SECTOR_NOT_FOUND)
-
-#define bytes_per_sector devbufalign
 
 /**********************************************************************/
 /* fhandler_dev_floppy */
@@ -191,7 +188,7 @@ fhandler_dev_floppy::lock_partition (DWORD to_write)
 {
   DWORD bytes_read;
 
-  /* The simple case.  We have only a single partition open anyway.
+  /* The simple case.  We have only a single partition open anyway. 
      Try to lock the partition so that a subsequent write succeeds.
      If there's some file handle open on one of the affected partitions,
      this fails, but that's how it works on Vista and later... */
@@ -228,7 +225,7 @@ fhandler_dev_floppy::lock_partition (DWORD to_write)
   PDRIVE_LAYOUT_INFORMATION_EX pdlix = (PDRIVE_LAYOUT_INFORMATION_EX)
 				       alloca (size);
   BOOL found = FALSE;
-
+  
   /* Fetch current file pointer position on disk. */
   status = NtQueryInformationFile (get_handle (), &io, &fpi, sizeof fpi,
 				   FilePositionInformation);
@@ -240,7 +237,7 @@ fhandler_dev_floppy::lock_partition (DWORD to_write)
     }
   /* Fetch drive layout to get start and end positions of partitions on disk. */
   if (!DeviceIoControl (get_handle (), IOCTL_DISK_GET_DRIVE_LAYOUT_EX, NULL, 0,
-			pdlix, size, &bytes_read, NULL))
+  			pdlix, size, &bytes_read, NULL))
     {
       debug_printf ("DeviceIoControl(IOCTL_DISK_GET_DRIVE_LAYOUT_EX): %E");
       return FALSE;
@@ -253,7 +250,7 @@ fhandler_dev_floppy::lock_partition (DWORD to_write)
       /* A partition number of 0 denotes an extended partition or one of the
 	 aforementioned filler entries.  Just skip. */
       if (ppie->PartitionNumber == 0)
-	continue;
+      	continue;
       /* Check if our writing range affects this partition. */
       if (fpi.CurrentByteOffset.QuadPart   < ppie->StartingOffset.QuadPart
 					     + ppie->PartitionLength.QuadPart
@@ -357,6 +354,16 @@ fhandler_dev_floppy::write_file (const void *buf, DWORD to_write,
 int
 fhandler_dev_floppy::open (int flags, mode_t)
 {
+  /* The correct size of the buffer would be 512 bytes, which is the atomic
+     size, supported by WinNT.  Unfortunately, the performance is worse than
+     access to file system on same device!  Setting buffer size to a
+     relatively big value increases performance by means.  The new ioctl call
+     with 'rdevio.h' header file supports changing this value.
+
+     As default buffer size, we're using some value which is a multiple of
+     the typical tar and cpio buffer sizes, Except O_DIRECT is set, in which
+     case we're not buffering at all. */
+  devbufsiz = (flags & O_DIRECT) ? 0L : 61440L;
   int ret = fhandler_dev_raw::open (flags);
 
   if (ret)
@@ -368,22 +375,11 @@ fhandler_dev_floppy::open (int flags, mode_t)
 	  close ();
 	  return 0;
 	}
-      if (!(flags & O_DIRECT))
-	{
-	  /* Create sector-aligned buffer.  As default buffer size, we're using
-	     some big, sector-aligned value.  Since direct blockdev IO is
-	     usually non-buffered and non-cached, the performance without
-	     buffering is worse than access to a file system on same device.
-	     Whoever uses O_DIRECT has my condolences. */
-	  devbufsiz = MAX (16 * bytes_per_sector, 65536);
-	  devbufalloc = new char [devbufsiz + devbufalign];
-	  devbuf = (char *) roundup2 ((uintptr_t) devbufalloc, devbufalign);
-	}
-
-      /* If we're not trying to access a floppy disk, make sure we're actually
-         allowed to read *all* of the device or volume.  This is actually
-	 documented in the MSDN CreateFile man page. */
+      /* If we're trying to access a CD/DVD drive, or an entire disk,
+         make sure we're actually allowed to read *all* of the device.
+	 This is actually documented in the MSDN CreateFile man page. */
       if (get_major () != DEV_FLOPPY_MAJOR
+	  && (get_major () == DEV_CDROM_MAJOR || get_minor () % 16 == 0)
 	  && !DeviceIoControl (get_handle (), FSCTL_ALLOW_EXTENDED_DASD_IO,
 			       NULL, 0, NULL, 0, &bytes_read, NULL))
 	debug_printf ("DeviceIoControl (FSCTL_ALLOW_EXTENDED_DASD_IO) "
@@ -409,12 +405,23 @@ fhandler_dev_floppy::close ()
 }
 
 int
-fhandler_dev_floppy::dup (fhandler_base *child, int flags)
+fhandler_dev_floppy::dup (fhandler_base *child)
 {
-  int ret = fhandler_dev_raw::dup (child, flags);
+  fhandler_dev_floppy *fhc = (fhandler_dev_floppy *) child;
 
-  if (!ret && partitions)
-    InterlockedIncrement (&partitions->refcnt);
+  int ret = fhandler_dev_raw::dup (child);
+
+  if (!ret)
+    {
+      fhc->drive_size = drive_size;
+      fhc->bytes_per_sector = bytes_per_sector;
+      if (partitions)
+	{
+	  InterlockedIncrement (&partitions->refcnt);
+	  fhc->partitions = partitions;
+	}
+      fhc->eom_detected (eom_detected ());
+    }
   return ret;
 }
 
@@ -450,7 +457,7 @@ fhandler_dev_floppy::raw_read (void *ptr, size_t& ulen)
 	{
 	  if (devbufstart < devbufend)
 	    {
-	      bytes_to_read = MIN (len, devbufend - devbufstart);
+	      bytes_to_read = min (len, devbufend - devbufstart);
 	      debug_printf ("read %d bytes from buffer (rest %d)",
 			    bytes_to_read,
 			    devbufend - devbufstart - bytes_to_read);
@@ -565,130 +572,58 @@ fhandler_dev_floppy::raw_write (const void *ptr, size_t len)
   char *p = (char *) ptr;
   int ret;
 
-  /* Checking a previous end of media */
+  /* Checking a previous end of media on tape */
   if (eom_detected ())
     {
       set_errno (ENOSPC);
       return -1;
     }
 
-  if (!len)
-    return 0;
+  /* Invalidate buffer. */
+  devbufstart = devbufend = 0;
 
-  if (devbuf)
+  if (len > 0)
     {
-      DWORD cplen, written;
-
-      /* First check if we have an active read buffer.  If so, try to fit in
-      	 the start of the input buffer and write out the entire result.
-	 This also covers the situation after lseek since lseek fills the read
-	 buffer in case we seek to an address which is not sector aligned. */
-      if (devbufend && devbufstart < devbufend)
-      	{
-	  _off64_t current_pos = get_current_position ();
-	  cplen = MIN (len, devbufend - devbufstart);
-	  memcpy (devbuf + devbufstart, p, cplen);
-	  LARGE_INTEGER off = { QuadPart:current_pos - devbufend };
-	  if (!SetFilePointerEx (get_handle (), off, NULL, FILE_BEGIN))
+      if (!write_file (p, len, &bytes_written, &ret))
+	{
+	  if (!IS_EOM (ret))
 	    {
-	      devbufstart = devbufend = 0;
 	      __seterrno ();
 	      return -1;
 	    }
-	  if (!write_file (devbuf, devbufend, &written, &ret))
+	  eom_detected (true);
+	  if (!bytes_written)
 	    {
-	      devbufstart = devbufend = 0;
-	      goto err;
+	      set_errno (ENOSPC);
+	      return -1;
 	    }
-	  /* Align pointers, lengths, etc. */
-	  cplen = MIN (cplen, written);
-	  devbufstart += cplen;
-	  p += cplen;
-	  len -= cplen;
-	  bytes_written += cplen;
-	  if (len)
-	    devbufstart = devbufend = 0;
 	}
-      /* As long as there's still something left in the input buffer ... */
-      while (len)
-	{
-	  /* Compute the length to write.  The problem is that the underlying
-	     driver may require sector aligned read/write.  So we copy the data
-	     over to devbuf, which is guaranteed to be sector aligned. */
-	  cplen = MIN (len, devbufsiz);
-	  if (cplen >= bytes_per_sector)
-	    /* If the remaining len is >= sector size, write out the maximum
-	       possible multiple of the sector size which fits into devbuf. */
-	    cplen = rounddown (cplen, bytes_per_sector);
-	  else
-	    {
-	      /* If len < sector size, read in the next sector, seek back,
-		 and just copy the new data over the old one before writing. */
-	      LARGE_INTEGER off = { QuadPart:get_current_position () };
-	      if (!read_file (devbuf, bytes_per_sector, &written, &ret))
-		goto err;
-	      if (!SetFilePointerEx (get_handle (), off, NULL, FILE_BEGIN))
-		{
-		  __seterrno ();
-		  return -1;
-		}
-	    }
-	  memcpy (devbuf, p, cplen);
-	  if (!write_file (devbuf, MAX (cplen, bytes_per_sector), &written,
-			   &ret))
-	    {
-	      bytes_written += MIN (cplen, written);
-	      goto err;
-	    }
-	  cplen = MIN (cplen, written);
-	  p += cplen;
-	  len -= cplen;
-	  bytes_written += cplen;
-	}
-      return bytes_written;
     }
-  
-  /* In O_DIRECT case, just write. */
-  if (write_file (p, len, &bytes_written, &ret))
-    return bytes_written;
-
-err:
-  if (IS_EOM (ret))
-    {
-      eom_detected (true);
-      if (!bytes_written)
-	set_errno (ENOSPC);
-    }
-  else if (!bytes_written)
-    __seterrno ();
-  return bytes_written ?: -1;
+  return bytes_written;
 }
 
 _off64_t
 fhandler_dev_floppy::lseek (_off64_t offset, int whence)
 {
   char buf[bytes_per_sector];
+  _off64_t lloffset = offset;
   _off64_t current_pos = (_off64_t) -1;
   LARGE_INTEGER sector_aligned_offset;
   size_t bytes_left;
 
   if (whence == SEEK_END)
     {
-      offset += drive_size;
+      lloffset += drive_size;
       whence = SEEK_SET;
     }
   else if (whence == SEEK_CUR)
     {
       current_pos = get_current_position ();
-      _off64_t exact_pos = current_pos - (devbufend - devbufstart);
-      /* Shortcut when used to get current position. */
-      if (offset == 0)
-      	return exact_pos;
-      offset += exact_pos;
+      lloffset += current_pos - (devbufend - devbufstart);
       whence = SEEK_SET;
     }
 
-  if (whence != SEEK_SET || offset < 0 || offset > drive_size)
+  if (whence != SEEK_SET || lloffset < 0 || lloffset > drive_size)
     {
       set_errno (EINVAL);
       return -1;
@@ -699,21 +634,27 @@ fhandler_dev_floppy::lseek (_off64_t offset, int whence)
     {
       if (current_pos == (_off64_t) -1)
 	current_pos = get_current_position ();
-      if (current_pos - devbufend <= offset && offset <= current_pos)
+      if (current_pos - devbufend <= lloffset && lloffset <= current_pos)
 	{
-	  devbufstart = devbufend - (current_pos - offset);
-	  return offset;
+	  devbufstart = devbufend - (current_pos - lloffset);
+	  return lloffset;
 	}
     }
 
-  sector_aligned_offset.QuadPart = rounddown (offset, bytes_per_sector);
-  bytes_left = offset - sector_aligned_offset.QuadPart;
+  sector_aligned_offset.QuadPart = (lloffset / bytes_per_sector)
+				   * bytes_per_sector;
+  bytes_left = lloffset - sector_aligned_offset.QuadPart;
 
   /* Invalidate buffer. */
   devbufstart = devbufend = 0;
 
-  if (!SetFilePointerEx (get_handle (), sector_aligned_offset, NULL,
-			 FILE_BEGIN))
+  sector_aligned_offset.LowPart =
+			SetFilePointer (get_handle (),
+					sector_aligned_offset.LowPart,
+					&sector_aligned_offset.HighPart,
+					FILE_BEGIN);
+  if (sector_aligned_offset.LowPart == INVALID_SET_FILE_POINTER
+      && GetLastError ())
     {
       __seterrno ();
       return -1;
@@ -734,58 +675,59 @@ fhandler_dev_floppy::lseek (_off64_t offset, int whence)
 int
 fhandler_dev_floppy::ioctl (unsigned int cmd, void *buf)
 {
-  int ret = 0;
+  DISK_GEOMETRY di;
   DWORD bytes_read;
-
   switch (cmd)
     {
     case HDIO_GETGEO:
-      debug_printf ("HDIO_GETGEO");
-      ret = get_drive_info ((struct hd_geometry *) buf);
-      break;
+      {
+	debug_printf ("HDIO_GETGEO");
+	return get_drive_info ((struct hd_geometry *) buf);
+      }
     case BLKGETSIZE:
     case BLKGETSIZE64:
-      debug_printf ("BLKGETSIZE");
-      if (cmd == BLKGETSIZE)
-	*(long *)buf = drive_size >> 9UL;
-      else
-	*(_off64_t *)buf = drive_size;
-      break;
+      {
+	debug_printf ("BLKGETSIZE");
+	if (cmd == BLKGETSIZE)
+	  *(long *)buf = drive_size >> 9UL;
+	else
+	  *(_off64_t *)buf = drive_size;
+	return 0;
+      }
     case BLKRRPART:
-      debug_printf ("BLKRRPART");
-      if (!DeviceIoControl (get_handle (), IOCTL_DISK_UPDATE_PROPERTIES,
-			    NULL, 0, NULL, 0, &bytes_read, NULL))
-	{
-	  __seterrno ();
-	  ret = -1;
-	}
-      else
+      {
+	debug_printf ("BLKRRPART");
+	if (!DeviceIoControl (get_handle (),
+			      IOCTL_DISK_UPDATE_DRIVE_SIZE,
+			      NULL, 0,
+			      &di, sizeof (di),
+			      &bytes_read, NULL))
+	  {
+	    __seterrno ();
+	    return -1;
+	  }
 	get_drive_info (NULL);
-      break;
+	return 0;
+      }
     case BLKSSZGET:
-      debug_printf ("BLKSSZGET");
-      *(int *)buf = bytes_per_sector;
-      break;
-    case BLKIOMIN:
-      debug_printf ("BLKIOMIN");
-      *(int *)buf = bytes_per_sector;
-      break;
-    case BLKIOOPT:
-      debug_printf ("BLKIOOPT");
-      *(int *)buf = bytes_per_sector;
-      break;
-    case BLKPBSZGET:
-      debug_printf ("BLKPBSZGET");
-      *(int *)buf = bytes_per_sector;
-      break;
-    case BLKALIGNOFF:
-      debug_printf ("BLKALIGNOFF");
-      *(int *)buf = 0;
-      break;
+      {
+	debug_printf ("BLKSSZGET");
+	*(int *)buf = bytes_per_sector;
+	return 0;
+      }
+    case RDSETBLK:
+      /* Just check the restriction that blocksize must be a multiple
+	 of the sector size of the underlying volume sector size,
+	 then fall through to fhandler_dev_raw::ioctl. */
+      if (((struct rdop *) buf)->rd_parm % bytes_per_sector)
+	{
+	  SetLastError (ERROR_INVALID_PARAMETER);
+	  __seterrno ();
+	  return -1;
+	}
+      /*FALLTHRU*/
     default:
-      ret = fhandler_dev_raw::ioctl (cmd, buf);
-      break;
+      return fhandler_dev_raw::ioctl (cmd, buf);
     }
-  return ret;
 }
 

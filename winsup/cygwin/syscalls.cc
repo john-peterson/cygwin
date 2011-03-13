@@ -1,7 +1,7 @@
 /* syscalls.cc: syscalls
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2005, 2006, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -36,10 +36,9 @@ details. */
 #include <utmpx.h>
 #include <sys/uio.h>
 #include <ctype.h>
-#include <wctype.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include <dirent.h>
+#include <rpc.h>
 #include "ntdll.h"
 
 #undef fstat
@@ -64,8 +63,6 @@ details. */
 #include "registry.h"
 #include "environ.h"
 #include "tls_pbuf.h"
-#include "sync.h"
-#include "child_info.h"
 
 #undef _close
 #undef _lseek
@@ -91,28 +88,27 @@ close_all_files (bool norelease)
 
   semaphore::terminate ();
 
+  fhandler_base *fh;
   HANDLE h = NULL;
 
   for (int i = 0; i < (int) cygheap->fdtab.size; i++)
-    {
-      cygheap_fdget cfd (i, false, false);
-      if (cfd >= 0)
-	{
-	  debug_only_printf ("closing fd %d", i);
-	  if (i == 2)
-	    DuplicateHandle (GetCurrentProcess (), cfd->get_output_handle (),
-			     GetCurrentProcess (), &h,
-			     0, false, DUPLICATE_SAME_ACCESS);
-	  cfd->close_with_arch ();
-	  if (!norelease)
-	    cfd.release ();
-	}
-    }
+    if ((fh = cygheap->fdtab[i]) != NULL)
+      {
+#ifdef DEBUGGING
+	debug_printf ("closing fd %d", i);
+#endif
+	if (i == 2)
+	  DuplicateHandle (GetCurrentProcess (), fh->get_output_handle (),
+			   GetCurrentProcess (), &h,
+			   0, false, DUPLICATE_SAME_ACCESS);
+	fh->close ();
+	if (!norelease)
+	  cygheap->fdtab.release (i);
+      }
 
-  if (!have_execed && cygheap->ctty)
+  if (!hExeced && cygheap->ctty)
     cygheap->close_ctty ();
 
-  fhandler_base_overlapped::flush_all_async_io ();
   if (h)
     SetStdHandle (STD_ERROR_HANDLE, h);
   cygheap->fdtab.unlock ();
@@ -121,64 +117,51 @@ close_all_files (bool norelease)
 extern "C" int
 dup (int fd)
 {
-  int res = cygheap->fdtab.dup3 (fd, cygheap_fdnew (), 0);
-  syscall_printf ("%R = dup(%d)", res, fd);
-  return res;
-}
-
-inline int
-dup_finish (int oldfd, int newfd, int flags)
-{
-  int res;
-  if ((res = cygheap->fdtab.dup3 (oldfd, newfd, flags | O_EXCL)) == newfd)
-    {
-      cygheap_fdget (newfd)->inc_refcnt ();
-      cygheap->fdtab.unlock ();	/* dup3 exits with lock set on success */
-    }
-  return res;
+  return cygheap->fdtab.dup3 (fd, cygheap_fdnew (), 0);
 }
 
 extern "C" int
 dup2 (int oldfd, int newfd)
 {
-  int res;
-  if (newfd >= OPEN_MAX_MAX || newfd < 0)
+  if (newfd >= OPEN_MAX_MAX)
     {
+      syscall_printf ("-1 = dup2 (%d, %d) (%d too large)", oldfd, newfd, newfd);
       set_errno (EBADF);
-      res = -1;
+      return -1;
     }
-  else if (newfd == oldfd)
+  if (newfd == oldfd)
     {
       cygheap_fdget cfd (oldfd);
-      res = (cfd >= 0) ? oldfd : -1;
+      if (cfd < 0)
+	{
+	  syscall_printf ("-1 = dup2 (%d, %d) (oldfd not open)", oldfd, newfd);
+	  return -1;
+	}
+      syscall_printf ("%d = dup2 (%d, %d) (newfd==oldfd)", oldfd, oldfd, newfd);
+      return oldfd;
     }
-  else
-    res = dup_finish (oldfd, newfd, 0);
-
-  syscall_printf ("%R = dup2(%d, %d)", res, oldfd, newfd);
-  return res;
+  return cygheap->fdtab.dup3 (oldfd, newfd, 0);
 }
 
 extern "C" int
 dup3 (int oldfd, int newfd, int flags)
 {
-  int res;
   if (newfd >= OPEN_MAX_MAX)
     {
+      syscall_printf ("-1 = dup3 (%d, %d, %p) (%d too large)",
+		      oldfd, newfd, flags, newfd);
       set_errno (EBADF);
-      res = -1;
+      return -1;
     }
-  else if (newfd == oldfd)
+  if (newfd == oldfd)
     {
       cygheap_fdget cfd (oldfd, false, false);
       set_errno (cfd < 0 ? EBADF : EINVAL);
-      res = -1;
+      syscall_printf ("-1 = dup3 (%d, %d, %p) (newfd==oldfd)",
+		      oldfd, newfd, flags);
+      return -1;
     }
-  else
-    res = dup_finish (oldfd, newfd, flags);
-
-  syscall_printf ("%R = dup3(%d, %d, %p)", res, oldfd, newfd, flags);
-  return res;
+  return cygheap->fdtab.dup3 (oldfd, newfd, flags);
 }
 
 static inline void
@@ -212,12 +195,7 @@ stop_transaction (NTSTATUS status, HANDLE old_trans, HANDLE trans)
 }
 
 static char desktop_ini[] =
-  "[.ShellClassInfo]\r\n"
-  "CLSID={645FF040-5081-101B-9F08-00AA002F954E}\r\n";
-
-static char desktop_ini_ext[] =
-  "LocalizedResourceName=@%SystemRoot%\\system32\\shell32.dll,-8964\r\n";
-
+  "[.ShellClassInfo]\r\nCLSID={645FF040-5081-101B-9F08-00AA002F954E}\r\n";
 static BYTE info2[] =
 {
   0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -228,8 +206,7 @@ enum bin_status
 {
   dont_move,
   move_to_bin,
-  has_been_moved,
-  dir_not_empty
+  has_been_moved
 };
 
 static bin_status
@@ -246,9 +223,7 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
   PFILE_NAME_INFORMATION pfni;
   PFILE_INTERNAL_INFORMATION pfii;
   PFILE_RENAME_INFORMATION pfri;
-  ULONG frisiz;
   FILE_DISPOSITION_INFORMATION disp = { TRUE };
-  bool fs_has_per_user_recycler = pc.fs_is_ntfs () || pc.fs_is_refs ();
 
   tmp_pathbuf tp;
   PBYTE infobuf = (PBYTE) tp.w_get ();
@@ -257,8 +232,8 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
   status = NtQueryInformationFile (fh, &io, pfni, 65536, FileNameInformation);
   if (!NT_SUCCESS (status))
     {
-      debug_printf ("NtQueryInformationFile (%S, FileNameInformation) "
-		    "failed, status = %p", pc.get_nt_native_path (), status);
+      debug_printf ("NtQueryInformationFile (FileNameInformation) failed, %08x",
+		    status);
       goto out;
     }
   /* The filename could change, the parent dir not.  So we split both paths
@@ -273,8 +248,8 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
   RtlInitEmptyUnicodeString (&recycler, recyclerbuf, sizeof recyclerbuf);
   if (!pc.isremote ())
     {
-      if (wincap.has_recycle_dot_bin ()) /* NTFS and FAT since Vista, ReFS */
-	RtlAppendUnicodeToString (&recycler, L"\\$RECYCLE.BIN\\");
+      if (wincap.has_recycle_dot_bin ())	/* NTFS and FAT since Vista */
+	RtlAppendUnicodeToString (&recycler, L"\\$Recycle.Bin\\");
       else if (pc.fs_is_ntfs ())	/* NTFS up to 2K3 */
 	RtlAppendUnicodeToString (&recycler, L"\\RECYCLER\\");
       else if (pc.fs_is_fat ())	/* FAT up to 2K3 */
@@ -302,7 +277,7 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
       if (!NT_SUCCESS (status))
 	{
-	  debug_printf ("NtOpenFile (%S) failed, status = %p", &root, status);
+	  debug_printf ("NtOpenFile (%S) failed, %08x", &root, status);
 	  goto out;
 	}
 
@@ -311,10 +286,10 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
       recycler.Length -= sizeof (WCHAR);
       /* Store length of recycler base dir, if it's necessary to create it. */
       recycler_base_len = recycler.Length;
-      /* On NTFS or ReFS the recycler dir contains user specific subdirs, which
-	 are the actual recycle bins per user.  The name if this dir is the
-	 string representation of the user SID. */
-      if (fs_has_per_user_recycler)
+      /* On NTFS the recycler dir contains user specific subdirs, which are the
+	 actual recycle bins per user.  The name if this dir is the string
+	 representation of the user SID. */
+      if (pc.fs_is_ntfs ())
 	{
 	  UNICODE_STRING sid;
 	  WCHAR sidbuf[128];
@@ -341,15 +316,12 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 			    pc.fs_flags () & FILE_UNICODE_ON_DISK
 			    ? L".\xdc63\xdc79\xdc67" : L".cyg");
   pfii = (PFILE_INTERNAL_INFORMATION) infobuf;
-  /* Note: Modern Samba versions apparently don't like buffer sizes of more
-     than 65535 in some NtQueryInformationFile/NtSetInformationFile calls.
-     Therefore we better use exact buffer sizes from now on. */
-  status = NtQueryInformationFile (fh, &io, pfii, sizeof *pfii,
+  status = NtQueryInformationFile (fh, &io, pfii, 65536,
 				   FileInternalInformation);
   if (!NT_SUCCESS (status))
     {
-      debug_printf ("NtQueryInformationFile (%S, FileInternalInformation) "
-		    "failed, status = %p", pc.get_nt_native_path (), status);
+      debug_printf ("NtQueryInformationFile (FileInternalInformation) failed, "
+		    "%08x", status);
       goto out;
     }
   RtlInt64ToHexUnicodeString (pfii->FileId.QuadPart, &recycler, TRUE);
@@ -361,36 +333,29 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
   pfri->RootDirectory = pc.isremote () ? NULL : rootdir;
   pfri->FileNameLength = recycler.Length;
   memcpy (pfri->FileName, recycler.Buffer, recycler.Length);
-  frisiz = sizeof *pfri + pfri->FileNameLength - sizeof (WCHAR);
-  status = NtSetInformationFile (fh, &io, pfri, frisiz, FileRenameInformation);
+  status = NtSetInformationFile (fh, &io, pfri, 65536, FileRenameInformation);
   if (status == STATUS_OBJECT_PATH_NOT_FOUND && !pc.isremote ())
     {
       /* Ok, so the recycler and/or the recycler/SID directory don't exist.
 	 First reopen root dir with permission to create subdirs. */
       NtClose (rootdir);
-      InitializeObjectAttributes (&attr, &root, OBJ_CASE_INSENSITIVE,
-				  NULL, NULL);
       status = NtOpenFile (&rootdir, FILE_ADD_SUBDIRECTORY, &attr, &io,
 			   FILE_SHARE_VALID_FLAGS, FILE_OPEN_FOR_BACKUP_INTENT);
       if (!NT_SUCCESS (status))
 	{
-	  debug_printf ("NtOpenFile (%S) failed, status = %p",
-	  		&recycler, status);
+	  debug_printf ("NtOpenFile (%S) failed, %08x", &recycler, status);
 	  goto out;
 	}
       /* Then check if recycler exists by opening and potentially creating it.
 	 Yes, we can really do that.  Typically the recycle bin is created
-	 by the first user actually using the bin.  Pre-Vista, the permissions
-	 are the default permissions propagated from the root directory.
-	 Since Vista the top-level recycle dir has explicit permissions. */
+	 by the first user actually using the bin.  The permissions are the
+	 default permissions propagated from the root directory. */
       InitializeObjectAttributes (&attr, &recycler, OBJ_CASE_INSENSITIVE,
-				  rootdir,
-				  wincap.has_recycle_dot_bin ()
-				  ? recycler_sd (true, true) : NULL);
+				  rootdir, NULL);
       recycler.Length = recycler_base_len;
       status = NtCreateFile (&recyclerdir,
 			     READ_CONTROL
-			     | (fs_has_per_user_recycler ? 0 : FILE_ADD_FILE),
+			     | (pc.fs_is_ntfs () ? 0 : FILE_ADD_FILE),
 			     &attr, &io, NULL,
 			     FILE_ATTRIBUTE_DIRECTORY
 			     | FILE_ATTRIBUTE_SYSTEM
@@ -399,18 +364,15 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 			     FILE_DIRECTORY_FILE, NULL, 0);
       if (!NT_SUCCESS (status))
 	{
-	  debug_printf ("NtCreateFile (%S) failed, status = %p",
-	  		&recycler, status);
+	  debug_printf ("NtCreateFile (%S) failed, %08x", &recycler, status);
 	  goto out;
 	}
       /* Next, if necessary, check if the recycler/SID dir exists and
 	 create it if not. */
-      if (fs_has_per_user_recycler)
+      if (pc.fs_is_ntfs ())
 	{
 	  NtClose (recyclerdir);
 	  recycler.Length = recycler_user_len;
-	  InitializeObjectAttributes (&attr, &recycler, OBJ_CASE_INSENSITIVE,
-				      rootdir, recycler_sd (false, true));
 	  status = NtCreateFile (&recyclerdir, READ_CONTROL | FILE_ADD_FILE,
 				 &attr, &io, NULL, FILE_ATTRIBUTE_DIRECTORY
 						   | FILE_ATTRIBUTE_SYSTEM
@@ -419,7 +381,7 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 				 FILE_DIRECTORY_FILE, NULL, 0);
 	  if (!NT_SUCCESS (status))
 	    {
-	      debug_printf ("NtCreateFile (%S) failed, status = %p",
+	      debug_printf ("NtCreateFile (%S) failed, %08x",
 			    &recycler, status);
 	      goto out;
 	    }
@@ -431,31 +393,20 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 	{
 	  RtlInitUnicodeString (&fname, L"desktop.ini");
 	  InitializeObjectAttributes (&attr, &fname, OBJ_CASE_INSENSITIVE,
-				      recyclerdir, recycler_sd (false, false));
+				      recyclerdir, NULL);
 	  status = NtCreateFile (&tmp_fh, FILE_GENERIC_WRITE, &attr, &io, NULL,
 				 FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN,
 				 FILE_SHARE_VALID_FLAGS, FILE_CREATE,
 				 FILE_SYNCHRONOUS_IO_NONALERT
 				 | FILE_NON_DIRECTORY_FILE, NULL, 0);
 	  if (!NT_SUCCESS (status))
-	    debug_printf ("NtCreateFile (%S) failed, status = %p",
-			  &recycler, status);
+	    debug_printf ("NtCreateFile (%S) failed, %08x", &recycler, status);
 	  else
 	    {
 	      status = NtWriteFile (tmp_fh, NULL, NULL, NULL, &io, desktop_ini,
 				    sizeof desktop_ini - 1, NULL, NULL);
 	      if (!NT_SUCCESS (status))
-		debug_printf ("NtWriteFile (%S) failed, status = %p",
-			      &fname, status);
-	      else if (wincap.has_recycle_dot_bin ())
-	      	{
-		  status = NtWriteFile (tmp_fh, NULL, NULL, NULL, &io,
-		  			desktop_ini_ext,
-					sizeof desktop_ini_ext - 1, NULL, NULL);
-		  if (!NT_SUCCESS (status))
-		    debug_printf ("NtWriteFile (%S) failed, status = %p",
-				  &fname, status);
-		}
+		debug_printf ("NtWriteFile (%S) failed, %08x", &fname, status);
 	      NtClose (tmp_fh);
 	    }
 	  if (!wincap.has_recycle_dot_bin ()) /* No INFO2 file since Vista */
@@ -468,14 +419,14 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 				     FILE_SYNCHRONOUS_IO_NONALERT
 				     | FILE_NON_DIRECTORY_FILE, NULL, 0);
 		if (!NT_SUCCESS (status))
-		  debug_printf ("NtCreateFile (%S) failed, status = %p",
+		  debug_printf ("NtCreateFile (%S) failed, %08x",
 				&recycler, status);
 		else
 		{
 		  status = NtWriteFile (tmp_fh, NULL, NULL, NULL, &io, info2,
 					sizeof info2, NULL, NULL);
 		  if (!NT_SUCCESS (status))
-		    debug_printf ("NtWriteFile (%S) failed, status = %p",
+		    debug_printf ("NtWriteFile (%S) failed, %08x",
 				  &fname, status);
 		  NtClose (tmp_fh);
 		}
@@ -483,7 +434,7 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 	}
       NtClose (recyclerdir);
       /* Shoot again. */
-      status = NtSetInformationFile (fh, &io, pfri, frisiz,
+      status = NtSetInformationFile (fh, &io, pfri, 65536,
 				     FileRenameInformation);
     }
   if (!NT_SUCCESS (status))
@@ -499,26 +450,6 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
      Otherwise the below code closes the handle to allow replacing the file. */
   status = NtSetInformationFile (fh, &io, &disp, sizeof disp,
 				 FileDispositionInformation);
-  if (status == STATUS_DIRECTORY_NOT_EMPTY)
-    {
-      /* Uh oh!  This was supposed to be avoided by the check_dir_not_empty
-	 test in unlink_nt, but given that the test isn't atomic, this *can*
-	 happen.  Try to move the dir back ASAP. */
-      pfri->RootDirectory = NULL;
-      pfri->FileNameLength = pc.get_nt_native_path ()->Length;
-      memcpy (pfri->FileName, pc.get_nt_native_path ()->Buffer,
-			      pc.get_nt_native_path ()->Length);
-      frisiz = sizeof *pfri + pfri->FileNameLength - sizeof (WCHAR);
-      if (NT_SUCCESS (NtSetInformationFile (fh, &io, pfri, frisiz,
-					    FileRenameInformation)))
-	{
-	  /* Give notice to unlink_nt and leave immediately.  This avoids
-	     closing the handle, which might still be used if called from
-	     the rm -r workaround code. */
-	  bin_stat = dir_not_empty;
-	  goto out;
-	}
-    }
   /* In case of success, restore R/O attribute to accommodate hardlinks.
      That leaves potentially hardlinks around with the R/O bit suddenly
      off if setting the delete disposition failed, but please, keep in
@@ -550,21 +481,21 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access)
 		    status);
       goto out;
     }
-  status = NtSetInformationFile (tmp_fh, &io, pfri, frisiz,
+  status = NtSetInformationFile (tmp_fh, &io, pfri, 65536,
 				 FileRenameInformation);
   NtClose (tmp_fh);
   if (!NT_SUCCESS (status))
-    debug_printf ("Overwriting with another file failed, status = %p", status);
+    debug_printf ("Overwriting with another file failed, status = %p",
+		  status);
 
 out:
   if (rootdir)
     NtClose (rootdir);
-  debug_printf ("%S, return status %d", pc.get_nt_native_path (), bin_stat);
   return bin_stat;
 }
 
 static NTSTATUS
-check_dir_not_empty (HANDLE dir, path_conv &pc)
+check_dir_not_empty (HANDLE dir)
 {
   IO_STATUS_BLOCK io;
   const ULONG bufsiz = 3 * sizeof (FILE_NAMES_INFORMATION)
@@ -576,62 +507,21 @@ check_dir_not_empty (HANDLE dir, path_conv &pc)
 					  FALSE, NULL, TRUE);
   if (!NT_SUCCESS (status))
     {
-      debug_printf ("Checking if directory %S is empty failed, status = %p",
-		    pc.get_nt_native_path (), status);
+      syscall_printf ("Checking if directory is empty failed, "
+		      "status = %p", status);
       return status;
     }
   int cnt = 1;
-  do
+  while (pfni->NextEntryOffset)
     {
-      while (pfni->NextEntryOffset)
+      if (++cnt > 2)
 	{
-	  if (++cnt > 2)
-	    {
-	      UNICODE_STRING fname;
-	      OBJECT_ATTRIBUTES attr;
-	      FILE_BASIC_INFORMATION fbi;
-
-	      pfni = (PFILE_NAMES_INFORMATION)
-		     ((caddr_t) pfni + pfni->NextEntryOffset);
-	      RtlInitCountedUnicodeString(&fname, pfni->FileName,
-					  pfni->FileNameLength);
-	      InitializeObjectAttributes (&attr, &fname, 0, dir, NULL);
-	      status = NtQueryAttributesFile (&attr, &fbi);
-	      /* Intensive testing shows that sometimes directories, for which
-		 the delete disposition has already been set, and the deleting
-		 handle is already closed, can linger in the parent dir for a
-		 couple of ms for no apparent reason (Windows Defender or other
-		 real-time scanners are suspect).
-
-		 A fast rm -r is capable to exploit this problem.  Setting the
-		 delete disposition of the parent dir then fails with
-		 STATUS_DIRECTORY_NOT_EMPTY.  Examining the content of the
-		 affected dir can then show either that the dir is empty, or it
-		 can contain a lingering subdir.  Calling NtQueryAttributesFile
-		 on that subdir returns with STATUS_DELETE_PENDING, or it
-		 disappeared before that call.
-
-		 That's what we do here.  If NtQueryAttributesFile succeeded,
-		 or if the error code does not indicate an already deleted
-		 entry, STATUS_DIRECTORY_NOT_EMPTY is returned.
-
-		 Otherwise STATUS_SUCCESS is returned.  Read on in unlink_nt. */
-	      if (status != STATUS_DELETE_PENDING
-		  && status != STATUS_OBJECT_NAME_NOT_FOUND
-		  && status != STATUS_OBJECT_PATH_NOT_FOUND)
-		{
-		  debug_printf ("Directory %S not empty, found file <%S>, "
-				 "query status = %p",
-				pc.get_nt_native_path (), &fname, status);
-		  return STATUS_DIRECTORY_NOT_EMPTY;
-		}
-	    }
-	  pfni = (PFILE_NAMES_INFORMATION) ((caddr_t) pfni + pfni->NextEntryOffset);
+	  syscall_printf ("Directory not empty");
+	  return STATUS_DIRECTORY_NOT_EMPTY;
 	}
+      pfni = (PFILE_NAMES_INFORMATION)
+	     ((caddr_t) pfni + pfni->NextEntryOffset);
     }
-  while (NT_SUCCESS (NtQueryDirectoryFile (dir, NULL, NULL, 0, &io, pfni,
-					   bufsiz, FileNamesInformation,
-					   FALSE, NULL, FALSE)));
   return STATUS_SUCCESS;
 }
 
@@ -645,12 +535,9 @@ unlink_nt (path_conv &pc)
   HANDLE old_trans = NULL, trans = NULL;
   ULONG num_links = 1;
   FILE_DISPOSITION_INFORMATION disp = { TRUE };
-  int reopened = 0;
 
   bin_status bin_stat = dont_move;
 
-  syscall_printf ("Trying to delete %S, isdir = %d",
-		  pc.get_nt_native_path (), pc.isdir ());
   ACCESS_MASK access = DELETE;
   ULONG flags = FILE_OPEN_FOR_BACKUP_INTENT;
   /* Add the reparse point flag to native symlinks, otherwise we remove the
@@ -670,7 +557,7 @@ unlink_nt (path_conv &pc)
       FILE_STANDARD_INFORMATION fsi;
 
       /* If possible, hide the non-atomicity of the "remove R/O flag, remove
-	 link to file" operation behind a transaction. */
+         link to file" operation behind a transaction. */
       if (wincap.has_transactions ()
 	  && (pc.fs_flags () & FILE_SUPPORTS_TRANSACTIONS))
 	start_transaction (old_trans, trans);
@@ -679,19 +566,10 @@ unlink_nt (path_conv &pc)
 			   FILE_SHARE_VALID_FLAGS, flags);
       if (NT_SUCCESS (status))
 	{
-	  debug_printf ("Opening %S for removing R/O succeeded",
-			pc.get_nt_native_path ());
-	  NTSTATUS status2 = NtSetAttributesFile (fh_ro,
-						  pc.file_attributes ()
-						  & ~FILE_ATTRIBUTE_READONLY);
-	  if (!NT_SUCCESS (status2))
-	    debug_printf ("Removing R/O on %S failed, status = %p",
-			  pc.get_nt_native_path (), status2);
+	  NtSetAttributesFile (fh_ro, pc.file_attributes ()
+				      & ~FILE_ATTRIBUTE_READONLY);
 	  pc.init_reopen_attr (&attr, fh_ro);
-	}
-      else
-	debug_printf ("Opening %S for removing R/O failed, status = %p",
-		      pc.get_nt_native_path (), status);
+      	}
       if (pc.is_lnk_symlink ())
 	{
 	  status = NtQueryInformationFile (fh_ro, &io, &fsi, sizeof fsi,
@@ -706,62 +584,52 @@ unlink_nt (path_conv &pc)
      will fail.  That indicates that the file has to be moved to the recycle
      bin so that it actually disappears from its directory even though its
      in use.  Otherwise, if opening doesn't fail, the file is not in use and
-     we can go straight to setting the delete disposition flag.
-
-     NOTE: The missing sharing modes FILE_SHARE_READ and FILE_SHARE_WRITE do
-	   NOT result in a STATUS_SHARING_VIOLATION, if another handle is
-	   opened for reading/writing metadata only.  In other words, if
-	   another handle is open, but does not have the file open with
-	   FILE_READ_DATA or FILE_WRITE_DATA, the following NtOpenFile call
-	   will succeed.  So, apparently there is no reliable way to find out
-	   if a file is already open elsewhere for other purposes than
-	   reading and writing data.  */
+     we can go straight to setting the delete disposition flag. */
   status = NtOpenFile (&fh, access, &attr, &io, FILE_SHARE_DELETE, flags);
-  /* STATUS_SHARING_VIOLATION is what we expect. STATUS_LOCK_NOT_GRANTED can
-     be generated under not quite clear circumstances when trying to open a
-     file on NFS with FILE_SHARE_DELETE only.  This has been observed with
-     SFU 3.5 if the NFS share has been mounted under a drive letter.  It's
-     not generated for all files, but only for some.  If it's generated once
-     for a file, it will be generated all the time.  It looks as if wrong file
-     state information is stored within the NFS client which never times out.
-     Opening the file with FILE_SHARE_VALID_FLAGS will work, though, and it
-     is then possible to delete the file quite normally. */
   if (status == STATUS_SHARING_VIOLATION || status == STATUS_LOCK_NOT_GRANTED)
     {
-      debug_printf ("Sharing violation when opening %S",
-		    pc.get_nt_native_path ());
-      /* We never call try_to_bin on NFS and NetApp for the follwing reasons:
+      /* STATUS_LOCK_NOT_GRANTED can be generated under not quite clear
+	 circumstances when trying to open a file on NFS with FILE_SHARE_DELETE
+	 only.  This has been observed with SFU 3.5 if the NFS share has been
+	 mounted under a drive letter.  It's not generated for all files, but
+	 only for some.  If it's generated once for a file, it will be
+	 generated all the time.  It looks like wrong file state information
+	 is stored within the NFS client, for no apparent reason, which never
+	 times out.  Opening the file with FILE_SHARE_VALID_FLAGS will work,
+	 though, and it is then possible to delete the file quite normally.
 
-	 NFS implements its own mechanism to remove in-use files, which looks
-	 quite similar to what we do in try_to_bin for remote files.
-
+         NFS implements its own mechanism to remove in-use files which
+	 looks quite similar to what we do in try_to_bin for remote files.
+	 That's why we don't call try_to_bin on NFS.
+	 
 	 Netapp filesystems don't understand the "move and delete" method
 	 at all and have all kinds of weird effects.  Just setting the delete
 	 dispositon usually works fine, though. */
       if (!pc.fs_is_nfs () && !pc.fs_is_netapp ())
 	bin_stat = move_to_bin;
-      /* If the file is not a directory, of if we didn't set the move_to_bin
-	 flag, just proceed with the FILE_SHARE_VALID_FLAGS set. */
-      if (!pc.isdir () || bin_stat == dont_move)
+      if (!pc.isdir () || pc.isremote ())
 	status = NtOpenFile (&fh, access, &attr, &io,
 			     FILE_SHARE_VALID_FLAGS, flags);
       else
 	{
-	  /* Otherwise it's getting tricky.  The directory is opened in some
-	     process, so we're supposed to move it to the recycler and mark it
-	     for deletion.  But what if the directory is not empty?  The move
+	  /* It's getting tricky.  The directory is opened in some process,
+	     so we're supposed to move it to the recycler and mark it for
+	     deletion.  But what if the directory is not empty?  The move
 	     will work, but the subsequent delete will fail.  So we would
-	     have to move it back.  While we do that in try_to_bin, it's bad,
-	     because the move results in a temporary inconsistent state.
-	     So, we test first if the directory is empty.  If not, we bail
-	     out with STATUS_DIRECTORY_NOT_EMPTY.  This avoids most of the
-	     problems. */
+	     have to move it back.  That's bad, because the directory would
+	     be moved around which results in a temporary inconsistent state.
+	     So, what we do here is to test if the directory is empty.  If
+	     not, we bail out with ERROR_DIR_NOT_EMTPY.  The below code
+	     tests for at least three entries in the directory, ".", "..",
+	     and another one.  Three entries means, not empty.  This doesn't
+	     work for the root directory of a drive, but the root dir can
+	     neither be deleted, nor moved anyway. */
 	  status = NtOpenFile (&fh, access | FILE_LIST_DIRECTORY | SYNCHRONIZE,
 			       &attr, &io, FILE_SHARE_VALID_FLAGS,
 			       flags | FILE_SYNCHRONOUS_IO_NONALERT);
 	  if (NT_SUCCESS (status))
 	    {
-	      status = check_dir_not_empty (fh, pc);
+	      status = check_dir_not_empty (fh);
 	      if (!NT_SUCCESS (status))
 		{
 		  NtClose (fh);
@@ -778,112 +646,28 @@ unlink_nt (path_conv &pc)
     {
       if (status == STATUS_DELETE_PENDING)
 	{
-	  debug_printf ("Delete %S already pending", pc.get_nt_native_path ());
-	  status = STATUS_SUCCESS;
+	  syscall_printf ("Delete already pending");
+	  status = 0;
 	  goto out;
 	}
-      debug_printf ("Opening %S for delete failed, status = %p",
-		    pc.get_nt_native_path (), status);
+      syscall_printf ("Opening file for delete failed, status = %p", status);
       goto out;
     }
   /* Try to move to bin if a sharing violation occured.  If that worked,
      we're done. */
   if (bin_stat == move_to_bin
-      && (bin_stat = try_to_bin (pc, fh, access)) >= has_been_moved)
+      && (bin_stat = try_to_bin (pc, fh, access)) == has_been_moved)
     {
-      if (bin_stat == has_been_moved)
-	status = STATUS_SUCCESS;
-      else
-	{
-	  status = STATUS_DIRECTORY_NOT_EMPTY;
-	  NtClose (fh);
-	}
+      status = 0;
       goto out;
     }
-
-try_again:
   /* Try to set delete disposition. */
   status = NtSetInformationFile (fh, &io, &disp, sizeof disp,
 				 FileDispositionInformation);
   if (!NT_SUCCESS (status))
     {
-      debug_printf ("Setting delete disposition on %S failed, status = %p",
-		    pc.get_nt_native_path (), status);
-      if (status == STATUS_DIRECTORY_NOT_EMPTY)
-	{
-	  NTSTATUS status2 = STATUS_SUCCESS;
-
-	  if (!reopened)
-	    {
-	      /* Have to close and reopen the file from scratch, otherwise
-		 we collide with the delete-only sharing mode. */
-	      pc.get_object_attr (attr, sec_none_nih);
-	      NtClose (fh);
-	      status2 = NtOpenFile (&fh, access | FILE_LIST_DIRECTORY
-					 | SYNCHRONIZE,
-				    &attr, &io, FILE_SHARE_VALID_FLAGS,
-				    flags | FILE_SYNCHRONOUS_IO_NONALERT);
-	    }
-	  if (NT_SUCCESS (status2) && reopened < 20)
-	    {
-	      /* Workaround rm -r problem:
-
-		 Sometimes a deleted directory lingers in its parent dir
-		 after the deleting handle has already been closed.  This
-		 can break deleting the parent dir.  See the comment in
-		 check_dir_not_empty for more information.
-
-		 What we do here is this:  If check_dir_not_empty returns
-		 STATUS_SUCCESS, the dir is either empty, or only inhabited
-		 by already deleted entries.  If so, we try to move the dir
-		 into the bin.  This usually works.
-
-		 However, if we're on a filesystem which doesn't support
-		 the try_to_bin method, or if moving to the bin doesn't work
-		 for some reason, just try to delete the directory again,
-		 with a very short grace period to free the CPU for a while.
-		 This gives the OS time to clean up.  5ms is enough in my
-		 testing to make sure that we don't have to try more than
-		 once in practically all cases.
-		 While this is an extrem bordercase, we don't want to hang
-		 infinitely in case a file in the directory is in the "delete
-		 pending" state but an application holds an open handle to it
-		 for a longer time.  So we don't try this more than 20 times,
-		 which means a process time of 100-120ms. */
-	      if (check_dir_not_empty (fh, pc) == STATUS_SUCCESS)
-		{
-		  if (bin_stat == dont_move)
-		    {
-		      bin_stat = move_to_bin;
-		      if (!pc.fs_is_nfs () && !pc.fs_is_netapp ())
-			{
-			  debug_printf ("Try-to-bin %S",
-					pc.get_nt_native_path ());
-			  bin_stat = try_to_bin (pc, fh, access);
-			}
-		    }
-		  /* Do NOT handle bin_stat == dir_not_empty here! */
-		  if (bin_stat == has_been_moved)
-		    status = STATUS_SUCCESS;
-		  else
-		    {
-		      debug_printf ("Try %S again", pc.get_nt_native_path ());
-		      ++reopened;
-		      Sleep (5L);
-		      goto try_again;
-		    }
-		}
-	    }
-	  else if (status2 != STATUS_OBJECT_PATH_NOT_FOUND
-		   && status2 !=  STATUS_OBJECT_NAME_NOT_FOUND)
-	    {
-	      fh = NULL;
-	      debug_printf ("Opening dir %S for check_dir_not_empty failed, "
-			    "status = %p", pc.get_nt_native_path (), status2);
-	    }
-	  else /* Directory disappeared between NtClose and NtOpenFile. */
-	    status = STATUS_SUCCESS;
-	}
+      syscall_printf ("Setting delete disposition failed, status = %p",
+		      status);
       /* Trying to delete a hardlink to a file in use by the system in some
 	 way (for instance, font files) by setting the delete disposition fails
 	 with STATUS_CANNOT_DELETE.  Strange enough, deleting these hardlinks
@@ -896,13 +680,10 @@ try_again:
 	 error 59, ERROR_UNEXP_NET_ERR when trying to access the file.
 	 Microsoft KB 837665 describes this problem as a bug in 2K3, but
 	 I have reproduced it on other systems. */
-      else if (status == STATUS_CANNOT_DELETE
-	       && (!pc.isremote () || pc.fs_is_ncfsd ()))
+      if (status == STATUS_CANNOT_DELETE && !pc.isremote ())
 	{
 	  HANDLE fh2;
 
-	  debug_printf ("Cannot delete %S, try delete-on-close",
-			pc.get_nt_native_path ());
 	  /* Re-open from handle so we open the correct file no matter if it
 	     has been moved to the bin or not. */
 	  pc.init_reopen_attr (&attr, fh);
@@ -912,18 +693,16 @@ try_again:
 			       flags | FILE_DELETE_ON_CLOSE);
 	  if (!NT_SUCCESS (status))
 	    {
-	      debug_printf ("Setting delete-on-close on %S failed, status = %p",
-			    pc.get_nt_native_path (), status);
+	      syscall_printf ("Setting delete-on-close failed, status = %p",
+			      status);
 	      /* This is really the last chance.  If it hasn't been moved
 		 to the bin already, try it now.  If moving to the bin
 		 succeeds, we got rid of the file in some way, even if
 		 unlinking didn't work. */
 	      if (bin_stat == dont_move)
 		bin_stat = try_to_bin (pc, fh, access);
-	      if (bin_stat >= has_been_moved)
-		status = bin_stat == has_been_moved
-				     ? STATUS_SUCCESS
-				     : STATUS_DIRECTORY_NOT_EMPTY;
+	      if (bin_stat == has_been_moved)
+		status = STATUS_SUCCESS;
 	    }
 	  else
 	    NtClose (fh2);
@@ -932,8 +711,8 @@ try_again:
   if (fh)
     {
       if (access & FILE_WRITE_ATTRIBUTES)
-	{
-	  /* Restore R/O attribute if setting the delete disposition failed. */
+      	{
+	  /* Restore R/O attribute if setting the delete dispostion failed. */
 	  if (!NT_SUCCESS (status))
 	    NtSetAttributesFile (fh, pc.file_attributes ());
 	  /* If we succeeded, restore R/O attribute to accommodate hardlinks.
@@ -942,7 +721,7 @@ try_again:
 	     http://msdn.microsoft.com/en-us/library/ff545765%28VS.85%29.aspx
 	     "Subsequently, the only legal operation by such a caller is
 	     to close the open file handle."
-
+	     
 	     FIXME? On Vista and later, we could use FILE_HARD_LINK_INFORMATION
 	     to find all hardlinks and use one of them to restore the R/O bit,
 	     after the NtClose, but before we stop the transaction.  This
@@ -961,7 +740,6 @@ out:
       && (pc.fs_flags () & FILE_SUPPORTS_TRANSACTIONS))
     stop_transaction (status, old_trans, trans);
 
-  syscall_printf ("%S, return status = %p", pc.get_nt_native_path (), status);
   return status;
 }
 
@@ -989,13 +767,13 @@ unlink (const char *ourname)
 
   if (!win32_name.exists ())
     {
-      debug_printf ("unlinking a nonexistent file");
+      syscall_printf ("unlinking a nonexistent file");
       set_errno (ENOENT);
       goto done;
     }
   else if (win32_name.isdir ())
     {
-      debug_printf ("unlinking a directory");
+      syscall_printf ("unlinking a directory");
       set_errno (EPERM);
       goto done;
     }
@@ -1007,7 +785,7 @@ unlink (const char *ourname)
     __seterrno_from_nt_status (status);
 
  done:
-  syscall_printf ("%R = unlink(%s)", res, ourname);
+  syscall_printf ("%d = unlink (%s)", res, ourname);
   return res;
 }
 
@@ -1019,7 +797,7 @@ _remove_r (struct _reent *, const char *ourname)
   if (win32_name.error)
     {
       set_errno (win32_name.error);
-      syscall_printf ("%R = remove(%s)",-1, ourname);
+      syscall_printf ("-1 = remove (%s)", ourname);
       return -1;
     }
 
@@ -1038,15 +816,12 @@ remove (const char *ourname)
       return -1;
     }
 
-  int res = win32_name.isdir () ? rmdir (ourname) : unlink (ourname);
-  syscall_printf ("%R = remove(%s)", res, ourname);
-  return res;
+  return win32_name.isdir () ? rmdir (ourname) : unlink (ourname);
 }
 
 extern "C" pid_t
 getpid ()
 {
-  syscall_printf ("%d = getpid()", myself->pid);
   return myself->pid;
 }
 
@@ -1060,7 +835,6 @@ _getpid_r (struct _reent *)
 extern "C" pid_t
 getppid ()
 {
-  syscall_printf ("%d = getppid()", myself->ppid);
   return myself->ppid;
 }
 
@@ -1087,9 +861,10 @@ setsid (void)
     syscall_printf ("hmm.  pgid %d pid %d", myself->pgid, myself->pid);
   else
     {
-      myself->ctty = -2;
-      myself->sid = myself->pid;
-      myself->pgid = myself->pid;
+      myself->ctty = -1;
+      cygheap->manage_console_count ("setsid", 0);
+      myself->sid = getpid ();
+      myself->pgid = getpid ();
       if (cygheap->ctty)
 	cygheap->close_ctty ();
       syscall_printf ("sid %d, pgid %d, %s", myself->sid, myself->pgid, myctty ());
@@ -1117,90 +892,26 @@ getsid (pid_t pid)
 	  res = -1;
 	}
     }
-  syscall_printf ("%R = getsid(%d)", pid);
   return res;
 }
 
 extern "C" ssize_t
 read (int fd, void *ptr, size_t len)
 {
-  pthread_testcancel ();
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  size_t res = (size_t) -1;
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto done;
-
-  if ((cfd->get_flags () & O_ACCMODE) == O_WRONLY)
+  const iovec iov =
     {
-      set_errno (EBADF);
-      goto done;
-    }
+      iov_base: ptr,
+      iov_len: len
+    };
 
-  /* Could block, so let user know we at least got here.  */
-  syscall_printf ("read(%d, %p, %d) %sblocking",
-		  fd, ptr, len, cfd->is_nonblocking () ? "non" : "");
-
-  cfd->read (ptr, res = len);
-
-done:
-  syscall_printf ("%R = read(%d, %p, %d)", res, fd, ptr, len);
-  MALLOC_CHECK;
-  return (ssize_t) res;
+  return readv (fd, &iov, 1);
 }
 
 EXPORT_ALIAS (read, _read)
 
 extern "C" ssize_t
-readv (int fd, const struct iovec *const iov, const int iovcnt)
-{
-  pthread_testcancel ();
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  ssize_t res = -1;
-  const ssize_t tot = check_iovec_for_read (iov, iovcnt);
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto done;
-
-  if (tot <= 0)
-    {
-      res = tot;
-      goto done;
-    }
-
-  if ((cfd->get_flags () & O_ACCMODE) == O_WRONLY)
-    {
-      set_errno (EBADF);
-      goto done;
-    }
-
-  /* Could block, so let user know we at least got here.  */
-  syscall_printf ("readv(%d, %p, %d) %sblocking",
-		  fd, iov, iovcnt, cfd->is_nonblocking () ? "non" : "");
-
-  res = cfd->readv (iov, iovcnt, tot);
-
-done:
-  syscall_printf ("%R = readv(%d, %p, %d)", res, fd, iov, iovcnt);
-  MALLOC_CHECK;
-  return res;
-}
-
-extern "C" ssize_t
 pread (int fd, void *ptr, size_t len, _off64_t off)
 {
-  pthread_testcancel ();
-
   ssize_t res;
   cygheap_fdget cfd (fd);
   if (cfd < 0)
@@ -1208,57 +919,126 @@ pread (int fd, void *ptr, size_t len, _off64_t off)
   else
     res = cfd->pread (ptr, len, off);
 
-  syscall_printf ("%R = pread(%d, %p, %d, %d)", res, fd, ptr, len, off);
+  syscall_printf ("%d = pread (%d, %p, %d, %d), errno %d",
+		  res, fd, ptr, len, off, get_errno ());
+  return res;
+}
+
+extern "C" ssize_t
+pwrite (int fd, void *ptr, size_t len, _off64_t off)
+{
+  ssize_t res;
+  cygheap_fdget cfd (fd);
+  if (cfd < 0)
+    res = -1;
+  else
+    res = cfd->pwrite (ptr, len, off);
+
+  syscall_printf ("%d = pwrite (%d, %p, %d, %d), errno %d",
+		  res, fd, ptr, len, off, get_errno ());
   return res;
 }
 
 extern "C" ssize_t
 write (int fd, const void *ptr, size_t len)
 {
-  pthread_testcancel ();
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
-  int res = -1;
-
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    goto done;
-
-  if ((cfd->get_flags () & O_ACCMODE) == O_RDONLY)
+  const struct iovec iov =
     {
-      set_errno (EBADF);
-      goto done;
-    }
+      iov_base: (void *) ptr,	// const_cast
+      iov_len: len
+    };
 
-  /* Could block, so let user know we at least got here.  */
-  if (fd == 1 || fd == 2)
-    paranoid_printf ("write(%d, %p, %d)", fd, ptr, len);
-  else
-    syscall_printf  ("write(%d, %p, %d)", fd, ptr, len);
-
-  res = cfd->write (ptr, len);
-
-done:
-  syscall_printf ("%R = write(%d, %p, %d)", res, fd, ptr, len);
-
-  MALLOC_CHECK;
-  return res;
+  return writev (fd, &iov, 1);
 }
 
 EXPORT_ALIAS (write, _write)
 
 extern "C" ssize_t
+readv (int fd, const struct iovec *const iov, const int iovcnt)
+{
+  extern int sigcatchers;
+  const int e = get_errno ();
+
+  ssize_t res = -1;
+
+  const ssize_t tot = check_iovec_for_read (iov, iovcnt);
+
+  if (tot <= 0)
+    {
+      res = tot;
+      goto done;
+    }
+
+  while (1)
+    {
+      cygheap_fdget cfd (fd);
+      if (cfd < 0)
+	break;
+
+      if ((cfd->get_flags () & O_ACCMODE) == O_WRONLY)
+	{
+	  set_errno (EBADF);
+	  break;
+	}
+
+      DWORD wait = cfd->is_nonblocking () ? 0 : INFINITE;
+
+      /* Could block, so let user know we at least got here.  */
+      syscall_printf ("readv (%d, %p, %d) %sblocking, sigcatchers %d",
+		      fd, iov, iovcnt, wait ? "" : "non", sigcatchers);
+
+      if (wait && (!cfd->is_slow () || cfd->uninterruptible_io ()))
+	/* no need to call ready_for_read */;
+      else if (!cfd->ready_for_read (fd, wait))
+	{
+	  res = -1;
+	  goto out;
+	}
+
+      /* FIXME: This is not thread safe.  We need some method to
+	 ensure that an fd, closed in another thread, aborts I/O
+	 operations. */
+      if (!cfd.isopen ())
+	break;
+
+      /* Check to see if this is a background read from a "tty",
+	 sending a SIGTTIN, if appropriate */
+      res = cfd->bg_check (SIGTTIN);
+
+      if (!cfd.isopen ())
+	{
+	  res = -1;
+	  break;
+	}
+
+      if (res > bg_eof)
+	{
+	  myself->process_state |= PID_TTYIN;
+	  if (!cfd.isopen ())
+	    {
+	      res = -1;
+	      break;
+	    }
+	  res = cfd->readv (iov, iovcnt, tot);
+	  myself->process_state &= ~PID_TTYIN;
+	}
+
+    out:
+      if (res >= 0 || get_errno () != EINTR || !_my_tls.call_signal_handler ())
+	break;
+      set_errno (e);
+    }
+
+done:
+  syscall_printf ("%d = readv (%d, %p, %d), errno %d", res, fd, iov, iovcnt,
+		  get_errno ());
+  MALLOC_CHECK;
+  return res;
+}
+
+extern "C" ssize_t
 writev (const int fd, const struct iovec *const iov, const int iovcnt)
 {
-  pthread_testcancel ();
-
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-
   int res = -1;
   const ssize_t tot = check_iovec_for_write (iov, iovcnt);
 
@@ -1280,35 +1060,28 @@ writev (const int fd, const struct iovec *const iov, const int iovcnt)
 
   /* Could block, so let user know we at least got here.  */
   if (fd == 1 || fd == 2)
-    paranoid_printf ("writev(%d, %p, %d)", fd, iov, iovcnt);
+    paranoid_printf ("writev (%d, %p, %d)", fd, iov, iovcnt);
   else
-    syscall_printf  ("writev(%d, %p, %d)", fd, iov, iovcnt);
+    syscall_printf  ("writev (%d, %p, %d)", fd, iov, iovcnt);
 
-  res = cfd->writev (iov, iovcnt, tot);
+  res = cfd->bg_check (SIGTTOU);
+
+  if (res > (int) bg_eof)
+    {
+      myself->process_state |= PID_TTYOU;
+      res = cfd->writev (iov, iovcnt, tot);
+      myself->process_state &= ~PID_TTYOU;
+    }
 
 done:
   if (fd == 1 || fd == 2)
-    paranoid_printf ("%R = writev(%d, %p, %d)", res, fd, iov, iovcnt);
+    paranoid_printf ("%d = write (%d, %p, %d), errno %d",
+		     res, fd, iov, iovcnt, get_errno ());
   else
-    syscall_printf ("%R = writev(%d, %p, %d)", res, fd, iov, iovcnt);
+    syscall_printf ("%d = write (%d, %p, %d), errno %d",
+		    res, fd, iov, iovcnt, get_errno ());
 
   MALLOC_CHECK;
-  return res;
-}
-
-extern "C" ssize_t
-pwrite (int fd, void *ptr, size_t len, _off64_t off)
-{
-  pthread_testcancel ();
-
-  ssize_t res;
-  cygheap_fdget cfd (fd);
-  if (cfd < 0)
-    res = -1;
-  else
-    res = cfd->pwrite (ptr, len, off);
-
-  syscall_printf ("%R = pwrite(%d, %p, %d, %d)", res, fd, ptr, len, off);
   return res;
 }
 
@@ -1322,8 +1095,7 @@ open (const char *unix_path, int flags, ...)
   va_list ap;
   mode_t mode = 0;
 
-  syscall_printf ("open(%s, %p)", unix_path, flags);
-  pthread_testcancel ();
+  syscall_printf ("open (%s, %p)", unix_path, flags);
   myfault efault;
   if (efault.faulted (EFAULT))
     /* errno already set */;
@@ -1341,20 +1113,10 @@ open (const char *unix_path, int flags, ...)
 
       if (fd >= 0)
 	{
-	  /* This is a temporary kludge until all utilities can catch up with
-	     a change in behavior that implements linux functionality:  opening
-	     a tty should not automatically cause it to become the controlling
-	     tty for the process.  */
-	  int opt = PC_OPEN | ((flags & (O_NOFOLLOW | O_EXCL))
-			       ?  PC_SYM_NOFOLLOW : PC_SYM_FOLLOW);
-	  if (!(flags & O_NOCTTY) && fd > 2 && myself->ctty != -2)
-	    {
-	      flags |= O_NOCTTY;
-	      opt |= PC_CTTY;	/* flag that, if opened, this fhandler could
-				   later be capable of being a controlling
-				   terminal if /dev/tty is opened. */
-	    }
-	  if (!(fh = build_fh_name (unix_path, opt, stat_suffixes)))
+	  if (!(fh = build_fh_name (unix_path,
+				    (flags & (O_NOFOLLOW | O_EXCL))
+				    ?  PC_SYM_NOFOLLOW : PC_SYM_FOLLOW,
+				    stat_suffixes)))
 	    res = -1;		// errno already set
 	  else if ((flags & O_NOFOLLOW) && fh->issymlink ())
 	    {
@@ -1374,23 +1136,30 @@ open (const char *unix_path, int flags, ...)
 	      res = -1;
 	      set_errno (EEXIST);
 	    }
-	  else if ((fh->is_fs_special () && fh->device_access_denied (flags))
-		   || !fh->open_with_arch (flags, (mode & 07777) & ~cygheap->umask))
+	  else if (fh->is_fs_special () && fh->device_access_denied (flags))
 	    {
 	      delete fh;
 	      res = -1;
 	    }
 	  else
 	    {
-	      fd = fh;
-	      if (fd <= 2)
-		set_std_handle (fd);
-	      res = fd;
+	      fh->close_on_exec (flags & O_CLOEXEC);
+	      if (!fh->open (flags, (mode & 07777) & ~cygheap->umask))
+		{
+		  delete fh;
+		  res = -1;
+		}
+	      else
+		{
+		  cygheap->fdtab[fd] = fh;
+		  if ((res = fd) <= 2)
+		    set_std_handle (res);
+		}
 	    }
 	}
     }
 
-  syscall_printf ("%R = open(%s, %p)", res, unix_path, flags);
+  syscall_printf ("%d = open (%s, %p)", res, unix_path, flags);
   return res;
 }
 
@@ -1415,10 +1184,7 @@ lseek64 (int fd, _off64_t pos, int dir)
       else
 	res = -1;
     }
-  /* Can't use %R here since res is 8 bytes */
-  syscall_printf (res == -1 ? "%D = lseek(%d, %D, %d), errno %d"
-			    : "%D = lseek(%d, %D, %d)",
-		  res, fd, pos, dir, get_errno ());
+  syscall_printf ("%D = lseek (%d, %D, %d)", res, fd, pos, dir);
 
   return res;
 }
@@ -1438,9 +1204,7 @@ close (int fd)
 {
   int res;
 
-  syscall_printf ("close(%d)", fd);
-
-  pthread_testcancel ();
+  syscall_printf ("close (%d)", fd);
 
   MALLOC_CHECK;
   cygheap_fdget cfd (fd, true);
@@ -1448,12 +1212,11 @@ close (int fd)
     res = -1;
   else
     {
-      cfd->isclosed (true);
-      res = cfd->close_with_arch ();
+      res = cfd->close ();
       cfd.release ();
     }
 
-  syscall_printf ("%R = close(%d)", res, fd);
+  syscall_printf ("%d = close (%d)", res, fd);
   MALLOC_CHECK;
   return res;
 }
@@ -1470,7 +1233,7 @@ isatty (int fd)
     res = 0;
   else
     res = cfd->is_tty ();
-  syscall_printf ("%R = isatty(%d)", res, fd);
+  syscall_printf ("%d = isatty (%d)", res, fd);
   return res;
 }
 EXPORT_ALIAS (isatty, _isatty)
@@ -1499,7 +1262,7 @@ link (const char *oldpath, const char *newpath)
 
   delete fh;
  error:
-  syscall_printf ("%R = link(%s, %s)", res, oldpath, newpath);
+  syscall_printf ("%d = link (%s, %s)", res, oldpath, newpath);
   return res;
 }
 
@@ -1527,7 +1290,7 @@ chown_worker (const char *name, unsigned fmode, __uid32_t uid, __gid32_t gid)
 
   delete fh;
  error:
-  syscall_printf ("%R = %schown(%s,...)",
+  syscall_printf ("%d = %schown (%s,...)",
 		  res, (fmode & PC_SYM_NOFOLLOW) ? "l" : "", name);
   return res;
 }
@@ -1570,7 +1333,7 @@ fchown32 (int fd, __uid32_t uid, __gid32_t gid)
 
   int res = cfd->fchown (uid, gid);
 
-  syscall_printf ("%R = fchown(%s,...)", res, cfd->get_name ());
+  syscall_printf ("%d = fchown (%s,...)", res, cfd->get_name ());
   return res;
 }
 
@@ -1594,7 +1357,7 @@ umask (mode_t mask)
 int
 chmod_device (path_conv& pc, mode_t mode)
 {
-  return mknod_worker (pc.get_win32 (), pc.dev.mode & S_IFMT, mode, pc.dev.get_major (), pc.dev.get_minor ());
+  return mknod_worker (pc.get_win32 (), pc.dev.mode & S_IFMT, mode, pc.dev.major, pc.dev.minor);
 }
 
 #define FILTERED_MODE(m)	((m) & (S_ISUID | S_ISGID | S_ISVTX \
@@ -1619,7 +1382,7 @@ chmod (const char *path, mode_t mode)
 
   delete fh;
  error:
-  syscall_printf ("%R = chmod(%s, %p)", res, path, mode);
+  syscall_printf ("%d = chmod (%s, %p)", res, path, mode);
   return res;
 }
 
@@ -1656,49 +1419,6 @@ stat64_to_stat32 (struct __stat64 *src, struct __stat32 *dst)
   dst->st_blocks = src->st_blocks;
 }
 
-static struct __stat64 dev_st;
-static bool dev_st_inited;
-
-void
-fhandler_base::stat_fixup (struct __stat64 *buf)
-{
-  /* For devices, set inode number to device number.  This gives us a valid,
-     unique inode number without having to call hash_path_name. */
-  if (!buf->st_ino)
-    buf->st_ino = (get_major () == DEV_VIRTFS_MAJOR) ? get_ino ()
-						     : get_device ();
-  /* For /dev-based devices, st_dev must be set to the device number of /dev,
-     not it's own device major/minor numbers.  What we do here to speed up
-     the process is to fetch the device number of /dev only once, liberally
-     assuming that /dev doesn't change over the lifetime of a process. */
-  if (!buf->st_dev)
-    {
-      if (dev ().is_dev_resident ())
-	{
-	  if (!dev_st_inited)
-	    {
-	      stat64 ("/dev", &dev_st);
-	      dev_st_inited = true;
-	    }
-	  buf->st_dev = dev_st.st_dev;
-	}
-      else
-	buf->st_dev = get_device ();
-    }
-  /* Only set st_rdev if it's a device. */
-  if (!buf->st_rdev && get_major () != DEV_VIRTFS_MAJOR)
-    {
-      buf->st_rdev = get_device ();
-      /* consX, console, conin, and conout point to the same device.
-	 Make sure the link count is correct. */
-      if (buf->st_rdev == (dev_t) myself->ctty && iscons_dev (myself->ctty))
-	buf->st_nlink = 4;
-      /* CD-ROM drives have two links, /dev/srX and /dev/scdX. */
-      else if (gnu_dev_major (buf->st_rdev) == DEV_CDROM_MAJOR)
-	buf->st_nlink = 2;
-    }
-}
-
 extern "C" int
 fstat64 (int fd, struct __stat64 *buf)
 {
@@ -1712,10 +1432,17 @@ fstat64 (int fd, struct __stat64 *buf)
       memset (buf, 0, sizeof (struct __stat64));
       res = cfd->fstat (buf);
       if (!res)
-	cfd->stat_fixup (buf);
+	{
+	  if (!buf->st_ino)
+	    buf->st_ino = cfd->get_ino ();
+	  if (!buf->st_dev)
+	    buf->st_dev = cfd->get_device ();
+	  if (!buf->st_rdev)
+	    buf->st_rdev = buf->st_dev;
+	}
     }
 
-  syscall_printf ("%R = fstat(%d, %p)", res, fd, buf);
+  syscall_printf ("%d = fstat (%d, %p)", res, fd, buf);
   return res;
 }
 
@@ -1753,7 +1480,6 @@ _fstat_r (struct _reent *ptr, int fd, struct __stat32 *buf)
 extern "C" int
 fsync (int fd)
 {
-  pthread_testcancel ();
   cygheap_fdget cfd (fd);
   if (cfd < 0)
     {
@@ -1766,62 +1492,80 @@ fsync (int fd)
 EXPORT_ALIAS (fsync, fdatasync)
 
 static void
-sync_worker (HANDLE dir, USHORT len, LPCWSTR vol)
+sync_worker (const char *vol)
 {
-  NTSTATUS status;
-  HANDLE fh;
-  IO_STATUS_BLOCK io;
-  OBJECT_ATTRIBUTES attr;
-  UNICODE_STRING uvol = { len, len, (WCHAR *) vol };
-
-  InitializeObjectAttributes (&attr, &uvol, OBJ_CASE_INSENSITIVE, dir, NULL);
-  status = NtOpenFile (&fh, GENERIC_WRITE, &attr, &io,
-		       FILE_SHARE_VALID_FLAGS, 0);
-  if (!NT_SUCCESS (status))
-    debug_printf ("NtOpenFile (%S), status %p", &uvol, status);
-  else
+  HANDLE fh = CreateFileA (vol, GENERIC_WRITE, FILE_SHARE_VALID_FLAGS,
+			   &sec_none_nih, OPEN_EXISTING, 0, NULL);
+  if (fh != INVALID_HANDLE_VALUE)
     {
-      status = NtFlushBuffersFile (fh, &io);
-      if (!NT_SUCCESS (status))
-	debug_printf ("NtFlushBuffersFile (%S), status %p", &uvol, status);
-      NtClose (fh);
+      FlushFileBuffers (fh);
+      CloseHandle (fh);
     }
+  else
+    debug_printf ("Open failed with %E");
 }
 
 /* sync: SUSv3 */
 extern "C" void
 sync ()
 {
-  OBJECT_ATTRIBUTES attr;
-  NTSTATUS status;
-  HANDLE devhdl;
-  UNICODE_STRING device;
+  /* Per MSDN, 50 bytes should be enough here. */
+  char vol[MAX_PATH];
 
-  /* Open \Device object directory. */
-  RtlInitUnicodeString (&device, L"\\Device");
-  InitializeObjectAttributes (&attr, &device, OBJ_CASE_INSENSITIVE, NULL, NULL);
-  status = NtOpenDirectoryObject (&devhdl, DIRECTORY_QUERY, &attr);
-  if (!NT_SUCCESS (status))
+  if (wincap.has_guid_volumes ()) /* Win2k and newer */
     {
-      debug_printf ("NtOpenDirectoryObject, status %p", status);
-      return;
+      char a_drive[MAX_PATH] = {0};
+      char b_drive[MAX_PATH] = {0};
+
+      if (is_floppy ("A:"))
+	GetVolumeNameForVolumeMountPointA ("A:\\", a_drive, MAX_PATH);
+      if (is_floppy ("B:"))
+	GetVolumeNameForVolumeMountPointA ("B:\\", b_drive, MAX_PATH);
+
+      HANDLE sh = FindFirstVolumeA (vol, MAX_PATH);
+      if (sh != INVALID_HANDLE_VALUE)
+	{
+	  do
+	    {
+	      debug_printf ("Try volume %s", vol);
+
+	      /* Check vol for being a floppy on A: or B:.  Skip them. */
+	      if (strcasematch (vol, a_drive) || strcasematch (vol, b_drive))
+		{
+		  debug_printf ("Is floppy, don't sync");
+		  continue;
+		}
+
+	      /* Eliminate trailing backslash. */
+	      vol[strlen (vol) - 1] = '\0';
+	      sync_worker (vol);
+	    }
+	  while (FindNextVolumeA (sh, vol, MAX_PATH));
+	  FindVolumeClose (sh);
+	}
     }
-  /* Traverse \Device directory ... */
-  PDIRECTORY_BASIC_INFORMATION dbi = (PDIRECTORY_BASIC_INFORMATION)
-				     alloca (640);
-  BOOLEAN restart = TRUE;
-  ULONG context = 0;
-  while (NT_SUCCESS (NtQueryDirectoryObject (devhdl, dbi, 640, TRUE, restart,
-					     &context, NULL)))
+  else
     {
-      restart = FALSE;
-      /* ... and call sync_worker for each HarddiskVolumeX entry. */
-      if (dbi->ObjectName.Length >= 15 * sizeof (WCHAR)
-	  && !wcsncasecmp (dbi->ObjectName.Buffer, L"HarddiskVolume", 14)
-	  && iswdigit (dbi->ObjectName.Buffer[14]))
-	sync_worker (devhdl, dbi->ObjectName.Length, dbi->ObjectName.Buffer);
+      DWORD drives = GetLogicalDrives ();
+      DWORD mask = 1;
+      /* Skip floppies on A: and B: as in setmntent. */
+      if ((drives & 1) && is_floppy ("A:"))
+	drives &= ~1;
+      if ((drives & 2) && is_floppy ("B:"))
+	drives &= ~2;
+      strcpy (vol, "\\\\.\\A:");
+      do
+	{
+	  /* Geeh.  Try to sync only non-floppy drives. */
+	  if (drives & mask)
+	    {
+	      debug_printf ("Try volume %s", vol);
+	      sync_worker (vol);
+	    }
+	  vol[4]++;
+	}
+      while ((mask <<= 1) <= 1 << 25);
     }
-  NtClose (devhdl);
 }
 
 /* Cygwin internal */
@@ -1851,7 +1595,14 @@ stat_worker (path_conv &pc, struct __stat64 *buf)
       memset (buf, 0, sizeof (*buf));
       res = fh->fstat (buf);
       if (!res)
-	fh->stat_fixup (buf);
+	{
+	  if (!buf->st_ino)
+	    buf->st_ino = fh->get_ino ();
+	  if (!buf->st_dev)
+	    buf->st_dev = fh->get_device ();
+	  if (!buf->st_rdev)
+	    buf->st_rdev = buf->st_dev;
+	}
       delete fh;
     }
   else
@@ -1859,7 +1610,7 @@ stat_worker (path_conv &pc, struct __stat64 *buf)
 
  error:
   MALLOC_CHECK;
-  syscall_printf ("%d = (%S,%p)", res, pc.get_nt_native_path (), buf);
+  syscall_printf ("%d = (%S, %p)", res, pc.get_nt_native_path (), buf);
   return res;
 }
 
@@ -1867,8 +1618,7 @@ extern "C" int
 stat64 (const char *name, struct __stat64 *buf)
 {
   syscall_printf ("entering");
-  path_conv pc (name, PC_SYM_FOLLOW | PC_POSIX | PC_KEEP_HANDLE,
-		stat_suffixes);
+  path_conv pc (name, PC_SYM_FOLLOW | PC_POSIX | PC_KEEP_HANDLE, stat_suffixes);
   return stat_worker (pc, buf);
 }
 
@@ -1932,8 +1682,7 @@ access (const char *fn, int flags)
     set_errno (EINVAL);
   else
     {
-      fhandler_base *fh = build_fh_name (fn, PC_SYM_FOLLOW | PC_KEEP_HANDLE,
-					 stat_suffixes);
+      fhandler_base *fh = build_fh_name (fn, PC_SYM_FOLLOW, stat_suffixes);
       if (fh)
 	{
 	  res =  fh->fhaccess (flags, false);
@@ -1956,8 +1705,7 @@ euidaccess (const char *fn, int flags)
     set_errno (EINVAL);
   else
     {
-      fhandler_base *fh = build_fh_name (fn, PC_SYM_FOLLOW | PC_KEEP_HANDLE,
-					 stat_suffixes);
+      fhandler_base *fh = build_fh_name (fn, PC_SYM_FOLLOW, stat_suffixes);
       if (fh)
 	{
 	  res =  fh->fhaccess (flags, true);
@@ -2030,11 +1778,12 @@ rename (const char *oldpath, const char *newpath)
   bool old_explicit_suffix = false, new_explicit_suffix = false;
   size_t olen, nlen;
   bool equal_path;
-  NTSTATUS status = STATUS_SUCCESS;
+  NTSTATUS status = 0;
   HANDLE fh = NULL, nfh;
   HANDLE old_trans = NULL, trans = NULL;
   OBJECT_ATTRIBUTES attr;
   IO_STATUS_BLOCK io;
+  ULONG size;
   FILE_STANDARD_INFORMATION ofsi;
   PFILE_RENAME_INFORMATION pfri;
 
@@ -2073,16 +1822,16 @@ rename (const char *oldpath, const char *newpath)
       char *p = stpcpy (buf = tp.c_get (), oldpath) - 1;
       oldpath = buf;
       while (p >= oldpath && isdirsep (*p))
-	*p-- = '\0';
+        *p-- = '\0';
       olen = p + 1 - oldpath;
       if (!olen)
-	{
-	  /* The root directory cannot be renamed.  This also rejects
-	     the corner case of rename("/","/"), even though it is the
-	     same file.  */
-	  set_errno (EINVAL);
-	  goto out;
-	}
+        {
+          /* The root directory cannot be renamed.  This also rejects
+             the corner case of rename("/","/"), even though it is the
+             same file.  */
+          set_errno (EINVAL);
+          goto out;
+        }
       old_dir_requested = true;
     }
   oldpc.check (oldpath, PC_SYM_NOFOLLOW, stat_suffixes);
@@ -2130,13 +1879,13 @@ rename (const char *oldpath, const char *newpath)
       char *p = stpcpy (buf = tp.c_get (), newpath) - 1;
       newpath = buf;
       while (p >= newpath && isdirsep (*p))
-	*p-- = '\0';
+        *p-- = '\0';
       nlen = p + 1 - newpath;
       if (!nlen) /* The root directory is never empty.  */
-	{
-	  set_errno (ENOTEMPTY);
-	  goto out;
-	}
+        {
+          set_errno (ENOTEMPTY);
+          goto out;
+        }
       new_dir_requested = true;
     }
   newpc.check (newpath, PC_SYM_NOFOLLOW, stat_suffixes);
@@ -2151,7 +1900,7 @@ rename (const char *oldpath, const char *newpath)
       goto out;
     }
   if (new_dir_requested && !(newpc.exists ()
-			     ? newpc.isdir () : oldpc.isdir ()))
+                             ? newpc.isdir () : oldpc.isdir ()))
     {
       /* Reject rename("file1","file2/"), but allow rename("dir","d/").  */
       set_errno (newpc.exists () ? ENOTDIR : ENOENT);
@@ -2265,11 +2014,11 @@ rename (const char *oldpath, const char *newpath)
 	{
 	  /* Never append .exe suffix if oldpath had .exe suffix given
 	     explicitely, or if newfile is a binary (in which case the given
-	     name probably makes sense as it is), or if the destination
+	     name probably makes sesne as it is), or if the destination
 	     filename has one of the blessed executable suffixes. */
 	  if (!old_explicit_suffix && oldpc.known_suffix
 	      && !newpc.is_binary ()
-	      && !nt_path_has_executable_suffix (newpc.get_nt_native_path ()))
+	      && !nt_path_has_executable_suffix (newpc.get_nt_native_path ()))	
 	    {
 	      rename_append_suffix (new2pc, newpath, nlen, ".exe");
 	      removepc = &newpc;
@@ -2277,12 +2026,8 @@ rename (const char *oldpath, const char *newpath)
 	}
       else
 	{
-	  /* If the new path is an existing .lnk symlink or a .exe file,
-	     but the new path has not been specified with explicit suffix,
-	     rename to the new name without suffix, as expected, but also
-	     remove the clashing symlink or executable.  Did I ever mention
-	     how I hate the file suffix idea? */
-	  if ((newpc.is_lnk_special ()
+	  if ((RtlEqualUnicodePathSuffix (newpc.get_nt_native_path (),
+					  &ro_u_lnk, TRUE)
 	       || RtlEqualUnicodePathSuffix (newpc.get_nt_native_path (),
 					     &ro_u_exe, TRUE))
 	      && !new_explicit_suffix)
@@ -2295,15 +2040,6 @@ rename (const char *oldpath, const char *newpath)
 	}
     }
   dstpc = (removepc == &newpc) ? &new2pc : &newpc;
-
-  /* Check cross-device before touching anything.  Otherwise we might end
-     up with an unlinked target dir even if the actual rename didn't work. */
-  if (oldpc.fs_type () != dstpc->fs_type ()
-      || oldpc.fs_serial_number () != dstpc->fs_serial_number ())
-    {
-      set_errno (EXDEV);
-      goto out;
-    }
 
   /* Opening the file must be part of the transaction.  It's not sufficient
      to call only NtSetInformationFile under the transaction.  Therefore we
@@ -2340,7 +2076,7 @@ retry:
     {
       debug_printf ("status %p", status);
       if (status == STATUS_SHARING_VIOLATION
-	  && cygwait (10L) != WAIT_SIGNALED)
+	  && WaitForSingleObject (signal_arrived, 10L) != WAIT_OBJECT_0)
 	{
 	  /* Typical BLODA problem.  Some virus scanners check newly generated
 	     files and while doing that disallow DELETE access.  That's really
@@ -2348,7 +2084,7 @@ retry:
 	     a temporary filename and then rename the temp filename to the
 	     target filename.  This renaming fails due to the jealous virus
 	     scanner and the application fails to create the target file.
-
+	     
 	     This kludge tries to work around that by yielding until the
 	     sharing violation goes away, or a signal arrived, or after
 	     about a second, give or take. */
@@ -2406,13 +2142,14 @@ retry:
   /* SUSv3: If the old argument and the new argument resolve to the same
      existing file, rename() shall return successfully and perform no
      other action.
-     The test tries to be as quick as possible.  Due to the above cross device
-     check we already know both files are on the same device.  So it just
-     tests if oldpath has more than 1 hardlink, then it opens newpath
+     The test tries to be as quick as possible.  First it tests for identical
+     volume serial numbers because that information is available anyway.
+     Then it tests if oldpath has more than 1 hardlink, then it opens newpath
      and tests for identical file ids.  If so, oldpath and newpath refer to
      the same file. */
   if ((removepc || dstpc->exists ())
       && !oldpc.isdir ()
+      && dstpc->fs_serial_number () == oldpc.fs_serial_number ()
       && NT_SUCCESS (NtQueryInformationFile (fh, &io, &ofsi, sizeof ofsi,
 					     FileStandardInformation))
       && ofsi.NumberOfLinks > 1
@@ -2438,24 +2175,18 @@ retry:
 	}
       NtClose (nfh);
     }
-  /* Create FILE_RENAME_INFORMATION struct.  Using a tmp_pathbuf area allows
-     for paths of up to 32757 chars.  This test is just for paranoia's sake. */
-  if (dstpc->get_nt_native_path ()->Length > NT_MAX_PATH * sizeof (WCHAR)
-					     - sizeof (FILE_RENAME_INFORMATION))
-    {
-      debug_printf ("target filename too long");
-      set_errno (EINVAL);
-      goto out;
-    }
-  pfri = (PFILE_RENAME_INFORMATION) tp.w_get ();
+  size = sizeof (FILE_RENAME_INFORMATION)
+	 + dstpc->get_nt_native_path ()->Length;
+  if (size > NT_MAX_PATH * sizeof (WCHAR)) /* Hopefully very seldom. */
+    pfri = (PFILE_RENAME_INFORMATION) alloca (size);
+  else
+    pfri = (PFILE_RENAME_INFORMATION) tp.w_get ();
   pfri->ReplaceIfExists = TRUE;
   pfri->RootDirectory = NULL;
   pfri->FileNameLength = dstpc->get_nt_native_path ()->Length;
   memcpy (&pfri->FileName,  dstpc->get_nt_native_path ()->Buffer,
 	  pfri->FileNameLength);
-  status = NtSetInformationFile (fh, &io, pfri,
-  				 sizeof *pfri + pfri->FileNameLength,
-				 FileRenameInformation);
+  status = NtSetInformationFile (fh, &io, pfri, size, FileRenameInformation);
   /* This happens if the access rights don't allow deleting the destination.
      Even if the handle to the original file is opened with BACKUP
      and/or RECOVERY, these flags don't apply to the destination of the
@@ -2492,8 +2223,7 @@ retry:
 	    }
 	}
       if (NT_SUCCESS (status = unlink_nt (*dstpc)))
-	status = NtSetInformationFile (fh, &io, pfri,
-				       sizeof *pfri + pfri->FileNameLength,
+	status = NtSetInformationFile (fh, &io, pfri, size,
 				       FileRenameInformation);
     }
   if (NT_SUCCESS (status))
@@ -2510,7 +2240,7 @@ out:
     NtClose (fh);
   if (wincap.has_transactions () && trans)
     stop_transaction (status, old_trans, trans);
-  syscall_printf ("%R = rename(%s, %s)", res, oldpath, newpath);
+  syscall_printf ("%d = rename (%s, %s)", res, oldpath, newpath);
   return res;
 }
 
@@ -2562,7 +2292,17 @@ getdtablesize ()
 extern "C" int
 getpagesize ()
 {
-  return (size_t) wincap.allocation_granularity ();
+  if (!system_info.dwAllocationGranularity)
+    GetSystemInfo (&system_info);
+  return (size_t) system_info.dwAllocationGranularity;
+}
+
+size_t
+getsystempagesize ()
+{
+  if (!system_info.dwPageSize)
+    GetSystemInfo (&system_info);
+  return (size_t) system_info.dwPageSize;
 }
 
 /* FIXME: not all values are correct... */
@@ -2639,16 +2379,13 @@ ttyname (int fd)
 extern "C" char *
 ctermid (char *str)
 {
+  static NO_COPY char buf[16];
   if (str == NULL)
-    str = _my_tls.locals.ttybuf;
-  if (myself->ctty < 0)
-    strcpy (str, "no tty");
+    str = buf;
+  if (!real_tty_attached (myself))
+    strcpy (str, "/dev/conin");
   else
-    {
-      device d;
-      d.parse (myself->ctty);
-      strcpy (str, d.name);
-    }
+    __small_sprintf (str, "/dev/tty%d", myself->ctty);
   return str;
 }
 
@@ -2781,7 +2518,7 @@ posix_fadvise (int fd, _off64_t offset, _off64_t len, int advice)
     res = cfd->fadvise (offset, len, advice);
   else
     set_errno (EBADF);
-  syscall_printf ("%R = posix_fadvice(%d, %D, %D, %d)",
+  syscall_printf ("%d = posix_fadvice (%d, %D, %D, %d)",
 		  res, fd, offset, len, advice);
   return res;
 }
@@ -2800,7 +2537,7 @@ posix_fallocate (int fd, _off64_t offset, _off64_t len)
       else
 	set_errno (EBADF);
     }
-  syscall_printf ("%R = posix_fallocate(%d, %D, %D)", res, fd, offset, len);
+  syscall_printf ("%d = posix_fallocate (%d, %D, %D)", res, fd, offset, len);
   return res;
 }
 
@@ -2813,7 +2550,7 @@ ftruncate64 (int fd, _off64_t length)
     res = cfd->ftruncate (length, true);
   else
     set_errno (EBADF);
-  syscall_printf ("%R = ftruncate(%d, %D)", res, fd, length);
+  syscall_printf ("%d = ftruncate (%d, %D)", res, fd, length);
   return res;
 }
 
@@ -2838,7 +2575,7 @@ truncate64 (const char *pathname, _off64_t length)
       res = ftruncate64 (fd, length);
       close (fd);
     }
-  syscall_printf ("%R = truncate(%s, %D)", res, pathname, length);
+  syscall_printf ("%d = truncate (%s, %D)", res, pathname, length);
 
   return res;
 }
@@ -2861,7 +2598,7 @@ get_osfhandle (int fd)
   else
     res = -1;
 
-  syscall_printf ("%R = get_osfhandle(%d)", res, fd);
+  syscall_printf ("%d = get_osfhandle (%d)", res, fd);
   return res;
 }
 
@@ -2907,7 +2644,7 @@ statvfs (const char *name, struct statvfs *sfs)
   delete fh;
  error:
   MALLOC_CHECK;
-  syscall_printf ("%R = statvfs(%s,%p)", res, name, sfs);
+  syscall_printf ("%d = (%s, %p)", res, name, sfs);
   return res;
 }
 
@@ -3016,23 +2753,10 @@ getpgrp (void)
 extern "C" char *
 ptsname (int fd)
 {
-  static char buf[TTY_NAME_MAX];
-  return ptsname_r (fd, buf, sizeof (buf)) == 0 ? buf : NULL;
-}
-
-extern "C" int
-ptsname_r (int fd, char *buf, size_t buflen)
-{
-  if (!buf)
-    {
-      set_errno (EINVAL);
-      return EINVAL;
-    }
-
   cygheap_fdget cfd (fd);
   if (cfd < 0)
     return 0;
-  return cfd->ptsname_r (buf, buflen);
+  return (char *) (cfd->ptsname ());
 }
 
 static int __stdcall
@@ -3126,11 +2850,11 @@ seteuid32 (__uid32_t uid)
      like this:
 
        cygwin_internal(CW_SET_EXTERNAL_TOKEN, restricted_token,
-		       CW_TOKEN_RESTRICTED);
+                       CW_TOKEN_RESTRICTED);
        setuid (getuid ());
        [...do stuff with restricted rights...]
        cygwin_internal(CW_SET_EXTERNAL_TOKEN, INVALID_HANDLE_VALUE,
-		       CW_TOKEN_RESTRICTED);
+                       CW_TOKEN_RESTRICTED);
        setuid (getuid ());
 
     Note that using the current uid is a requirement!  Starting with Windows
@@ -3255,8 +2979,6 @@ seteuid32 (__uid32_t uid)
 
   if (new_token != hProcToken)
     {
-      NTSTATUS status;
-
       if (!request_restricted_uid_switch)
 	{
 	  /* Avoid having HKCU use default user */
@@ -3265,27 +2987,21 @@ seteuid32 (__uid32_t uid)
 	}
 
       /* Try setting owner to same value as user. */
-      status = NtSetInformationToken (new_token, TokenOwner,
-				      &usersid, sizeof usersid);
-      if (!NT_SUCCESS (status))
-	debug_printf ("NtSetInformationToken (user.token, TokenOwner), %p",
-		      status);
+      if (!SetTokenInformation (new_token, TokenOwner,
+				&usersid, sizeof usersid))
+	debug_printf ("SetTokenInformation(user.token, TokenOwner), %E");
       /* Try setting primary group in token to current group */
-      status = NtSetInformationToken (new_token, TokenPrimaryGroup,
-				      &groups.pgsid, sizeof (cygsid));
-      if (!NT_SUCCESS (status))
-	debug_printf ("NtSetInformationToken (user.token, TokenPrimaryGroup),"
-		      "%p", status);
+      if (!SetTokenInformation (new_token, TokenPrimaryGroup,
+				&groups.pgsid, sizeof (cygsid)))
+	debug_printf ("SetTokenInformation(user.token, TokenPrimaryGroup), %E");
       /* Try setting default DACL */
       PACL dacl_buf = (PACL) alloca (MAX_DACL_LEN (5));
       if (sec_acl (dacl_buf, true, true, usersid))
 	{
 	  TOKEN_DEFAULT_DACL tdacl = { dacl_buf };
-	  status = NtSetInformationToken (new_token, TokenDefaultDacl,
-					  &tdacl, sizeof (tdacl));
-	  if (!NT_SUCCESS (status))
-	    debug_printf ("NtSetInformationToken (TokenDefaultDacl), %p",
-			  status);
+	  if (!SetTokenInformation (new_token, TokenDefaultDacl,
+				    &tdacl, sizeof (tdacl)))
+	    debug_printf ("SetTokenInformation (TokenDefaultDacl), %E");
 	}
     }
 
@@ -3397,7 +3113,6 @@ setegid32 (__gid32_t gid)
       return 0;
     }
 
-  NTSTATUS status;
   user_groups * groups = &cygheap->user.groups;
   cygsid gsid;
   struct __group32 * gr = internal_getgrgid (gid);
@@ -3413,23 +3128,17 @@ setegid32 (__gid32_t gid)
   if (cygheap->user.issetuid ())
     {
       /* If impersonated, update impersonation token... */
-      status = NtSetInformationToken (cygheap->user.primary_token (),
-				      TokenPrimaryGroup, &gsid, sizeof gsid);
-      if (!NT_SUCCESS (status))
-	debug_printf ("NtSetInformationToken (primary_token, "
-		      "TokenPrimaryGroup), %p", status);
-      status = NtSetInformationToken (cygheap->user.imp_token (),
-				      TokenPrimaryGroup, &gsid, sizeof gsid);
-      if (!NT_SUCCESS (status))
-	debug_printf ("NtSetInformationToken (token, TokenPrimaryGroup), %p",
-		      status);
+      if (!SetTokenInformation (cygheap->user.primary_token (),
+				TokenPrimaryGroup, &gsid, sizeof gsid))
+	debug_printf ("SetTokenInformation(primary_token, "
+		      "TokenPrimaryGroup), %E");
+      if (!SetTokenInformation (cygheap->user.imp_token (), TokenPrimaryGroup,
+				&gsid, sizeof gsid))
+	debug_printf ("SetTokenInformation(token, TokenPrimaryGroup), %E");
     }
   cygheap->user.deimpersonate ();
-  status = NtSetInformationToken (hProcToken, TokenPrimaryGroup,
-				  &gsid, sizeof gsid);
-  if (!NT_SUCCESS (status))
-    debug_printf ("NtSetInformationToken (hProcToken, TokenPrimaryGroup), %p",
-		  status);
+  if (!SetTokenInformation (hProcToken, TokenPrimaryGroup, &gsid, sizeof gsid))
+    debug_printf ("SetTokenInformation(hProcToken, TokenPrimaryGroup), %E");
   clear_procimptoken ();
   cygheap->user.reimpersonate ();
   return 0;
@@ -3509,7 +3218,8 @@ chroot (const char *newroot)
       ret = 0;
     }
 
-  syscall_printf ("%R = chroot(%s)", ret, newroot ?: "NULL");
+  syscall_printf ("%d = chroot (%s)", ret ? get_errno () : 0,
+				      newroot ? newroot : "NULL");
   return ret;
 }
 
@@ -3990,28 +3700,123 @@ updwtmpx (const char *wtmpx_file, const struct utmpx *utmpx)
   updwtmp (wtmpx_file, (const struct utmp *) utmpx);
 }
 
-extern "C" long
-gethostid (void)
+extern "C"
+long gethostid (void)
 {
-  /* Fetch the globally unique MachineGuid value from
-     HKLM/Software/Microsoft/Cryptography and hash it. */
+  unsigned data[13] = {0x92895012,
+		       0x10293412,
+		       0x29602018,
+		       0x81928167,
+		       0x34601329,
+		       0x75630198,
+		       0x89860395,
+		       0x62897564,
+		       0x00194362,
+		       0x20548593,
+		       0x96839102,
+		       0x12219854,
+		       0x00290012};
 
-  /* Caution: sizeof long might become > 4 when we go 64 bit, but gethostid
-     is supposed to return a 32 bit value, despite the return type long.
-     That's why hostid is *not* long here. */
-  int32_t hostid = 0x40291372; /* Choose a nice start value */
-  WCHAR wguid[38];
+  bool has_cpuid = false;
 
-  reg_key key (HKEY_LOCAL_MACHINE,
-	       KEY_READ | (wincap.is_wow64() ? KEY_WOW64_64KEY : 0),
-	       L"SOFTWARE", L"Microsoft", L"Cryptography", NULL);
-  key.get_string (L"MachineGuid", wguid, 38,
-		  L"00000000-0000-0000-0000-000000000000");
-  /* SDBM hash */
-  for (PWCHAR wp = wguid; *wp; ++wp)
-    hostid = *wp + (hostid << 6) + (hostid << 16) - hostid;
-  debug_printf ("hostid 0x%08x from MachineGuid %W", hostid, wguid);
-  return (int32_t) hostid; /* Avoid sign extension. */
+  DWORD opmask = SetThreadAffinityMask (GetCurrentThread (), 1);
+  if (!opmask)
+    debug_printf ("SetThreadAffinityMask to 1 failed, %E");
+
+  if (!can_set_flag (0x00040000))
+    debug_printf ("386 processor - no cpuid");
+  else
+    {
+      debug_printf ("486 processor");
+      if (can_set_flag (0x00200000))
+	{
+	  debug_printf ("processor supports CPUID instruction");
+	  has_cpuid = true;
+	}
+      else
+	debug_printf ("processor does not support CPUID instruction");
+    }
+  if (has_cpuid)
+    {
+      unsigned maxf, unused[3];
+      cpuid (&maxf, &unused[0], &unused[1], &unused[2], 0);
+      maxf &= 0xffff;
+      if (maxf >= 1)
+	{
+	  unsigned features;
+	  cpuid (&data[0], &unused[0], &unused[1], &features, 1);
+	  if (features & (1 << 18))
+	    {
+	      debug_printf ("processor has psn");
+	      if (maxf >= 3)
+		{
+		  cpuid (&unused[0], &unused[1], &data[1], &data[2], 3);
+		  debug_printf ("Processor PSN: %04x-%04x-%04x-%04x-%04x-%04x",
+				data[0] >> 16, data[0] & 0xffff, data[2] >> 16, data[2] & 0xffff, data[1] >> 16, data[1] & 0xffff);
+		}
+	    }
+	  else
+	    debug_printf ("processor does not have psn");
+	}
+    }
+
+  UUID Uuid;
+  RPC_STATUS status = UuidCreateSequential (&Uuid);
+  if (GetLastError () == ERROR_PROC_NOT_FOUND)
+    status = UuidCreate (&Uuid);
+  if (status == RPC_S_OK)
+    {
+      unsigned *ud;
+
+      ud = (unsigned *) &Uuid.Data4[2];
+      data[4] = *ud;
+      ud = (unsigned *) &Uuid.Data4[6];
+      data[5] = *ud;
+      // Unfortunately Windows will sometimes pick a virtual Ethernet card
+      // e.g. VMWare Virtual Ethernet Adaptor
+      debug_printf ("MAC address of first Ethernet card: %02x:%02x:%02x:%02x:%02x:%02x",
+		    Uuid.Data4[2], Uuid.Data4[3], Uuid.Data4[4],
+		    Uuid.Data4[5], Uuid.Data4[6], Uuid.Data4[7]);
+    }
+  else
+    {
+      debug_printf ("no Ethernet card installed");
+    }
+
+  reg_key key (HKEY_LOCAL_MACHINE, KEY_READ, "SOFTWARE", "Microsoft",
+	       "Windows NT", "CurrentVersion", NULL);
+  key.get_string ("ProductId", (char *)&data[6], 24, "00000-000-0000000-00000");
+  debug_printf ("Windows Product ID: %s", (char *)&data[6]);
+
+  /* Contrary to MSDN, NT4 requires the second argument
+     or a STATUS_ACCESS_VIOLATION is generated */
+  ULARGE_INTEGER availb;
+  GetDiskFreeSpaceEx ("C:\\", &availb, (PULARGE_INTEGER) &data[11], NULL);
+
+  debug_printf ("hostid entropy: %08x %08x %08x %08x "
+				"%08x %08x %08x %08x "
+				"%08x %08x %08x %08x "
+				"%08x",
+				data[0], data[1],
+				data[2], data[3],
+				data[4], data[5],
+				data[6], data[7],
+				data[8], data[9],
+				data[10], data[11],
+				data[12]);
+
+  long hostid = 0x40291372;
+  // a random hashing algorithm
+  // dependancy on md5 is probably too costly
+  for (int i=0;i<13;i++)
+    hostid ^= ((data[i] << (i << 2)) | (data[i] >> (32 - (i << 2))));
+
+  if (opmask && !SetThreadAffinityMask (GetCurrentThread (), opmask))
+    debug_printf ("SetThreadAffinityMask to %p failed, %E", opmask);
+
+  debug_printf ("hostid: %08x", hostid);
+
+  return hostid;
 }
 
 #define ETC_SHELLS "/etc/shells"
@@ -4168,8 +3973,8 @@ popen (const char *command, const char *in_type)
       fcntl64 (stdchild, F_SETFD, stdchild_state | FD_CLOEXEC);
 
       /* Start a shell process to run the given command without forking. */
-      pid_t pid = ch_spawn.worker ("/bin/sh", argv, cur_environ (), _P_NOWAIT,
-				   __std[0], __std[1]);
+      pid_t pid = spawn_guts ("/bin/sh", argv, cur_environ (), _P_NOWAIT,
+			       __std[0], __std[1]);
 
       /* Reinstate the close-on-exec state */
       fcntl64 (stdchild, F_SETFD, stdchild_state);
@@ -4337,14 +4142,13 @@ faccessat (int dirfd, const char *pathname, int mode, int flags)
 	set_errno (EINVAL);
       else
 	{
-	  fhandler_base *fh = build_fh_name (path, (flags & AT_SYMLINK_NOFOLLOW
-						    ? PC_SYM_NOFOLLOW
-						    : PC_SYM_FOLLOW)
-						   | PC_KEEP_HANDLE,
+	  fhandler_base *fh = build_fh_name (path,
+					     (flags & AT_SYMLINK_NOFOLLOW)
+					     ? PC_SYM_NOFOLLOW : PC_SYM_FOLLOW,
 					     stat_suffixes);
 	  if (fh)
 	    {
-	      res =  fh->fhaccess (mode, !!(flags & AT_EACCESS));
+	      res =  fh->fhaccess (mode, flags & AT_EACCESS);
 	      delete fh;
 	    }
 	}
@@ -4552,21 +4356,6 @@ renameat (int olddirfd, const char *oldpathname,
   if (gen_full_path_at (newpath, newdirfd, newpathname))
     return -1;
   return rename (oldpath, newpath);
-}
-
-extern "C" int
-scandirat (int dirfd, const char *pathname, struct dirent ***namelist,
-	   int (*select) (const struct dirent *),
-	   int (*compar) (const struct dirent **, const struct dirent **))
-{
-  tmp_pathbuf tp;
-  myfault efault;
-  if (efault.faulted (EFAULT))
-    return -1;
-  char *path = tp.c_get ();
-  if (gen_full_path_at (path, dirfd, pathname))
-    return -1;
-  return scandir (pathname, namelist, select, compar);
 }
 
 extern "C" int
