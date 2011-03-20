@@ -1,6 +1,6 @@
 /* fenv.cc
 
-   Copyright 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -227,7 +227,7 @@ feclearexcept (int excepts)
   return fesetenv (&fenv);
 }
 
-/*  This function raises the supported exceptions indicated by
+/*  This function raises the supported exceptions indicated by 
    excepts.  If more than one exception bit in excepts is set the order
    in which the exceptions are raised is undefined except that overflow
    (FE_OVERFLOW) or underflow (FE_UNDERFLOW) are raised before inexact
@@ -349,7 +349,7 @@ fesetround (int round)
   unsigned int mxcsr = 0;
 
   /* Will succeed for any valid value of the input parameter.  */
-  if (round < FE_TONEAREST || round > FE_TOWARDZERO)
+  if (round & ~(FE_CW_ROUND_MASK >> FE_CW_PREC_SHIFT))
     return EINVAL;
 
   /* Get control words.  */
@@ -395,7 +395,7 @@ fesetprec (int prec)
   unsigned short cw;
 
   /* Will succeed for any valid value of the input parameter.  */
-  if (prec < FE_SINGLEPREC || prec > FE_EXTENDEDPREC)
+  if (prec & ~(FE_CW_PREC_MASK >> FE_CW_PREC_SHIFT) || prec == FE_RESERVEDPREC)
     return EINVAL;
 
   /* Get control word.  */
@@ -423,7 +423,7 @@ _feinitialise (void)
   __asm__ volatile ("cpuid" : "=d" (edx), "+a" (eax) :: "%ecx", "%ebx");
   /* If this flag isn't set, or if the OS doesn't support SSE (NT4, at least
      up to SP4) we'll avoid trying to execute any SSE.  */
-  if ((edx & (1 << 25)) != 0)
+  if ((edx & (1 << 25)) != 0 && wincap.supports_sse ())
     use_sse = true;
 
   /* Reset FPU: extended prec, all exceptions cleared and masked off.  */
