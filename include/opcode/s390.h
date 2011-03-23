@@ -40,7 +40,6 @@ enum s390_opcode_cpu_val
     S390_OPCODE_Z9_EC,
     S390_OPCODE_Z10,
     S390_OPCODE_Z196,
-    S390_OPCODE_ZEC12,
     S390_OPCODE_MAXCPU
   };
 
@@ -147,8 +146,5 @@ extern const struct s390_operand s390_operands[];
 /* This operand is optional. Only a single operand at the end of
    the instruction may be optional.  */
 #define S390_OPERAND_OPTIONAL 0x400
-
-/* The operand needs to be a valid GP or FP register pair.  */
-#define S390_OPERAND_REG_PAIR 0x800
 
 	#endif /* S390_H */
