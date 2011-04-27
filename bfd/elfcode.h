@@ -1,6 +1,6 @@
 /* ELF executable support for BFD.
    Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
-   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010
    Free Software Foundation, Inc.
 
    Written by Fred Fish @ Cygnus Support, from information published
@@ -198,7 +198,6 @@ elf_swap_symbol_in (bfd *abfd,
     }
   else if (dst->st_shndx >= (SHN_LORESERVE & 0xffff))
     dst->st_shndx += SHN_LORESERVE - (SHN_LORESERVE & 0xffff);
-  dst->st_target_internal = 0;
   return TRUE;
 }
 
@@ -495,9 +494,13 @@ elf_object_p (bfd *abfd)
   Elf_Internal_Shdr *i_shdrp;	/* Section header table, internal form */
   unsigned int shindex;
   const struct elf_backend_data *ebd;
+  struct bfd_preserve preserve;
   asection *s;
   bfd_size_type amt;
   const bfd_target *target;
+  const bfd_target * const *target_ptr;
+
+  preserve.marker = NULL;
 
   /* Read in the ELF header in external format.  */
 
@@ -536,6 +539,9 @@ elf_object_p (bfd *abfd)
       goto got_wrong_format_error;
     }
 
+  if (!bfd_preserve_save (abfd, &preserve))
+    goto got_no_match;
+
   target = abfd->xvec;
 
   /* Allocate an instance of the elf_obj_tdata structure and hook it up to
@@ -543,6 +549,7 @@ elf_object_p (bfd *abfd)
 
   if (! (*target->_bfd_set_format[bfd_object]) (abfd))
     goto got_no_match;
+  preserve.marker = elf_tdata (abfd);
 
   /* Now that we know the byte order, swap in the rest of the header */
   i_ehdrp = elf_elfheader (abfd);
@@ -580,9 +587,34 @@ elf_object_p (bfd *abfd)
       && (ebd->elf_machine_alt1 == 0
 	  || i_ehdrp->e_machine != ebd->elf_machine_alt1)
       && (ebd->elf_machine_alt2 == 0
-	  || i_ehdrp->e_machine != ebd->elf_machine_alt2)
-      && ebd->elf_machine_code != EM_NONE)
-    goto got_wrong_format_error;
+	  || i_ehdrp->e_machine != ebd->elf_machine_alt2))
+    {
+      if (ebd->elf_machine_code != EM_NONE)
+	goto got_wrong_format_error;
+
+      /* This is the generic ELF target.  Let it match any ELF target
+	 for which we do not have a specific backend.  */
+      for (target_ptr = bfd_target_vector; *target_ptr != NULL; target_ptr++)
+	{
+	  const struct elf_backend_data *back;
+
+	  if ((*target_ptr)->flavour != bfd_target_elf_flavour)
+	    continue;
+	  back = xvec_get_elf_backend_data (*target_ptr);
+	  if (back->s->arch_size != ARCH_SIZE)
+	    continue;
+	  if (back->elf_machine_code == i_ehdrp->e_machine
+	      || (back->elf_machine_alt1 != 0
+		  && back->elf_machine_alt1 == i_ehdrp->e_machine)
+	      || (back->elf_machine_alt2 != 0
+		  && back->elf_machine_alt2 == i_ehdrp->e_machine))
+	    {
+	      /* target_ptr is an ELF backend which matches this
+		 object file, so reject the generic ELF target.  */
+	      goto got_wrong_format_error;
+	    }
+	}
+    }
 
   if (i_ehdrp->e_type == ET_EXEC)
     abfd->flags |= EXEC_P;
@@ -600,9 +632,43 @@ elf_object_p (bfd *abfd)
     }
 
   if (ebd->elf_machine_code != EM_NONE
-      && i_ehdrp->e_ident[EI_OSABI] != ebd->elf_osabi
-      && ebd->elf_osabi != ELFOSABI_NONE)
-    goto got_wrong_format_error;
+      && i_ehdrp->e_ident[EI_OSABI] != ebd->elf_osabi)
+    {
+      if (ebd->elf_osabi != ELFOSABI_NONE)
+	goto got_wrong_format_error;
+
+      /* This is an ELFOSABI_NONE ELF target.  Let it match any ELF
+	 target of the compatible machine for which we do not have a
+	 backend with matching ELFOSABI.  */
+      for (target_ptr = bfd_target_vector;
+	   *target_ptr != NULL;
+	   target_ptr++)
+	{
+	  const struct elf_backend_data *back;
+
+	  /* Skip this target and targets with incompatible byte
+	     order.  */
+	  if (*target_ptr == target
+	      || (*target_ptr)->flavour != bfd_target_elf_flavour
+	      || (*target_ptr)->byteorder != target->byteorder
+	      || ((*target_ptr)->header_byteorder
+		  != target->header_byteorder))
+	    continue;
+
+	  back = xvec_get_elf_backend_data (*target_ptr);
+	  if (back->elf_osabi == i_ehdrp->e_ident[EI_OSABI]
+	      && (back->elf_machine_code == i_ehdrp->e_machine
+		  || (back->elf_machine_alt1 != 0
+		      && back->elf_machine_alt1 == i_ehdrp->e_machine)
+		  || (back->elf_machine_alt2 != 0
+		      && back->elf_machine_alt2 == i_ehdrp->e_machine)))
+	    {
+	      /* target_ptr is an ELF backend which matches this
+		 object file, so reject the ELFOSABI_NONE ELF target.  */
+	      goto got_wrong_format_error;
+	    }
+	}
+    }
 
   if (i_ehdrp->e_shoff != 0)
     {
@@ -626,9 +692,8 @@ elf_object_p (bfd *abfd)
       if (i_ehdrp->e_shnum == SHN_UNDEF)
 	{
 	  i_ehdrp->e_shnum = i_shdr.sh_size;
-	  if (i_ehdrp->e_shnum >= SHN_LORESERVE
-	      || i_ehdrp->e_shnum != i_shdr.sh_size
-	      || i_ehdrp->e_shnum  == 0)
+	  if (i_ehdrp->e_shnum != i_shdr.sh_size
+	      || i_ehdrp->e_shnum == 0)
 	    goto got_wrong_format_error;
 	}
 
@@ -835,12 +900,25 @@ elf_object_p (bfd *abfd)
 	    s->flags |= SEC_DEBUGGING;
 	}
     }
+
+  bfd_preserve_finish (abfd, &preserve);
   return target;
 
  got_wrong_format_error:
+  /* There is way too much undoing of half-known state here.  The caller,
+     bfd_check_format_matches, really shouldn't iterate on live bfd's to
+     check match/no-match like it does.  We have to rely on that a call to
+     bfd_default_set_arch_mach with the previously known mach, undoes what
+     was done by the first bfd_default_set_arch_mach (with mach 0) here.
+     For this to work, only elf-data and the mach may be changed by the
+     target-specific elf_backend_object_p function.  Note that saving the
+     whole bfd here and restoring it would be even worse; the first thing
+     you notice is that the cached bfd file position gets out of sync.  */
   bfd_set_error (bfd_error_wrong_format);
 
  got_no_match:
+  if (preserve.marker != NULL)
+    bfd_preserve_restore (abfd, &preserve);
   return NULL;
 }
 
@@ -1078,28 +1156,8 @@ elf_checksum_contents (bfd *abfd,
       elf_swap_shdr_out (abfd, &i_shdr, &x_shdr);
       (*process) (&x_shdr, sizeof x_shdr, arg);
 
-      /* PR ld/12451:
-	 Process the section's contents, if it has some.  Read them in if necessary.  */
       if (i_shdr.contents)
 	(*process) (i_shdr.contents, i_shdr.sh_size, arg);
-      else if (i_shdr.sh_type != SHT_NOBITS)
-	{
-	  asection *sec;
-
-	  sec = bfd_section_from_elf_index (abfd, count);
-	  if (sec != NULL)
-	    {
-	      if (sec->contents == NULL)
-		{
-		  /* Force rereading from file.  */
-		  sec->flags &= ~SEC_IN_MEMORY;
-		  if (! bfd_malloc_and_get_section (abfd, sec, & sec->contents))
-		    continue;
-		}
-	      if (sec->contents != NULL)
-		(*process) (sec->contents, i_shdr.sh_size, arg);
-	    }
-	}
     }
 
   return TRUE;
@@ -1431,7 +1489,7 @@ elf_slurp_reloc_table_from_section (bfd *abfd,
 	  (*_bfd_error_handler)
 	    (_("%s(%s): relocation %d has invalid symbol index %ld"),
 	     abfd->filename, asect->name, i, ELF_R_SYM (rela.r_info));
-	  relent->sym_ptr_ptr = bfd_abs_section_ptr->symbol_ptr_ptr;
+	  relent->sym_ptr_ptr = bfd_abs_section.symbol_ptr_ptr;
 	}
       else
 	{
@@ -1596,7 +1654,7 @@ NAME(_bfd_elf,bfd_from_remote_memory)
   (bfd *templ,
    bfd_vma ehdr_vma,
    bfd_vma *loadbasep,
-   int (*target_read_memory) (bfd_vma, bfd_byte *, bfd_size_type))
+   int (*target_read_memory) (bfd_vma, bfd_byte *, int))
 {
   Elf_External_Ehdr x_ehdr;	/* Elf file header, external form */
   Elf_Internal_Ehdr i_ehdr;	/* Elf file header, internal form */
@@ -1810,22 +1868,6 @@ NAME(_bfd_elf,bfd_from_remote_memory)
   if (loadbasep)
     *loadbasep = loadbase;
   return nbfd;
-}
-
-/* Function for ELF_R_INFO.  */
-
-bfd_vma
-NAME(elf,r_info) (bfd_vma sym, bfd_vma type)
-{
-  return ELF_R_INFO (sym, type);
-}
-
-/* Function for ELF_R_SYM.  */
-
-bfd_vma
-NAME(elf,r_sym) (bfd_vma r_info)
-{
-  return ELF_R_SYM (r_info);
 }
 
 #include "elfcore.h"

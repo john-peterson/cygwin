@@ -1,6 +1,6 @@
 # Expect script for linker support of STB_GNU_UNIQUE symbols
 #
-#   Copyright 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+#   Copyright 2009, 2010, 2011 Free Software Foundation, Inc.
 #   Contributed by Red Hat.
 #
 # This file is part of the GNU Binutils.
@@ -32,7 +32,6 @@ if {!(([istarget "i?86-*-*"]
        || [istarget "powerpc*-*-*"]
        || [istarget "sparc*-*-*"])
       && ([istarget "*-*-elf*"]
-	  || [istarget "*-*-nacl*"]
 	  || (([istarget "*-*-linux*"]
 	       || [istarget "*-*-gnu*"])
 	      && ![istarget "*-*-*aout*"]
@@ -150,8 +149,8 @@ if { $fails != 0 } {
 }
 
 # Check the object file.
-if {! [check_osabi tmpdir/unique.o {UNIX - GNU}]} {
-    fail "Object containing unique does not have an OS/ABI field of GNU"
+if {! [check_osabi tmpdir/unique.o {UNIX - Linux}]} {
+    fail "Object containing unique does not have an OS/ABI field of LINUX"
     set fails [expr $fails + 1]
 }
 
@@ -165,8 +164,8 @@ if { $fails == 0 } {
 }
 
 # Check the executable.
-if {! [check_osabi tmpdir/unique_prog {UNIX - GNU}]} {
-    fail "Executable containing unique does not have an OS/ABI field of GNU"
+if {! [check_osabi tmpdir/unique_prog {UNIX - Linux}]} {
+    fail "Executable containing unique does not have an OS/ABI field of LINUX"
     set fails [expr $fails + 1]
 }
 
@@ -195,8 +194,8 @@ if { $fails == 0 } {
 }
 
 # Check the unique PIC file.
-if {! [check_osabi tmpdir/unique_shared.o {UNIX - GNU}]} {
-    fail "PIC Object containing unique does not have an OS/ABI field of GNU"
+if {! [check_osabi tmpdir/unique_shared.o {UNIX - Linux}]} {
+    fail "PIC Object containing unique does not have an OS/ABI field of LINUX"
     set fails [expr $fails + 1]
 }
 
@@ -210,8 +209,8 @@ if { $fails == 0 } {
 }
 
 # Check the unique shared library.
-if {! [check_osabi tmpdir/libunique_shared.so {UNIX - GNU}]} {
-    fail "Shared library containing unique does not have an OS/ABI field of GNU"
+if {! [check_osabi tmpdir/libunique_shared.so {UNIX - Linux}]} {
+    fail "Shared library containing unique does not have an OS/ABI field of LINUX"
     set fails [expr $fails + 1]
 }
 
