@@ -1,7 +1,7 @@
 /* as.c - GAS main program.
    Copyright 1987, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
    1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012, 2013
+   2010, 2011
    Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
@@ -25,9 +25,9 @@
    Understands command arguments.
    Has a few routines that don't fit in other modules because they
    are shared.
-
+  
   			bugs
-
+  
    : initialisers
   	Since no-one else says they will support them in future: I
    don't support them now.  */
@@ -124,9 +124,6 @@ static struct itbl_file_list *itbl_files;
 #endif
 
 static long start_time;
-#ifdef HAVE_SBRK
-char *start_sbrk;
-#endif
 
 static int flag_macro_alternate;
 
@@ -368,7 +365,7 @@ Options:\n\
   --listing-cont-lines    set the maximum number of continuation lines used\n\
                           for the output data column of the listing\n"));
   fprintf (stream, _("\
-  @FILE                   read options from FILE\n"));
+  @FILE                   read options from FILE\n")); 
 
   md_show_usage (stream);
 
@@ -460,7 +457,7 @@ parse_args (int * pargc, char *** pargv)
     /* When you add options here, check that they do
        not collide with OPTION_MD_BASE.  See as.h.  */
     };
-
+  
   static const struct option std_longopts[] =
   {
     /* Note: commas are placed at the start of the line rather than
@@ -626,7 +623,7 @@ parse_args (int * pargc, char *** pargv)
 	case OPTION_VERSION:
 	  /* This output is intended to follow the GNU standards document.  */
 	  printf (_("GNU assembler %s\n"), BFD_VERSION_STRING);
-	  printf (_("Copyright 2013 Free Software Foundation, Inc.\n"));
+	  printf (_("Copyright 2011 Free Software Foundation, Inc.\n"));
 	  printf (_("\
 This program is free software; you may redistribute it under the terms of\n\
 the GNU General Public License version 3 or later.\n\
@@ -978,7 +975,7 @@ dump_statistics (void)
 	   myname, run_time / 1000000, run_time % 1000000);
 #ifdef HAVE_SBRK
   fprintf (stderr, _("%s: data size %ld\n"),
-	   myname, (long) (lim - start_sbrk));
+	   myname, (long) (lim - (char *) &environ));
 #endif
 
   subsegs_print_statistics (stderr);
@@ -1005,8 +1002,8 @@ close_output_file (void)
 
 /* The interface between the macro code and gas expression handling.  */
 
-static size_t
-macro_expr (const char *emsg, size_t idx, sb *in, offsetT *val)
+static int
+macro_expr (const char *emsg, int idx, sb *in, int *val)
 {
   char *hold;
   expressionS ex;
@@ -1022,7 +1019,7 @@ macro_expr (const char *emsg, size_t idx, sb *in, offsetT *val)
   if (ex.X_op != O_constant)
     as_bad ("%s", emsg);
 
-  *val = ex.X_add_number;
+  *val = (int) ex.X_add_number;
 
   return idx;
 }
@@ -1040,13 +1037,10 @@ static void
 perform_an_assembly_pass (int argc, char ** argv)
 {
   int saw_a_file = 0;
-#ifndef OBJ_MACH_O
   flagword applicable;
-#endif
 
   need_pass_2 = 0;
 
-#ifndef OBJ_MACH_O
   /* Create the standard sections, and those the assembler uses
      internally.  */
   text_section = subseg_new (TEXT_SECTION_NAME, 0);
@@ -1063,15 +1057,12 @@ perform_an_assembly_pass (int argc, char ** argv)
 				       | SEC_DATA));
   bfd_set_section_flags (stdoutput, bss_section, applicable & SEC_ALLOC);
   seg_info (bss_section)->bss = 1;
-#endif
   subseg_new (BFD_ABS_SECTION_NAME, 0);
   subseg_new (BFD_UND_SECTION_NAME, 0);
   reg_section = subseg_new ("*GAS `reg' section*", 0);
   expr_section = subseg_new ("*GAS `expr' section*", 0);
 
-#ifndef OBJ_MACH_O
   subseg_set (text_section, 0);
-#endif
 
   /* This may add symbol table entries, which requires having an open BFD,
      and sections already created.  */
@@ -1138,9 +1129,6 @@ main (int argc, char ** argv)
   int macro_strip_at;
 
   start_time = get_run_time ();
-#ifdef HAVE_SBRK
-  start_sbrk = (char *) sbrk (0);
-#endif
 
 #if defined (HAVE_SETLOCALE) && defined (HAVE_LC_MESSAGES)
   setlocale (LC_MESSAGES, "");
@@ -1267,7 +1255,7 @@ main (int argc, char ** argv)
       gnustack = subseg_new (".note.GNU-stack", 0);
       bfd_set_section_flags (stdoutput, gnustack,
 			     SEC_READONLY | (flag_execstack ? SEC_CODE : 0));
-
+                                                                             
     }
 #endif
 
@@ -1275,7 +1263,7 @@ main (int argc, char ** argv)
      assembly debugging or on behalf of the compiler, emit it now.  */
   dwarf2_finish ();
 
-  /* If we constructed dwarf2 .eh_frame info, either via .cfi
+  /* If we constructed dwarf2 .eh_frame info, either via .cfi 
      directives from the user or by the backend, emit it now.  */
   cfi_finish ();
 
