@@ -1,6 +1,6 @@
 /* Main program of GNU linker.
    Copyright 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
    Free Software Foundation, Inc.
    Written by Steve Chamberlain steve@cygnus.com
 
@@ -88,12 +88,24 @@ int g_switch_value = 8;
 /* Nonzero means print names of input files as processed.  */
 bfd_boolean trace_files;
 
-/* Nonzero means report actions taken by the linker, and describe the linker script in use.  */
-bfd_boolean verbose;
+/* Nonzero means same, but note open failures, too.  */
+bfd_boolean trace_file_tries;
 
 /* Nonzero means version number was printed, so exit successfully
    instead of complaining if no input files are given.  */
 bfd_boolean version_printed;
+
+/* Nonzero means link in every member of an archive.  */
+bfd_boolean whole_archive;
+
+/* True means only create DT_NEEDED entries for dynamic libraries
+   if they actually satisfy some reference in a regular object.  */
+bfd_boolean add_DT_NEEDED_for_regular;
+
+/* True means create DT_NEEDED entries for dynamic libraries that
+   are DT_NEEDED by dynamic libraries specifically mentioned on
+   the command line.  */
+bfd_boolean add_DT_NEEDED_for_dynamic;
 
 /* TRUE if we should demangle symbol names.  */
 bfd_boolean demangling;
@@ -160,8 +172,6 @@ static struct bfd_link_callbacks link_callbacks =
   ldlang_override_segment_assignment
 };
 
-static bfd_assert_handler_type default_bfd_assert_handler;
-
 struct bfd_link_info link_info;
 
 static void
@@ -175,25 +185,11 @@ ld_cleanup (void)
     unlink_if_ordinary (output_filename);
 }
 
-/* If there's a BFD assertion, we'll notice and exit with an error
-   unless otherwise instructed.  */
-
-static void
-ld_bfd_assert_handler (const char *fmt, const char *bfdver,
-		       const char *file, int line)
-{
-  (*default_bfd_assert_handler) (fmt, bfdver, file, line);
-  config.make_executable = FALSE;
-}
-
 int
 main (int argc, char **argv)
 {
   char *emulation;
   long start_time = get_run_time ();
-#ifdef HAVE_SBRK
-  char *start_sbrk = (char *) sbrk (0);
-#endif
 
 #if defined (HAVE_SETLOCALE) && defined (HAVE_LC_MESSAGES)
   setlocale (LC_MESSAGES, "");
@@ -214,11 +210,6 @@ main (int argc, char **argv)
   bfd_init ();
 
   bfd_set_error_program_name (program_name);
-
-  /* We want to notice and fail on those nasty BFD assertions which are
-     likely to signal incorrect output being generated but otherwise may
-     leave no trace.  */
-  default_bfd_assert_handler = bfd_set_assert_handler (ld_bfd_assert_handler);
 
   xatexit (ld_cleanup);
 
@@ -263,11 +254,11 @@ main (int argc, char **argv)
   config.make_executable = TRUE;
   config.magic_demand_paged = TRUE;
   config.text_read_only = TRUE;
-  link_info.disable_target_specific_optimizations = -1;
 
   command_line.warn_mismatch = TRUE;
   command_line.warn_search_mismatch = TRUE;
   command_line.check_section_addresses = -1;
+  command_line.disable_target_specific_optimizations = -1;
 
   /* We initialize DEMANGLING based on the environment variable
      COLLECT_NO_DEMANGLE.  The gcc collect2 program will demangle the
@@ -308,7 +299,8 @@ main (int argc, char **argv)
 
 #ifdef ENABLE_PLUGINS
   /* Now all the plugin arguments have been gathered, we can load them.  */
-  plugin_load_plugins ();
+  if (plugin_load_plugins ())
+    einfo (_("%P%F: %s: error loading plugin\n"), plugin_error_plugin ());
 #endif /* ENABLE_PLUGINS */
 
   ldemul_set_symbols ();
@@ -335,14 +327,14 @@ main (int argc, char **argv)
       else
 	{
 	  lex_string = s;
-	  lex_redirect (s, _("built in linker script"), 1);
+	  lex_redirect (s);
 	}
       parser_input = input_script;
       yyparse ();
       lex_string = NULL;
     }
 
-  if (verbose)
+  if (trace_file_tries)
     {
       if (saved_script_handle)
 	info_msg (_("using external linker script:"));
@@ -507,7 +499,7 @@ main (int argc, char **argv)
 	       program_name, run_time / 1000000, run_time % 1000000);
 #ifdef HAVE_SBRK
       fprintf (stderr, _("%s: data size %ld\n"), program_name,
-	       (long) (lim - start_sbrk));
+	       (long) (lim - (char *) &environ));
 #endif
       fflush (stderr);
     }
@@ -645,23 +637,6 @@ add_ysym (const char *name)
     einfo (_("%P%F: bfd_hash_lookup failed: %E\n"));
 }
 
-void
-add_ignoresym (struct bfd_link_info *info, const char *name)
-{
-  if (info->ignore_hash == NULL)
-    {
-      info->ignore_hash = xmalloc (sizeof (struct bfd_hash_table));
-      if (! bfd_hash_table_init_n (info->ignore_hash,
-				   bfd_hash_newfunc,
-				   sizeof (struct bfd_hash_entry),
-				   61))
-	einfo (_("%P%F: bfd_hash_table_init failed: %E\n"));
-    }
-
-  if (bfd_hash_lookup (info->ignore_hash, name, TRUE, TRUE) == NULL)
-    einfo (_("%P%F: bfd_hash_lookup failed: %E\n"));
-}
-
 /* Record a symbol to be wrapped, from the --wrap option.  */
 
 void
@@ -792,9 +767,9 @@ add_archive_element (struct bfd_link_info *info,
 	  file.filesize = arelt_size (abfd);
 	  file.fd = fd;
 	  plugin_maybe_claim (&file, input);
-	  if (input->flags.claimed)
+	  if (input->claimed)
 	    {
-	      input->flags.claim_archive = TRUE;
+	      input->claim_archive = TRUE;
 	      *subsbfd = input->the_bfd;
 	    }
 	}
@@ -880,7 +855,7 @@ add_archive_element (struct bfd_link_info *info,
 	minfo ("(%s)\n", name);
     }
 
-  if (trace_files || verbose)
+  if (trace_files || trace_file_tries)
     info_msg ("%I\n", &orig_input);
   return TRUE;
 }
@@ -956,7 +931,7 @@ multiple_definition (struct bfd_link_info *info,
   if (RELAXATION_ENABLED)
     {
       einfo (_("%P: Disabling relaxation: it will not work with multiple definitions\n"));
-      link_info.disable_target_specific_optimizations = -1;
+      command_line.disable_target_specific_optimizations = -1;
     }
 
   return TRUE;
@@ -1110,7 +1085,7 @@ constructor_callback (struct bfd_link_info *info,
 
   /* Ensure that BFD_RELOC_CTOR exists now, so that we can give a
      useful error message.  */
-  if (bfd_reloc_type_lookup (info->output_bfd, BFD_RELOC_CTOR) == NULL
+  if (bfd_reloc_type_lookup (link_info.output_bfd, BFD_RELOC_CTOR) == NULL
       && (info->relocatable
 	  || bfd_reloc_type_lookup (abfd, BFD_RELOC_CTOR) == NULL))
     einfo (_("%P%F: BFD backend error: BFD_RELOC_CTOR unsupported\n"));
@@ -1247,7 +1222,7 @@ warning_find_reloc (bfd *abfd, asection *sec, void *iarg)
 /* This is called when an undefined symbol is found.  */
 
 static bfd_boolean
-undefined_symbol (struct bfd_link_info *info,
+undefined_symbol (struct bfd_link_info *info ATTRIBUTE_UNUSED,
 		  const char *name,
 		  bfd *abfd,
 		  asection *section,
@@ -1259,14 +1234,25 @@ undefined_symbol (struct bfd_link_info *info,
 
 #define MAX_ERRORS_IN_A_ROW 5
 
-  if (info->ignore_hash != NULL
-      && bfd_hash_lookup (info->ignore_hash, name, FALSE, FALSE) != NULL)
-    return TRUE;
-
   if (config.warn_once)
     {
+      static struct bfd_hash_table *hash;
+
       /* Only warn once about a particular undefined symbol.  */
-      add_ignoresym (info, name);
+      if (hash == NULL)
+	{
+	  hash = (struct bfd_hash_table *)
+              xmalloc (sizeof (struct bfd_hash_table));
+	  if (!bfd_hash_table_init (hash, bfd_hash_newfunc,
+				    sizeof (struct bfd_hash_entry)))
+	    einfo (_("%F%P: bfd_hash_table_init failed: %E\n"));
+	}
+
+      if (bfd_hash_lookup (hash, name, FALSE, FALSE) != NULL)
+	return TRUE;
+
+      if (bfd_hash_lookup (hash, name, TRUE, TRUE) == NULL)
+	einfo (_("%F%P: bfd_hash_lookup failed: %E\n"));
     }
 
   /* We never print more than a reasonable number of errors in a row
@@ -1344,7 +1330,7 @@ int overflow_cutoff_limit = 10;
 /* This is called when a reloc overflows.  */
 
 static bfd_boolean
-reloc_overflow (struct bfd_link_info *info,
+reloc_overflow (struct bfd_link_info *info ATTRIBUTE_UNUSED,
 		struct bfd_link_hash_entry *entry,
 		const char *name,
 		const char *reloc_name,
@@ -1383,7 +1369,7 @@ reloc_overflow (struct bfd_link_info *info,
 		 reloc_name, entry->root.string,
 		 entry->u.def.section,
 		 entry->u.def.section == bfd_abs_section_ptr
-		 ? info->output_bfd : entry->u.def.section->owner);
+		 ? link_info.output_bfd : entry->u.def.section->owner);
 	  break;
 	default:
 	  abort ();
