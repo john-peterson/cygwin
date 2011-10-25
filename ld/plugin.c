@@ -1,5 +1,5 @@
 /* Plugin control for the GNU linker.
-   Copyright 2010, 2011, 2012 Free Software Foundation, Inc.
+   Copyright 2010, 2011 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -155,14 +155,6 @@ dlclose (void *handle)
 
 #endif /* !defined (HAVE_DLFCN_H) && defined (HAVE_WINDOWS_H)  */
 
-#ifndef HAVE_DLFCN_H
-static const char *
-dlerror (void)
-{
-  return "";
-}
-#endif
-
 /* Helper function for exiting with error status.  */
 static int
 set_plugin_error (const char *plugin)
@@ -186,7 +178,7 @@ plugin_error_plugin (void)
 }
 
 /* Handle -plugin arg: find and load plugin, or return error.  */
-void
+int
 plugin_opt_plugin (const char *plugin)
 {
   plugin_t *newplug;
@@ -196,7 +188,7 @@ plugin_opt_plugin (const char *plugin)
   newplug->name = plugin;
   newplug->dlhandle = dlopen (plugin, RTLD_NOW);
   if (!newplug->dlhandle)
-    einfo (_("%P%F: %s: error loading plugin: %s\n"), plugin, dlerror ());
+    return set_plugin_error (plugin);
 
   /* Chain on end, so when we run list it is in command-line order.  */
   *plugins_tail_chain_ptr = newplug;
@@ -205,6 +197,7 @@ plugin_opt_plugin (const char *plugin)
   /* Record it as current plugin for receiving args.  */
   last_plugin = newplug;
   last_plugin_args_tail_chain_ptr = &newplug->args;
+  return 0;
 }
 
 /* Accumulate option arguments for last-loaded plugin, or return
@@ -269,7 +262,7 @@ is_ir_dummy_bfd (const bfd *abfd)
      when processing DT_NEEDED dependencies.  */
   return (abfd
 	  && abfd->usrdata
-	  && ((lang_input_statement_type *)(abfd->usrdata))->flags.claimed);
+	  && ((lang_input_statement_type *)(abfd->usrdata))->claimed);
 }
 
 /* Helpers to convert between BFD and GOLD symbol formats.  */
@@ -449,14 +442,18 @@ release_input_file (const void *handle)
 /* Return TRUE if a defined symbol might be reachable from outside the
    universe of claimed objects.  */
 static inline bfd_boolean
-is_visible_from_outside (struct ld_plugin_symbol *lsym,
+is_visible_from_outside (struct ld_plugin_symbol *lsym, asection *section,
 			 struct bfd_link_hash_entry *blhe)
 {
   struct bfd_sym_chain *sym;
 
+  /* Section's owner may be NULL if it is the absolute
+     section, fortunately is_ir_dummy_bfd handles that.  */
+  if (!is_ir_dummy_bfd (section->owner))
+    return TRUE;
   if (link_info.relocatable)
     return TRUE;
-  if (link_info.export_dynamic || !link_info.executable)
+  if (link_info.export_dynamic || link_info.shared)
     {
       /* Check if symbol is hidden by version script.  */
       if (bfd_hide_sym_by_version (link_info.version_info,
@@ -583,7 +580,7 @@ get_symbols (const void *handle, int nsyms, struct ld_plugin_symbol *syms,
 	     symbol is externally visible.  */
 	  if (blhe->non_ir_ref)
 	    res = LDPR_PREVAILING_DEF;
-	  else if (is_visible_from_outside (&syms[n], blhe))
+	  else if (is_visible_from_outside (&syms[n], owner_sec, blhe))
 	    res = def_ironly_exp;
 	}
 
@@ -704,9 +701,7 @@ set_tv_header (struct ld_plugin_tv *tv)
 	case LDPT_LINKER_OUTPUT:
 	  TVU(val) = (link_info.relocatable
 		      ? LDPO_REL
-		      : (link_info.executable
-			 ? (link_info.pie ? LDPO_PIE : LDPO_EXEC)
-			 : LDPO_DYN));
+		      : (link_info.shared ? LDPO_DYN : LDPO_EXEC));
 	  break;
 	case LDPT_OUTPUT_NAME:
 	  TVU(string) = output_filename;
@@ -778,7 +773,7 @@ plugin_active_plugins_p (void)
 }
 
 /* Load up and initialise all plugins after argument parsing.  */
-void
+int
 plugin_load_plugins (void)
 {
   struct ld_plugin_tv *my_tv;
@@ -787,7 +782,7 @@ plugin_load_plugins (void)
 
   /* If there are no plugins, we need do nothing this run.  */
   if (!curplug)
-    return;
+    return 0;
 
   /* First pass over plugins to find max # args needed so that we
      can size and allocate the tv array.  */
@@ -807,20 +802,17 @@ plugin_load_plugins (void)
   while (curplug)
     {
       enum ld_plugin_status rv;
-      ld_plugin_onload onloadfn;
-
-      onloadfn = (ld_plugin_onload) dlsym (curplug->dlhandle, "onload");
+      ld_plugin_onload onloadfn = dlsym (curplug->dlhandle, "onload");
       if (!onloadfn)
-	onloadfn = (ld_plugin_onload) dlsym (curplug->dlhandle, "_onload");
+	onloadfn = dlsym (curplug->dlhandle, "_onload");
       if (!onloadfn)
-        einfo (_("%P%F: %s: error loading plugin: %s\n"),
-	       curplug->name, dlerror ());
+	return set_plugin_error (curplug->name);
       set_tv_plugin_args (curplug, &my_tv[tv_header_size]);
       called_plugin = curplug;
       rv = (*onloadfn) (my_tv);
       called_plugin = NULL;
       if (rv != LDPS_OK)
-	einfo (_("%P%F: %s: plugin error: %d\n"), curplug->name, rv);
+	return set_plugin_error (curplug->name);
       curplug = curplug->next;
     }
 
@@ -833,6 +825,8 @@ plugin_load_plugins (void)
   plugin_callbacks.notice = &plugin_notice;
   link_info.notice_all = TRUE;
   link_info.callbacks = &plugin_callbacks;
+
+  return 0;
 }
 
 /* Call 'claim file' hook for all plugins.  */
@@ -883,7 +877,7 @@ plugin_maybe_claim (struct ld_plugin_input_file *file,
       if (entry->the_bfd->my_archive == NULL)
 	bfd_close (entry->the_bfd);
       entry->the_bfd = file->handle;
-      entry->flags.claimed = TRUE;
+      entry->claimed = TRUE;
       bfd_make_readable (entry->the_bfd);
     }
   else
@@ -891,7 +885,7 @@ plugin_maybe_claim (struct ld_plugin_input_file *file,
       /* If plugin didn't claim the file, we don't need the dummy bfd.
 	 Can't avoid speculatively creating it, alas.  */
       bfd_close_all_done (file->handle);
-      entry->flags.claimed = FALSE;
+      entry->claimed = FALSE;
     }
 }
 
@@ -935,12 +929,14 @@ plugin_call_cleanup (void)
 	  rv = (*curplug->cleanup_handler) ();
 	  called_plugin = NULL;
 	  if (rv != LDPS_OK)
-	    info_msg (_("%P: %s: error in plugin cleanup: %d (ignored)\n"),
-		      curplug->name, rv);
+	    set_plugin_error (curplug->name);
 	  dlclose (curplug->dlhandle);
 	}
       curplug = curplug->next;
     }
+  if (plugin_error_p ())
+    info_msg (_("%P: %s: error in plugin cleanup (ignored)\n"),
+	      plugin_error_plugin ());
 }
 
 /* To determine which symbols should be resolved LDPR_PREVAILING_DEF
@@ -1021,15 +1017,4 @@ plugin_notice (struct bfd_link_info *info,
     return (*orig_callbacks->notice) (info, h,
 				      abfd, section, value, flags, string);
   return TRUE;
-}
-
-/* Return true if bfd is a dynamic library that should be reloaded.  */
-
-bfd_boolean
-plugin_should_reload (bfd *abfd)
-{
-  return ((abfd->flags & DYNAMIC) != 0
-	  && bfd_get_flavour (abfd) == bfd_target_elf_flavour
-	  && bfd_get_format (abfd) == bfd_object
-	  && (elf_dyn_lib_class (abfd) & DYN_AS_NEEDED) != 0);
 }
