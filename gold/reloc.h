@@ -1,7 +1,6 @@
 // reloc.h -- relocate input files for gold   -*- C++ -*-
 
-// Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012
-// Free Software Foundation, Inc.
+// Copyright 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
 // Written by Ian Lance Taylor <iant@google.com>.
 
 // This file is part of gold.
@@ -38,7 +37,7 @@ namespace gold
 class General_options;
 class Object;
 class Relobj;
-struct Read_relocs_data;
+class Read_relocs_data;
 class Symbol;
 class Layout;
 class Output_data;
@@ -334,18 +333,6 @@ private:
     elfcpp::Swap<valsize, big_endian>::writeval(wv, x + value);
   }
 
-  // Like the above but for relocs at unaligned addresses.
-  template<int valsize>
-  static inline void
-  rel_unaligned(unsigned char* view,
-	        typename elfcpp::Swap<valsize, big_endian>::Valtype value)
-  {
-    typedef typename elfcpp::Swap_unaligned<valsize, big_endian>::Valtype
-	Valtype;
-    Valtype x = elfcpp::Swap_unaligned<valsize, big_endian>::readval(view);
-    elfcpp::Swap_unaligned<valsize, big_endian>::writeval(view, x + value);
-  }
-
   // Do a simple relocation using a Symbol_value with the addend in
   // the section contents.  VALSIZE is the size of the value to
   // relocate.
@@ -416,19 +403,6 @@ private:
     Valtype* wv = reinterpret_cast<Valtype*>(view);
     Valtype x = elfcpp::Swap<valsize, big_endian>::readval(wv);
     elfcpp::Swap<valsize, big_endian>::writeval(wv, x + value - address);
-  }
-
-  // Like the above but for relocs at unaligned addresses.
-  template<int valsize>
-  static inline void
-  pcrel_unaligned(unsigned char* view,
-		  typename elfcpp::Swap<valsize, big_endian>::Valtype value,
-		  typename elfcpp::Elf_types<size>::Elf_Addr address)
-  {
-    typedef typename elfcpp::Swap<valsize, big_endian>::Valtype Valtype;
-    Valtype x = elfcpp::Swap_unaligned<valsize, big_endian>::readval(view);
-    elfcpp::Swap_unaligned<valsize, big_endian>::writeval(view,
-							  x + value - address);
   }
 
   // Do a simple PC relative relocation with a Symbol_value with the
@@ -594,11 +568,6 @@ public:
   rel32(unsigned char* view, elfcpp::Elf_Word value)
   { This::template rel<32>(view, value); }
 
-  // Like above but for relocs at unaligned addresses.
-  static inline void
-  rel32_unaligned(unsigned char* view, elfcpp::Elf_Word value)
-  { This::template rel_unaligned<32>(view, value); }
-
   static inline void
   rel32(unsigned char* view,
 	const Sized_relobj_file<size, big_endian>* object,
@@ -630,12 +599,6 @@ public:
   pcrel32(unsigned char* view, elfcpp::Elf_Word value,
 	  typename elfcpp::Elf_types<size>::Elf_Addr address)
   { This::template pcrel<32>(view, value, address); }
-
-  // Unaligned version of the above.
-  static inline void
-  pcrel32_unaligned(unsigned char* view, elfcpp::Elf_Word value,
-		    typename elfcpp::Elf_types<size>::Elf_Addr address)
-  { This::template pcrel_unaligned<32>(view, value, address); }
 
   static inline void
   pcrel32(unsigned char* view,
@@ -716,122 +679,6 @@ public:
   { This::template pcrela<64>(view, object, psymval, addend, address); }
 };
 
-// Integer manipulation functions used by various targets when
-// performing relocations.
-
-template<int bits>
-class Bits
-{
- public:
-  // Sign extend an n-bit unsigned integer stored in a uint32_t into
-  // an int32_t.  BITS must be between 1 and 32.
-  static inline int32_t
-  sign_extend32(uint32_t val)
-  {
-    gold_assert(bits > 0 && bits <= 32);
-    if (bits == 32)
-      return static_cast<int32_t>(val);
-    uint32_t mask = (~static_cast<uint32_t>(0)) >> (32 - bits);
-    val &= mask;
-    uint32_t top_bit = 1U << (bits - 1);
-    int32_t as_signed = static_cast<int32_t>(val);
-    if ((val & top_bit) != 0)
-      as_signed -= static_cast<int32_t>(top_bit * 2);
-    return as_signed;    
-  }
-
-  // Return true if VAL (stored in a uint32_t) has overflowed a signed
-  // value with BITS bits.
-  static inline bool
-  has_overflow32(uint32_t val)
-  {
-    gold_assert(bits > 0 && bits <= 32);
-    if (bits == 32)
-      return false;
-    int32_t max = (1 << (bits - 1)) - 1;
-    int32_t min = -(1 << (bits - 1));
-    int32_t as_signed = static_cast<int32_t>(val);
-    return as_signed > max || as_signed < min;
-  }
-
-  // Return true if VAL (stored in a uint32_t) has overflowed both a
-  // signed and an unsigned value.  E.g.,
-  // Bits<8>::has_signed_unsigned_overflow32 would check -128 <= VAL <
-  // 255.
-  static inline bool
-  has_signed_unsigned_overflow32(uint32_t val)
-  {
-    gold_assert(bits > 0 && bits <= 32);
-    if (bits == 32)
-      return false;
-    int32_t max = static_cast<int32_t>((1U << bits) - 1);
-    int32_t min = -(1 << (bits - 1));
-    int32_t as_signed = static_cast<int32_t>(val);
-    return as_signed > max || as_signed < min;
-  }
-
-  // Select bits from A and B using bits in MASK.  For each n in
-  // [0..31], the n-th bit in the result is chosen from the n-th bits
-  // of A and B.  A zero selects A and a one selects B.
-  static inline uint32_t
-  bit_select32(uint32_t a, uint32_t b, uint32_t mask)
-  { return (a & ~mask) | (b & mask); }
-
-  // Sign extend an n-bit unsigned integer stored in a uint64_t into
-  // an int64_t.  BITS must be between 1 and 64.
-  static inline int64_t
-  sign_extend(uint64_t val)
-  {
-    gold_assert(bits > 0 && bits <= 64);
-    if (bits == 64)
-      return static_cast<int64_t>(val);
-    uint64_t mask = (~static_cast<uint64_t>(0)) >> (64 - bits);
-    val &= mask;
-    uint64_t top_bit = static_cast<uint64_t>(1) << (bits - 1);
-    int64_t as_signed = static_cast<int64_t>(val);
-    if ((val & top_bit) != 0)
-      as_signed -= static_cast<int64_t>(top_bit * 2);
-    return as_signed;    
-  }
-
-  // Return true if VAL (stored in a uint64_t) has overflowed a signed
-  // value with BITS bits.
-  static inline bool
-  has_overflow(uint64_t val)
-  {
-    gold_assert(bits > 0 && bits <= 64);
-    if (bits == 64)
-      return false;
-    int64_t max = (static_cast<int64_t>(1) << (bits - 1)) - 1;
-    int64_t min = -(static_cast<int64_t>(1) << (bits - 1));
-    int64_t as_signed = static_cast<int64_t>(val);
-    return as_signed > max || as_signed < min;
-  }
-
-  // Return true if VAL (stored in a uint64_t) has overflowed both a
-  // signed and an unsigned value.  E.g.,
-  // Bits<8>::has_signed_unsigned_overflow would check -128 <= VAL <
-  // 255.
-  static inline bool
-  has_signed_unsigned_overflow64(uint64_t val)
-  {
-    gold_assert(bits > 0 && bits <= 64);
-    if (bits == 64)
-      return false;
-    int64_t max = static_cast<int64_t>((static_cast<uint64_t>(1) << bits) - 1);
-    int64_t min = -(static_cast<int64_t>(1) << (bits - 1));
-    int64_t as_signed = static_cast<int64_t>(val);
-    return as_signed > max || as_signed < min;
-  }
-
-  // Select bits from A and B using bits in MASK.  For each n in
-  // [0..31], the n-th bit in the result is chosen from the n-th bits
-  // of A and B.  A zero selects A and a one selects B.
-  static inline uint64_t
-  bit_select64(uint64_t a, uint64_t b, uint64_t mask)
-  { return (a & ~mask) | (b & mask); }
-};
-
 // Track relocations while reading a section.  This lets you ask for
 // the relocation at a certain offset, and see how relocs occur
 // between points of interest.
@@ -872,16 +719,6 @@ class Track_relocs
   // of relocs which would be skipped.
   int
   advance(off_t offset);
-
-  // Checkpoint the current position in the reloc section.
-  section_size_type
-  checkpoint() const
-  { return this->pos_; }
-
-  // Reset the position to CHECKPOINT.
-  void
-  reset(section_size_type checkpoint)
-  { this->pos_ = checkpoint; }
 
  private:
   // The contents of the input object's reloc section.
