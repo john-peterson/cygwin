@@ -1,27 +1,10 @@
 ## Process this file with automake to generate Makefile.in
-#
-#   Copyright 2012 Free Software Foundation
-#
-# This file is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program; see the file COPYING3.  If not see
-# <http://www.gnu.org/licenses/>.
-#
 
 AUTOMAKE_OPTIONS = 1.11 no-dist foreign
 ACLOCAL_AMFLAGS = -I . -I .. -I ../config
 
 # Uncomment the following line when doing a release.
-# RELEASE=y
+RELEASE=y
 
 INCDIR = $(srcdir)/../include
 CSEARCH = -I. -I$(srcdir) -I$(INCDIR)
@@ -52,7 +35,7 @@ AM_CFLAGS = $(WARN_CFLAGS)
 AM_CPPFLAGS = -DBINDIR='"$(bindir)"'
 if PLUGINS
 bfdinclude_HEADERS += $(INCDIR)/plugin-api.h
-LIBDL = @lt_cv_dlopen_libs@
+LIBDL = -ldl
 endif
 
 # bfd.h goes here, for now
@@ -88,7 +71,6 @@ BFD64_LIBS_CFILES = archive64.c
 # This list is alphabetized to make it easier to keep in sync
 # with the decls and initializer in archures.c.
 ALL_MACHINES = \
-	cpu-aarch64.lo \
 	cpu-alpha.lo \
 	cpu-arc.lo \
 	cpu-arm.lo \
@@ -101,7 +83,6 @@ ALL_MACHINES = \
 	cpu-d10v.lo \
 	cpu-d30v.lo \
 	cpu-dlx.lo \
-	cpu-epiphany.lo \
 	cpu-fr30.lo \
 	cpu-frv.lo \
 	cpu-h8300.lo \
@@ -123,13 +104,10 @@ ALL_MACHINES = \
 	cpu-m32r.lo \
 	cpu-m68hc11.lo \
 	cpu-m68hc12.lo \
-	cpu-m9s12x.lo \
-	cpu-m9s12xg.lo \
 	cpu-m68k.lo \
 	cpu-m88k.lo \
 	cpu-mcore.lo \
 	cpu-mep.lo \
-	cpu-metag.lo \
 	cpu-microblaze.lo \
 	cpu-mips.lo \
 	cpu-mmix.lo \
@@ -144,7 +122,6 @@ ALL_MACHINES = \
 	cpu-plugin.lo \
 	cpu-powerpc.lo \
 	cpu-rs6000.lo \
-	cpu-rl78.lo \
 	cpu-rx.lo \
 	cpu-s390.lo \
 	cpu-score.lo \
@@ -159,19 +136,16 @@ ALL_MACHINES = \
 	cpu-tilegx.lo \
 	cpu-tilepro.lo \
 	cpu-v850.lo \
-	cpu-v850_rh850.lo \
 	cpu-vax.lo \
 	cpu-w65.lo \
 	cpu-we32k.lo \
 	cpu-xc16x.lo \
-	cpu-xgate.lo \
 	cpu-xstormy16.lo \
 	cpu-xtensa.lo \
 	cpu-z80.lo \
 	cpu-z8k.lo
 
 ALL_MACHINES_CFILES = \
-	cpu-aarch64.c \
 	cpu-alpha.c \
 	cpu-arc.c \
 	cpu-arm.c \
@@ -184,7 +158,6 @@ ALL_MACHINES_CFILES = \
 	cpu-d10v.c \
 	cpu-d30v.c \
 	cpu-dlx.c \
-	cpu-epiphany.c \
 	cpu-fr30.c \
 	cpu-frv.c \
 	cpu-h8300.c \
@@ -206,13 +179,10 @@ ALL_MACHINES_CFILES = \
 	cpu-m32r.c \
 	cpu-m68hc11.c \
 	cpu-m68hc12.c \
-	cpu-m9s12x.c \
-	cpu-m9s12xg.c \
 	cpu-m68k.c \
 	cpu-m88k.c \
 	cpu-mcore.c \
 	cpu-mep.c \
-	cpu-metag.c \
 	cpu-microblaze.c \
 	cpu-mips.c \
 	cpu-mmix.c \
@@ -227,7 +197,6 @@ ALL_MACHINES_CFILES = \
 	cpu-plugin.c \
 	cpu-powerpc.c \
 	cpu-rs6000.c \
-	cpu-rl78.c \
 	cpu-rx.c \
 	cpu-s390.c \
 	cpu-score.c \
@@ -242,12 +211,10 @@ ALL_MACHINES_CFILES = \
 	cpu-tilegx.c \
 	cpu-tilepro.c \
 	cpu-v850.c \
-	cpu-v850_rh850.c \
 	cpu-vax.c \
 	cpu-w65.c \
 	cpu-we32k.c \
 	cpu-xc16x.c \
-	cpu-xgate.c \
 	cpu-xstormy16.c \
 	cpu-xtensa.c \
 	cpu-z80.c \
@@ -304,7 +271,6 @@ BFD32_BACKENDS = \
 	elf-ifunc.lo \
 	elf-m10200.lo \
 	elf-m10300.lo \
-	elf-nacl.lo \
 	elf-strtab.lo \
 	elf-vxworks.lo \
 	elf.lo \
@@ -320,7 +286,6 @@ BFD32_BACKENDS = \
 	elf32-d10v.lo \
 	elf32-d30v.lo \
 	elf32-dlx.lo \
-	elf32-epiphany.lo \
 	elf32-fr30.lo \
 	elf32-frv.lo \
 	elf32-gen.lo \
@@ -342,7 +307,6 @@ BFD32_BACKENDS = \
 	elf32-m88k.lo \
 	elf32-mcore.lo \
 	elf32-mep.lo \
-	elf32-metag.lo \
 	elf32-microblaze.lo \
 	elf32-mips.lo \
 	elf32-moxie.lo \
@@ -352,7 +316,6 @@ BFD32_BACKENDS = \
 	elf32-or32.lo \
 	elf32-pj.lo \
 	elf32-ppc.lo \
-	elf32-rl78.lo \
 	elf32-rx.lo \
 	elf32-s390.lo \
 	elf32-sh-symbian.lo \
@@ -367,7 +330,6 @@ BFD32_BACKENDS = \
 	elf32-v850.lo \
 	elf32-vax.lo \
 	elf32-xc16x.lo \
-	elf32-xgate.lo \
 	elf32-xstormy16.lo \
 	elf32-xtensa.lo \
 	elf32.lo \
@@ -493,7 +455,6 @@ BFD32_BACKENDS_CFILES = \
 	elf-ifunc.c \
 	elf-m10200.c \
 	elf-m10300.c \
-	elf-nacl.c \
 	elf-strtab.c \
 	elf-vxworks.c \
 	elf.c \
@@ -509,7 +470,6 @@ BFD32_BACKENDS_CFILES = \
 	elf32-d10v.c \
 	elf32-d30v.c \
 	elf32-dlx.c \
-	elf32-epiphany.c \
 	elf32-fr30.c \
 	elf32-frv.c \
 	elf32-gen.c \
@@ -531,7 +491,6 @@ BFD32_BACKENDS_CFILES = \
 	elf32-m88k.c \
 	elf32-mcore.c \
 	elf32-mep.c \
-	elf32-metag.c \
 	elf32-microblaze.c \
 	elf32-mips.c \
 	elf32-moxie.c \
@@ -541,7 +500,6 @@ BFD32_BACKENDS_CFILES = \
 	elf32-or32.c \
 	elf32-pj.c \
 	elf32-ppc.c \
-	elf32-rl78.c \
 	elf32-rx.c \
 	elf32-s390.c \
 	elf32-sh-symbian.c \
@@ -556,7 +514,6 @@ BFD32_BACKENDS_CFILES = \
 	elf32-v850.c \
 	elf32-vax.c \
 	elf32-xc16x.c \
-	elf32-xgate.c \
 	elf32-xstormy16.c \
 	elf32-xtensa.c \
 	elf32.c \
@@ -638,14 +595,12 @@ BFD32_BACKENDS_CFILES = \
 # elf32-ia64.c requires a 64-bit bfd_vma, and hence can not be put in
 # BFD32_BACKENDS.
 BFD64_BACKENDS = \
-	elf64-aarch64.lo \
 	aix5ppc-core.lo \
 	aout64.lo \
 	coff-alpha.lo \
 	coff-x86_64.lo \
 	coff64-rs6000.lo \
 	demo64.lo \
-	elf-nacl.lo \
 	elf32-ia64.lo \
 	elf32-score.lo \
 	elf32-score7.lo \
@@ -653,7 +608,6 @@ BFD64_BACKENDS = \
 	elf64-gen.lo \
 	elf64-hppa.lo \
 	elf64-ia64.lo \
-	elf64-ia64-vms.lo \
 	elf64-mips.lo \
 	elf64-mmix.lo \
 	elf64-ppc.lo \
@@ -677,20 +631,17 @@ BFD64_BACKENDS = \
 	vms-alpha.lo
 
 BFD64_BACKENDS_CFILES = \
-	elf64-aarch64.c \
 	aix5ppc-core.c \
 	aout64.c \
 	coff-alpha.c \
 	coff-x86_64.c \
 	coff64-rs6000.c \
 	demo64.c \
-	elf-nacl.c \
 	elf32-score.c \
 	elf32-score7.c \
 	elf64-alpha.c \
 	elf64-gen.c \
 	elf64-hppa.c \
-	elf64-ia64-vms.c \
 	elf64-mips.c \
 	elf64-mmix.c \
 	elf64-ppc.c \
