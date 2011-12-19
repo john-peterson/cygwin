@@ -356,15 +356,9 @@ Symbol_table::resolve(Sized_symbol<size>* to,
 				    &adjust_dyndef))
     {
       elfcpp::STB tobinding = to->binding();
-      typename Sized_symbol<size>::Value_type tovalue = to->value();
       this->override(to, sym, st_shndx, is_ordinary, object, version);
-      if (adjust_common_sizes)
-	{
-	  if (tosize > to->symsize())
-	    to->set_symsize(tosize);
-	  if (tovalue > to->value())
-	    to->set_value(tovalue);
-	}
+      if (adjust_common_sizes && tosize > to->symsize())
+        to->set_symsize(tosize);
       if (adjust_dyndef)
 	{
 	  // We are overriding an UNDEF or WEAK UNDEF with a DYN DEF.
@@ -374,13 +368,8 @@ Symbol_table::resolve(Sized_symbol<size>* to,
     }
   else
     {
-      if (adjust_common_sizes)
-	{
-	  if (sym.get_st_size() > tosize)
-	    to->set_symsize(sym.get_st_size());
-	  if (sym.get_st_value() > to->value())
-	    to->set_value(sym.get_st_value());
-	}
+      if (adjust_common_sizes && sym.get_st_size() > tosize)
+        to->set_symsize(sym.get_st_size());
       if (adjust_dyndef)
 	{
 	  // We are keeping a DYN DEF after seeing an UNDEF or WEAK UNDEF.

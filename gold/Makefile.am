@@ -1,22 +1,4 @@
-## Process this file with automake to generate Makefile.in
-#
-#  Copyright 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-#  Free Software Foundation, Inc.
-#
-# This file is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program; see the file COPYING3.  If not see
-# <http://www.gnu.org/licenses/>.
-#
+# Process this file with automake to generate Makefile.in
 
 AUTOMAKE_OPTIONS = foreign
 
@@ -33,12 +15,12 @@ AM_CPPFLAGS = \
 	-I$(srcdir) -I$(srcdir)/../include -I$(srcdir)/../elfcpp \
 	-DLOCALEDIR="\"$(datadir)/locale\"" \
 	-DBINDIR="\"$(bindir)\"" -DTOOLBINDIR="\"$(tooldir)/bin\"" \
-	-DTOOLLIBDIR="\"$(tooldir)/lib\"" @INCINTL@
+	@INCINTL@
 
 LIBIBERTY = ../libiberty/libiberty.a
 
 if PLUGINS
-LIBDL = @DLOPEN_LIBS@
+LIBDL = -ldl
 endif
 
 if THREADS
@@ -51,8 +33,6 @@ AM_YFLAGS = -d
 # maintainer mode is disabled.  Avoid this.
 am__skiplex =
 am__skipyacc =
-
-bin_PROGRAMS = dwp
 
 noinst_PROGRAMS = ld-new incremental-dump
 noinst_LIBRARIES = libgold.a
@@ -75,7 +55,6 @@ CCFILES = \
 	expression.cc \
 	fileread.cc \
         gc.cc \
-        gdb-index.cc \
 	gold.cc \
 	gold-threads.cc \
 	icf.cc \
@@ -84,7 +63,6 @@ CCFILES = \
 	layout.cc \
 	mapfile.cc \
 	merge.cc \
-	nacl.cc \
 	object.cc \
 	options.cc \
 	output.cc \
@@ -124,7 +102,6 @@ HFILES = \
 	fileread.h \
 	freebsd.h \
         gc.h \
-        gdb-index.h \
 	gold.h \
 	gold-threads.h \
 	icf.h \
@@ -132,7 +109,6 @@ HFILES = \
 	layout.h \
 	mapfile.h \
 	merge.h \
-	nacl.h \
 	object.h \
 	options.h \
 	output.h \
@@ -164,11 +140,11 @@ DEFFILES = arm-reloc.def
 EXTRA_DIST = yyscript.c yyscript.h
 
 TARGETSOURCES = \
-	i386.cc x86_64.cc sparc.cc powerpc.cc arm.cc arm-reloc-property.cc tilegx.cc
+	i386.cc x86_64.cc sparc.cc powerpc.cc arm.cc arm-reloc-property.cc
 
 ALL_TARGETOBJS = \
 	i386.$(OBJEXT) x86_64.$(OBJEXT) sparc.$(OBJEXT) powerpc.$(OBJEXT) \
-	arm.$(OBJEXT) arm-reloc-property.$(OBJEXT) tilegx.$(OBJEXT)
+	arm.$(OBJEXT) arm-reloc-property.$(OBJEXT)
 
 libgold_a_SOURCES = $(CCFILES) $(HFILES) $(YFILES) $(DEFFILES)
 libgold_a_LIBADD = $(LIBOBJS)
@@ -191,12 +167,6 @@ incremental_dump_DEPENDENCIES = $(TARGETOBJS) libgold.a $(LIBIBERTY) \
 	$(LIBINTL_DEP)
 incremental_dump_LDADD = $(TARGETOBJS) libgold.a $(LIBIBERTY) $(LIBINTL) \
 	 $(THREADSLIB) $(LIBDL)
-
-dwp_SOURCES = dwp.cc
-dwp_DEPENDENCIES = libgold.a $(LIBIBERTY) $(LIBINTL_DEP)
-dwp_LDADD = libgold.a $(LIBIBERTY) $(GOLD_LDADD) $(LIBINTL) $(THREADSLIB) \
-	$(LIBDL)
-dwp_LDFLAGS = $(GOLD_LDFLAGS)
 
 # Use an explicit dependency for the bison generated header file.
 expression.$(OBJEXT): yyscript.h

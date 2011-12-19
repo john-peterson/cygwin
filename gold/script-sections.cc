@@ -582,7 +582,7 @@ class Sections_element
   // Output_section_definition.
   virtual const char*
   output_section_name(const char*, const char*, Output_section***,
-		      Script_sections::Section_type*, bool*)
+		      Script_sections::Section_type*)
   { return NULL; }
 
   // Initialize OSP with an output section.
@@ -800,7 +800,7 @@ class Output_section_element
   // Return whether this element matches FILE_NAME and SECTION_NAME.
   // The only real implementation is in Output_section_element_input.
   virtual bool
-  match_name(const char*, const char*, bool *) const
+  match_name(const char*, const char*) const
   { return false; }
 
   // Set section addresses.  This includes applying assignments if the
@@ -1238,10 +1238,10 @@ class Output_section_element_input : public Output_section_element
     *dot_section = this->final_dot_section_;
   }
 
-  // See whether we match FILE_NAME and SECTION_NAME as an input section.
-  // If we do then also indicate whether the section should be KEPT.
+  // See whether we match FILE_NAME and SECTION_NAME as an input
+  // section.
   bool
-  match_name(const char* file_name, const char* section_name, bool* keep) const;
+  match_name(const char* file_name, const char* section_name) const;
 
   // Set the section address.
   void
@@ -1393,18 +1393,14 @@ Output_section_element_input::match_file_name(const char* file_name) const
   return true;
 }
 
-// See whether we match FILE_NAME and SECTION_NAME.  If we do then
-// KEEP indicates whether the section should survive garbage collection.
+// See whether we match FILE_NAME and SECTION_NAME.
 
 bool
 Output_section_element_input::match_name(const char* file_name,
-					 const char* section_name,
-					 bool *keep) const
+					 const char* section_name) const
 {
   if (!this->match_file_name(file_name))
     return false;
-
-  *keep = this->keep_;
 
   // If there are no section name patterns, then we match.
   if (this->input_section_patterns_.empty())
@@ -1865,8 +1861,7 @@ class Output_section_definition : public Sections_element
   // section name.
   const char*
   output_section_name(const char* file_name, const char* section_name,
-		      Output_section***, Script_sections::Section_type*,
-		      bool*);
+		      Output_section***, Script_sections::Section_type*);
 
   // Initialize OSP with an output section.
   void
@@ -2151,15 +2146,14 @@ Output_section_definition::output_section_name(
     const char* file_name,
     const char* section_name,
     Output_section*** slot,
-    Script_sections::Section_type* psection_type,
-    bool* keep)
+    Script_sections::Section_type* psection_type)
 {
   // Ask each element whether it matches NAME.
   for (Output_section_elements::const_iterator p = this->elements_.begin();
        p != this->elements_.end();
        ++p)
     {
-      if ((*p)->match_name(file_name, section_name, keep))
+      if ((*p)->match_name(file_name, section_name))
 	{
 	  // We found a match for NAME, which means that it should go
 	  // into this output section.
@@ -2293,15 +2287,6 @@ Output_section_definition::set_section_addresses(Symbol_table* symtab,
   uint64_t address;
   uint64_t old_dot_value = *dot_value;
   uint64_t old_load_address = *load_address;
-
-  // If input section sorting is requested via --section-ordering-file or
-  // linker plugins, then do it here.  This is important because we want 
-  // any sorting specified in the linker scripts, which will be done after
-  // this, to take precedence.  The final order of input sections is then 
-  // guaranteed to be according to the linker script specification.
-  if (this->output_section_ != NULL
-      && this->output_section_->input_section_order_specified())
-    this->output_section_->sort_attached_input_sections();
 
   // Decide the start address for the section.  The algorithm is:
   // 1) If an address has been specified in a linker script, use that.
@@ -2874,15 +2859,6 @@ Orphan_output_section::set_section_addresses(Symbol_table*, Layout*,
   uint64_t address = *dot_value;
   address = align_address(address, this->os_->addralign());
 
-  // If input section sorting is requested via --section-ordering-file or
-  // linker plugins, then do it here.  This is important because we want 
-  // any sorting specified in the linker scripts, which will be done after
-  // this, to take precedence.  The final order of input sections is then 
-  // guaranteed to be according to the linker script specification.
-  if (this->os_ != NULL
-      && this->os_->input_section_order_specified())
-    this->os_->sort_attached_input_sections();
-
   // For a relocatable link, all orphan sections are put at
   // address 0.  In general we expect all sections to be at
   // address 0 for a relocatable link, but we permit the linker
@@ -3389,8 +3365,7 @@ Script_sections::output_section_name(
     const char* file_name,
     const char* section_name,
     Output_section*** output_section_slot,
-    Script_sections::Section_type* psection_type,
-    bool* keep)
+    Script_sections::Section_type* psection_type)
 {
   for (Sections_elements::const_iterator p = this->sections_elements_->begin();
        p != this->sections_elements_->end();
@@ -3398,7 +3373,7 @@ Script_sections::output_section_name(
     {
       const char* ret = (*p)->output_section_name(file_name, section_name,
 						  output_section_slot,
-						  psection_type, keep);
+						  psection_type);
 
       if (ret != NULL)
 	{
