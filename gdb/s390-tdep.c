@@ -1,6 +1,7 @@
 /* Target-dependent code for GDB, the GNU debugger.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+   2011 Free Software Foundation, Inc.
 
    Contributed by D.J. Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com)
    for IBM Deutschland Entwicklung GmbH, IBM Corporation.
@@ -45,13 +46,6 @@
 #include "linux-tdep.h"
 #include "s390-tdep.h"
 
-#include "stap-probe.h"
-#include "ax.h"
-#include "ax-gdb.h"
-#include "user-regs.h"
-#include "cli/cli-utils.h"
-#include <ctype.h>
-
 #include "features/s390-linux32.c"
 #include "features/s390-linux32v1.c"
 #include "features/s390-linux32v2.c"
@@ -61,6 +55,7 @@
 #include "features/s390x-linux64.c"
 #include "features/s390x-linux64v1.c"
 #include "features/s390x-linux64v2.c"
+
 
 /* The tdep structure.  */
 
@@ -376,11 +371,9 @@ s390_value_from_register (struct type *type, int regnum,
 			  struct frame_info *frame)
 {
   struct value *value = default_value_from_register (type, regnum, frame);
+  int len = TYPE_LENGTH (check_typedef (type));
 
-  check_typedef (type);
-
-  if (regnum >= S390_F0_REGNUM && regnum <= S390_F15_REGNUM
-      && TYPE_LENGTH (type) < 8)
+  if (regnum >= S390_F0_REGNUM && regnum <= S390_F15_REGNUM && len < 8)
     set_value_offset (value, 0);
 
   return value;
@@ -1168,6 +1161,7 @@ s390_load (struct s390_prologue_data *data,
 	   
 {
   pv_t addr = s390_addr (data, d2, x2, b2);
+  pv_t offset;
 
   /* If it's a load from an in-line constant pool, then we can
      simulate that, under the assumption that the code isn't
@@ -1461,14 +1455,13 @@ s390_analyze_prologue (struct gdbarch *gdbarch,
 	break;
 
       else
-	{
-	  /* An instruction we don't know how to simulate.  The only
-	     safe thing to do would be to set every value we're tracking
-	     to 'unknown'.  Instead, we'll be optimistic: we assume that
-	     we *can* interpret every instruction that the compiler uses
-	     to manipulate any of the data we're interested in here --
-	     then we can just ignore anything else.  */
-	}
+        /* An instruction we don't know how to simulate.  The only
+           safe thing to do would be to set every value we're tracking
+           to 'unknown'.  Instead, we'll be optimistic: we assume that
+	   we *can* interpret every instruction that the compiler uses
+	   to manipulate any of the data we're interested in here --
+	   then we can just ignore anything else.  */
+        ;
 
       /* Record the address after the last instruction that changed
          the FP, SP, or backlink.  Ignore instructions that changed
@@ -2492,7 +2485,8 @@ is_power_of_two (unsigned int n)
 static int
 s390_function_arg_pass_by_reference (struct type *type)
 {
-  if (TYPE_LENGTH (type) > 8)
+  unsigned length = TYPE_LENGTH (type);
+  if (length > 8)
     return 1;
 
   return (is_struct_like (type) && !is_power_of_two (TYPE_LENGTH (type)))
@@ -2505,7 +2499,8 @@ s390_function_arg_pass_by_reference (struct type *type)
 static int
 s390_function_arg_float (struct type *type)
 {
-  if (TYPE_LENGTH (type) > 8)
+  unsigned length = TYPE_LENGTH (type);
+  if (length > 8)
     return 0;
 
   return is_float_like (type);
@@ -2516,12 +2511,13 @@ s390_function_arg_float (struct type *type)
 static int
 s390_function_arg_integer (struct type *type)
 {
-  if (TYPE_LENGTH (type) > 8)
+  unsigned length = TYPE_LENGTH (type);
+  if (length > 8)
     return 0;
 
    return is_integer_like (type)
 	  || is_pointer_like (type)
-	  || (is_struct_like (type) && is_power_of_two (TYPE_LENGTH (type)));
+	  || (is_struct_like (type) && is_power_of_two (length));
 }
 
 /* Return ARG, a `SIMPLE_ARG', sign-extended or zero-extended to a full
@@ -2616,10 +2612,11 @@ s390_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
     {
       struct value *arg = args[i];
       struct type *type = check_typedef (value_type (arg));
+      unsigned length = TYPE_LENGTH (type);
 
       if (s390_function_arg_pass_by_reference (type))
         {
-          sp -= TYPE_LENGTH (type);
+          sp -= length;
           sp = align_down (sp, alignment_of (type));
           copy_addr[i] = sp;
         }
@@ -2798,7 +2795,8 @@ s390_frame_align (struct gdbarch *gdbarch, CORE_ADDR addr)
 static enum return_value_convention
 s390_return_value_convention (struct gdbarch *gdbarch, struct type *type)
 {
-  if (TYPE_LENGTH (type) > 8)
+  int length = TYPE_LENGTH (type);
+  if (length > 8)
     return RETURN_VALUE_STRUCT_CONVENTION;
 
   switch (TYPE_CODE (type))
@@ -2815,7 +2813,7 @@ s390_return_value_convention (struct gdbarch *gdbarch, struct type *type)
 }
 
 static enum return_value_convention
-s390_return_value (struct gdbarch *gdbarch, struct value *function,
+s390_return_value (struct gdbarch *gdbarch, struct type *func_type,
 		   struct type *type, struct regcache *regcache,
 		   gdb_byte *out, const gdb_byte *in)
 {
@@ -2954,18 +2952,6 @@ s390_address_class_name_to_type_flags (struct gdbarch *gdbarch,
     }
   else
     return 0;
-}
-
-/* Implementation of `gdbarch_stap_is_single_operand', as defined in
-   gdbarch.h.  */
-
-static int
-s390_stap_is_single_operand (struct gdbarch *gdbarch, const char *s)
-{
-  return ((isdigit (*s) && s[1] == '(' && s[2] == '%') /* Displacement
-							  or indirection.  */
-	  || *s == '%' /* Register access.  */
-	  || isdigit (*s)); /* Literal number.  */
 }
 
 /* Set up gdbarch struct.  */
@@ -3297,12 +3283,6 @@ s390_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
                                              svr4_fetch_objfile_link_map);
 
   set_gdbarch_get_siginfo_type (gdbarch, linux_get_siginfo_type);
-
-  /* SystemTap functions.  */
-  set_gdbarch_stap_register_prefix (gdbarch, "%");
-  set_gdbarch_stap_register_indirection_prefix (gdbarch, "(");
-  set_gdbarch_stap_register_indirection_suffix (gdbarch, ")");
-  set_gdbarch_stap_is_single_operand (gdbarch, s390_stap_is_single_operand);
 
   return gdbarch;
 }
