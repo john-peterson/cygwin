@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2013 Free Software Foundation, Inc.
+# Copyright (C) 2011 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,6 +16,10 @@
 # This file is part of the GDB testsuite.  It tests the mechanism
 # exposing values to Python.
 
+if $tracelevel then {
+    strace $tracelevel
+}
+
 if {[skip_shlib_tests]} {
 	untested py-finish-breakpoint.exp
     return 0
@@ -25,13 +29,15 @@ load_lib gdb-python.exp
 
 set libfile "py-events-shlib"
 set libsrc  $srcdir/$subdir/$libfile.c
-set lib_sl  [standard_output_file $libfile-nodebug.so]
+set lib_sl  $objdir/$subdir/$libfile-nodebug.so
 set lib_opts ""
 
-standard_testfile
+set testfile "py-finish-breakpoint"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
 set exec_opts [list debug shlib=$lib_sl]
 
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1
 }
 
@@ -43,15 +49,6 @@ if { [gdb_compile_shlib $libsrc $lib_sl $lib_opts] != ""
 
 # Start with a fresh gdb.
 clean_restart ${testfile}
-
-if { [skip_python_tests] } { continue }
-
-if { $gdb_py_is_py24 == 1 } {
-    # Python 2.4, 2.5 do not support the "ValueError as e" syntax used in
-    # the py-finish-breakpoint.py script.
-	untested py-finish-breakpoint.exp
-    return 0
-}
 
 set python_file ${srcdir}/${subdir}/${testfile}.py
 
@@ -83,17 +80,17 @@ gdb_test "python finishbp_default = gdb.FinishBreakpoint ()" \
          "Temporary breakpoint.*" "set FinishBreakpoint with default frame value"
 gdb_test "python finishbp = MyFinishBreakpoint (gdb.parse_and_eval ('a'), gdb.newest_frame ())" \
          "Temporary breakpoint.*" "set FinishBreakpoint"
-gdb_test "python print (finishbp.return_value)" "None.*" \
+gdb_test "python print finishbp.return_value" "None.*" \
          "check return_value at init"
 
 # check normal bp hit
 
 gdb_test "continue" "MyFinishBreakpoint stop with.*return_value is: -5.*#0.*increase.*" \
          "check MyFinishBreakpoint hit"
-gdb_test "python print (finishbp.return_value)" "-5.*" "check return_value"
+gdb_test "python print finishbp.return_value" "-5.*" "check return_value"
 
-gdb_test "python print (finishbp_default.hit_count)" "1.*" "check finishBP on default frame has been hit"
-gdb_test "python print (finishbp.is_valid())" "False.*"\
+gdb_test "python print finishbp_default.hit_count" "1.*" "check finishBP on default frame has been hit"
+gdb_test "python print finishbp.is_valid()" "False.*"\
          "ensure that finish bp is invalid afer normal hit"
 
 # check FinishBreakpoint in main no allowed
@@ -121,14 +118,13 @@ if ![runto_main] then {
 
 gdb_test "print do_nothing" "no debug info.*" "ensure that shared lib has no debug info"
 gdb_breakpoint "do_nothing" {temporary}
-gdb_test "continue" "Temporary breakpoint .*in \\.?do_nothing.*" \
-         "continue to do_nothing"
+gdb_test "continue" "Temporary breakpoint .*in do_nothing.*" "continue to do_nothing"
 
 gdb_test "python finishBP = SimpleFinishBreakpoint(gdb.newest_frame())" \
          "SimpleFinishBreakpoint init" \
          "set finish breakpoint"
 gdb_test "continue" "SimpleFinishBreakpoint stop.*" "check FinishBreakpoint hit"
-gdb_test "python print (finishBP.return_value)" "None" "check return value without debug symbol"
+gdb_test "python print finishBP.return_value" "None" "check return value without debug symbol"
 
 #
 # Test FinishBreakpoint in function returned by longjmp 
@@ -152,7 +148,7 @@ gdb_test "break [gdb_get_line_number "after longjmp."]" "Breakpoint.* at .*" \
          "set BP after the jump"
 gdb_test "continue" "SimpleFinishBreakpoint out of scope.*" \
          "check FinishBP out of scope notification"
-gdb_test "python print (finishbp.is_valid())" "False.*"\
+gdb_test "python print finishbp.is_valid()" "False.*"\
          "ensure that finish bp is invalid afer out of scope notification"
 
 #
@@ -251,7 +247,6 @@ if ![runto "test_exec_exit"] then {
     return 0
 }
 
-gdb_test_no_output "set var self_exec = 0" "switch to exit() test"
 gdb_test "python SimpleFinishBreakpoint(gdb.newest_frame())" "SimpleFinishBreakpoint init" "set FinishBP after the exit()"
 gdb_test "continue" "SimpleFinishBreakpoint out of scope.*" "catch out of scope after exit"
 
@@ -264,6 +259,7 @@ if ![runto "test_exec_exit"] then {
     return 0
 }     
 
+gdb_test_no_output "set var do_exit = 0" "switch to execve() test"
 gdb_test "python SimpleFinishBreakpoint(gdb.newest_frame())" "SimpleFinishBreakpoint init" "set FinishBP after the exec"
 gdb_test "catch exec" "Catchpoint.*\(exec\).*" "catch exec"
 gdb_test "continue" "SimpleFinishBreakpoint out of scope.*" "catch out of scope after exec"
