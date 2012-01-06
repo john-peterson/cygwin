@@ -1,6 +1,7 @@
 /* Output generating routines for GDB.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999-2003, 2005, 2007-2012 Free Software Foundation,
+   Inc.
 
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
@@ -48,6 +49,17 @@ enum ui_flags
   {
     ui_from_tty = 1,
     ui_source_list = 2
+  };
+
+
+/* The ui_out stream structure.  */
+/* NOTE: cagney/2000-02-01: The ui_stream object can be subsumed by
+   the more generic ui_file object.  */
+
+struct ui_stream
+  {
+    struct ui_out *uiout;
+    struct ui_file *stream;
   };
 
 
@@ -110,7 +122,7 @@ extern void ui_out_field_string (struct ui_out * uiout, const char *fldname,
 				 const char *string);
 
 extern void ui_out_field_stream (struct ui_out *uiout, const char *fldname,
-				 struct ui_file *stream);
+				 struct ui_stream *buf);
 
 extern void ui_out_field_fmt (struct ui_out *uiout, const char *fldname,
 			      const char *format, ...)
@@ -126,6 +138,12 @@ extern void ui_out_message (struct ui_out *uiout, int verbosity,
 			    const char *format, ...)
      ATTRIBUTE_PRINTF (3, 4);
 
+extern struct ui_stream *ui_out_stream_new (struct ui_out *uiout);
+
+extern void ui_out_stream_delete (struct ui_stream *buf);
+
+struct cleanup *make_cleanup_ui_out_stream_delete (struct ui_stream *buf);
+
 extern void ui_out_wrap_hint (struct ui_out *uiout, char *identstring);
 
 extern void ui_out_flush (struct ui_out *uiout);
@@ -140,6 +158,30 @@ extern int ui_out_test_flags (struct ui_out *uiout, int mask);
 
 extern int ui_out_query_field (struct ui_out *uiout, int colno,
 			       int *width, int *alignment, char **col_name);
+
+#if 0
+extern void ui_out_result_begin (struct ui_out *uiout, char *class);
+
+extern void ui_out_result_end (struct ui_out *uiout);
+
+extern void ui_out_info_begin (struct ui_out *uiout, char *class);
+
+extern void ui_out_info_end (struct ui_out *uiout);
+
+extern void ui_out_notify_begin (struct ui_out *uiout, char *class);
+
+extern void ui_out_notify_end (struct ui_out *uiout);
+
+extern void ui_out_error_begin (struct ui_out *uiout, char *class);
+
+extern void ui_out_error_end (struct ui_out *uiout);
+#endif
+
+#if 0
+extern void gdb_error (struct ui_out *uiout, int severity, char *format, ...);
+
+extern void gdb_query (struct ui_out *uiout, int qflags, char *qprompt);
+#endif
 
 /* HACK: Code in GDB is currently checking to see the type of ui_out
    builder when determining which output to produce.  This function is

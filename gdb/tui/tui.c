@@ -1,6 +1,6 @@
 /* General functions for the WDB TUI.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998-2004, 2007-2012 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -240,17 +240,12 @@ tui_rl_command_key (int count, int key)
     {
       if (tui_commands[i].key == key)
         {
-          /* Insert the command in the readline buffer.
-             Avoid calling the gdb command here since it creates
-             a possible recursion on readline if prompt_for_continue
-             is called (See PR 9584).  The command will also appear
-             in the readline history which turns out to be better.  */
-          rl_insert_text (tui_commands[i].cmd);
-          rl_newline (1, '\n');
+          /* Must save the command because it can be modified by
+             execute_command.  */
+          char *cmd = alloca (strlen (tui_commands[i].cmd) + 1);
 
-          /* Switch to gdb command mode while executing the command.
-             This way the gdb's continue prompty will be displayed.  */
-          tui_set_key_mode (TUI_ONE_COMMAND_MODE);
+          strcpy (cmd, tui_commands[i].cmd);
+          execute_command (cmd, TRUE);
           return 0;
         }
     }
@@ -289,7 +284,7 @@ static int
 tui_rl_startup_hook (void)
 {
   rl_already_prompted = 1;
-  if (tui_current_key_mode != TUI_COMMAND_MODE && immediate_quit == 0)
+  if (tui_current_key_mode != TUI_COMMAND_MODE)
     tui_set_key_mode (TUI_SINGLE_KEY_MODE);
   tui_redisplay_readline ();
   return 0;

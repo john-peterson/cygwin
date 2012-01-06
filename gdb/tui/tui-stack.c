@@ -1,6 +1,6 @@
 /* TUI display locator.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998-2004, 2006-2012 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -94,7 +94,7 @@ tui_make_status_line (struct tui_locator_element *loc)
 
   /* Translate line number and obtain its size.  */
   if (loc->line_no > 0)
-    xsnprintf (line_buf, sizeof (line_buf), "%d", loc->line_no);
+    sprintf (line_buf, "%d", loc->line_no);
   else
     strcpy (line_buf, "??");
   line_width = strlen (line_buf);
@@ -228,7 +228,6 @@ tui_get_function_from_frame (struct frame_info *fi)
   if (*p == '<')
     p++;
   strncpy (name, p, sizeof (name) - 1);
-  name[sizeof (name) - 1] = 0;
   p = strchr (name, '(');
   if (!p)
     p = strchr (name, '>');
@@ -379,8 +378,7 @@ tui_show_frame_info (struct frame_info *fi)
 	    }
 	  else
 	    {
-	      if (find_pc_partial_function (get_frame_pc (fi),
-					    (const char **) NULL,
+	      if (find_pc_partial_function (get_frame_pc (fi), (char **) NULL,
 					    &low, (CORE_ADDR) 0) == 0)
 		{
 		  /* There is no symbol available for current PC.  There is no

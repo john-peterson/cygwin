@@ -1,5 +1,5 @@
 /* Data structures associated with tracepoints in GDB.
-   Copyright (C) 1997-2013 Free Software Foundation, Inc.
+   Copyright (C) 1997-2000, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,7 +22,6 @@
 #include "breakpoint.h"
 #include "target.h"
 #include "memrange.h"
-#include "gdb_vecs.h"
 
 /* A trace state variable is a value managed by a target being
    traced.  A trace state variable (or tsv for short) can be accessed
@@ -144,6 +143,8 @@ extern char *default_collect;
 
 /* Struct to collect random info about tracepoints on the target.  */
 
+DEF_VEC_P (char_ptr);
+
 struct uploaded_tp
 {
   int number;
@@ -209,7 +210,6 @@ extern void parse_static_tracepoint_marker_definition
   (char *line, char **pp,
    struct static_tracepoint_marker *marker);
 extern void release_static_tracepoint_marker (struct static_tracepoint_marker *);
-extern void free_current_marker (void *arg);
 
 /* A hook used to notify the UI of tracepoint operations.  */
 
@@ -238,9 +238,6 @@ struct cleanup *make_cleanup_restore_traceframe_number (void);
 void free_actions (struct breakpoint *);
 
 extern char *decode_agent_options (char *exp);
-
-extern void encode_actions (struct breakpoint *t, struct bp_location *tloc,
-			    char ***tdp_actions, char ***stepping_actions);
 
 extern void validate_actionline (char **, struct breakpoint *);
 

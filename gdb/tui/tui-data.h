@@ -1,6 +1,7 @@
 /* TUI data manipulation routines.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998-2002, 2004, 2006-2012 Free Software Foundation,
+   Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -340,6 +341,8 @@ extern int tui_term_height (void);
 extern void tui_set_term_height_to (int);
 extern int tui_term_width (void);
 extern void tui_set_term_width_to (int);
+extern void tui_set_gen_win_origin (struct tui_gen_win_info *, 
+				    int, int);
 extern struct tui_gen_win_info *tui_locator_win_info_ptr (void);
 extern struct tui_gen_win_info *tui_source_exec_info_win_ptr (void);
 extern struct tui_gen_win_info *tui_disassem_exec_info_win_ptr (void);

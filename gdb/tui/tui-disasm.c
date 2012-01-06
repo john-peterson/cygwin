@@ -1,6 +1,6 @@
 /* Disassembly display.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998-2004, 2007-2012 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -173,7 +173,7 @@ tui_set_disassem_content (struct gdbarch *gdbarch, CORE_ADDR pc)
   enum tui_status ret = TUI_FAILURE;
   int i;
   int offset = TUI_DISASM_WIN->detail.source_info.horizontal_offset;
-  int max_lines;
+  int line_width, max_lines;
   CORE_ADDR cur_pc;
   struct tui_gen_win_info *locator = tui_locator_win_info_ptr ();
   int tab_len = tui_default_tab_len ();
@@ -202,6 +202,8 @@ tui_set_disassem_content (struct gdbarch *gdbarch, CORE_ADDR pc)
   asm_lines = (struct tui_asm_line*) alloca (sizeof (struct tui_asm_line)
                                          * max_lines);
   memset (asm_lines, 0, sizeof (struct tui_asm_line) * max_lines);
+
+  line_width = TUI_DISASM_WIN->generic.width - 1;
 
   tui_disassemble (gdbarch, asm_lines, pc, max_lines);
 

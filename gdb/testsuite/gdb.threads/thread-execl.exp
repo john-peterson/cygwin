@@ -1,4 +1,4 @@
-# Copyright (C) 2009-2013 Free Software Foundation, Inc.
+# Copyright (C) 2009-2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,14 +21,21 @@ if { [is_remote target] } {
     return 0
 }
 
-standard_testfile
+set testfile "thread-execl"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/${testfile}
 
 if {[gdb_compile_pthreads "${srcdir}/${subdir}/${srcfile}" "${binfile}" \
-	 executable debug] != "" } {
+	 executable [list debug "incdir=${objdir}"]] != "" } {
     return -1
 }
 
-clean_restart ${binfile}
+# Start with a fresh gdb.
+
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_load ${binfile}
 
 runto_main
 

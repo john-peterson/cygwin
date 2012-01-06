@@ -1,6 +1,6 @@
 /* TUI data manipulation routines.
 
-   Copyright (C) 1998-2013 Free Software Foundation, Inc.
+   Copyright (C) 1998-2004, 2006-2012 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -308,6 +308,16 @@ void
 tui_set_current_layout_to (enum tui_layout_type new_layout)
 {
   current_layout = new_layout;
+}
+
+
+/* Set the origin of the window.  */
+void
+set_gen_win_origin (struct tui_gen_win_info *win_info, 
+		    int x, int y)
+{
+  win_info->origin.x = x;
+  win_info->origin.y = y;
 }
 
 
