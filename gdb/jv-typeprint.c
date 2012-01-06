@@ -1,5 +1,5 @@
 /* Support for printing Java types for GDB, the GNU debugger.
-   Copyright (C) 1997-2013 Free Software Foundation, Inc.
+   Copyright (C) 1997-2000, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -34,13 +34,12 @@
 
 static void java_type_print_base (struct type * type,
 				  struct ui_file *stream, int show,
-				  int level,
-				  const struct type_print_options *flags);
+				  int level);
 
 static void
 java_type_print_derivation_info (struct ui_file *stream, struct type *type)
 {
-  const char *name;
+  char *name;
   int i;
   int n_bases;
   int prev;
@@ -85,7 +84,7 @@ java_type_print_derivation_info (struct ui_file *stream, struct type *type)
 
 static void
 java_type_print_base (struct type *type, struct ui_file *stream, int show,
-		      int level, const struct type_print_options *flags)
+		      int level)
 {
   int i;
   int len;
@@ -116,8 +115,7 @@ java_type_print_base (struct type *type, struct ui_file *stream, int show,
   switch (TYPE_CODE (type))
     {
     case TYPE_CODE_PTR:
-      java_type_print_base (TYPE_TARGET_TYPE (type), stream, show, level,
-			    flags);
+      java_type_print_base (TYPE_TARGET_TYPE (type), stream, show, level);
       break;
 
     case TYPE_CODE_STRUCT:
@@ -194,7 +192,7 @@ java_type_print_base (struct type *type, struct ui_file *stream, int show,
 
 	      java_print_type (TYPE_FIELD_TYPE (type, i),
 			       TYPE_FIELD_NAME (type, i),
-			       stream, show - 1, level + 4, flags);
+			       stream, show - 1, level + 4);
 
 	      fprintf_filtered (stream, ";\n");
 	    }
@@ -210,8 +208,8 @@ java_type_print_base (struct type *type, struct ui_file *stream, int show,
 	    {
 	      struct fn_field *f;
 	      int j;
-	      const char *method_name;
-	      const char *name;
+	      char *method_name;
+	      char *name;
 	      int is_constructor;
 	      int n_overloads;
 
@@ -239,8 +237,7 @@ java_type_print_base (struct type *type, struct ui_file *stream, int show,
 		  physname[p - real_physname] = '\0';
 
 		  is_full_physname_constructor
-                    = (TYPE_FN_FIELD_CONSTRUCTOR (f, j)
-		       || is_constructor_name (physname)
+                    = (is_constructor_name (physname)
                        || is_destructor_name (physname));
 
 		  QUIT;
@@ -326,20 +323,22 @@ java_type_print_base (struct type *type, struct ui_file *stream, int show,
       break;
 
     default:
-      c_type_print_base (type, stream, show, level, flags);
+      c_type_print_base (type, stream, show, level);
     }
 }
 
 /* LEVEL is the depth to indent lines by.  */
 
+extern void c_type_print_varspec_suffix (struct type *, struct ui_file *,
+					 int, int, int);
+
 void
 java_print_type (struct type *type, const char *varstring,
-		 struct ui_file *stream, int show, int level,
-		 const struct type_print_options *flags)
+		 struct ui_file *stream, int show, int level)
 {
   int demangled_args;
 
-  java_type_print_base (type, stream, show, level, flags);
+  java_type_print_base (type, stream, show, level);
 
   if (varstring != NULL && *varstring != '\0')
     {
@@ -351,5 +350,5 @@ java_print_type (struct type *type, const char *varstring,
      so don't print an additional pair of ()'s.  */
 
   demangled_args = varstring != NULL && strchr (varstring, '(') != NULL;
-  c_type_print_varspec_suffix (type, stream, show, 0, demangled_args, flags);
+  c_type_print_varspec_suffix (type, stream, show, 0, demangled_args);
 }

@@ -1,5 +1,5 @@
 /* Darwin support for GDB, the GNU debugger.
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008-2012 Free Software Foundation, Inc.
 
    Contributed by AdaCore.
 
@@ -39,7 +39,6 @@
 #include "value.h"
 #include "arch-utils.h"
 #include "bfd.h"
-#include "bfd/mach-o.h"
 
 #include <sys/ptrace.h>
 #include <sys/signal.h>
@@ -91,9 +90,9 @@ extern boolean_t exc_server (mach_msg_header_t *in, mach_msg_header_t *out);
 static void darwin_stop (ptid_t);
 
 static void darwin_resume_to (struct target_ops *ops, ptid_t ptid, int step,
-                              enum gdb_signal signal);
+                              enum target_signal signal);
 static void darwin_resume (ptid_t ptid, int step,
-			   enum gdb_signal signal);
+			   enum target_signal signal);
 
 static ptid_t darwin_wait_to (struct target_ops *ops, ptid_t ptid,
                               struct target_waitstatus *status, int options);
@@ -145,7 +144,7 @@ static struct inferior *darwin_inf_fake_stop;
 #define PAGE_ROUND(x) PAGE_TRUNC((x) + mach_page_size - 1)
 
 /* This controls output of inferior debugging.  */
-static unsigned int darwin_debug_flag = 0;
+static int darwin_debug_flag = 0;
 
 /* Create a __TEXT __info_plist section in the executable so that gdb could
    be signed.  This is required to get an authorization for task_for_pid.
@@ -705,14 +704,11 @@ darwin_resume_thread (struct inferior *inf, darwin_thread_t *thread,
 	  thread->signaled = 1;
 	}
 
-      /* Set or reset single step.  */
-      if (step != thread->single_step)
-	{
-	  inferior_debug (4, _("darwin_set_sstep (thread=%x, enable=%d)\n"),
-			  thread->gdb_port, step);
-	  darwin_set_sstep (thread->gdb_port, step);
-	  thread->single_step = step;
-	}
+      /* Set single step.  */
+      inferior_debug (4, _("darwin_set_sstep (thread=%x, enable=%d)\n"),
+                      thread->gdb_port, step);
+      darwin_set_sstep (thread->gdb_port, step);
+      thread->single_step = step;
 
       darwin_send_reply (inf, thread);
       thread->msg_state = DARWIN_RUNNING;
@@ -787,7 +783,7 @@ darwin_suspend_inferior_threads (struct inferior *inf)
 }
 
 static void
-darwin_resume (ptid_t ptid, int step, enum gdb_signal signal)
+darwin_resume (ptid_t ptid, int step, enum target_signal signal)
 {
   struct target_waitstatus status;
   int pid;
@@ -801,10 +797,10 @@ darwin_resume (ptid_t ptid, int step, enum gdb_signal signal)
     (2, _("darwin_resume: pid=%d, tid=0x%x, step=%d, signal=%d\n"),
      ptid_get_pid (ptid), ptid_get_tid (ptid), step, signal);
 
-  if (signal == GDB_SIGNAL_0)
+  if (signal == TARGET_SIGNAL_0)
     nsignal = 0;
   else
-    nsignal = gdb_signal_to_host (signal);
+    nsignal = target_signal_to_host (signal);
 
   /* Don't try to single step all threads.  */
   if (step)
@@ -853,7 +849,7 @@ darwin_resume (ptid_t ptid, int step, enum gdb_signal signal)
 
 static void
 darwin_resume_to (struct target_ops *ops, ptid_t ptid, int step,
-                  enum gdb_signal signal)
+                  enum target_signal signal)
 {
   return darwin_resume (ptid, step, signal);
 }
@@ -913,10 +909,10 @@ darwin_decode_message (mach_msg_header_t *hdr,
 	  if (thread->event.ex_data[0] == EXC_SOFT_SIGNAL)
 	    {
 	      status->value.sig =
-		gdb_signal_from_host (thread->event.ex_data[1]);
+		target_signal_from_host (thread->event.ex_data[1]);
 	      inferior_debug (5, _("  (signal %d: %s)\n"),
 			      thread->event.ex_data[1],
-			      gdb_signal_to_name (status->value.sig));
+			      target_signal_to_name (status->value.sig));
 
 	      /* If the thread is stopped because it has received a signal
 		 that gdb has just sent, continue.  */
@@ -933,12 +929,12 @@ darwin_decode_message (mach_msg_header_t *hdr,
 	  break;
 	case EXC_BREAKPOINT:
 	  /* Many internal GDB routines expect breakpoints to be reported
-	     as GDB_SIGNAL_TRAP, and will report TARGET_EXC_BREAKPOINT
+	     as TARGET_SIGNAL_TRAP, and will report TARGET_EXC_BREAKPOINT
 	     as a spurious signal.  */
-	  status->value.sig = GDB_SIGNAL_TRAP;
+	  status->value.sig = TARGET_SIGNAL_TRAP;
 	  break;
 	default:
-	  status->value.sig = GDB_SIGNAL_UNKNOWN;
+	  status->value.sig = TARGET_SIGNAL_UNKNOWN;
 	  break;
 	}
 
@@ -1052,7 +1048,7 @@ darwin_wait (ptid_t ptid, struct target_waitstatus *status)
       darwin_inf_fake_stop = NULL;
 
       status->kind = TARGET_WAITKIND_STOPPED;
-      status->value.sig = GDB_SIGNAL_TRAP;
+      status->value.sig = TARGET_SIGNAL_TRAP;
       thread = VEC_index (darwin_thread_t, inf->private->threads, 0);
       thread->msg_state = DARWIN_STOPPED;
       return ptid_build (inf->pid, 0, thread->gdb_port);
@@ -1263,7 +1259,7 @@ darwin_stop_inferior (struct inferior *inf)
     {
       ptid = darwin_wait (inferior_ptid, &wstatus);
       if (wstatus.kind == TARGET_WAITKIND_STOPPED
-	  && wstatus.value.sig == GDB_SIGNAL_STOP)
+	  && wstatus.value.sig == TARGET_SIGNAL_STOP)
 	break;
     }
 }
@@ -1316,22 +1312,35 @@ darwin_kill_inferior (struct target_ops *ops)
 
   gdb_assert (inf != NULL);
 
-  kret = darwin_restore_exception_ports (inf->private);
-  MACH_CHECK_ERROR (kret);
-
-  darwin_reply_to_all_pending_messages (inf);
-
-  res = kill (inf->pid, 9);
-
-  if (res == 0)
+  if (!inf->private->no_ptrace)
     {
+      darwin_stop_inferior (inf);
+
+      res = PTRACE (PT_KILL, inf->pid, 0, 0);
+      if (res != 0)
+        warning (_("Failed to kill inferior: ptrace returned %d "
+	           "[%s] (pid=%d)"),
+		 res, safe_strerror (errno), inf->pid);
+
+      darwin_reply_to_all_pending_messages (inf);
+
       darwin_resume_inferior (inf);
-	  
+
       ptid = darwin_wait (inferior_ptid, &wstatus);
     }
-  else if (errno != ESRCH)
-    warning (_("Failed to kill inferior: kill (%d, 9) returned [%s]"),
-	     inf->pid, safe_strerror (errno));
+  else
+    {
+      kret = darwin_restore_exception_ports (inf->private);
+      MACH_CHECK_ERROR (kret);
+
+      darwin_reply_to_all_pending_messages (inf);
+
+      darwin_resume_inferior (inf);
+
+      res = kill (inf->pid, 9);
+
+      ptid = darwin_wait (inferior_ptid, &wstatus);
+    }
 
   target_mourn_inferior ();
 }
@@ -1816,10 +1825,8 @@ out:
 
 /* Read LENGTH bytes at offset ADDR of task_dyld_info for TASK, and copy them
    to RDADDR.
-   Return 0 on failure; number of bytes read / written otherwise.  */
+   Return 0 on failure; number of bytes read / writen otherwise.  */
 
-#ifdef TASK_DYLD_INFO_COUNT
-/* This is not available in Darwin 9.  */
 static int
 darwin_read_dyld_info (task_t task, CORE_ADDR addr, char *rdaddr, int length)
 {
@@ -1841,7 +1848,6 @@ darwin_read_dyld_info (task_t task, CORE_ADDR addr, char *rdaddr, int length)
   memcpy (rdaddr, (char *)&task_dyld_info + addr, length);
   return length;
 }
-#endif
 
 
 /* Return 0 on failure, number of bytes handled otherwise.  TARGET
@@ -1884,7 +1890,6 @@ darwin_xfer_partial (struct target_ops *ops,
     case TARGET_OBJECT_MEMORY:
       return darwin_read_write_inferior (inf->private->task, offset,
                                          readbuf, writebuf, len);
-#ifdef TASK_DYLD_INFO_COUNT
     case TARGET_OBJECT_DARWIN_DYLD_INFO:
       if (writebuf != NULL || readbuf == NULL)
         {
@@ -1892,7 +1897,6 @@ darwin_xfer_partial (struct target_ops *ops,
           return -1;
         }
       return darwin_read_dyld_info (inf->private->task, offset, readbuf, len);
-#endif
     default:
       return -1;
     }
@@ -2011,9 +2015,6 @@ darwin_supports_multi_process (void)
   return 1;
 }
 
-/* -Wmissing-prototypes */
-extern initialize_file_ftype _initialize_darwin_inferior;
-
 void
 _initialize_darwin_inferior (void)
 {
@@ -2062,12 +2063,12 @@ _initialize_darwin_inferior (void)
   inferior_debug (2, _("GDB task: 0x%lx, pid: %d\n"), mach_task_self (),
                   getpid ());
 
-  add_setshow_zuinteger_cmd ("darwin", class_obscure,
-			     &darwin_debug_flag, _("\
+  add_setshow_zinteger_cmd ("darwin", class_obscure,
+			    &darwin_debug_flag, _("\
 Set if printing inferior communication debugging statements."), _("\
 Show if printing inferior communication debugging statements."), NULL,
-			     NULL, NULL,
-			     &setdebuglist, &showdebuglist);
+			    NULL, NULL,
+			    &setdebuglist, &showdebuglist);
 
   add_setshow_boolean_cmd ("mach-exceptions", class_support,
 			   &enable_mach_exceptions, _("\

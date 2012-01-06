@@ -1,4 +1,4 @@
-# Copyright 2008-2013 Free Software Foundation, Inc.
+# Copyright 2008-2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,9 +29,11 @@ if {[mi_gdb_start]} {
 #
 # Start here
 #
-standard_testfile nsmoribund.c
+set testfile "nsmoribund"
+set srcfile "$testfile.c"
+set binfile "$objdir/$subdir/mi-$testfile"
 
-set options [list debug]
+set options [list debug incdir=$objdir]
 if {[gdb_compile_pthreads "$srcdir/$subdir/$srcfile" $binfile executable $options] != "" } {
     return -1
 }
@@ -79,9 +81,8 @@ mi_gdb_test "-thread-select 5" "\\^done.*" "select thread 5"
 mi_delete_breakpoints
 
 # Recreate the same breakpoint, but this time, specific to thread 5.
-mi_gdb_test "234-break-insert -p 5 $srcfile:$bkpt_line" \
-    "234\\^done,bkpt=\{number=\"3\",type=\"breakpoint\",disp=\"keep\",enabled=\"y\",addr=\".*\",func=\"thread_function\",file=\".*\",fullname=\".*\",line=\".*\",thread-groups=\\\[\".*\"\\\],thread=\"5\",thread=\"5\",times=\"0\",original-location=\".*\"\}" \
-    "thread specific breakpoint at thread_function" 
+mi_create_breakpoint "-p 5 $srcfile:$bkpt_line" 3 keep thread_function .* .* .* \
+    "thread specific breakpoint at thread_function"
 
 # Resume all threads.  Only thread 5 should report a stop.
 
@@ -117,9 +118,9 @@ mi_check_thread_states \
 # we are interested in, so we can't use mi_gdb_test or
 # gdb_test_multiple (or an MI equivalent)
 
-mi_gdb_test "102-break-delete" "102\\^done.*"
-mi_gdb_test "print done = 1" { = 1"}
-mi_gdb_test "103-exec-continue --all" "\[^\n\]*\r\n$running_re"
+send_gdb "102-break-delete\n"
+send_gdb "print done = 1\n"
+send_gdb "103-exec-continue --all\n"
 
 gdb_expect {
     -re "\\*stopped,reason=\"exited-normally\"" {

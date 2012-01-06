@@ -1,6 +1,6 @@
 /* Print values for GNU debugger GDB.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -49,10 +49,16 @@
 #include "charset.h"
 #include "arch-utils.h"
 #include "cli/cli-utils.h"
-#include "format.h"
 
 #ifdef TUI
 #include "tui/tui.h"		/* For tui_active et al.   */
+#endif
+
+#if defined(__MINGW32__) && !defined(PRINTF_HAS_LONG_LONG)
+# define USE_PRINTF_I64 1
+# define PRINTF_HAS_LONG_LONG
+#else
+# define USE_PRINTF_I64 0
 #endif
 
 struct format_data
@@ -122,7 +128,7 @@ show_print_symbol_filename (struct ui_file *file, int from_tty,
    So that we can disable it if we get a signal within it.
    -1 when not doing one.  */
 
-static int current_display_number;
+int current_display_number;
 
 struct display
   {
@@ -145,7 +151,7 @@ struct display
     struct program_space *pspace;
 
     /* Innermost block required by this expression when evaluated.  */
-    const struct block *block;
+    struct block *block;
 
     /* Status of this display (enabled or disabled).  */
     int enabled_p;
@@ -171,6 +177,8 @@ static int display_number;
        B = TMP)
 
 /* Prototypes for exported functions.  */
+
+void output_command (char *, int);
 
 void _initialize_printcmd (void);
 
@@ -344,12 +352,13 @@ float_type_from_length (struct type *type)
 {
   struct gdbarch *gdbarch = get_type_arch (type);
   const struct builtin_type *builtin = builtin_type (gdbarch);
+  unsigned int len = TYPE_LENGTH (type);
 
-  if (TYPE_LENGTH (type) == TYPE_LENGTH (builtin->builtin_float))
+  if (len == TYPE_LENGTH (builtin->builtin_float))
     type = builtin->builtin_float;
-  else if (TYPE_LENGTH (type) == TYPE_LENGTH (builtin->builtin_double))
+  else if (len == TYPE_LENGTH (builtin->builtin_double))
     type = builtin->builtin_double;
-  else if (TYPE_LENGTH (type) == TYPE_LENGTH (builtin->builtin_long_double))
+  else if (len == TYPE_LENGTH (builtin->builtin_long_double))
     type = builtin->builtin_long_double;
 
   return type;
@@ -559,10 +568,9 @@ set_next_address (struct gdbarch *gdbarch, CORE_ADDR addr)
    DO_DEMANGLE controls whether to print a symbol in its native "raw" form,
    or to interpret it as a possible C++ name and convert it back to source
    form.  However note that DO_DEMANGLE can be overridden by the specific
-   settings of the demangle and asm_demangle variables.  Returns
-   non-zero if anything was printed; zero otherwise.  */
+   settings of the demangle and asm_demangle variables.  */
 
-int
+void
 print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
 			struct ui_file *stream,
 			int do_demangle, char *leadin)
@@ -581,7 +589,7 @@ print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
 			      &filename, &line, &unmapped))
     {
       do_cleanups (cleanup_chain);
-      return 0;
+      return;
     }
 
   fputs_filtered (leadin, stream);
@@ -608,7 +616,6 @@ print_address_symbolic (struct gdbarch *gdbarch, CORE_ADDR addr,
     fputs_filtered (">", stream);
 
   do_cleanups (cleanup_chain);
-  return 1;
 }
 
 /* Given an address ADDR return all the elements needed to print the
@@ -631,7 +638,7 @@ build_address_symbolic (struct gdbarch *gdbarch,
   struct symbol *symbol;
   CORE_ADDR name_location = 0;
   struct obj_section *section = NULL;
-  const char *name_temp = "";
+  char *name_temp = "";
   
   /* Let's say it is mapped (not unmapped).  */
   *unmapped = 0;
@@ -675,14 +682,6 @@ build_address_symbolic (struct gdbarch *gdbarch,
       else
 	name_temp = SYMBOL_LINKAGE_NAME (symbol);
     }
-
-  if (msymbol != NULL
-      && MSYMBOL_HAS_SIZE (msymbol)
-      && MSYMBOL_SIZE (msymbol) == 0
-      && MSYMBOL_TYPE (msymbol) != mst_text
-      && MSYMBOL_TYPE (msymbol) != mst_text_gnu_ifunc
-      && MSYMBOL_TYPE (msymbol) != mst_file_text)
-    msymbol = NULL;
 
   if (msymbol != NULL)
     {
@@ -764,23 +763,29 @@ pc_prefix (CORE_ADDR addr)
 
 /* Print address ADDR symbolically on STREAM.  Parameter DEMANGLE
    controls whether to print the symbolic name "raw" or demangled.
-   Return non-zero if anything was printed; zero otherwise.  */
+   Global setting "addressprint" controls whether to print hex address
+   or not.  */
 
-int
-print_address_demangle (const struct value_print_options *opts,
-			struct gdbarch *gdbarch, CORE_ADDR addr,
+void
+print_address_demangle (struct gdbarch *gdbarch, CORE_ADDR addr,
 			struct ui_file *stream, int do_demangle)
 {
-  if (opts->addressprint)
+  struct value_print_options opts;
+
+  get_user_print_options (&opts);
+  if (addr == 0)
+    {
+      fprintf_filtered (stream, "0");
+    }
+  else if (opts.addressprint)
     {
       fputs_filtered (paddress (gdbarch, addr), stream);
       print_address_symbolic (gdbarch, addr, stream, do_demangle, " ");
     }
   else
     {
-      return print_address_symbolic (gdbarch, addr, stream, do_demangle, "");
+      print_address_symbolic (gdbarch, addr, stream, do_demangle, "");
     }
-  return 1;
 }
 
 
@@ -932,7 +937,7 @@ validate_format (struct format_data fmt, char *cmdname)
    first argument ("/x myvar" for example, to print myvar in hex).  */
 
 static void
-print_command_1 (char *exp, int voidprint)
+print_command_1 (char *exp, int inspect, int voidprint)
 {
   struct expression *expr;
   struct cleanup *old_chain = 0;
@@ -977,13 +982,17 @@ print_command_1 (char *exp, int voidprint)
       else
 	annotate_value_begin (value_type (val));
 
-      if (histindex >= 0)
+      if (inspect)
+	printf_unfiltered ("\031(gdb-makebuffer \"%s\"  %d '(\"",
+			   exp, histindex);
+      else if (histindex >= 0)
 	printf_filtered ("$%d = ", histindex);
 
       if (histindex >= 0)
 	annotate_value_history_value ();
 
       get_formatted_print_options (&opts, format);
+      opts.inspect_it = inspect;
       opts.raw = fmt.raw;
 
       print_formatted (val, fmt.size, &opts, gdb_stdout);
@@ -993,6 +1002,9 @@ print_command_1 (char *exp, int voidprint)
 	annotate_value_history_end ();
       else
 	annotate_value_end ();
+
+      if (inspect)
+	printf_unfiltered ("\") )\030");
     }
 
   if (cleanup)
@@ -1002,14 +1014,23 @@ print_command_1 (char *exp, int voidprint)
 static void
 print_command (char *exp, int from_tty)
 {
-  print_command_1 (exp, 1);
+  print_command_1 (exp, 0, 1);
+}
+
+/* Same as print, except in epoch, it gets its own window.  */
+static void
+inspect_command (char *exp, int from_tty)
+{
+  extern int epoch_interface;
+
+  print_command_1 (exp, epoch_interface, 1);
 }
 
 /* Same as print, except it doesn't print void results.  */
 static void
 call_command (char *exp, int from_tty)
 {
-  print_command_1 (exp, 0);
+  print_command_1 (exp, 0, 0);
 }
 
 void
@@ -1058,22 +1079,6 @@ set_command (char *exp, int from_tty)
   struct expression *expr = parse_expression (exp);
   struct cleanup *old_chain =
     make_cleanup (free_current_contents, &expr);
-
-  if (expr->nelts >= 1)
-    switch (expr->elts[0].opcode)
-      {
-      case UNOP_PREINCREMENT:
-      case UNOP_POSTINCREMENT:
-      case UNOP_PREDECREMENT:
-      case UNOP_POSTDECREMENT:
-      case BINOP_ASSIGN:
-      case BINOP_ASSIGN_MODIFY:
-      case BINOP_COMMA:
-	break;
-      default:
-	warning
-	  (_("Expression is not an assignment (and might have no effect)"));
-      }
 
   evaluate_expression (expr);
   do_cleanups (old_chain);
@@ -1181,7 +1186,8 @@ address_info (char *exp, int from_tty)
   long val;
   struct obj_section *section;
   CORE_ADDR load_addr, context_pc = 0;
-  struct field_of_this_result is_a_field_of_this;
+  int is_a_field_of_this;	/* C++: lookup_symbol sets this to nonzero
+				   if exp is a field of `this'.  */
 
   if (exp == 0)
     error (_("Argument required."));
@@ -1190,7 +1196,7 @@ address_info (char *exp, int from_tty)
 		       &is_a_field_of_this);
   if (sym == NULL)
     {
-      if (is_a_field_of_this.type != NULL)
+      if (is_a_field_of_this)
 	{
 	  printf_filtered ("Symbol \"");
 	  fprintf_symbol_filtered (gdb_stdout, exp,
@@ -1588,6 +1594,7 @@ map_display_numbers (char *args,
 		     void *data)
 {
   struct get_number_or_range_state state;
+  struct display *b, *tmp;
   int num;
 
   if (args == NULL)
@@ -1630,6 +1637,9 @@ do_delete_display (struct display *d, void *data)
 static void
 undisplay_command (char *args, int from_tty)
 {
+  int num;
+  struct get_number_or_range_state state;
+
   if (args == NULL)
     {
       if (query (_("Delete all auto-display expressions? ")))
@@ -1942,9 +1952,7 @@ clear_dangling_display_expressions (struct so_list *solib)
    struct symbol.  NAME is the name to print; if NULL then VAR's print
    name will be used.  STREAM is the ui_file on which to print the
    value.  INDENT specifies the number of indent levels to print
-   before printing the variable name.
-
-   This function invalidates FRAME.  */
+   before printing the variable name.  */
 
 void
 print_variable_and_value (const char *name, struct symbol *var,
@@ -1966,10 +1974,6 @@ print_variable_and_value (const char *name, struct symbol *var,
       get_user_print_options (&opts);
       opts.deref_ref = 1;
       common_val_print (val, stream, indent, &opts, current_language);
-
-      /* common_val_print invalidates FRAME when a pretty printer calls inferior
-	 function.  */
-      frame = NULL;
     }
   if (except.reason < 0)
     fprintf_filtered(stream, "<error reading variable %s (%s)>", name,
@@ -1982,9 +1986,13 @@ print_variable_and_value (const char *name, struct symbol *var,
 static void
 ui_printf (char *arg, struct ui_file *stream)
 {
-  struct format_piece *fpieces;
+  char *f = NULL;
   char *s = arg;
+  char *string = NULL;
   struct value **val_args;
+  char *substrings;
+  char *current_substring;
+  int nargs = 0;
   int allocated_args = 20;
   struct cleanup *old_cleanups;
 
@@ -2000,13 +2008,64 @@ ui_printf (char *arg, struct ui_file *stream)
   if (*s++ != '"')
     error (_("Bad format string, missing '\"'."));
 
-  fpieces = parse_format_string (&s);
+  /* Parse the format-control string and copy it into the string STRING,
+     processing some kinds of escape sequence.  */
 
-  make_cleanup (free_format_pieces_cleanup, &fpieces);
+  f = string = (char *) alloca (strlen (s) + 1);
 
-  if (*s++ != '"')
-    error (_("Bad format string, non-terminated '\"'."));
-  
+  while (*s != '"')
+    {
+      int c = *s++;
+      switch (c)
+	{
+	case '\0':
+	  error (_("Bad format string, non-terminated '\"'."));
+
+	case '\\':
+	  switch (c = *s++)
+	    {
+	    case '\\':
+	      *f++ = '\\';
+	      break;
+	    case 'a':
+	      *f++ = '\a';
+	      break;
+	    case 'b':
+	      *f++ = '\b';
+	      break;
+	    case 'f':
+	      *f++ = '\f';
+	      break;
+	    case 'n':
+	      *f++ = '\n';
+	      break;
+	    case 'r':
+	      *f++ = '\r';
+	      break;
+	    case 't':
+	      *f++ = '\t';
+	      break;
+	    case 'v':
+	      *f++ = '\v';
+	      break;
+	    case '"':
+	      *f++ = '"';
+	      break;
+	    default:
+	      /* ??? TODO: handle other escape sequences.  */
+	      error (_("Unrecognized escape character \\%c in format string."),
+		     c);
+	    }
+	  break;
+
+	default:
+	  *f++ = c;
+	}
+    }
+
+  /* Skip over " and following space and comma.  */
+  s++;
+  *f++ = '\0';
   s = skip_spaces (s);
 
   if (*s != ',' && *s != 0)
@@ -2016,16 +2075,240 @@ ui_printf (char *arg, struct ui_file *stream)
     s++;
   s = skip_spaces (s);
 
-  {
-    int nargs = 0;
-    int nargs_wanted;
-    int i, fr;
-    char *current_substring;
+  /* Need extra space for the '\0's.  Doubling the size is sufficient.  */
+  substrings = alloca (strlen (string) * 2);
+  current_substring = substrings;
 
+  {
+    /* Now scan the string for %-specs and see what kinds of args they want.
+       argclass[I] classifies the %-specs so we can give printf_filtered
+       something of the right size.  */
+
+    enum argclass
+      {
+	int_arg, long_arg, long_long_arg, ptr_arg,
+	string_arg, wide_string_arg, wide_char_arg,
+	double_arg, long_double_arg, decfloat_arg
+      };
+    enum argclass *argclass;
+    enum argclass this_argclass;
+    char *last_arg;
+    int nargs_wanted;
+    int i;
+
+    argclass = (enum argclass *) alloca (strlen (s) * sizeof *argclass);
     nargs_wanted = 0;
-    for (fr = 0; fpieces[fr].string != NULL; fr++)
-      if (fpieces[fr].argclass != literal_piece)
-	++nargs_wanted;
+    f = string;
+    last_arg = string;
+    while (*f)
+      if (*f++ == '%')
+	{
+	  int seen_hash = 0, seen_zero = 0, lcount = 0, seen_prec = 0;
+	  int seen_space = 0, seen_plus = 0;
+	  int seen_big_l = 0, seen_h = 0, seen_big_h = 0;
+	  int seen_big_d = 0, seen_double_big_d = 0;
+	  int bad = 0;
+
+	  /* Check the validity of the format specifier, and work
+	     out what argument it expects.  We only accept C89
+	     format strings, with the exception of long long (which
+	     we autoconf for).  */
+
+	  /* Skip over "%%".  */
+	  if (*f == '%')
+	    {
+	      f++;
+	      continue;
+	    }
+
+	  /* The first part of a format specifier is a set of flag
+	     characters.  */
+	  while (strchr ("0-+ #", *f))
+	    {
+	      if (*f == '#')
+		seen_hash = 1;
+	      else if (*f == '0')
+		seen_zero = 1;
+	      else if (*f == ' ')
+		seen_space = 1;
+	      else if (*f == '+')
+		seen_plus = 1;
+	      f++;
+	    }
+
+	  /* The next part of a format specifier is a width.  */
+	  while (strchr ("0123456789", *f))
+	    f++;
+
+	  /* The next part of a format specifier is a precision.  */
+	  if (*f == '.')
+	    {
+	      seen_prec = 1;
+	      f++;
+	      while (strchr ("0123456789", *f))
+		f++;
+	    }
+
+	  /* The next part of a format specifier is a length modifier.  */
+	  if (*f == 'h')
+	    {
+	      seen_h = 1;
+	      f++;
+	    }
+	  else if (*f == 'l')
+	    {
+	      f++;
+	      lcount++;
+	      if (*f == 'l')
+		{
+		  f++;
+		  lcount++;
+		}
+	    }
+	  else if (*f == 'L')
+	    {
+	      seen_big_l = 1;
+	      f++;
+	    }
+	  /* Decimal32 modifier.  */
+	  else if (*f == 'H')
+	    {
+	      seen_big_h = 1;
+	      f++;
+	    }
+	  /* Decimal64 and Decimal128 modifiers.  */
+	  else if (*f == 'D')
+	    {
+	      f++;
+
+	      /* Check for a Decimal128.  */
+	      if (*f == 'D')
+		{
+		  f++;
+		  seen_double_big_d = 1;
+		}
+	      else
+		seen_big_d = 1;
+	    }
+
+	  switch (*f)
+	    {
+	    case 'u':
+	      if (seen_hash)
+		bad = 1;
+	      /* FALLTHROUGH */
+
+	    case 'o':
+	    case 'x':
+	    case 'X':
+	      if (seen_space || seen_plus)
+		bad = 1;
+	      /* FALLTHROUGH */
+
+	    case 'd':
+	    case 'i':
+	      if (lcount == 0)
+		this_argclass = int_arg;
+	      else if (lcount == 1)
+		this_argclass = long_arg;
+	      else
+		this_argclass = long_long_arg;
+
+	      if (seen_big_l)
+		bad = 1;
+	      break;
+
+	    case 'c':
+	      this_argclass = lcount == 0 ? int_arg : wide_char_arg;
+	      if (lcount > 1 || seen_h || seen_big_l)
+		bad = 1;
+	      if (seen_prec || seen_zero || seen_space || seen_plus)
+		bad = 1;
+	      break;
+
+	    case 'p':
+	      this_argclass = ptr_arg;
+	      if (lcount || seen_h || seen_big_l)
+		bad = 1;
+	      if (seen_prec || seen_zero || seen_space || seen_plus)
+		bad = 1;
+	      break;
+
+	    case 's':
+	      this_argclass = lcount == 0 ? string_arg : wide_string_arg;
+	      if (lcount > 1 || seen_h || seen_big_l)
+		bad = 1;
+	      if (seen_zero || seen_space || seen_plus)
+		bad = 1;
+	      break;
+
+	    case 'e':
+	    case 'f':
+	    case 'g':
+	    case 'E':
+	    case 'G':
+	      if (seen_big_h || seen_big_d || seen_double_big_d)
+		this_argclass = decfloat_arg;
+	      else if (seen_big_l)
+		this_argclass = long_double_arg;
+	      else
+		this_argclass = double_arg;
+
+	      if (lcount || seen_h)
+		bad = 1;
+	      break;
+
+	    case '*':
+	      error (_("`*' not supported for precision or width in printf"));
+
+	    case 'n':
+	      error (_("Format specifier `n' not supported in printf"));
+
+	    case '\0':
+	      error (_("Incomplete format specifier at end of format string"));
+
+	    default:
+	      error (_("Unrecognized format specifier '%c' in printf"), *f);
+	    }
+
+	  if (bad)
+	    error (_("Inappropriate modifiers to "
+		     "format specifier '%c' in printf"),
+		   *f);
+
+	  f++;
+
+	  if (lcount > 1 && USE_PRINTF_I64)
+	    {
+	      /* Windows' printf does support long long, but not the usual way.
+		 Convert %lld to %I64d.  */
+	      int length_before_ll = f - last_arg - 1 - lcount;
+
+	      strncpy (current_substring, last_arg, length_before_ll);
+	      strcpy (current_substring + length_before_ll, "I64");
+	      current_substring[length_before_ll + 3] =
+		last_arg[length_before_ll + lcount];
+	      current_substring += length_before_ll + 4;
+	    }
+	  else if (this_argclass == wide_string_arg
+		   || this_argclass == wide_char_arg)
+	    {
+	      /* Convert %ls or %lc to %s.  */
+	      int length_before_ls = f - last_arg - 2;
+
+	      strncpy (current_substring, last_arg, length_before_ls);
+	      strcpy (current_substring + length_before_ls, "s");
+	      current_substring += length_before_ls + 2;
+	    }
+	  else
+	    {
+	      strncpy (current_substring, last_arg, f - last_arg);
+	      current_substring += f - last_arg;
+	    }
+	  *current_substring++ = '\0';
+	  last_arg = f;
+	  argclass[nargs_wanted++] = this_argclass;
+	}
 
     /* Now, parse all arguments and evaluate them.
        Store the VALUEs in VAL_ARGS.  */
@@ -2051,11 +2334,10 @@ ui_printf (char *arg, struct ui_file *stream)
       error (_("Wrong number of arguments for specified format-string"));
 
     /* Now actually print them.  */
-    i = 0;
-    for (fr = 0; fpieces[fr].string != NULL; fr++)
+    current_substring = substrings;
+    for (i = 0; i < nargs; i++)
       {
-	current_substring = fpieces[fr].string;
-	switch (fpieces[fr].argclass)
+	switch (argclass[i])
 	  {
 	  case string_arg:
 	    {
@@ -2202,7 +2484,7 @@ ui_printf (char *arg, struct ui_file *stream)
 	    error (_("long double not supported in printf"));
 #endif
 	  case long_long_arg:
-#ifdef PRINTF_HAS_LONG_LONG
+#if defined (CC_HAS_LONG_LONG) && defined (PRINTF_HAS_LONG_LONG)
 	    {
 	      long long val = value_as_long (val_args[i]);
 
@@ -2247,6 +2529,7 @@ ui_printf (char *arg, struct ui_file *stream)
 
 	      /* Parameter data.  */
 	      struct type *param_type = value_type (val_args[i]);
+	      unsigned int param_len = TYPE_LENGTH (param_type);
 	      struct gdbarch *gdbarch = get_type_arch (param_type);
 	      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
 
@@ -2308,8 +2591,8 @@ ui_printf (char *arg, struct ui_file *stream)
 
 	      /* Conversion between different DFP types.  */
 	      if (TYPE_CODE (param_type) == TYPE_CODE_DECFLOAT)
-		decimal_convert (param_ptr, TYPE_LENGTH (param_type),
-				 byte_order, dec, dfp_len, byte_order);
+		decimal_convert (param_ptr, param_len, byte_order,
+				 dec, dfp_len, byte_order);
 	      else
 		/* If this is a non-trivial conversion, just output 0.
 		   A correct converted value can be displayed by explicitly
@@ -2337,7 +2620,7 @@ ui_printf (char *arg, struct ui_file *stream)
 		 handle %p as glibc would: %#x or a literal "(nil)".  */
 
 	      char *p, *fmt, *fmt_p;
-#ifdef PRINTF_HAS_LONG_LONG
+#if defined (CC_HAS_LONG_LONG) && defined (PRINTF_HAS_LONG_LONG)
 	      long long val = value_as_long (val_args[i]);
 #else
 	      long val = value_as_long (val_args[i]);
@@ -2372,7 +2655,7 @@ ui_printf (char *arg, struct ui_file *stream)
 	      gdb_assert (*p == 'p' && *(p + 1) == '\0');
 	      if (val != 0)
 		{
-#ifdef PRINTF_HAS_LONG_LONG
+#if defined (CC_HAS_LONG_LONG) && defined (PRINTF_HAS_LONG_LONG)
 		  *fmt_p++ = 'l';
 #endif
 		  *fmt_p++ = 'l';
@@ -2389,25 +2672,20 @@ ui_printf (char *arg, struct ui_file *stream)
 
 	      break;
 	    }
-	  case literal_piece:
-	    /* Print a portion of the format string that has no
-	       directives.  Note that this will not include any
-	       ordinary %-specs, but it might include "%%".  That is
-	       why we use printf_filtered and not puts_filtered here.
-	       Also, we pass a dummy argument because some platforms
-	       have modified GCC to include -Wformat-security by
-	       default, which will warn here if there is no
-	       argument.  */
-	    fprintf_filtered (stream, current_substring, 0);
-	    break;
 	  default:
 	    internal_error (__FILE__, __LINE__,
 			    _("failed internal consistency check"));
 	  }
-	/* Maybe advance to the next argument.  */
-	if (fpieces[fr].argclass != literal_piece)
-	  ++i;
+	/* Skip to the next substring.  */
+	current_substring += strlen (current_substring) + 1;
       }
+    /* Print the portion of the format string after the last argument.
+       Note that this will not include any ordinary %-specs, but it
+       might include "%%".  That is why we use printf_filtered and not
+       puts_filtered here.  Also, we pass a dummy argument because
+       some platforms have modified GCC to include -Wformat-security
+       by default, which will warn here if there is no argument.  */
+    fprintf_filtered (stream, last_arg, 0);
   }
   do_cleanups (old_cleanups);
 }
@@ -2582,7 +2860,11 @@ EXP may be preceded with /FMT, where FMT is a format letter\n\
 but no count or size letter (see \"x\" command)."));
   set_cmd_completer (c, expression_completer);
   add_com_alias ("p", "print", class_vars, 1);
-  add_com_alias ("inspect", "print", class_vars, 1);
+
+  c = add_com ("inspect", class_vars, inspect_command, _("\
+Same as \"print\" command, except that if you are running in the epoch\n\
+environment, the value is printed in its own window."));
+  set_cmd_completer (c, expression_completer);
 
   add_setshow_uinteger_cmd ("max-symbolic-offset", no_class,
 			    &max_symbolic_offset, _("\

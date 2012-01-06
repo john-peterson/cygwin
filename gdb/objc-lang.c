@@ -1,6 +1,6 @@
 /* Objective-C language support routines for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002-2005, 2007-2012 Free Software Foundation, Inc.
 
    Contributed by Apple Computer, Inc.
    Written by Michael Snyder.
@@ -82,7 +82,7 @@ static const struct objfile_data *objc_objfile_data;
    suitably defined.  */
 
 struct symbol *
-lookup_struct_typedef (char *name, const struct block *block, int noerr)
+lookup_struct_typedef (char *name, struct block *block, int noerr)
 {
   struct symbol *sym;
 
@@ -282,6 +282,160 @@ objc_demangle (const char *mangled, int options)
     return NULL;	/* Not an objc mangled name.  */
 }
 
+/* Print the character C on STREAM as part of the contents of a
+   literal string whose delimiter is QUOTER.  Note that that format
+   for printing characters and strings is language specific.  */
+
+static void
+objc_emit_char (int c, struct type *type, struct ui_file *stream, int quoter)
+{
+  c &= 0xFF;			/* Avoid sign bit follies.  */
+
+  if (PRINT_LITERAL_FORM (c))
+    {
+      if (c == '\\' || c == quoter)
+	{
+	  fputs_filtered ("\\", stream);
+	}
+      fprintf_filtered (stream, "%c", c);
+    }
+  else
+    {
+      switch (c)
+	{
+	case '\n':
+	  fputs_filtered ("\\n", stream);
+	  break;
+	case '\b':
+	  fputs_filtered ("\\b", stream);
+	  break;
+	case '\t':
+	  fputs_filtered ("\\t", stream);
+	  break;
+	case '\f':
+	  fputs_filtered ("\\f", stream);
+	  break;
+	case '\r':
+	  fputs_filtered ("\\r", stream);
+	  break;
+	case '\033':
+	  fputs_filtered ("\\e", stream);
+	  break;
+	case '\007':
+	  fputs_filtered ("\\a", stream);
+	  break;
+	default:
+	  fprintf_filtered (stream, "\\%.3o", (unsigned int) c);
+	  break;
+	}
+    }
+}
+
+static void
+objc_printchar (int c, struct type *type, struct ui_file *stream)
+{
+  fputs_filtered ("'", stream);
+  objc_emit_char (c, type, stream, '\'');
+  fputs_filtered ("'", stream);
+}
+
+/* Print the character string STRING, printing at most LENGTH
+   characters.  Printing stops early if the number hits print_max;
+   repeat counts are printed as appropriate.  Print ellipses at the
+   end if we had to stop before printing LENGTH characters, or if
+   FORCE_ELLIPSES.  */
+
+static void
+objc_printstr (struct ui_file *stream, struct type *type,
+	       const gdb_byte *string, unsigned int length,
+	       const char *encoding, int force_ellipses,
+	       const struct value_print_options *options)
+{
+  unsigned int i;
+  unsigned int things_printed = 0;
+  int in_quotes = 0;
+  int need_comma = 0;
+
+  /* If the string was not truncated due to `set print elements', and
+     the last byte of it is a null, we don't print that, in
+     traditional C style.  */
+  if ((!force_ellipses) && length > 0 && string[length-1] == '\0')
+    length--;
+
+  if (length == 0)
+    {
+      fputs_filtered ("\"\"", stream);
+      return;
+    }
+
+  for (i = 0; i < length && things_printed < options->print_max; ++i)
+    {
+      /* Position of the character we are examining to see whether it
+	 is repeated.  */
+      unsigned int rep1;
+      /* Number of repetitions we have detected so far.  */
+      unsigned int reps;
+
+      QUIT;
+
+      if (need_comma)
+	{
+	  fputs_filtered (", ", stream);
+	  need_comma = 0;
+	}
+
+      rep1 = i + 1;
+      reps = 1;
+      while (rep1 < length && string[rep1] == string[i])
+	{
+	  ++rep1;
+	  ++reps;
+	}
+
+      if (reps > options->repeat_count_threshold)
+	{
+	  if (in_quotes)
+	    {
+	      if (options->inspect_it)
+		fputs_filtered ("\\\", ", stream);
+	      else
+		fputs_filtered ("\", ", stream);
+	      in_quotes = 0;
+	    }
+	  objc_printchar (string[i], type, stream);
+	  fprintf_filtered (stream, " <repeats %u times>", reps);
+	  i = rep1 - 1;
+	  things_printed += options->repeat_count_threshold;
+	  need_comma = 1;
+	}
+      else
+	{
+	  if (!in_quotes)
+	    {
+	      if (options->inspect_it)
+		fputs_filtered ("\\\"", stream);
+	      else
+		fputs_filtered ("\"", stream);
+	      in_quotes = 1;
+	    }
+	  objc_emit_char (string[i], type, stream, '"');
+	  ++things_printed;
+	}
+    }
+
+  /* Terminate the quotes if necessary.  */
+  if (in_quotes)
+    {
+      if (options->inspect_it)
+	fputs_filtered ("\\\"", stream);
+      else
+	fputs_filtered ("\"", stream);
+    }
+
+  if (force_ellipses || i < length)
+    fputs_filtered ("...", stream);
+}
+
 /* Determine if we are currently in the Objective-C dispatch function.
    If so, get the address of the method function that the dispatcher
    would call and use that as the function to step into instead.  Also
@@ -355,21 +509,21 @@ const struct language_defn objc_language_defn = {
   "objective-c",		/* Language name */
   language_objc,
   range_check_off,
+  type_check_off,
   case_sensitive_on,
   array_row_major,
   macro_expansion_c,
   &exp_descriptor_standard,
-  c_parse,
-  c_error,
+  objc_parse,
+  objc_error,
   null_post_parser,
-  c_printchar,		       /* Print a character constant */
-  c_printstr,		       /* Function to print string constant */
-  c_emit_char,
+  objc_printchar,		/* Print a character constant */
+  objc_printstr,		/* Function to print string constant */
+  objc_emit_char,
   c_print_type,			/* Print a type using appropriate syntax */
   c_print_typedef,		/* Print a typedef using appropriate syntax */
   c_val_print,			/* Print a value using appropriate syntax */
   c_value_print,		/* Print a top-level value */
-  default_read_var_value,	/* la_read_var_value */
   objc_skip_trampoline, 	/* Language specific skip_trampoline */
   "self",		        /* name_of_this */
   basic_lookup_symbol_nonlocal,	/* lookup_symbol_nonlocal */
@@ -386,7 +540,7 @@ const struct language_defn objc_language_defn = {
   default_print_array_index,
   default_pass_by_reference,
   default_get_string,
-  NULL,				/* la_get_symbol_name_cmp */
+  strcmp_iw_ordered,
   iterate_over_symbols,
   LANG_MAGIC
 };
@@ -482,14 +636,14 @@ end_msglist(void)
 }
 
 /*
- * Function: specialcmp (const char *a, const char *b)
+ * Function: specialcmp (char *a, char *b)
  *
  * Special strcmp: treats ']' and ' ' as end-of-string.
  * Used for qsorting lists of objc methods (either by class or selector).
  */
 
 static int
-specialcmp (const char *a, const char *b)
+specialcmp (char *a, char *b)
 {
   while (*a && *a != ' ' && *a != ']' && *b && *b != ' ' && *b != ']')
     {
@@ -514,7 +668,7 @@ specialcmp (const char *a, const char *b)
 static int
 compare_selectors (const void *a, const void *b)
 {
-  const char *aname, *bname;
+  char *aname, *bname;
 
   aname = SYMBOL_PRINT_NAME (*(struct symbol **) a);
   bname = SYMBOL_PRINT_NAME (*(struct symbol **) b);
@@ -543,7 +697,7 @@ selectors_info (char *regexp, int from_tty)
 {
   struct objfile	*objfile;
   struct minimal_symbol *msymbol;
-  const char            *name;
+  char                  *name;
   char                  *val;
   int                    matches = 0;
   int                    maxlen  = 0;
@@ -608,8 +762,8 @@ selectors_info (char *regexp, int from_tty)
 	    }
 	  if (regexp == NULL || re_exec(++name) != 0)
 	    { 
-	      const char *mystart = name;
-	      const char *myend   = strchr (mystart, ']');
+	      char *mystart = name;
+	      char *myend   = (char *) strchr (mystart, ']');
 	      
 	      if (myend && (myend - mystart > maxlen))
 		maxlen = myend - mystart;	/* Get longest selector.  */
@@ -680,7 +834,7 @@ selectors_info (char *regexp, int from_tty)
 static int
 compare_classes (const void *a, const void *b)
 {
-  const char *aname, *bname;
+  char *aname, *bname;
 
   aname = SYMBOL_PRINT_NAME (*(struct symbol **) a);
   bname = SYMBOL_PRINT_NAME (*(struct symbol **) b);
@@ -705,7 +859,7 @@ classes_info (char *regexp, int from_tty)
 {
   struct objfile	*objfile;
   struct minimal_symbol *msymbol;
-  const char            *name;
+  char                  *name;
   char                  *val;
   int                    matches = 0;
   int                    maxlen  = 0;
@@ -747,8 +901,8 @@ classes_info (char *regexp, int from_tty)
 	if (regexp == NULL || re_exec(name+2) != 0)
 	  { 
 	    /* Compute length of classname part.  */
-	    const char *mystart = name + 2;
-	    const char *myend   = strchr (mystart, ' ');
+	    char *mystart = name + 2;
+	    char *myend   = (char *) strchr(mystart, ' ');
 	    
 	    if (myend && (myend - mystart > maxlen))
 	      maxlen = myend - mystart;
@@ -965,7 +1119,7 @@ find_methods (char type, const char *class, const char *category,
 {
   struct objfile *objfile = NULL;
 
-  const char *symname = NULL;
+  char *symname = NULL;
 
   char ntype = '\0';
   char *nclass = NULL;
@@ -996,6 +1150,8 @@ find_methods (char type, const char *class, const char *category,
 
       ALL_OBJFILE_MSYMBOLS (objfile, msymbol)
 	{
+	  struct gdbarch *gdbarch = get_objfile_arch (objfile);
+
 	  QUIT;
 
 	  /* Check the symbol name first as this can be done entirely without
@@ -1609,9 +1765,6 @@ resolve_msgsend_super_stret (CORE_ADDR pc, CORE_ADDR *new_pc)
     return 1;
   return 0;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_objc_lang;
 
 void
 _initialize_objc_lang (void)

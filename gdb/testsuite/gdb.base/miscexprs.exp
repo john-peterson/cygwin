@@ -1,4 +1,4 @@
-# Copyright 1998-2013 Free Software Foundation, Inc.
+# Copyright 1998-2000, 2007-2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,6 +21,10 @@
 # tests for expressions with struct/array elements and mixed operator types
 # with elementary types
 # 
+
+if $tracelevel then {
+        strace $tracelevel
+        }
 
 # By default, the datastructures are allocated on the stack.  For targets
 # with very small stack, that will not work.  In that case, just set
@@ -46,7 +50,7 @@ if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable [lis
     return -1
 }
 
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 

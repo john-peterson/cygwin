@@ -1,7 +1,7 @@
 /* Functions specific to running gdb native on IA-64 running
    GNU/Linux.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -272,7 +272,7 @@ static int u_offsets[] =
     -1, -1, -1, -1, -1, -1, -1, -1, -1,
     PT_AR_PFS,
     PT_AR_LC,
-    PT_AR_EC,
+    -1,		/* Not available: EC, the Epilog Count register.  */
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -447,20 +447,8 @@ supply_fpregset (struct regcache *regcache, const fpregset_t *fpregsetp)
 {
   int regi;
   const char *from;
-  const gdb_byte f_zero[16] = { 0 };
-  const gdb_byte f_one[16] =
-    { 0, 0, 0, 0, 0, 0, 0, 0x80, 0xff, 0xff, 0, 0, 0, 0, 0, 0 };
 
-  /* Kernel generated cores have fr1==0 instead of 1.0.  Older GDBs
-     did the same.  So ignore whatever might be recorded in fpregset_t
-     for fr0/fr1 and always supply their expected values.  */
-
-  /* fr0 is always read as zero.  */
-  regcache_raw_supply (regcache, IA64_FR0_REGNUM, f_zero);
-  /* fr1 is always read as one (1.0).  */
-  regcache_raw_supply (regcache, IA64_FR1_REGNUM, f_one);
-
-  for (regi = IA64_FR2_REGNUM; regi <= IA64_FR127_REGNUM; regi++)
+  for (regi = IA64_FR0_REGNUM; regi <= IA64_FR127_REGNUM; regi++)
     {
       from = (const char *) &((*fpregsetp)[regi - IA64_FR0_REGNUM]);
       regcache_raw_supply (regcache, regi, from);
@@ -629,7 +617,7 @@ ia64_linux_remove_watchpoint (CORE_ADDR addr, int len, int type,
 }
 
 static void
-ia64_linux_new_thread (struct lwp_info *lp)
+ia64_linux_new_thread (ptid_t ptid)
 {
   int i, any;
 
@@ -638,25 +626,24 @@ ia64_linux_new_thread (struct lwp_info *lp)
     {
       if (debug_registers[i] != 0)
 	any = 1;
-      store_debug_register (lp->ptid, i, debug_registers[i]);
+      store_debug_register (ptid, i, debug_registers[i]);
     }
 
   if (any)
-    enable_watchpoints_in_psr (lp->ptid);
+    enable_watchpoints_in_psr (ptid);
 }
 
 static int
 ia64_linux_stopped_data_address (struct target_ops *ops, CORE_ADDR *addr_p)
 {
   CORE_ADDR psr;
-  siginfo_t siginfo;
+  struct siginfo *siginfo_p;
   struct regcache *regcache = get_current_regcache ();
 
-  if (!linux_nat_get_siginfo (inferior_ptid, &siginfo))
-    return 0;
+  siginfo_p = linux_nat_get_siginfo (inferior_ptid);
 
-  if (siginfo.si_signo != SIGTRAP
-      || (siginfo.si_code & 0xffff) != 0x0004 /* TRAP_HWBKPT */)
+  if (siginfo_p->si_signo != SIGTRAP
+      || (siginfo_p->si_code & 0xffff) != 0x0004 /* TRAP_HWBKPT */)
     return 0;
 
   regcache_cooked_read_unsigned (regcache, IA64_PSR_REGNUM, &psr);
@@ -664,7 +651,7 @@ ia64_linux_stopped_data_address (struct target_ops *ops, CORE_ADDR *addr_p)
                            for the next instruction.  */
   regcache_cooked_write_unsigned (regcache, IA64_PSR_REGNUM, psr);
 
-  *addr_p = (CORE_ADDR) siginfo.si_addr;
+  *addr_p = (CORE_ADDR)siginfo_p->si_addr;
   return 1;
 }
 
@@ -692,37 +679,6 @@ ia64_linux_fetch_register (struct regcache *regcache, int regnum)
   size_t size;
   PTRACE_TYPE_RET *buf;
   int pid, i;
-
-  /* r0 cannot be fetched but is always zero.  */
-  if (regnum == IA64_GR0_REGNUM)
-    {
-      const gdb_byte zero[8] = { 0 };
-
-      gdb_assert (sizeof (zero) == register_size (gdbarch, regnum));
-      regcache_raw_supply (regcache, regnum, zero);
-      return;
-    }
-
-  /* fr0 cannot be fetched but is always zero.  */
-  if (regnum == IA64_FR0_REGNUM)
-    {
-      const gdb_byte f_zero[16] = { 0 };
-
-      gdb_assert (sizeof (f_zero) == register_size (gdbarch, regnum));
-      regcache_raw_supply (regcache, regnum, f_zero);
-      return;
-    }
-
-  /* fr1 cannot be fetched but is always one (1.0).  */
-  if (regnum == IA64_FR1_REGNUM)
-    {
-      const gdb_byte f_one[16] =
-	{ 0, 0, 0, 0, 0, 0, 0, 0x80, 0xff, 0xff, 0, 0, 0, 0, 0, 0 };
-
-      gdb_assert (sizeof (f_one) == register_size (gdbarch, regnum));
-      regcache_raw_supply (regcache, regnum, f_one);
-      return;
-    }
 
   if (ia64_cannot_fetch_register (gdbarch, regnum))
     {

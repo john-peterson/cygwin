@@ -1,4 +1,4 @@
-#   Copyright (C) 1997-2013 Free Software Foundation, Inc.
+#   Copyright (C) 1997-1998, 2007-2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -12,6 +12,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+if $tracelevel then {
+	strace $tracelevel
+}
 
 
 set testfile langs
@@ -50,7 +54,7 @@ set timeout 10
 
 # Create and source the file that provides information about the compiler
 # used to compile the test case.
-if [get_compiler_info] {
+if [get_compiler_info ${binfile}] {
     return -1;
 }
 

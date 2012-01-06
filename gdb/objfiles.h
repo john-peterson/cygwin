@@ -1,6 +1,6 @@
 /* Definitions for symbol file management in GDB.
 
-   Copyright (C) 1992-2013 Free Software Foundation, Inc.
+   Copyright (C) 1992-2004, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,7 +23,6 @@
 #include "gdb_obstack.h"	/* For obstack internals.  */
 #include "symfile.h"		/* For struct psymbol_allocation_list.  */
 #include "progspace.h"
-#include "registry.h"
 
 struct bcache;
 struct htab;
@@ -160,25 +159,6 @@ extern void print_symbol_bcache_statistics (void);
 /* Number of entries in the minimal symbol hash table.  */
 #define MINIMAL_SYMBOL_HASH_SIZE 2039
 
-/* Some objfile data is hung off the BFD.  This enables sharing of the
-   data across all objfiles using the BFD.  The data is stored in an
-   instance of this structure, and associated with the BFD using the
-   registry system.  */
-
-struct objfile_per_bfd_storage
-{
-  /* The storage has an obstack of its own.  */
-
-  struct obstack storage_obstack;
-  
-  /* Byte cache for file names.  */
-
-  struct bcache *filename_cache;
-
-  /* Byte cache for macros.  */
-  struct bcache *macro_cache;
-};
-
 /* Master structure for keeping track of each file from which
    gdb reads symbols.  There are several ways these get allocated: 1.
    The main symbol file, symfile_objfile, set by the symbol-file command,
@@ -197,9 +177,8 @@ struct objfile
 
     struct objfile *next;
 
-    /* The object file's name, tilde-expanded and absolute.  This
-       pointer is never NULL.  This does not have to be freed; it is
-       guaranteed to have a lifetime at least as long as the objfile.  */
+    /* The object file's name, tilde-expanded and absolute.  Malloc'd; free it
+       if you free this struct.  This pointer is never NULL.  */
 
     char *name;
 
@@ -242,11 +221,6 @@ struct objfile
 
     bfd *obfd;
 
-    /* The per-BFD data.  Note that this is treated specially if OBFD
-       is NULL.  */
-
-    struct objfile_per_bfd_storage *per_bfd;
-
     /* The gdbarch associated with the BFD.  Note that this gdbarch is
        determined solely from BFD information, without looking at target
        information.  The gdbarch determined from a running target may
@@ -273,6 +247,8 @@ struct objfile
        will not change.  */
 
     struct psymbol_bcache *psymbol_cache; /* Byte cache for partial syms.  */
+    struct bcache *macro_cache;           /* Byte cache for macros.  */
+    struct bcache *filename_cache;	  /* Byte cache for file names.  */
 
     /* Hash table for mapping symbol names to demangled names.  Each
        entry in the hash table is actually two consecutive strings,
@@ -322,18 +298,42 @@ struct objfile
 
     struct entry_info ei;
 
-    /* Per objfile data-pointers required by other GDB modules.  */
+    /* Information about stabs.  Will be filled in with a dbx_symfile_info
+       struct by those readers that need it.  */
+    /* NOTE: cagney/2004-10-23: This has been replaced by per-objfile
+       data points implemented using "data" and "num_data" below.  For
+       an example of how to use this replacement, see "objfile_data"
+       in "mips-tdep.c".  */
 
-    REGISTRY_FIELDS;
+    struct dbx_symfile_info *deprecated_sym_stab_info;
+
+    /* Hook for information for use by the symbol reader (currently used
+       for information shared by sym_init and sym_read).  It is
+       typically a pointer to malloc'd memory.  The symbol reader's finish
+       function is responsible for freeing the memory thusly allocated.  */
+    /* NOTE: cagney/2004-10-23: This has been replaced by per-objfile
+       data points implemented using "data" and "num_data" below.  For
+       an example of how to use this replacement, see "objfile_data"
+       in "mips-tdep.c".  */
+
+    void *deprecated_sym_private;
+
+    /* Per objfile data-pointers required by other GDB modules.  */
+    /* FIXME: kettenis/20030711: This mechanism could replace
+       deprecated_sym_stab_info and deprecated_sym_private
+       entirely.  */
+
+    void **data;
+    unsigned num_data;
 
     /* Set of relocation offsets to apply to each section.
-       The table is indexed by the_bfd_section->index, thus it is generally
-       as large as the number of sections in the binary.
-       The table is stored on the objfile_obstack.
+       Currently on the objfile_obstack (which makes no sense, but I'm
+       not sure it's harming anything).
 
        These offsets indicate that all symbols (including partial and
        minimal symbols) which have been read have been relocated by this
-       much.  Symbols which are yet to be read need to be relocated by it.  */
+       much.  Symbols which are yet to be read need to be relocated by
+       it.  */
 
     struct section_offsets *section_offsets;
     int num_sections;
@@ -354,11 +354,12 @@ struct objfile
        among other things, is used to map pc addresses into sections.
        SECTIONS points to the first entry in the table, and
        SECTIONS_END points to the first location past the last entry
-       in the table.  The table is stored on the objfile_obstack.
-       There is no particular order to the sections in this table, and it
-       only contains sections we care about (e.g. non-empty, SEC_ALLOC).  */
+       in the table.  Currently the table is stored on the
+       objfile_obstack (which makes no sense, but I'm not sure it's
+       harming anything).  */
 
-    struct obj_section *sections, *sections_end;
+    struct obj_section
+     *sections, *sections_end;
 
     /* GDB allows to have debug symbols in separate object files.  This is
        used by .gnu_debuglink, ELF build id note and Mach-O OSO.
@@ -380,7 +381,7 @@ struct objfile
     struct objfile *separate_debug_objfile_link;
 
     /* Place to stash various statistics about this objfile.  */
-    OBJSTATS;
+      OBJSTATS;
 
     /* A linked list of symbols created when reading template types or
        function templates.  These symbols are not stored in any symbol
@@ -443,11 +444,13 @@ extern struct objfile *allocate_objfile (bfd *, int);
 
 extern struct gdbarch *get_objfile_arch (struct objfile *);
 
+extern void init_entry_point_info (struct objfile *);
+
 extern int entry_point_address_query (CORE_ADDR *entry_p);
 
 extern CORE_ADDR entry_point_address (void);
 
-extern void build_objfile_section_table (struct objfile *);
+extern int build_objfile_section_table (struct objfile *);
 
 extern void terminate_minimal_symbol_table (struct objfile *objfile);
 
@@ -471,7 +474,6 @@ extern struct cleanup *make_cleanup_free_objfile (struct objfile *);
 extern void free_all_objfiles (void);
 
 extern void objfile_relocate (struct objfile *, struct section_offsets *);
-extern void objfile_rebase (struct objfile *, CORE_ADDR);
 
 extern int objfile_has_partial_symbols (struct objfile *objfile);
 
@@ -502,12 +504,28 @@ extern int in_plt_section (CORE_ADDR, char *);
 
 /* Keep a registry of per-objfile data-pointers required by other GDB
    modules.  */
-DECLARE_REGISTRY(objfile);
 
-extern void default_iterate_over_objfiles_in_search_order
-  (struct gdbarch *gdbarch,
-   iterate_over_objfiles_in_search_order_cb_ftype *cb,
-   void *cb_data, struct objfile *current_objfile);
+/* Allocate an entry in the per-objfile registry.  */
+extern const struct objfile_data *register_objfile_data (void);
+
+/* Allocate an entry in the per-objfile registry.
+   SAVE and FREE are called when clearing objfile data.
+   First all registered SAVE functions are called.
+   Then all registered FREE functions are called.
+   Either or both of SAVE, FREE may be NULL.  */
+extern const struct objfile_data *register_objfile_data_with_cleanup
+  (void (*save) (struct objfile *, void *),
+   void (*free) (struct objfile *, void *));
+
+extern void clear_objfile_data (struct objfile *objfile);
+extern void set_objfile_data (struct objfile *objfile,
+			      const struct objfile_data *data, void *value);
+extern void *objfile_data (struct objfile *objfile,
+			   const struct objfile_data *data);
+
+extern struct bfd *gdb_bfd_ref (struct bfd *abfd);
+extern void gdb_bfd_unref (struct bfd *abfd);
+extern int gdb_bfd_close_or_warn (struct bfd *abfd);
 
 
 /* Traverse all object files in the current program space.
@@ -539,12 +557,6 @@ extern void default_iterate_over_objfiles_in_search_order
 #define	ALL_OBJFILE_SYMTABS(objfile, s) \
     for ((s) = (objfile) -> symtabs; (s) != NULL; (s) = (s) -> next)
 
-/* Traverse all primary symtabs in one objfile.  */
-
-#define ALL_OBJFILE_PRIMARY_SYMTABS(objfile, s) \
-  ALL_OBJFILE_SYMTABS ((objfile), (s)) \
-    if ((s)->primary)
-
 /* Traverse all minimal symbols in one objfile.  */
 
 #define	ALL_OBJFILE_MSYMBOLS(objfile, m) \
@@ -567,11 +579,13 @@ extern void default_iterate_over_objfiles_in_search_order
 
 #define ALL_PRIMARY_SYMTABS(objfile, s) \
   ALL_OBJFILES (objfile)		\
-    ALL_OBJFILE_PRIMARY_SYMTABS (objfile, s)
+    ALL_OBJFILE_SYMTABS (objfile, s)	\
+      if ((s)->primary)
 
 #define ALL_PSPACE_PRIMARY_SYMTABS(pspace, objfile, s)	\
   ALL_PSPACE_OBJFILES (ss, objfile)			\
-    ALL_OBJFILE_PRIMARY_SYMTABS (objfile, s)
+    ALL_OBJFILE_SYMTABS (objfile, s)			\
+      if ((s)->primary)
 
 /* Traverse all minimal symbols in all objfiles in the current symbol
    space.  */
@@ -647,9 +661,5 @@ extern void default_iterate_over_objfiles_in_search_order
 /* Answer whether there is more than one object file loaded.  */
 
 #define MULTI_OBJFILE_P() (object_files && object_files->next)
-
-/* Reset the per-BFD storage area on OBJ.  */
-
-void set_objfile_per_bfd (struct objfile *obj);
 
 #endif /* !defined (OBJFILES_H) */

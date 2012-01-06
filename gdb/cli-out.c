@@ -1,6 +1,7 @@
 /* Output generating routines for GDB CLI.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999-2000, 2002-2003, 2005, 2007-2012 Free Software
+   Foundation, Inc.
 
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
@@ -138,7 +139,7 @@ cli_field_int (struct ui_out *uiout, int fldno, int width,
 
   if (data->suppress_output)
     return;
-  xsnprintf (buffer, sizeof (buffer), "%d", value);
+  sprintf (buffer, "%d", value);
 
   /* Always go through the function pointer (virtual function call).
      We may have been extended.  */

@@ -1,6 +1,6 @@
 /* Python pretty-printing
 
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -162,10 +162,9 @@ find_pretty_printer_from_gdb (PyObject *value)
   PyObject *function;
 
   /* Fetch the global pretty printer list.  */
-  if (gdb_python_module == NULL
-      || ! PyObject_HasAttrString (gdb_python_module, "pretty_printers"))
+  if (! PyObject_HasAttrString (gdb_module, "pretty_printers"))
     Py_RETURN_NONE;
-  pp_list = PyObject_GetAttrString (gdb_python_module, "pretty_printers");
+  pp_list = PyObject_GetAttrString (gdb_module, "pretty_printers");
   if (pp_list == NULL || ! PyList_Check (pp_list))
     {
       Py_XDECREF (pp_list);
@@ -348,13 +347,8 @@ print_string_repr (PyObject *printer, const char *hint,
 	      struct type *type;
 
 	      make_cleanup_py_decref (string);
-#ifdef IS_PY3K
-	      output = (gdb_byte *) PyBytes_AS_STRING (string);
-	      length = PyBytes_GET_SIZE (string);
-#else
 	      output = PyString_AsString (string);
 	      length = PyString_Size (string);
-#endif
 	      type = builtin_type (gdbarch)->builtin_char;
 
 	      if (hint && !strcmp (hint, "string"))
@@ -388,7 +382,6 @@ print_string_repr (PyObject *printer, const char *hint,
   return result;
 }
 
-#ifndef IS_PY3K
 static void
 py_restore_tstate (void *p)
 {
@@ -464,7 +457,6 @@ push_dummy_python_frame (void)
   make_cleanup (py_restore_tstate, frame->f_back);
   return (PyObject *) frame;
 }
-#endif
 
 /* Helper for apply_val_pretty_printer that formats children of the
    printer, if any exist.  If is_py_none is true, then nothing has
@@ -478,10 +470,7 @@ print_children (PyObject *printer, const char *hint,
 {
   int is_map, is_array, done_flag, pretty;
   unsigned int i;
-  PyObject *children, *iter;
-#ifndef IS_PY3K
-  PyObject *frame;
-#endif
+  PyObject *children, *iter, *frame;
   struct cleanup *cleanups;
 
   if (! PyObject_HasAttr (printer, gdbpy_children_cst))
@@ -525,7 +514,6 @@ print_children (PyObject *printer, const char *hint,
   /* Manufacture a dummy Python frame to work around Python 2.4 bug,
      where it insists on having a non-NULL tstate->frame when
      a generator is called.  */
-#ifndef IS_PY3K
   frame = push_dummy_python_frame ();
   if (!frame)
     {
@@ -533,7 +521,6 @@ print_children (PyObject *printer, const char *hint,
       goto done;
     }
   make_cleanup_py_decref (frame);
-#endif
 
   done_flag = 0;
   for (i = 0; i < options->print_max; ++i)

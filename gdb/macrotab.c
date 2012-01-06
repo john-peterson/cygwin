@@ -1,5 +1,5 @@
 /* C preprocessor macro tables for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2007-2012 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
@@ -28,7 +28,6 @@
 #include "gdb_assert.h"
 #include "bcache.h"
 #include "complaints.h"
-#include "macroexp.h"
 
 
 /* The macro table structure.  */
@@ -128,7 +127,7 @@ macro_bcache (struct macro_table *t, const void *addr, int len)
 static const char *
 macro_bcache_str (struct macro_table *t, const char *s)
 {
-  return macro_bcache (t, s, strlen (s) + 1);
+  return (char *) macro_bcache (t, s, strlen (s) + 1);
 }
 
 
@@ -566,7 +565,6 @@ new_macro_definition (struct macro_table *t,
   d->table = t;
   d->kind = kind;
   d->replacement = macro_bcache_str (t, replacement);
-  d->argc = argc;
 
   if (kind == macro_function_like)
     {
@@ -581,6 +579,7 @@ new_macro_definition (struct macro_table *t,
 
       /* Now bcache the array of argument pointers itself.  */
       d->argv = macro_bcache (t, cached_argv, cached_argv_size);
+      d->argc = argc;
     }
 
   /* We don't bcache the entire definition structure because it's got
@@ -743,12 +742,10 @@ check_for_redefinition (struct macro_source_file *source, int line,
     return 0;
 }
 
-/* A helper function to define a new object-like macro.  */
 
-static void
-macro_define_object_internal (struct macro_source_file *source, int line,
-			      const char *name, const char *replacement,
-			      enum macro_special_kind kind)
+void
+macro_define_object (struct macro_source_file *source, int line,
+                     const char *name, const char *replacement)
 {
   struct macro_table *t = source->table;
   struct macro_key *k = NULL;
@@ -774,28 +771,10 @@ macro_define_object_internal (struct macro_source_file *source, int line,
     return;
 
   k = new_macro_key (t, name, source, line);
-  d = new_macro_definition (t, macro_object_like, kind, 0, replacement);
+  d = new_macro_definition (t, macro_object_like, 0, 0, replacement);
   splay_tree_insert (t->definitions, (splay_tree_key) k, (splay_tree_value) d);
 }
 
-void
-macro_define_object (struct macro_source_file *source, int line,
-		     const char *name, const char *replacement)
-{
-  macro_define_object_internal (source, line, name, replacement,
-				macro_ordinary);
-}
-
-/* See macrotab.h.  */
-
-void
-macro_define_special (struct macro_table *table)
-{
-  macro_define_object_internal (table->main_source, -1, "__FILE__", "",
-				macro_FILE);
-  macro_define_object_internal (table->main_source, -1, "__LINE__", "",
-				macro_LINE);
-}
 
 void
 macro_define_function (struct macro_source_file *source, int line,
@@ -880,36 +859,6 @@ macro_undef (struct macro_source_file *source, int line,
     }
 }
 
-/* A helper function that rewrites the definition of a special macro,
-   when needed.  */
-
-static struct macro_definition *
-fixup_definition (const char *filename, int line, struct macro_definition *def)
-{
-  static char *saved_expansion;
-
-  if (saved_expansion)
-    {
-      xfree (saved_expansion);
-      saved_expansion = NULL;
-    }
-
-  if (def->kind == macro_object_like)
-    {
-      if (def->argc == macro_FILE)
-	{
-	  saved_expansion = macro_stringify (filename);
-	  def->replacement = saved_expansion;
-	}
-      else if (def->argc == macro_LINE)
-	{
-	  saved_expansion = xstrprintf ("%d", line);
-	  def->replacement = saved_expansion;
-	}
-    }
-
-  return def;
-}
 
 struct macro_definition *
 macro_lookup_definition (struct macro_source_file *source,
@@ -918,8 +867,7 @@ macro_lookup_definition (struct macro_source_file *source,
   splay_tree_node n = find_definition (name, source, line);
 
   if (n)
-    return fixup_definition (source->filename, line,
-			     (struct macro_definition *) n->value);
+    return (struct macro_definition *) n->value;
   else
     return 0;
 }
@@ -962,9 +910,7 @@ foreach_macro (splay_tree_node node, void *arg)
 {
   struct macro_for_each_data *datum = (struct macro_for_each_data *) arg;
   struct macro_key *key = (struct macro_key *) node->key;
-  struct macro_definition *def
-    = fixup_definition (key->start_file->filename, key->start_line,
-			(struct macro_definition *) node->value);
+  struct macro_definition *def = (struct macro_definition *) node->value;
 
   (*datum->fn) (key->name, def, key->start_file, key->start_line,
 		datum->user_data);
@@ -990,9 +936,7 @@ foreach_macro_in_scope (splay_tree_node node, void *info)
 {
   struct macro_for_each_data *datum = (struct macro_for_each_data *) info;
   struct macro_key *key = (struct macro_key *) node->key;
-  struct macro_definition *def
-    = fixup_definition (datum->file->filename, datum->line,
-			(struct macro_definition *) node->value);
+  struct macro_definition *def = (struct macro_definition *) node->value;
 
   /* See if this macro is defined before the passed-in line, and
      extends past that line.  */

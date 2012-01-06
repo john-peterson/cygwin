@@ -1,6 +1,6 @@
 /* Character set conversion support for GDB.
 
-   Copyright (C) 2001-2013 Free Software Foundation, Inc.
+   Copyright (C) 2001, 2003, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,7 +27,6 @@
 #include "vec.h"
 #include "environ.h"
 #include "arch-utils.h"
-#include "gdb_vecs.h"
 
 #include <stddef.h>
 #include "gdb_string.h"
@@ -108,7 +107,7 @@
 #define EILSEQ ENOENT
 #endif
 
-static iconv_t
+iconv_t
 phony_iconv_open (const char *to, const char *from)
 {
   /* We allow conversions from UTF-32BE, wchar_t, and the host charset.
@@ -124,13 +123,13 @@ phony_iconv_open (const char *to, const char *from)
   return !strcmp (from, "UTF-32BE");
 }
 
-static int
+int
 phony_iconv_close (iconv_t arg)
 {
   return 0;
 }
 
-static size_t
+size_t
 phony_iconv (iconv_t utf_flag, const char **inbuf, size_t *inbytesleft,
 	     char **outbuf, size_t *outbytesleft)
 {
@@ -531,7 +530,7 @@ convert_between_encodings (const char *from, const char *to,
 		  {
 		    char octal[5];
 
-		    xsnprintf (octal, sizeof (octal), "\\%.3o", *inp & 0xff);
+		    sprintf (octal, "\\%.3o", *inp & 0xff);
 		    obstack_grow_str (output, octal);
 
 		    ++inp;
@@ -718,6 +717,8 @@ wchar_iterate (struct wchar_iterator *iter,
 
 extern initialize_file_ftype _initialize_charset; /* -Wmissing-prototype */
 
+DEF_VEC_P (char_ptr);
+
 static VEC (char_ptr) *charsets;
 
 #ifdef PHONY_ICONV
@@ -839,7 +840,7 @@ find_charset_names (void)
 	 parse the glibc and libiconv formats; feel free to add others
 	 as needed.  */
 
-      while (in != NULL && !feof (in))
+      while (!feof (in))
 	{
 	  /* The size of buf is chosen arbitrarily.  */
 	  char buf[1024];
@@ -909,8 +910,11 @@ find_charset_names (void)
   if (fail)
     {
       /* Some error occurred, so drop the vector.  */
-      free_char_ptr_vec (charsets);
-      charsets = NULL;
+      int ix;
+      char *elt;
+      for (ix = 0; VEC_iterate (char_ptr, charsets, ix, elt); ++ix)
+	xfree (elt);
+      VEC_truncate (char_ptr, charsets, 0);
     }
   else
     VEC_safe_push (char_ptr, charsets, NULL);
@@ -965,6 +969,7 @@ intermediate_encoding (void)
   iconv_t desc;
   static const char *stored_result = NULL;
   char *result;
+  int i;
 
   if (stored_result)
     return stored_result;

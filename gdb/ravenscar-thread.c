@@ -1,6 +1,6 @@
 /* Ada Ravenscar thread support.
 
-   Copyright 2004-2013 Free Software Foundation, Inc.
+   Copyright 2004, 2009-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -34,6 +34,10 @@
 /* If non-null, ravenscar task support is enabled.  */
 static int ravenscar_task_support = 1;
 
+/* Non-null if the ravenscar thread layer has been pushed on the target
+   stack.  */
+static int ravenscar_is_open = 0;
+
 /* This module's target-specific operations.  */
 static struct target_ops ravenscar_ops;
 
@@ -54,6 +58,9 @@ static const char ravenscar_runtime_initializer[] =
 
 static struct observer *update_target_observer = NULL;
 
+/* Architecture-specific hooks.  */
+static struct ravenscar_arch_ops* current_arch_ops;
+
 static void ravenscar_find_new_threads (struct target_ops *ops);
 static ptid_t ravenscar_running_thread (void);
 static char *ravenscar_extra_thread_info (struct thread_info *tp);
@@ -63,8 +70,9 @@ static void ravenscar_fetch_registers (struct target_ops *ops,
 static void ravenscar_store_registers (struct target_ops *ops,
                                        struct regcache *regcache, int regnum);
 static void ravenscar_prepare_to_store (struct regcache *regcache);
+static void ravenscar_initialize  (char *name, int from_tty);
 static void ravenscar_resume (struct target_ops *ops, ptid_t ptid, int step,
-			      enum gdb_signal siggnal);
+			      enum target_signal siggnal);
 static void ravenscar_mourn_inferior (struct target_ops *ops);
 static void ravenscar_update_inferior_ptid (void);
 static int has_ravenscar_runtime (void);
@@ -158,7 +166,7 @@ get_running_thread_id (void)
   char *buf;
   CORE_ADDR object_addr;
   struct type *builtin_type_void_data_ptr =
-    builtin_type (target_gdbarch ())->builtin_data_ptr;
+    builtin_type (target_gdbarch)->builtin_data_ptr;
 
   if (!object_msym)
     return 0;
@@ -172,8 +180,14 @@ get_running_thread_id (void)
 }
 
 static void
+ravenscar_close (int quitting)
+{
+  ravenscar_is_open = 0;
+}
+
+static void
 ravenscar_resume (struct target_ops *ops, ptid_t ptid, int step,
-		  enum gdb_signal siggnal)
+		  enum target_signal siggnal)
 {
   struct target_ops *beneath = find_target_beneath (ops);
 
@@ -190,19 +204,8 @@ ravenscar_wait (struct target_ops *ops, ptid_t ptid,
 
   inferior_ptid = base_ptid;
   beneath->to_wait (beneath, base_ptid, status, 0);
-  /* Find any new threads that might have been created, and update
-     inferior_ptid to the active thread.
-
-     Only do it if the program is still alive, though.  Otherwise,
-     this causes problems when debugging through the remote protocol,
-     because we might try switching threads (and thus sending packets)
-     after the remote has disconnected.  */
-  if (status->kind != TARGET_WAITKIND_EXITED
-      && status->kind != TARGET_WAITKIND_SIGNALLED)
-    {
-      ravenscar_find_new_threads (ops);
-      ravenscar_update_inferior_ptid ();
-    }
+  ravenscar_find_new_threads (ops);
+  ravenscar_update_inferior_ptid ();
   return inferior_ptid;
 }
 
@@ -273,13 +276,7 @@ ravenscar_fetch_registers (struct target_ops *ops,
       || ptid_equal (inferior_ptid, ravenscar_running_thread ()))
     beneath->to_fetch_registers (beneath, regcache, regnum);
   else
-    {
-      struct gdbarch *gdbarch = get_regcache_arch (regcache);
-      struct ravenscar_arch_ops *arch_ops
-	= gdbarch_ravenscar_ops (gdbarch);
-
-      arch_ops->to_fetch_registers (regcache, regnum);
-    }
+    current_arch_ops->to_fetch_registers (regcache, regnum);
 }
 
 static void
@@ -293,13 +290,7 @@ ravenscar_store_registers (struct target_ops *ops,
       || ptid_equal (inferior_ptid, ravenscar_running_thread ()))
     beneath->to_store_registers (beneath, regcache, regnum);
   else
-    {
-      struct gdbarch *gdbarch = get_regcache_arch (regcache);
-      struct ravenscar_arch_ops *arch_ops
-	= gdbarch_ravenscar_ops (gdbarch);
-
-      arch_ops->to_store_registers (regcache, regnum);
-    }
+    current_arch_ops->to_store_registers (regcache, regnum);
 }
 
 static void
@@ -312,13 +303,7 @@ ravenscar_prepare_to_store (struct regcache *regcache)
       || ptid_equal (inferior_ptid, ravenscar_running_thread ()))
     beneath->to_prepare_to_store (regcache);
   else
-    {
-      struct gdbarch *gdbarch = get_regcache_arch (regcache);
-      struct ravenscar_arch_ops *arch_ops
-	= gdbarch_ravenscar_ops (gdbarch);
-
-      arch_ops->to_prepare_to_store (regcache);
-    }
+    current_arch_ops->to_prepare_to_store (regcache);
 }
 
 static void
@@ -336,16 +321,34 @@ ravenscar_mourn_inferior (struct target_ops *ops)
 static void
 ravenscar_inferior_created (struct target_ops *target, int from_tty)
 {
-  struct ravenscar_arch_ops *ops;
+  if (ravenscar_task_support
+      && has_ravenscar_runtime ())
+    ravenscar_initialize (NULL, 0);
+}
 
-  if (!ravenscar_task_support
-      || gdbarch_ravenscar_ops (current_inferior ()->gdbarch) == NULL
-      || !has_ravenscar_runtime ())
+void
+ravenscar_register_arch_ops (struct ravenscar_arch_ops *ops)
+{
+  /* FIXME: To be clean, we would need to handle a list of
+     architectures, just like in remote-wtx-hw.c.  However, for now the
+     only Ravenscar run-time for bare board that is implemented in
+     GNAT is for only one architecture: erc32-elf.  So no need to care about
+     that for now...  */
+  current_arch_ops = ops;
+}
+
+/* Initialize Ravenscar support.  */
+
+static void
+ravenscar_initialize (char *name, int from_tty)
+{
+  if (ravenscar_is_open)
     return;
 
   base_magic_null_ptid = inferior_ptid;
   ravenscar_update_inferior_ptid ();
   push_target (&ravenscar_ops);
+  ravenscar_is_open = 1;
 }
 
 static ptid_t
@@ -360,6 +363,7 @@ init_ravenscar_thread_ops (void)
   ravenscar_ops.to_shortname = "ravenscar";
   ravenscar_ops.to_longname = "Ravenscar tasks.";
   ravenscar_ops.to_doc = "Ravenscar tasks support.";
+  ravenscar_ops.to_close = ravenscar_close;
   ravenscar_ops.to_resume = ravenscar_resume;
   ravenscar_ops.to_wait = ravenscar_wait;
   ravenscar_ops.to_fetch_registers = ravenscar_fetch_registers;
@@ -416,9 +420,6 @@ Support for Ravenscar task/thread switching is enabled\n"));
     fprintf_filtered (file, _("\
 Support for Ravenscar task/thread switching is disabled\n"));
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern void _initialize_ravenscar (void);
 
 /* Module startup initialization function, automagically called by
    init.c.  */

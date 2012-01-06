@@ -1,6 +1,7 @@
-/* Header file for command creation.
+/* Header file for command-reading library command.c.
 
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1989-1995, 1999-2000, 2002, 2004, 2007-2012 Free
+   Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,11 +18,6 @@
 
 #if !defined (COMMAND_H)
 #define COMMAND_H 1
-
-#include "gdb_vecs.h"
-
-/* This file defines the public interface for any code wanting to
-   create commands.  */
 
 /* Command classes are top-level categories into which commands are
    broken down for "help" purposes.
@@ -76,8 +72,7 @@ typedef enum var_types
 
     /* Like var_uinteger but signed.  *VAR is an int.  The user can
        type 0 to mean "unlimited", which is stored in *VAR as
-       INT_MAX.  The only remaining use of it is the Python API.
-       Don't use it elsewhere.  */
+       INT_MAX.  */
     var_integer,
 
     /* String which the user enters with escapes (e.g. the user types
@@ -93,15 +88,12 @@ typedef enum var_types
     /* String which stores a filename.  (*VAR) is a malloc'd
        string.  */
     var_filename,
-    /* ZeroableInteger.  *VAR is an int.  Like var_integer except
+    /* ZeroableInteger.  *VAR is an int.  Like Unsigned Integer except
        that zero really means zero.  */
     var_zinteger,
     /* ZeroableUnsignedInteger.  *VAR is an unsigned int.  Zero really
        means zero.  */
     var_zuinteger,
-    /* ZeroableUnsignedInteger with unlimited value.  *VAR is an unsigned
-       int, but its range is [0, INT_MAX].  -1 stands for unlimited.  */
-    var_zuinteger_unlimited,
     /* Enumerated type.  Can only have one of the specified values.
        *VAR is a char pointer to the name of the element that we
        find.  */
@@ -113,8 +105,6 @@ var_types;
 struct cmd_list_element;
 
 /* Forward-declarations of the entry-points of cli/cli-decode.c.  */
-
-/* API to the manipulation of command lists.  */
 
 extern int valid_user_defined_cmd_name_p (const char *name);
 
@@ -154,10 +144,9 @@ typedef void cmd_sfunc_ftype (char *args, int from_tty,
 extern void set_cmd_sfunc (struct cmd_list_element *cmd,
 			   cmd_sfunc_ftype *sfunc);
 
-typedef VEC (char_ptr) *completer_ftype (struct cmd_list_element *,
-					 char *, char *);
-
-extern void set_cmd_completer (struct cmd_list_element *, completer_ftype *);
+extern void set_cmd_completer (struct cmd_list_element *,
+			       char **(*completer) (struct cmd_list_element *,
+						    char *, char *));
 
 /* HACK: cagney/2002-02-23: Code, mostly in tracepoints.c, grubs
    around in cmd objects to test the value of the commands sfunc().  */
@@ -179,8 +168,6 @@ extern void execute_cmd_post_hook (struct cmd_list_element *cmd);
 /* Return the type of the command.  */
 extern enum cmd_types cmd_type (struct cmd_list_element *cmd);
 
-/* Flag for an ambiguous cmd_list result.  */
-#define CMD_LIST_AMBIGUOUS ((struct cmd_list_element *) -1)
 
 extern struct cmd_list_element *lookup_cmd (char **,
 					    struct cmd_list_element *, char *,
@@ -214,16 +201,20 @@ extern struct cmd_list_element *add_info (char *,
 
 extern struct cmd_list_element *add_info_alias (char *, char *, int);
 
-extern VEC (char_ptr) *complete_on_cmdlist (struct cmd_list_element *,
-					    char *, char *, int);
+extern char **complete_on_cmdlist (struct cmd_list_element *,
+				   char *, char *);
 
-extern VEC (char_ptr) *complete_on_enum (const char *const *enumlist,
-					 char *, char *);
+extern char **complete_on_enum (const char *enumlist[],
+				char *, char *);
 
-/* Functions that implement commands about CLI commands.  */
+extern void help_cmd (char *, struct ui_file *);
 
 extern void help_list (struct cmd_list_element *, char *,
 		       enum command_class, struct ui_file *);
+
+extern void help_cmd_list (struct cmd_list_element *,
+			   enum command_class,
+			   char *, int, struct ui_file *);
 
 /* Method for show a set/show variable's VALUE on FILE.  If this
    method isn't supplied deprecated_show_value_hack() is called (which
@@ -238,7 +229,7 @@ extern show_value_ftype deprecated_show_value_hack;
 
 extern void add_setshow_enum_cmd (char *name,
 				  enum command_class class,
-				  const char *const *enumlist,
+				  const char *enumlist[],
 				  const char **var,
 				  const char *set_doc,
 				  const char *show_doc,
@@ -291,17 +282,16 @@ extern void add_setshow_string_cmd (char *name,
 				    struct cmd_list_element **set_list,
 				    struct cmd_list_element **show_list);
 
-extern struct cmd_list_element *add_setshow_string_noescape_cmd
-		      (char *name,
-		       enum command_class class,
-		       char **var,
-		       const char *set_doc,
-		       const char *show_doc,
-		       const char *help_doc,
-		       cmd_sfunc_ftype *set_func,
-		       show_value_ftype *show_func,
-		       struct cmd_list_element **set_list,
-		       struct cmd_list_element **show_list);
+extern void add_setshow_string_noescape_cmd (char *name,
+					     enum command_class class,
+					     char **var,
+					     const char *set_doc,
+					     const char *show_doc,
+					     const char *help_doc,
+					     cmd_sfunc_ftype *set_func,
+					     show_value_ftype *show_func,
+					     struct cmd_list_element **set_list,
+					     struct cmd_list_element **show_list);
 
 extern void add_setshow_optional_filename_cmd (char *name,
 					       enum command_class class,
@@ -348,18 +338,6 @@ extern void add_setshow_zinteger_cmd (char *name,
 				      struct cmd_list_element **show_list);
 
 extern void add_setshow_zuinteger_cmd (char *name,
-				       enum command_class class,
-				       unsigned int *var,
-				       const char *set_doc,
-				       const char *show_doc,
-				       const char *help_doc,
-				       cmd_sfunc_ftype *set_func,
-				       show_value_ftype *show_func,
-				       struct cmd_list_element **set_list,
-				       struct cmd_list_element **show_list);
-
-extern void
-  add_setshow_zuinteger_unlimited_cmd (char *name,
 				       enum command_class class,
 				       unsigned int *var,
 				       const char *set_doc,

@@ -1,5 +1,5 @@
 /* Line completion stuff for GDB, the GNU debugger.
-   Copyright (C) 2000-2013 Free Software Foundation, Inc.
+   Copyright (C) 2000-2001, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -24,7 +24,6 @@
 #include "language.h"
 #include "gdb_assert.h"
 #include "exceptions.h"
-#include "gdb_signals.h"
 
 #include "cli/cli-decode.h"
 
@@ -105,7 +104,7 @@ readline_line_completion_function (const char *text, int matches)
 
 /* This can be used for functions which don't want to complete on
    symbols but don't want to complete on anything else either.  */
-VEC (char_ptr) *
+char **
 noop_completer (struct cmd_list_element *ignore, 
 		char *text, char *prefix)
 {
@@ -113,12 +112,19 @@ noop_completer (struct cmd_list_element *ignore,
 }
 
 /* Complete on filenames.  */
-VEC (char_ptr) *
+char **
 filename_completer (struct cmd_list_element *ignore, 
 		    char *text, char *word)
 {
   int subsequent_name;
-  VEC (char_ptr) *return_val = NULL;
+  char **return_val;
+  int return_val_used;
+  int return_val_alloced;
+
+  return_val_used = 0;
+  /* Small for testing.  */
+  return_val_alloced = 1;
+  return_val = (char **) xmalloc (return_val_alloced * sizeof (char *));
 
   subsequent_name = 0;
   while (1)
@@ -126,8 +132,18 @@ filename_completer (struct cmd_list_element *ignore,
       char *p, *q;
 
       p = rl_filename_completion_function (text, subsequent_name);
+      if (return_val_used >= return_val_alloced)
+	{
+	  return_val_alloced *= 2;
+	  return_val =
+	    (char **) xrealloc (return_val,
+				return_val_alloced * sizeof (char *));
+	}
       if (p == NULL)
-	break;
+	{
+	  return_val[return_val_used++] = p;
+	  break;
+	}
       /* We need to set subsequent_name to a non-zero value before the
 	 continue line below, because otherwise, if the first file
 	 seen by GDB is a backup file whose name ends in a `~', we
@@ -143,12 +159,13 @@ filename_completer (struct cmd_list_element *ignore,
 
       if (word == text)
 	/* Return exactly p.  */
-	q = p;
+	return_val[return_val_used++] = p;
       else if (word > text)
 	{
 	  /* Return some portion of p.  */
 	  q = xmalloc (strlen (p) + 5);
 	  strcpy (q, p + (word - text));
+	  return_val[return_val_used++] = q;
 	  xfree (p);
 	}
       else
@@ -158,9 +175,9 @@ filename_completer (struct cmd_list_element *ignore,
 	  strncpy (q, word, text - word);
 	  q[text - word] = '\0';
 	  strcat (q, p);
+	  return_val[return_val_used++] = q;
 	  xfree (p);
 	}
-      VEC_safe_push (char_ptr, return_val, q);
     }
 #if 0
   /* There is no way to do this just long enough to affect quote
@@ -182,13 +199,13 @@ filename_completer (struct cmd_list_element *ignore,
    This is intended to be used in commands that set breakpoints
    etc.  */
 
-VEC (char_ptr) *
+char **
 location_completer (struct cmd_list_element *ignore, 
 		    char *text, char *word)
 {
-  int n_syms, n_files, ix;
-  VEC (char_ptr) *fn_list = NULL;
-  VEC (char_ptr) *list = NULL;
+  int n_syms = 0, n_files = 0;
+  char ** fn_list = NULL;
+  char ** list = NULL;
   char *p;
   int quote_found = 0;
   int quoted = *text == '\'' || *text == '"';
@@ -273,26 +290,21 @@ location_completer (struct cmd_list_element *ignore,
 	fn_list = make_source_files_completion_list (text, text);
     }
 
-  n_syms = VEC_length (char_ptr, list);
-  n_files = VEC_length (char_ptr, fn_list);
+  /* How many completions do we have in both lists?  */
+  if (fn_list)
+    for ( ; fn_list[n_files]; n_files++)
+      ;
+  if (list)
+    for ( ; list[n_syms]; n_syms++)
+      ;
 
-  /* Catenate fn_list[] onto the end of list[].  */
-  if (!n_syms)
-    {
-      VEC_free (char_ptr, list); /* Paranoia.  */
-      list = fn_list;
-      fn_list = NULL;
-    }
-  else
-    {
-      for (ix = 0; VEC_iterate (char_ptr, fn_list, ix, p); ++ix)
-	VEC_safe_push (char_ptr, list, p);
-      VEC_free (char_ptr, fn_list);
-    }
-
+  /* Make list[] large enough to hold both lists, then catenate
+     fn_list[] onto the end of list[].  */
   if (n_syms && n_files)
     {
-      /* Nothing.  */
+      list = xrealloc (list, (n_syms + n_files + 1) * sizeof (char *));
+      memcpy (list + n_syms, fn_list, (n_files + 1) * sizeof (char *));
+      xfree (fn_list);
     }
   else if (n_files)
     {
@@ -311,38 +323,76 @@ location_completer (struct cmd_list_element *ignore,
 	 completion, because rl_complete will prepend "/foo/" to each
 	 candidate completion.  The loop below removes that leading
 	 part.  */
-      for (ix = 0; VEC_iterate (char_ptr, list, ix, p); ++ix)
+      for (n_files = 0; fn_list[n_files]; n_files++)
 	{
-	  memmove (p, p + (word - text),
-		   strlen (p) + 1 - (word - text));
+	  memmove (fn_list[n_files], fn_list[n_files] + (word - text),
+		   strlen (fn_list[n_files]) + 1 - (word - text));
 	}
+      /* Return just the file-name list as the result.  */
+      list = fn_list;
     }
   else if (!n_syms)
     {
       /* No completions at all.  As the final resort, try completing
 	 on the entire text as a symbol.  */
       list = make_symbol_completion_list (orig_text, word);
+      xfree (fn_list);
     }
+  else
+    xfree (fn_list);
 
   return list;
 }
 
-/* Helper for expression_completer which recursively adds field and
-   method names from TYPE, a struct or union type, to the array
-   OUTPUT.  */
-static void
-add_struct_fields (struct type *type, VEC (char_ptr) **output,
-		   char *fieldname, int namelen)
+/* Helper for expression_completer which recursively counts the number
+   of named fields and methods in a structure or union type.  */
+static int
+count_struct_fields (struct type *type)
 {
-  int i;
-  int computed_type_name = 0;
-  const char *type_name = NULL;
+  int i, result = 0;
 
   CHECK_TYPEDEF (type);
   for (i = 0; i < TYPE_NFIELDS (type); ++i)
     {
       if (i < TYPE_N_BASECLASSES (type))
-	add_struct_fields (TYPE_BASECLASS (type, i),
+	result += count_struct_fields (TYPE_BASECLASS (type, i));
+      else if (TYPE_FIELD_NAME (type, i))
+	{
+	  if (TYPE_FIELD_NAME (type, i)[0] != '\0')
+	    ++result;
+	  else if (TYPE_CODE (TYPE_FIELD_TYPE (type, i)) == TYPE_CODE_UNION)
+	    {
+	      /* Recurse into anonymous unions.  */
+	      result += count_struct_fields (TYPE_FIELD_TYPE (type, i));
+	    }
+	}
+    }
+
+  for (i = TYPE_NFN_FIELDS (type) - 1; i >= 0; --i)
+    {
+      if (TYPE_FN_FIELDLIST_NAME (type, i))
+	++result;
+    }
+
+  return result;
+}
+
+/* Helper for expression_completer which recursively adds field and
+   method names from TYPE, a struct or union type, to the array
+   OUTPUT.  This function assumes that OUTPUT is correctly-sized.  */
+static void
+add_struct_fields (struct type *type, int *nextp, char **output,
+		   char *fieldname, int namelen)
+{
+  int i;
+  int computed_type_name = 0;
+  char *type_name = NULL;
+
+  CHECK_TYPEDEF (type);
+  for (i = 0; i < TYPE_NFIELDS (type); ++i)
+    {
+      if (i < TYPE_N_BASECLASSES (type))
+	add_struct_fields (TYPE_BASECLASS (type, i), nextp,
 			   output, fieldname, namelen);
       else if (TYPE_FIELD_NAME (type, i))
 	{
@@ -350,13 +400,15 @@ add_struct_fields (struct type *type, VEC (char_ptr) **output,
 	    {
 	      if (! strncmp (TYPE_FIELD_NAME (type, i), 
 			     fieldname, namelen))
-		VEC_safe_push (char_ptr, *output,
-			       xstrdup (TYPE_FIELD_NAME (type, i)));
+		{
+		  output[*nextp] = xstrdup (TYPE_FIELD_NAME (type, i));
+		  ++*nextp;
+		}
 	    }
 	  else if (TYPE_CODE (TYPE_FIELD_TYPE (type, i)) == TYPE_CODE_UNION)
 	    {
 	      /* Recurse into anonymous unions.  */
-	      add_struct_fields (TYPE_FIELD_TYPE (type, i),
+	      add_struct_fields (TYPE_FIELD_TYPE (type, i), nextp, 
 				 output, fieldname, namelen);
 	    }
 	}
@@ -364,7 +416,7 @@ add_struct_fields (struct type *type, VEC (char_ptr) **output,
 
   for (i = TYPE_NFN_FIELDS (type) - 1; i >= 0; --i)
     {
-      const char *name = TYPE_FN_FIELDLIST_NAME (type, i);
+      char *name = TYPE_FN_FIELDLIST_NAME (type, i);
 
       if (name && ! strncmp (name, fieldname, namelen))
 	{
@@ -375,7 +427,10 @@ add_struct_fields (struct type *type, VEC (char_ptr) **output,
 	    }
 	  /* Omit constructors from the completion list.  */
 	  if (!type_name || strcmp (type_name, name))
-	    VEC_safe_push (char_ptr, *output, xstrdup (name));
+	    {
+	      output[*nextp] = xstrdup (name);
+	      ++*nextp;
+	    }
 	}
     }
 }
@@ -383,21 +438,20 @@ add_struct_fields (struct type *type, VEC (char_ptr) **output,
 /* Complete on expressions.  Often this means completing on symbol
    names, but some language parsers also have support for completing
    field names.  */
-VEC (char_ptr) *
+char **
 expression_completer (struct cmd_list_element *ignore, 
 		      char *text, char *word)
 {
   struct type *type = NULL;
   char *fieldname, *p;
   volatile struct gdb_exception except;
-  enum type_code code = TYPE_CODE_UNDEF;
 
   /* Perform a tentative parse of the expression, to see whether a
      field completion is required.  */
   fieldname = NULL;
   TRY_CATCH (except, RETURN_MASK_ERROR)
     {
-      type = parse_expression_for_completion (text, &fieldname, &code);
+      type = parse_field_expression (text, &fieldname);
     }
   if (except.reason < 0)
     return NULL;
@@ -415,22 +469,16 @@ expression_completer (struct cmd_list_element *ignore,
       if (TYPE_CODE (type) == TYPE_CODE_UNION
 	  || TYPE_CODE (type) == TYPE_CODE_STRUCT)
 	{
+	  int alloc = count_struct_fields (type);
 	  int flen = strlen (fieldname);
-	  VEC (char_ptr) *result = NULL;
+	  int out = 0;
+	  char **result = (char **) xmalloc ((alloc + 1) * sizeof (char *));
 
-	  add_struct_fields (type, &result, fieldname, flen);
+	  add_struct_fields (type, &out, result, fieldname, flen);
+	  result[out] = NULL;
 	  xfree (fieldname);
 	  return result;
 	}
-    }
-  else if (fieldname && code != TYPE_CODE_UNDEF)
-    {
-      VEC (char_ptr) *result;
-      struct cleanup *cleanup = make_cleanup (xfree, fieldname);
-
-      result = make_symbol_completion_type (fieldname, fieldname, code);
-      do_cleanups (cleanup);
-      return result;
     }
   xfree (fieldname);
 
@@ -504,14 +552,13 @@ complete_line_internal_reason;
    once sub-command completions are exhausted, we simply return NULL.
  */
 
-static VEC (char_ptr) *
+static char **
 complete_line_internal (const char *text, 
 			char *line_buffer, int point,
 			complete_line_internal_reason reason)
 {
-  VEC (char_ptr) *list = NULL;
+  char **list = NULL;
   char *tmp_command, *p;
-  int ignore_help_classes;
   /* Pointer within tmp_command which corresponds to text.  */
   char *word;
   struct cmd_list_element *c, *result_list;
@@ -531,9 +578,6 @@ complete_line_internal (const char *text,
   tmp_command = (char *) alloca (point + 1);
   p = tmp_command;
 
-  /* The help command should complete help aliases.  */
-  ignore_help_classes = reason != handle_help;
-
   strncpy (tmp_command, line_buffer, point);
   tmp_command[point] = '\0';
   /* Since text always contains some number of characters leading up
@@ -550,7 +594,7 @@ complete_line_internal (const char *text,
     }
   else
     {
-      c = lookup_cmd_1 (&p, cmdlist, &result_list, ignore_help_classes);
+      c = lookup_cmd_1 (&p, cmdlist, &result_list, 1);
     }
 
   /* Move p up to the next interesting thing.  */
@@ -591,13 +635,12 @@ complete_line_internal (const char *text,
 	    {
 	      if (reason != handle_brkchars)
 		list = complete_on_cmdlist (*result_list->prefixlist, p,
-					    word, ignore_help_classes);
+					    word);
 	    }
 	  else
 	    {
 	      if (reason != handle_brkchars)
-		list = complete_on_cmdlist (cmdlist, p, word,
-					    ignore_help_classes);
+		list = complete_on_cmdlist (cmdlist, p, word);
 	    }
 	  /* Ensure that readline does the right thing with respect to
 	     inserting quotes.  */
@@ -623,8 +666,7 @@ complete_line_internal (const char *text,
 		  /* It is a prefix command; what comes after it is
 		     a subcommand (e.g. "info ").  */
 		  if (reason != handle_brkchars)
-		    list = complete_on_cmdlist (*c->prefixlist, p, word,
-						ignore_help_classes);
+		    list = complete_on_cmdlist (*c->prefixlist, p, word);
 
 		  /* Ensure that readline does the right thing
 		     with respect to inserting quotes.  */
@@ -695,8 +737,7 @@ complete_line_internal (const char *text,
 		}
 
 	      if (reason != handle_brkchars)
-		list = complete_on_cmdlist (result_list, q, word,
-					    ignore_help_classes);
+		list = complete_on_cmdlist (result_list, q, word);
 
 	      /* Ensure that readline does the right thing
 		 with respect to inserting quotes.  */
@@ -753,9 +794,9 @@ complete_line_internal (const char *text,
 
   return list;
 }
-/* Generate completions all at once.  Returns a vector of strings.
-   Each element is allocated with xmalloc.  It can also return NULL if
-   there are no completions.
+/* Generate completions all at once.  Returns a NULL-terminated array
+   of strings.  Both the array and each element are allocated with
+   xmalloc.  It can also return NULL if there are no completions.
 
    TEXT is the caller's idea of the "word" we are looking at.
 
@@ -765,7 +806,7 @@ complete_line_internal (const char *text,
    POINT is the offset in that line of the cursor.  You
    should pretend that the line ends at POINT.  */
 
-VEC (char_ptr) *
+char **
 complete_line (const char *text, char *line_buffer, int point)
 {
   return complete_line_internal (text, line_buffer, 
@@ -773,42 +814,12 @@ complete_line (const char *text, char *line_buffer, int point)
 }
 
 /* Complete on command names.  Used by "help".  */
-VEC (char_ptr) *
+char **
 command_completer (struct cmd_list_element *ignore, 
 		   char *text, char *word)
 {
   return complete_line_internal (word, text, 
 				 strlen (text), handle_help);
-}
-
-/* Complete on signals.  */
-
-VEC (char_ptr) *
-signal_completer (struct cmd_list_element *ignore,
-		  char *text, char *word)
-{
-  VEC (char_ptr) *return_val = NULL;
-  size_t len = strlen (word);
-  enum gdb_signal signum;
-  const char *signame;
-
-  for (signum = GDB_SIGNAL_FIRST; signum != GDB_SIGNAL_LAST; ++signum)
-    {
-      /* Can't handle this, so skip it.  */
-      if (signum == GDB_SIGNAL_0)
-	continue;
-
-      signame = gdb_signal_to_name (signum);
-
-      /* Ignore the unknown signal case.  */
-      if (!signame || strcmp (signame, "?") == 0)
-	continue;
-
-      if (strncasecmp (signame, word, len) == 0)
-	VEC_safe_push (char_ptr, return_val, xstrdup (signame));
-    }
-
-  return return_val;
 }
 
 /* Get the list of chars that are considered as word breaks
@@ -817,7 +828,7 @@ signal_completer (struct cmd_list_element *ignore,
 char *
 gdb_completion_word_break_characters (void)
 {
-  VEC (char_ptr) *list;
+  char **list;
 
   list = complete_line_internal (rl_line_buffer, rl_line_buffer, rl_point,
 				 handle_brkchars);
@@ -850,7 +861,7 @@ static char *
 line_completion_function (const char *text, int matches, 
 			  char *line_buffer, int point)
 {
-  static VEC (char_ptr) *list = NULL;	/* Cache of completions.  */
+  static char **list = (char **) NULL;	/* Cache of completions.  */
   static int index;			/* Next cached completion.  */
   char *output = NULL;
 
@@ -866,22 +877,24 @@ line_completion_function (const char *text, int matches,
 	     inside.  This is because rl_complete_internal () frees
 	     the strings.  As complete_line may abort by calling
 	     `error' clear LIST now.  */
-	  VEC_free (char_ptr, list);
+	  xfree (list);
+	  list = NULL;
 	}
       index = 0;
       list = complete_line (text, line_buffer, point);
     }
 
   /* If we found a list of potential completions during initialization
-     then dole them out one at a time.  After returning the last one,
-     return NULL (and continue to do so) each time we are called after
-     that, until a new list is available.  */
+     then dole them out one at a time.  The vector of completions is
+     NULL terminated, so after returning the last one, return NULL
+     (and continue to do so) each time we are called after that, until
+     a new list is available.  */
 
   if (list)
     {
-      if (index < VEC_length (char_ptr, list))
+      output = list[index];
+      if (output)
 	{
-	  output = VEC_index (char_ptr, list, index);
 	  index++;
 	}
     }

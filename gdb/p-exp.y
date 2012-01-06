@@ -1,5 +1,5 @@
 /* YACC parser for Pascal expressions, for GDB.
-   Copyright (C) 2000-2013 Free Software Foundation, Inc.
+   Copyright (C) 2000, 2006-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -105,12 +105,6 @@
 #define yygindex pascal_yygindex
 #define yytable	 pascal_yytable
 #define yycheck	 pascal_yycheck
-#define yyss	pascal_yyss
-#define yysslim	pascal_yysslim
-#define yyssp	pascal_yyssp
-#define yystacksize pascal_yystacksize
-#define yyvs	pascal_yyvs
-#define yyvsp	pascal_yyvsp
 
 #ifndef YYDEBUG
 #define	YYDEBUG 1		/* Default to yydebug support */
@@ -344,7 +338,7 @@ exp	:	field_exp COMPLETE
 
 exp	:	exp '['
 			/* We need to save the current_type value.  */
-			{ const char *arrayname;
+			{ char *arrayname;
 			  int arrayfieldindex;
 			  arrayfieldindex = is_pascal_string_type (
 				current_type, NULL, NULL,
@@ -658,7 +652,7 @@ block	:	BLOCKNAME
 block	:	block COLONCOLON name
 			{ struct symbol *tem
 			    = lookup_symbol (copy_name ($3), $1,
-					     VAR_DOMAIN, NULL);
+					     VAR_DOMAIN, (int *) NULL);
 			  if (!tem || SYMBOL_CLASS (tem) != LOC_BLOCK)
 			    error (_("No function \"%s\" in specified context."),
 				   copy_name ($3));
@@ -668,7 +662,7 @@ block	:	block COLONCOLON name
 variable:	block COLONCOLON name
 			{ struct symbol *sym;
 			  sym = lookup_symbol (copy_name ($3), $1,
-					       VAR_DOMAIN, NULL);
+					       VAR_DOMAIN, (int *) NULL);
 			  if (sym == 0)
 			    error (_("No symbol \"%s\" in specified context."),
 				   copy_name ($3));
@@ -704,7 +698,7 @@ variable:	qualified_name
 
 			  sym =
 			    lookup_symbol (name, (const struct block *) NULL,
-					   VAR_DOMAIN, NULL);
+					   VAR_DOMAIN, (int *) NULL);
 			  if (sym)
 			    {
 			      write_exp_elt_opcode (OP_VAR_VALUE);
@@ -1099,8 +1093,9 @@ static const struct token tokentab2[] =
 
 /* Allocate uppercased var: */
 /* make an uppercased copy of tokstart.  */
-static char *
-uptok (char *tokstart, int namelen)
+static char * uptok (tokstart, namelen)
+  char *tokstart;
+  int namelen;
 {
   int i;
   char *uptokstart = (char *)malloc(namelen+1);
@@ -1237,7 +1232,7 @@ yylex (void)
       /* Might be a floating point number.  */
       if (lexptr[1] < '0' || lexptr[1] > '9')
 	{
-	  if (parse_completion)
+	  if (in_parse_field)
 	    last_was_structop = 1;
 	  goto symbol;		/* Nope, must be a symbol.  */
 	}
@@ -1483,7 +1478,7 @@ yylex (void)
 	  static const char this_name[] = "this";
 
 	  if (lookup_symbol (this_name, expression_context_block,
-			     VAR_DOMAIN, NULL))
+			     VAR_DOMAIN, (int *) NULL))
 	    {
 	      free (uptokstart);
 	      return THIS;
@@ -1522,20 +1517,20 @@ yylex (void)
   {
     char *tmp = copy_name (yylval.sval);
     struct symbol *sym;
-    struct field_of_this_result is_a_field_of_this;
+    int is_a_field_of_this = 0;
     int is_a_field = 0;
     int hextype;
 
 
     if (search_field && current_type)
       is_a_field = (lookup_struct_elt_type (current_type, tmp, 1) != NULL);
-    if (is_a_field || parse_completion)
+    if (is_a_field || in_parse_field)
       sym = NULL;
     else
       sym = lookup_symbol (tmp, expression_context_block,
 			   VAR_DOMAIN, &is_a_field_of_this);
     /* second chance uppercased (as Free Pascal does).  */
-    if (!sym && is_a_field_of_this.type == NULL && !is_a_field)
+    if (!sym && !is_a_field_of_this && !is_a_field)
       {
        for (i = 0; i <= namelen; i++)
          {
@@ -1544,12 +1539,12 @@ yylex (void)
          }
        if (search_field && current_type)
 	 is_a_field = (lookup_struct_elt_type (current_type, tmp, 1) != NULL);
-       if (is_a_field || parse_completion)
+       if (is_a_field || in_parse_field)
 	 sym = NULL;
        else
 	 sym = lookup_symbol (tmp, expression_context_block,
 			      VAR_DOMAIN, &is_a_field_of_this);
-       if (sym || is_a_field_of_this.type != NULL || is_a_field)
+       if (sym || is_a_field_of_this || is_a_field)
          for (i = 0; i <= namelen; i++)
            {
              if ((tokstart[i] >= 'a' && tokstart[i] <= 'z'))
@@ -1557,7 +1552,7 @@ yylex (void)
            }
       }
     /* Third chance Capitalized (as GPC does).  */
-    if (!sym && is_a_field_of_this.type == NULL && !is_a_field)
+    if (!sym && !is_a_field_of_this && !is_a_field)
       {
        for (i = 0; i <= namelen; i++)
          {
@@ -1572,12 +1567,12 @@ yylex (void)
           }
        if (search_field && current_type)
 	 is_a_field = (lookup_struct_elt_type (current_type, tmp, 1) != NULL);
-       if (is_a_field || parse_completion)
+       if (is_a_field || in_parse_field)
 	 sym = NULL;
        else
 	 sym = lookup_symbol (tmp, expression_context_block,
 			      VAR_DOMAIN, &is_a_field_of_this);
-       if (sym || is_a_field_of_this.type != NULL || is_a_field)
+       if (sym || is_a_field_of_this || is_a_field)
           for (i = 0; i <= namelen; i++)
             {
               if (i == 0)
@@ -1607,7 +1602,7 @@ yylex (void)
         || lookup_symtab (tmp))
       {
 	yylval.ssym.sym = sym;
-	yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+	yylval.ssym.is_a_field_of_this = is_a_field_of_this;
 	free (uptokstart);
 	return BLOCKNAME;
       }
@@ -1673,7 +1668,7 @@ yylex (void)
 		      memcpy (tmp1, namestart, p - namestart);
 		      tmp1[p - namestart] = '\0';
 		      cur_sym = lookup_symbol (ncopy, expression_context_block,
-					       VAR_DOMAIN, NULL);
+					       VAR_DOMAIN, (int *) NULL);
 		      if (cur_sym)
 			{
 			  if (SYMBOL_CLASS (cur_sym) == LOC_TYPEDEF)
@@ -1722,7 +1717,7 @@ yylex (void)
 	if (hextype == INT)
 	  {
 	    yylval.ssym.sym = sym;
-	    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+	    yylval.ssym.is_a_field_of_this = is_a_field_of_this;
 	    free (uptokstart);
 	    return NAME_OR_INT;
 	  }
@@ -1731,13 +1726,14 @@ yylex (void)
     free(uptokstart);
     /* Any other kind of symbol.  */
     yylval.ssym.sym = sym;
-    yylval.ssym.is_a_field_of_this = is_a_field_of_this.type != NULL;
+    yylval.ssym.is_a_field_of_this = is_a_field_of_this;
     return NAME;
   }
 }
 
 void
-yyerror (char *msg)
+yyerror (msg)
+     char *msg;
 {
   if (prev_lexptr)
     lexptr = prev_lexptr;

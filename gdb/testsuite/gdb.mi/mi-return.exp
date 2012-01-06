@@ -1,4 +1,5 @@
-# Copyright 1999-2013 Free Software Foundation, Inc.
+# Copyright 1999-2002, 2004-2005, 2007-2012 Free Software Foundation,
+# Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,9 +31,10 @@ if [mi_gdb_start] {
     continue
 }
 
-standard_testfile basics.c
-
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+set testfile "basics"
+set srcfile ${testfile}.c
+set binfile ${objdir}/${subdir}/mi-return
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-DFAKEARGV}] != "" } {
      untested mi-return.exp
      return -1
 }

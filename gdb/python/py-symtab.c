@@ -1,6 +1,6 @@
 /* Python interface to symbol tables.
 
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,7 +23,6 @@
 #include "source.h"
 #include "python-internal.h"
 #include "objfiles.h"
-#include "block.h"
 
 typedef struct stpy_symtab_object {
   PyObject_HEAD
@@ -126,14 +125,17 @@ stpy_get_objfile (PyObject *self, void *closure)
 static PyObject *
 stpy_fullname (PyObject *self, PyObject *args)
 {
-  const char *fullname;
+  char *fullname;
   struct symtab *symtab = NULL;
 
   STPY_REQUIRE_VALID (self, symtab);
 
   fullname = symtab_to_fullname (symtab);
+  if (fullname)
+    return PyString_Decode (fullname, strlen (fullname),
+			    host_charset (), NULL);
 
-  return PyString_Decode (fullname, strlen (fullname), host_charset (), NULL);
+  Py_RETURN_NONE;
 }
 
 /* Implementation of gdb.Symtab.is_valid (self) -> Boolean.
@@ -149,38 +151,6 @@ stpy_is_valid (PyObject *self, PyObject *args)
     Py_RETURN_FALSE;
 
   Py_RETURN_TRUE;
-}
-
-/* Return the GLOBAL_BLOCK of the underlying symtab.  */
-
-static PyObject *
-stpy_global_block (PyObject *self, PyObject *args)
-{
-  struct symtab *symtab = NULL;
-  struct block *block = NULL;
-  struct blockvector *blockvector;
-
-  STPY_REQUIRE_VALID (self, symtab);
-
-  blockvector = BLOCKVECTOR (symtab);
-  block = BLOCKVECTOR_BLOCK (blockvector, GLOBAL_BLOCK);
-  return block_to_block_object (block, symtab->objfile);
-}
-
-/* Return the STATIC_BLOCK of the underlying symtab.  */
-
-static PyObject *
-stpy_static_block (PyObject *self, PyObject *args)
-{
-  struct symtab *symtab = NULL;
-  struct block *block = NULL;
-  struct blockvector *blockvector;
-
-  STPY_REQUIRE_VALID (self, symtab);
-
-  blockvector = BLOCKVECTOR (symtab);
-  block = BLOCKVECTOR_BLOCK (blockvector, STATIC_BLOCK);
-  return block_to_block_object (block, symtab->objfile);
 }
 
 static PyObject *
@@ -232,22 +202,6 @@ salpy_get_pc (PyObject *self, void *closure)
   SALPY_REQUIRE_VALID (self, sal);
 
   return gdb_py_long_from_ulongest (sal->pc);
-}
-
-/* Implementation of the get method for the 'last' attribute of
-   gdb.Symtab_and_line.  */
-
-static PyObject *
-salpy_get_last (PyObject *self, void *closure)
-{
-  struct symtab_and_line *sal = NULL;
-
-  SALPY_REQUIRE_VALID (self, sal);
-
-  if (sal->end > 0)
-    return gdb_py_long_from_ulongest (sal->end - 1);
-  else
-    Py_RETURN_NONE;
 }
 
 static PyObject *
@@ -304,7 +258,7 @@ salpy_dealloc (PyObject *self)
 
   Py_DECREF (self_sal->symtab);
   xfree (self_sal->sal);
-  Py_TYPE (self)->tp_free (self);
+  self_sal->ob_type->tp_free (self);
 }
 
 /* Given a sal, and a sal_object that has previously been allocated
@@ -467,10 +421,7 @@ del_objfile_sal (struct objfile *objfile, void *datum)
     {
       sal_object *next = obj->next;
 
-      Py_DECREF (obj->symtab);
-      obj->symtab = (symtab_object *) Py_None;
-      Py_INCREF (Py_None);
-
+      obj->symtab = NULL;
       obj->next = NULL;
       obj->prev = NULL;
       xfree (obj->sal);
@@ -526,17 +477,12 @@ Return true if this symbol table is valid, false if not." },
   { "fullname", stpy_fullname, METH_NOARGS,
     "fullname () -> String.\n\
 Return the symtab's full source filename." },
-  { "global_block", stpy_global_block, METH_NOARGS,
-    "global_block () -> gdb.Block.\n\
-Return the global block of the symbol table." },
-  { "static_block", stpy_static_block, METH_NOARGS,
-    "static_block () -> gdb.Block.\n\
-Return the static block of the symbol table." },
   {NULL}  /* Sentinel */
 };
 
 static PyTypeObject symtab_object_type = {
-  PyVarObject_HEAD_INIT (NULL, 0)
+  PyObject_HEAD_INIT (NULL)
+  0,				  /*ob_size*/
   "gdb.Symtab",			  /*tp_name*/
   sizeof (symtab_object),	  /*tp_basicsize*/
   0,				  /*tp_itemsize*/
@@ -571,8 +517,6 @@ static PyTypeObject symtab_object_type = {
 static PyGetSetDef sal_object_getset[] = {
   { "symtab", salpy_get_symtab, NULL, "Symtab object.", NULL },
   { "pc", salpy_get_pc, NULL, "Return the symtab_and_line's pc.", NULL },
-  { "last", salpy_get_last, NULL,
-    "Return the symtab_and_line's last address.", NULL },
   { "line", salpy_get_line, NULL,
     "Return the symtab_and_line's line.", NULL },
   {NULL}  /* Sentinel */
@@ -586,7 +530,8 @@ Return true if this symbol table and line is valid, false if not." },
 };
 
 static PyTypeObject sal_object_type = {
-  PyVarObject_HEAD_INIT (NULL, 0)
+  PyObject_HEAD_INIT (NULL)
+  0,				  /*ob_size*/
   "gdb.Symtab_and_line",	  /*tp_name*/
   sizeof (sal_object),		  /*tp_basicsize*/
   0,				  /*tp_itemsize*/

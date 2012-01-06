@@ -1,5 +1,5 @@
 /* C preprocessor macro expansion commands for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2007-2012 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of GDB.
@@ -26,7 +26,6 @@
 #include "command.h"
 #include "gdbcmd.h"
 #include "gdb_string.h"
-#include "linespec.h"
 
 
 /* The `macro' prefix command.  */
@@ -49,7 +48,9 @@ macro_command (char *arg, int from_tty)
 /* Prints an informational message regarding the lack of macro information.  */
 static void macro_inform_no_debuginfo()
 {
-  puts_filtered ("GDB has no preprocessor macro information for that code.\n");
+  fputs_filtered ("GDB has no preprocessor macro information for "
+                  "that code.",
+                  gdb_stdout);
 }
 
 static void
@@ -281,8 +282,7 @@ info_macros_command (char *args, int from_tty)
     ms = default_macro_scope ();
   else
     {
-      struct symtabs_and_lines sals =
-	decode_line_with_current_source (args, 0);
+      struct symtabs_and_lines sals = decode_line_spec (args, 0);
 
       if (sals.nelts)
         ms = sal_macro_scope (sals.sals[0]);

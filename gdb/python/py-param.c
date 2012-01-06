@@ -1,6 +1,6 @@
 /* GDB parameters implemented in Python
 
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -102,11 +102,7 @@ static PyObject *
 get_attr (PyObject *obj, PyObject *attr_name)
 {
   if (PyString_Check (attr_name)
-#ifdef IS_PY3K
-      && ! PyUnicode_CompareWithASCIIString (attr_name, "value"))
-#else
       && ! strcmp (PyString_AsString (attr_name), "value"))
-#endif
     {
       parmpy_object *self = (parmpy_object *) obj;
 
@@ -280,11 +276,7 @@ static int
 set_attr (PyObject *obj, PyObject *attr_name, PyObject *val)
 {
   if (PyString_Check (attr_name)
-#ifdef IS_PY3K
-      && ! PyUnicode_CompareWithASCIIString (attr_name, "value"))
-#else
       && ! strcmp (PyString_AsString (attr_name), "value"))
-#endif
     {
       if (!val)
 	{
@@ -781,7 +773,8 @@ gdbpy_initialize_parameters (void)
 
 static PyTypeObject parmpy_object_type =
 {
-  PyVarObject_HEAD_INIT (NULL, 0)
+  PyObject_HEAD_INIT (NULL)
+  0,				  /*ob_size*/
   "gdb.Parameter",		  /*tp_name*/
   sizeof (parmpy_object),	  /*tp_basicsize*/
   0,				  /*tp_itemsize*/

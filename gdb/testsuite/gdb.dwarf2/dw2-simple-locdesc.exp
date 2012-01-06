@@ -1,4 +1,4 @@
-# Copyright 2011-2013 Free Software Foundation, Inc.
+# Copyright 2011-2012 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,13 +19,16 @@ if {![dwarf2_support]} {
     return 0  
 }
 
-standard_testfile .S
+set testfile "dw2-simple-locdesc"
+set srcfile ${testfile}.S
+set executable ${testfile}.x
+set binfile ${objdir}/${subdir}/${executable}
 
 if { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" object {}] != "" } {
     return -1
 }
 
-clean_restart $testfile
+clean_restart $executable
 
 # Re: [patch 2/2] Fix decode_locdesc for gcc-4.7.x optimized DWARF
 # http://sourceware.org/ml/gdb-patches/2011-07/msg00766.html

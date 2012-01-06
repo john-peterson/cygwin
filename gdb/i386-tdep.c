@@ -1,6 +1,6 @@
 /* Intel 386 target-dependent stuff.
 
-   Copyright (C) 1988-2013 Free Software Foundation, Inc.
+   Copyright (C) 1988-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -60,13 +60,6 @@
 
 #include "ax.h"
 #include "ax-gdb.h"
-
-#include "stap-probe.h"
-#include "user-regs.h"
-#include "cli/cli-utils.h"
-#include "expression.h"
-#include "parser-defs.h"
-#include <ctype.h>
 
 /* Register names.  */
 
@@ -383,7 +376,7 @@ i386_svr4_reg_to_regnum (struct gdbarch *gdbarch, int reg)
    its legitimate values.  */
 static const char att_flavor[] = "att";
 static const char intel_flavor[] = "intel";
-static const char *const valid_flavors[] =
+static const char *valid_flavors[] =
 {
   att_flavor,
   intel_flavor,
@@ -528,12 +521,7 @@ i386_call_p (const gdb_byte *insn)
 static int
 i386_syscall_p (const gdb_byte *insn, int *lengthp)
 {
-  /* Is it 'int $0x80'?  */
-  if ((insn[0] == 0xcd && insn[1] == 0x80)
-      /* Or is it 'sysenter'?  */
-      || (insn[0] == 0x0f && insn[1] == 0x34)
-      /* Or is it 'syscall'?  */
-      || (insn[0] == 0x0f && insn[1] == 0x05))
+  if (insn[0] == 0xcd)
     {
       *lengthp = 2;
       return 1;
@@ -750,7 +738,7 @@ i386_relocate_instruction (struct gdbarch *gdbarch,
       /* Where "ret" in the original code will return to.  */
       ret_addr = oldloc + insn_length;
       push_buf[0] = 0x68; /* pushq $...  */
-      store_unsigned_integer (&push_buf[1], 4, byte_order, ret_addr);
+      memcpy (&push_buf[1], &ret_addr, 4);
       /* Push the push.  */
       append_insns (to, 5, push_buf);
 
@@ -1197,6 +1185,7 @@ i386_match_insn_block (CORE_ADDR pc, struct i386_insn *insn_patterns)
 {
   CORE_ADDR current_pc;
   int ix, i;
+  gdb_byte op;
   struct i386_insn *insn;
 
   insn = i386_match_insn (pc, insn_patterns);
@@ -1388,40 +1377,18 @@ i386_analyze_frame_setup (struct gdbarch *gdbarch,
       if (target_read_memory (pc + skip, &op, 1))
 	return pc + skip;
 
-      /* The i386 prologue looks like
-
-	 push   %ebp
-	 mov    %esp,%ebp
-	 sub    $0x10,%esp
-
-	 and a different prologue can be generated for atom.
-
-	 push   %ebp
-	 lea    (%esp),%ebp
-	 lea    -0x10(%esp),%esp
-
-	 We handle both of them here.  */
-
+      /* Check for `movl %esp, %ebp' -- can be written in two ways.  */
       switch (op)
 	{
-	  /* Check for `movl %esp, %ebp' -- can be written in two ways.  */
 	case 0x8b:
 	  if (read_memory_unsigned_integer (pc + skip + 1, 1, byte_order)
 	      != 0xec)
 	    return pc;
-	  pc += (skip + 2);
 	  break;
 	case 0x89:
 	  if (read_memory_unsigned_integer (pc + skip + 1, 1, byte_order)
 	      != 0xe5)
 	    return pc;
-	  pc += (skip + 2);
-	  break;
-	case 0x8d: /* Check for 'lea (%ebp), %ebp'.  */
-	  if (read_memory_unsigned_integer (pc + skip + 1, 2, byte_order)
-	      != 0x242c)
-	    return pc;
-	  pc += (skip + 3);
 	  break;
 	default:
 	  return pc;
@@ -1432,6 +1399,7 @@ i386_analyze_frame_setup (struct gdbarch *gdbarch,
 	 necessary.  We also now commit to skipping the special
 	 instructions mentioned before.  */
       cache->locals = 0;
+      pc += (skip + 2);
 
       /* If that's all, return now.  */
       if (limit <= pc)
@@ -1440,8 +1408,6 @@ i386_analyze_frame_setup (struct gdbarch *gdbarch,
       /* Check for stack adjustment 
 
 	    subl $XXX, %esp
-	 or
-	    lea -XXX(%esp),%esp
 
 	 NOTE: You can't subtract a 16-bit immediate from a 32-bit
 	 reg, so we don't have to worry about a data16 prefix.  */
@@ -1470,18 +1436,9 @@ i386_analyze_frame_setup (struct gdbarch *gdbarch,
 	  cache->locals = read_memory_integer (pc + 2, 4, byte_order);
 	  return pc + 6;
 	}
-      else if (op == 0x8d)
-	{
-	  /* The ModR/M byte is 0x64.  */
-	  if (read_memory_unsigned_integer (pc + 1, 1, byte_order) != 0x64)
-	    return pc;
-	  /* 'lea' with 8-bit displacement.  */
-	  cache->locals = -1 * read_memory_integer (pc + 3, 1, byte_order);
-	  return pc + 4;
-	}
       else
 	{
-	  /* Some instruction other than `subl' nor 'lea'.  */
+	  /* Some instruction other than `subl'.  */
 	  return pc;
 	}
     }
@@ -1582,23 +1539,7 @@ i386_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR start_pc)
   CORE_ADDR pc;
   gdb_byte op;
   int i;
-  CORE_ADDR func_addr;
 
-  if (find_pc_partial_function (start_pc, NULL, &func_addr, NULL))
-    {
-      CORE_ADDR post_prologue_pc
-	= skip_prologue_using_sal (gdbarch, func_addr);
-      struct symtab *s = find_pc_symtab (func_addr);
-
-      /* Clang always emits a line note before the prologue and another
-	 one after.  We trust clang to emit usable line notes.  */
-      if (post_prologue_pc
-	  && (s != NULL
-	      && s->producer != NULL
-	      && strncmp (s->producer, "clang ", sizeof ("clang ") - 1) == 0))
-        return max (start_pc, post_prologue_pc);
-    }
- 
   cache.locals = -1;
   pc = i386_analyze_prologue (gdbarch, start_pc, 0xffffffff, &cache);
   if (cache.locals < 0)
@@ -1739,10 +1680,7 @@ i386_frame_cache_1 (struct frame_info *this_frame,
   get_frame_register (this_frame, I386_EBP_REGNUM, buf);
   cache->base = extract_unsigned_integer (buf, 4, byte_order);
   if (cache->base == 0)
-    {
-      cache->base_p = 1;
-      return;
-    }
+    return;
 
   /* For normal frames, %eip is stored at 4(%ebp).  */
   cache->saved_regs[I386_EIP_REGNUM] = 4;
@@ -1799,8 +1737,7 @@ i386_frame_cache_1 (struct frame_info *this_frame,
       /* Saved stack pointer has been saved (but the SAVED_SP_REG
 	 register may be unavailable).  */
       if (cache->saved_sp == 0
-	  && deprecated_frame_register_read (this_frame,
-					     cache->saved_sp_reg, buf))
+	  && frame_register_read (this_frame, cache->saved_sp_reg, buf))
 	cache->saved_sp = extract_unsigned_integer (buf, 4, byte_order);
     }
   /* Now that we have the base address for the stack frame we can
@@ -2096,7 +2033,7 @@ static int
 i386_in_stack_tramp_p (struct gdbarch *gdbarch, CORE_ADDR pc)
 {
   gdb_byte insn;
-  const char *name;
+  char *name;
 
   /* A stack trampoline is detected if no name is associated
     to the current pc and if it points inside a trampoline
@@ -2381,22 +2318,6 @@ i386_16_byte_align_p (struct type *type)
   return 0;
 }
 
-/* Implementation for set_gdbarch_push_dummy_code.  */
-
-static CORE_ADDR
-i386_push_dummy_code (struct gdbarch *gdbarch, CORE_ADDR sp, CORE_ADDR funaddr,
-		      struct value **args, int nargs, struct type *value_type,
-		      CORE_ADDR *real_pc, CORE_ADDR *bp_addr,
-		      struct regcache *regcache)
-{
-  /* Use 0xcc breakpoint - 1 byte.  */
-  *bp_addr = sp - 1;
-  *real_pc = funaddr;
-
-  /* Keep the stack aligned.  */
-  return sp - 16;
-}
-
 static CORE_ADDR
 i386_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 		      struct regcache *regcache, CORE_ADDR bp_addr, int nargs,
@@ -2416,6 +2337,7 @@ i386_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
   for (write_pass = 0; write_pass < 2; write_pass++)
     {
       int args_space_used = 0;
+      int have_16_byte_aligned_arg = 0;
 
       if (struct_return)
 	{
@@ -2453,20 +2375,19 @@ i386_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	  else
 	    {
 	      if (i386_16_byte_align_p (value_enclosing_type (args[i])))
-		args_space = align_up (args_space, 16);
+		{
+		  args_space = align_up (args_space, 16);
+		  have_16_byte_aligned_arg = 1;
+		}
 	      args_space += align_up (len, 4);
 	    }
 	}
 
       if (!write_pass)
 	{
+	  if (have_16_byte_aligned_arg)
+	    args_space = align_up (args_space, 16);
 	  sp -= args_space;
-
-	  /* The original System V ABI only requires word alignment,
-	     but modern incarnations need 16-byte alignment in order
-	     to support SSE.  Since wasting a few bytes here isn't
-	     harmful we unconditionally enforce 16-byte alignment.  */
-	  sp &= ~0xf;
 	}
     }
 
@@ -2621,7 +2542,7 @@ i386_store_return_value (struct gdbarch *gdbarch, struct type *type,
 static const char default_struct_convention[] = "default";
 static const char pcc_struct_convention[] = "pcc";
 static const char reg_struct_convention[] = "reg";
-static const char *const valid_conventions[] =
+static const char *valid_conventions[] =
 {
   default_struct_convention,
   pcc_struct_convention,
@@ -2669,7 +2590,7 @@ i386_reg_struct_return_p (struct gdbarch *gdbarch, struct type *type)
    from WRITEBUF into REGCACHE.  */
 
 static enum return_value_convention
-i386_return_value (struct gdbarch *gdbarch, struct value *function,
+i386_return_value (struct gdbarch *gdbarch, struct type *func_type,
 		   struct type *type, struct regcache *regcache,
 		   gdb_byte *readbuf, const gdb_byte *writebuf)
 {
@@ -2679,9 +2600,6 @@ i386_return_value (struct gdbarch *gdbarch, struct value *function,
 	|| code == TYPE_CODE_UNION
 	|| code == TYPE_CODE_ARRAY)
        && !i386_reg_struct_return_p (gdbarch, type))
-      /* Complex double and long double uses the struct return covention.  */
-      || (code == TYPE_CODE_COMPLEX && TYPE_LENGTH (type) == 16)
-      || (code == TYPE_CODE_COMPLEX && TYPE_LENGTH (type) == 24)
       /* 128-bit decimal float uses the struct return convention.  */
       || (code == TYPE_CODE_DECFLOAT && TYPE_LENGTH (type) == 16))
     {
@@ -2723,7 +2641,7 @@ i386_return_value (struct gdbarch *gdbarch, struct value *function,
   if (code == TYPE_CODE_STRUCT && TYPE_NFIELDS (type) == 1)
     {
       type = check_typedef (TYPE_FIELD_TYPE (type, 0));
-      return i386_return_value (gdbarch, function, type, regcache,
+      return i386_return_value (gdbarch, func_type, type, regcache,
 				readbuf, writebuf);
     }
 
@@ -2848,7 +2766,7 @@ i386_mmx_type (struct gdbarch *gdbarch)
 /* Return the GDB type object for the "standard" data type of data in
    register REGNUM.  */
 
-struct type *
+static struct type *
 i386_pseudo_register_type (struct gdbarch *gdbarch, int regnum)
 {
   if (i386_mmx_regnum_p (gdbarch, regnum))
@@ -3352,7 +3270,7 @@ i386_pe_skip_trampoline_code (struct frame_info *frame,
 	read_memory_unsigned_integer (pc + 2, 4, byte_order);
       struct minimal_symbol *indsym =
 	indirect ? lookup_minimal_symbol_by_pc (indirect) : 0;
-      const char *symname = indsym ? SYMBOL_LINKAGE_NAME (indsym) : 0;
+      char *symname = indsym ? SYMBOL_LINKAGE_NAME (indsym) : 0;
 
       if (symname)
 	{
@@ -3373,7 +3291,7 @@ int
 i386_sigtramp_p (struct frame_info *this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
+  char *name;
 
   find_pc_partial_function (pc, &name, NULL, NULL);
   return (name && strcmp ("_sigtramp", name) == 0);
@@ -3411,11 +3329,13 @@ static int
 i386_svr4_sigtramp_p (struct frame_info *this_frame)
 {
   CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
+  char *name;
 
-  /* The origin of these symbols is currently unknown.  */
+  /* UnixWare uses _sigacthandler.  The origin of the other symbols is
+     currently unknown.  */
   find_pc_partial_function (pc, &name, NULL, NULL);
   return (name && (strcmp ("_sigreturn", name) == 0
+		   || strcmp ("_sigacthandler", name) == 0
 		   || strcmp ("sigvechandler", name) == 0));
 }
 
@@ -3435,323 +3355,6 @@ i386_svr4_sigcontext_addr (struct frame_info *this_frame)
 
   return read_memory_unsigned_integer (sp + 8, 4, byte_order);
 }
-
-
-
-/* Implementation of `gdbarch_stap_is_single_operand', as defined in
-   gdbarch.h.  */
-
-int
-i386_stap_is_single_operand (struct gdbarch *gdbarch, const char *s)
-{
-  return (*s == '$' /* Literal number.  */
-	  || (isdigit (*s) && s[1] == '(' && s[2] == '%') /* Displacement.  */
-	  || (*s == '(' && s[1] == '%') /* Register indirection.  */
-	  || (*s == '%' && isalpha (s[1]))); /* Register access.  */
-}
-
-/* Implementation of `gdbarch_stap_parse_special_token', as defined in
-   gdbarch.h.  */
-
-int
-i386_stap_parse_special_token (struct gdbarch *gdbarch,
-			       struct stap_parse_info *p)
-{
-  /* In order to parse special tokens, we use a state-machine that go
-     through every known token and try to get a match.  */
-  enum
-    {
-      TRIPLET,
-      THREE_ARG_DISPLACEMENT,
-      DONE
-    } current_state;
-
-  current_state = TRIPLET;
-
-  /* The special tokens to be parsed here are:
-
-     - `register base + (register index * size) + offset', as represented
-     in `(%rcx,%rax,8)', or `[OFFSET](BASE_REG,INDEX_REG[,SIZE])'.
-
-     - Operands of the form `-8+3+1(%rbp)', which must be interpreted as
-     `*(-8 + 3 - 1 + (void *) $eax)'.  */
-
-  while (current_state != DONE)
-    {
-      const char *s = p->arg;
-
-      switch (current_state)
-	{
-	case TRIPLET:
-	    {
-	      if (isdigit (*s) || *s == '-' || *s == '+')
-		{
-		  int got_minus[3];
-		  int i;
-		  long displacements[3];
-		  const char *start;
-		  char *regname;
-		  int len;
-		  struct stoken str;
-
-		  got_minus[0] = 0;
-		  if (*s == '+')
-		    ++s;
-		  else if (*s == '-')
-		    {
-		      ++s;
-		      got_minus[0] = 1;
-		    }
-
-		  displacements[0] = strtol (s, (char **) &s, 10);
-
-		  if (*s != '+' && *s != '-')
-		    {
-		      /* We are not dealing with a triplet.  */
-		      break;
-		    }
-
-		  got_minus[1] = 0;
-		  if (*s == '+')
-		    ++s;
-		  else
-		    {
-		      ++s;
-		      got_minus[1] = 1;
-		    }
-
-		  displacements[1] = strtol (s, (char **) &s, 10);
-
-		  if (*s != '+' && *s != '-')
-		    {
-		      /* We are not dealing with a triplet.  */
-		      break;
-		    }
-
-		  got_minus[2] = 0;
-		  if (*s == '+')
-		    ++s;
-		  else
-		    {
-		      ++s;
-		      got_minus[2] = 1;
-		    }
-
-		  displacements[2] = strtol (s, (char **) &s, 10);
-
-		  if (*s != '(' || s[1] != '%')
-		    break;
-
-		  s += 2;
-		  start = s;
-
-		  while (isalnum (*s))
-		    ++s;
-
-		  if (*s++ != ')')
-		    break;
-
-		  len = s - start;
-		  regname = alloca (len + 1);
-
-		  strncpy (regname, start, len);
-		  regname[len] = '\0';
-
-		  if (user_reg_map_name_to_regnum (gdbarch,
-						   regname, len) == -1)
-		    error (_("Invalid register name `%s' "
-			     "on expression `%s'."),
-			   regname, p->saved_arg);
-
-		  for (i = 0; i < 3; i++)
-		    {
-		      write_exp_elt_opcode (OP_LONG);
-		      write_exp_elt_type
-			(builtin_type (gdbarch)->builtin_long);
-		      write_exp_elt_longcst (displacements[i]);
-		      write_exp_elt_opcode (OP_LONG);
-		      if (got_minus[i])
-			write_exp_elt_opcode (UNOP_NEG);
-		    }
-
-		  write_exp_elt_opcode (OP_REGISTER);
-		  str.ptr = regname;
-		  str.length = len;
-		  write_exp_string (str);
-		  write_exp_elt_opcode (OP_REGISTER);
-
-		  write_exp_elt_opcode (UNOP_CAST);
-		  write_exp_elt_type (builtin_type (gdbarch)->builtin_data_ptr);
-		  write_exp_elt_opcode (UNOP_CAST);
-
-		  write_exp_elt_opcode (BINOP_ADD);
-		  write_exp_elt_opcode (BINOP_ADD);
-		  write_exp_elt_opcode (BINOP_ADD);
-
-		  write_exp_elt_opcode (UNOP_CAST);
-		  write_exp_elt_type (lookup_pointer_type (p->arg_type));
-		  write_exp_elt_opcode (UNOP_CAST);
-
-		  write_exp_elt_opcode (UNOP_IND);
-
-		  p->arg = s;
-
-		  return 1;
-		}
-	      break;
-	    }
-	case THREE_ARG_DISPLACEMENT:
-	    {
-	      if (isdigit (*s) || *s == '(' || *s == '-' || *s == '+')
-		{
-		  int offset_minus = 0;
-		  long offset = 0;
-		  int size_minus = 0;
-		  long size = 0;
-		  const char *start;
-		  char *base;
-		  int len_base;
-		  char *index;
-		  int len_index;
-		  struct stoken base_token, index_token;
-
-		  if (*s == '+')
-		    ++s;
-		  else if (*s == '-')
-		    {
-		      ++s;
-		      offset_minus = 1;
-		    }
-
-		  if (offset_minus && !isdigit (*s))
-		    break;
-
-		  if (isdigit (*s))
-		    offset = strtol (s, (char **) &s, 10);
-
-		  if (*s != '(' || s[1] != '%')
-		    break;
-
-		  s += 2;
-		  start = s;
-
-		  while (isalnum (*s))
-		    ++s;
-
-		  if (*s != ',' || s[1] != '%')
-		    break;
-
-		  len_base = s - start;
-		  base = alloca (len_base + 1);
-		  strncpy (base, start, len_base);
-		  base[len_base] = '\0';
-
-		  if (user_reg_map_name_to_regnum (gdbarch,
-						   base, len_base) == -1)
-		    error (_("Invalid register name `%s' "
-			     "on expression `%s'."),
-			   base, p->saved_arg);
-
-		  s += 2;
-		  start = s;
-
-		  while (isalnum (*s))
-		    ++s;
-
-		  len_index = s - start;
-		  index = alloca (len_index + 1);
-		  strncpy (index, start, len_index);
-		  index[len_index] = '\0';
-
-		  if (user_reg_map_name_to_regnum (gdbarch,
-						   index, len_index) == -1)
-		    error (_("Invalid register name `%s' "
-			     "on expression `%s'."),
-			   index, p->saved_arg);
-
-		  if (*s != ',' && *s != ')')
-		    break;
-
-		  if (*s == ',')
-		    {
-		      ++s;
-		      if (*s == '+')
-			++s;
-		      else if (*s == '-')
-			{
-			  ++s;
-			  size_minus = 1;
-			}
-
-		      size = strtol (s, (char **) &s, 10);
-
-		      if (*s != ')')
-			break;
-		    }
-
-		  ++s;
-
-		  if (offset)
-		    {
-		      write_exp_elt_opcode (OP_LONG);
-		      write_exp_elt_type
-			(builtin_type (gdbarch)->builtin_long);
-		      write_exp_elt_longcst (offset);
-		      write_exp_elt_opcode (OP_LONG);
-		      if (offset_minus)
-			write_exp_elt_opcode (UNOP_NEG);
-		    }
-
-		  write_exp_elt_opcode (OP_REGISTER);
-		  base_token.ptr = base;
-		  base_token.length = len_base;
-		  write_exp_string (base_token);
-		  write_exp_elt_opcode (OP_REGISTER);
-
-		  if (offset)
-		    write_exp_elt_opcode (BINOP_ADD);
-
-		  write_exp_elt_opcode (OP_REGISTER);
-		  index_token.ptr = index;
-		  index_token.length = len_index;
-		  write_exp_string (index_token);
-		  write_exp_elt_opcode (OP_REGISTER);
-
-		  if (size)
-		    {
-		      write_exp_elt_opcode (OP_LONG);
-		      write_exp_elt_type
-			(builtin_type (gdbarch)->builtin_long);
-		      write_exp_elt_longcst (size);
-		      write_exp_elt_opcode (OP_LONG);
-		      if (size_minus)
-			write_exp_elt_opcode (UNOP_NEG);
-		      write_exp_elt_opcode (BINOP_MUL);
-		    }
-
-		  write_exp_elt_opcode (BINOP_ADD);
-
-		  write_exp_elt_opcode (UNOP_CAST);
-		  write_exp_elt_type (lookup_pointer_type (p->arg_type));
-		  write_exp_elt_opcode (UNOP_CAST);
-
-		  write_exp_elt_opcode (UNOP_IND);
-
-		  p->arg = s;
-
-		  return 1;
-		}
-	      break;
-	    }
-	}
-
-      /* Advancing to the next state.  */
-      ++current_state;
-    }
-
-  return 0;
-}
-
 
 
 /* Generic ELF.  */
@@ -3761,16 +3364,6 @@ i386_elf_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 {
   /* We typically use stabs-in-ELF with the SVR4 register numbering.  */
   set_gdbarch_stab_reg_to_regnum (gdbarch, i386_svr4_reg_to_regnum);
-
-  /* Registering SystemTap handlers.  */
-  set_gdbarch_stap_integer_prefix (gdbarch, "$");
-  set_gdbarch_stap_register_prefix (gdbarch, "%");
-  set_gdbarch_stap_register_indirection_prefix (gdbarch, "(");
-  set_gdbarch_stap_register_indirection_suffix (gdbarch, ")");
-  set_gdbarch_stap_is_single_operand (gdbarch,
-				      i386_stap_is_single_operand);
-  set_gdbarch_stap_parse_special_token (gdbarch,
-					i386_stap_parse_special_token);
 }
 
 /* System V Release 4 (SVR4).  */
@@ -3919,7 +3512,7 @@ i386_fetch_pointer_argument (struct frame_info *frame, int argi,
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  CORE_ADDR sp = get_frame_register_unsigned (frame, I386_ESP_REGNUM);
+  CORE_ADDR sp = get_frame_register_unsigned  (frame, I386_ESP_REGNUM);
   return read_memory_unsigned_integer (sp + (4 * (argi + 1)), 4, byte_order);
 }
 
@@ -3983,17 +3576,22 @@ struct i386_record_s
   const int *regmap;
 };
 
-/* Parse the "modrm" part of the memory address irp->addr points at.
-   Returns -1 if something goes wrong, 0 otherwise.  */
+/* Parse "modrm" part in current memory address that irp->addr point to
+   Return -1 if something wrong.  */
 
 static int
 i386_record_modrm (struct i386_record_s *irp)
 {
   struct gdbarch *gdbarch = irp->gdbarch;
 
-  if (record_read_memory (gdbarch, irp->addr, &irp->modrm, 1))
-    return -1;
-
+  if (target_read_memory (irp->addr, &irp->modrm, 1))
+    {
+      if (record_debug)
+	printf_unfiltered (_("Process record: error reading memory at "
+			     "addr %s len = 1.\n"),
+			   paddress (gdbarch, irp->addr));
+      return -1;
+    }
   irp->addr++;
   irp->mod = (irp->modrm >> 6) & 3;
   irp->reg = (irp->modrm >> 3) & 7;
@@ -4002,8 +3600,9 @@ i386_record_modrm (struct i386_record_s *irp)
   return 0;
 }
 
-/* Extract the memory address that the current instruction writes to,
-   and return it in *ADDR.  Return -1 if something goes wrong.  */
+/* Get the memory address that current instruction  write to and set it to
+   the argument "addr".
+   Return -1 if something wrong.  */
 
 static int
 i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
@@ -4026,8 +3625,14 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
       if (base == 4)
 	{
 	  havesib = 1;
-	  if (record_read_memory (gdbarch, irp->addr, &byte, 1))
-	    return -1;
+	  if (target_read_memory (irp->addr, &byte, 1))
+	    {
+	      if (record_debug)
+		printf_unfiltered (_("Process record: error reading memory "
+				     "at addr %s len = 1.\n"),
+				   paddress (gdbarch, irp->addr));
+	      return -1;
+	    }
 	  irp->addr++;
 	  scale = (byte >> 6) & 3;
 	  index = ((byte >> 3) & 7) | irp->rex_x;
@@ -4041,8 +3646,14 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
 	  if ((base & 7) == 5)
 	    {
 	      base = 0xff;
-	      if (record_read_memory (gdbarch, irp->addr, buf, 4))
-		return -1;
+	      if (target_read_memory (irp->addr, buf, 4))
+		{
+		  if (record_debug)
+		    printf_unfiltered (_("Process record: error reading "
+				         "memory at addr %s len = 4.\n"),
+				       paddress (gdbarch, irp->addr));
+		  return -1;
+		}
 	      irp->addr += 4;
 	      *addr = extract_signed_integer (buf, 4, byte_order);
 	      if (irp->regmap[X86_RECORD_R8_REGNUM] && !havesib)
@@ -4050,14 +3661,26 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
 	    }
 	  break;
 	case 1:
-	  if (record_read_memory (gdbarch, irp->addr, buf, 1))
-	    return -1;
+	  if (target_read_memory (irp->addr, buf, 1))
+	    {
+	      if (record_debug)
+		printf_unfiltered (_("Process record: error reading memory "
+				     "at addr %s len = 1.\n"),
+				   paddress (gdbarch, irp->addr));
+	      return -1;
+	    }
 	  irp->addr++;
 	  *addr = (int8_t) buf[0];
 	  break;
 	case 2:
-	  if (record_read_memory (gdbarch, irp->addr, buf, 4))
-	    return -1;
+	  if (target_read_memory (irp->addr, buf, 4))
+	    {
+	      if (record_debug)
+		printf_unfiltered (_("Process record: error reading memory "
+				     "at addr %s len = 4.\n"),
+				   paddress (gdbarch, irp->addr));
+	      return -1;
+	    }
 	  *addr = extract_signed_integer (buf, 4, byte_order);
 	  irp->addr += 4;
 	  break;
@@ -4096,8 +3719,14 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
 	case 0:
 	  if (irp->rm == 6)
 	    {
-	      if (record_read_memory (gdbarch, irp->addr, buf, 2))
-		return -1;
+	      if (target_read_memory (irp->addr, buf, 2))
+		{
+		  if (record_debug)
+		    printf_unfiltered (_("Process record: error reading "
+					 "memory at addr %s len = 2.\n"),
+				       paddress (gdbarch, irp->addr));
+		  return -1;
+		}
 	      irp->addr += 2;
 	      *addr = extract_signed_integer (buf, 2, byte_order);
 	      irp->rm = 0;
@@ -4105,14 +3734,26 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
 	    }
 	  break;
 	case 1:
-	  if (record_read_memory (gdbarch, irp->addr, buf, 1))
-	    return -1;
+	  if (target_read_memory (irp->addr, buf, 1))
+	    {
+	      if (record_debug)
+		printf_unfiltered (_("Process record: error reading memory "
+				     "at addr %s len = 1.\n"),
+				   paddress (gdbarch, irp->addr));
+	      return -1;
+	    }
 	  irp->addr++;
 	  *addr = (int8_t) buf[0];
 	  break;
 	case 2:
-	  if (record_read_memory (gdbarch, irp->addr, buf, 2))
-	    return -1;
+	  if (target_read_memory (irp->addr, buf, 2))
+	    {
+	      if (record_debug)
+		printf_unfiltered (_("Process record: error reading memory "
+				     "at addr %s len = 2.\n"),
+				   paddress (gdbarch, irp->addr));
+	      return -1;
+	    }
 	  irp->addr += 2;
 	  *addr = extract_signed_integer (buf, 2, byte_order);
 	  break;
@@ -4192,9 +3833,9 @@ i386_record_lea_modrm_addr (struct i386_record_s *irp, uint64_t *addr)
   return 0;
 }
 
-/* Record the address and contents of the memory that will be changed
-   by the current instruction.  Return -1 if something goes wrong, 0
-   otherwise.  */
+/* Record the value of the memory that willbe changed in current instruction
+   to "record_arch_list".
+   Return -1 if something wrong.  */
 
 static int
 i386_record_lea_modrm (struct i386_record_s *irp)
@@ -4231,8 +3872,8 @@ Do you want to stop the program?"),
   return 0;
 }
 
-/* Record the effects of a push operation.  Return -1 if something
-   goes wrong, 0 otherwise.  */
+/* Record the push operation to "record_arch_list".
+   Return -1 if something wrong.  */
 
 static int
 i386_record_push (struct i386_record_s *irp, int size)
@@ -4257,9 +3898,9 @@ i386_record_push (struct i386_record_s *irp, int size)
 #define I386_SAVE_FPU_ENV               0xfffe
 #define I386_SAVE_FPU_ENV_REG_STACK     0xffff
 
-/* Record the values of the floating point registers which will be
-   changed by the current instruction.  Returns -1 if something is
-   wrong, 0 otherwise.  */
+/* Record the value of floating point registers which will be changed
+   by the current instruction to "record_arch_list".  Return -1 if
+   something is wrong.  */
 
 static int i386_record_floats (struct gdbarch *gdbarch,
                                struct i386_record_s *ir,
@@ -4319,9 +3960,9 @@ static int i386_record_floats (struct gdbarch *gdbarch,
   return 0;
 }
 
-/* Parse the current instruction, and record the values of the
-   registers and memory that will be changed by the current
-   instruction.  Returns -1 if something goes wrong, 0 otherwise.  */
+/* Parse the current instruction and record the values of the registers and
+   memory that will be changed in current instruction to "record_arch_list".
+   Return -1 if something wrong.  */
 
 #define I386_RECORD_ARCH_LIST_ADD_REG(regnum) \
     record_arch_list_add_reg (ir.regcache, ir.regmap[(regnum)])
@@ -4334,11 +3975,12 @@ i386_process_record (struct gdbarch *gdbarch, struct regcache *regcache,
   int prefixes = 0;
   int regnum = 0;
   uint32_t opcode;
-  uint8_t opcode8;
+  uint8_t  opcode8;
   ULONGEST addr;
   gdb_byte buf[MAX_REGISTER_SIZE];
   struct i386_record_s ir;
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+  int rex = 0;
   uint8_t rex_w = -1;
   uint8_t rex_r = 0;
 
@@ -4361,8 +4003,14 @@ i386_process_record (struct gdbarch *gdbarch, struct regcache *regcache,
   /* prefixes */
   while (1)
     {
-      if (record_read_memory (gdbarch, ir.addr, &opcode8, 1))
-	return -1;
+      if (target_read_memory (ir.addr, &opcode8, 1))
+	{
+	  if (record_debug)
+	    printf_unfiltered (_("Process record: error reading memory at "
+				 "addr %s len = 1.\n"),
+			       paddress (gdbarch, ir.addr));
+	  return -1;
+	}
       ir.addr++;
       switch (opcode8)	/* Instruction prefixes */
 	{
@@ -4418,6 +4066,7 @@ i386_process_record (struct gdbarch *gdbarch, struct regcache *regcache,
           if (ir.regmap[X86_RECORD_R8_REGNUM])	/* 64 bit target */
             {
                /* REX */
+               rex = 1;
                rex_w = (opcode8 >> 3) & 1;
                rex_r = (opcode8 & 0x4) << 1;
                ir.rex_x = (opcode8 & 0x2) << 2;
@@ -4452,8 +4101,14 @@ i386_process_record (struct gdbarch *gdbarch, struct regcache *regcache,
   switch (opcode)
     {
     case 0x0f:
-      if (record_read_memory (gdbarch, ir.addr, &opcode8, 1))
-	return -1;
+      if (target_read_memory (ir.addr, &opcode8, 1))
+	{
+	  if (record_debug)
+	    printf_unfiltered (_("Process record: error reading memory at "
+				 "addr %s len = 1.\n"),
+			       paddress (gdbarch, ir.addr));
+	  return -1;
+	}
       ir.addr++;
       opcode = (uint32_t) opcode8 | 0x0f00;
       goto reswitch;
@@ -5118,22 +4773,40 @@ Do you want to stop the program?"),
 	    ir.ot = ir.dflag + OT_WORD;
 	  if (ir.aflag == 2)
 	    {
-              if (record_read_memory (gdbarch, ir.addr, buf, 8))
-		return -1;
+              if (target_read_memory (ir.addr, buf, 8))
+		{
+	          if (record_debug)
+		    printf_unfiltered (_("Process record: error reading "
+	                    		 "memory at addr 0x%s len = 8.\n"),
+				       paddress (gdbarch, ir.addr));
+		  return -1;
+		}
 	      ir.addr += 8;
 	      addr = extract_unsigned_integer (buf, 8, byte_order);
 	    }
           else if (ir.aflag)
 	    {
-              if (record_read_memory (gdbarch, ir.addr, buf, 4))
-		return -1;
+              if (target_read_memory (ir.addr, buf, 4))
+		{
+	          if (record_debug)
+		    printf_unfiltered (_("Process record: error reading "
+	                    		 "memory at addr 0x%s len = 4.\n"),
+				       paddress (gdbarch, ir.addr));
+		  return -1;
+		}
 	      ir.addr += 4;
               addr = extract_unsigned_integer (buf, 4, byte_order);
 	    }
           else
 	    {
-              if (record_read_memory (gdbarch, ir.addr, buf, 2))
-		return -1;
+              if (target_read_memory (ir.addr, buf, 2))
+		{
+	          if (record_debug)
+		    printf_unfiltered (_("Process record: error reading "
+	                    		 "memory at addr 0x%s len = 2.\n"),
+				       paddress (gdbarch, ir.addr));
+		  return -1;
+		}
 	      ir.addr += 2;
               addr = extract_unsigned_integer (buf, 2, byte_order);
 	    }
@@ -6105,8 +5778,14 @@ Do you want to stop the program?"),
       break;
 
     case 0x9b:    /* fwait */
-      if (record_read_memory (gdbarch, ir.addr, &opcode8, 1))
-	return -1;
+      if (target_read_memory (ir.addr, &opcode8, 1))
+        {
+          if (record_debug)
+            printf_unfiltered (_("Process record: error reading memory at "
+				 "addr 0x%s len = 1.\n"),
+			       paddress (gdbarch, ir.addr));
+          return -1;
+        }
       opcode = (uint32_t) opcode8;
       ir.addr++;
       goto reswitch;
@@ -6125,8 +5804,14 @@ Do you want to stop the program?"),
       {
 	int ret;
 	uint8_t interrupt;
-	if (record_read_memory (gdbarch, ir.addr, &interrupt, 1))
-	  return -1;
+	if (target_read_memory (ir.addr, &interrupt, 1))
+	  {
+	    if (record_debug)
+	      printf_unfiltered (_("Process record: error reading memory "
+				   "at addr %s len = 1.\n"),
+				 paddress (gdbarch, ir.addr));
+	    return -1;
+	  }
 	ir.addr++;
 	if (interrupt != 0x80
 	    || tdep->i386_intx80_record == NULL)
@@ -6596,8 +6281,13 @@ Do you want to stop the program?"),
     case 0x0f0f:    /* 3DNow! data */
       if (i386_record_modrm (&ir))
 	return -1;
-      if (record_read_memory (gdbarch, ir.addr, &opcode8, 1))
-	return -1;
+      if (target_read_memory (ir.addr, &opcode8, 1))
+        {
+	  printf_unfiltered (_("Process record: error reading memory at "
+	                       "addr %s len = 1.\n"),
+	                     paddress (gdbarch, ir.addr));
+          return -1;
+        }
       ir.addr++;
       switch (opcode8)
         {
@@ -6864,8 +6554,13 @@ reswitch_prefix_add:
         case 0xf20f38:
         case 0x0f3a:
         case 0x660f3a:
-          if (record_read_memory (gdbarch, ir.addr, &opcode8, 1))
-	    return -1;
+          if (target_read_memory (ir.addr, &opcode8, 1))
+            {
+	      printf_unfiltered (_("Process record: error reading memory at "
+	                           "addr %s len = 1.\n"),
+	                         paddress (gdbarch, ir.addr));
+              return -1;
+            }
           ir.addr++;
           opcode = (uint32_t) opcode8 | opcode << 8;
           goto reswitch_prefix_add;
@@ -7669,8 +7364,6 @@ i386_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_get_longjmp_target (gdbarch, i386_get_longjmp_target);
 
   /* Call dummy code.  */
-  set_gdbarch_call_dummy_location (gdbarch, ON_STACK);
-  set_gdbarch_push_dummy_code (gdbarch, i386_push_dummy_code);
   set_gdbarch_push_dummy_call (gdbarch, i386_push_dummy_call);
   set_gdbarch_frame_align (gdbarch, i386_frame_align);
 

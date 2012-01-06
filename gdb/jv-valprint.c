@@ -1,6 +1,6 @@
 /* Support for printing Java values for GDB, the GNU debugger.
 
-   Copyright (C) 1997-2013 Free Software Foundation, Inc.
+   Copyright (C) 1997-2005, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -33,7 +33,7 @@
 
 /* Local functions */
 
-void
+int
 java_value_print (struct value *val, struct ui_file *stream, 
 		  const struct value_print_options *options)
 {
@@ -42,7 +42,7 @@ java_value_print (struct value *val, struct ui_file *stream,
   struct type *type;
   CORE_ADDR address;
   int i;
-  const char *name;
+  char *name;
   struct value_print_options opts;
 
   type = value_type (val);
@@ -51,13 +51,10 @@ java_value_print (struct value *val, struct ui_file *stream,
   if (is_object_type (type))
     {
       CORE_ADDR obj_addr;
-      struct value *tem = val;
 
       /* Get the run-time type, and cast the object into that.  */
-      while (TYPE_CODE (value_type (tem)) == TYPE_CODE_PTR)
-	tem = value_ind (tem);
 
-      obj_addr = value_address (tem);
+      obj_addr = unpack_pointer (type, value_contents (val));
 
       if (obj_addr != 0)
 	{
@@ -208,7 +205,7 @@ java_value_print (struct value *val, struct ui_file *stream,
 
       fprintf_filtered (stream, "}");
 
-      return;
+      return 0;
     }
 
   /* If it's type String, print it.  */
@@ -231,8 +228,6 @@ java_value_print (struct value *val, struct ui_file *stream,
       unsigned long count;
       struct value *mark;
 
-      fputs_filtered (" ", stream);
-
       mark = value_mark ();	/* Remember start of new values.  */
 
       data_val = value_struct_elt (&val, NULL, "data", NULL, NULL);
@@ -250,12 +245,12 @@ java_value_print (struct value *val, struct ui_file *stream,
       val_print_string (char_type, NULL, data + boffset, count, stream,
 			options);
 
-      return;
+      return 0;
     }
 
   opts = *options;
   opts.deref_ref = 1;
-  common_val_print (val, stream, 0, &opts, current_language);
+  return common_val_print (val, stream, 0, &opts, current_language);
 }
 
 /* TYPE, VALADDR, ADDRESS, STREAM, RECURSE, and OPTIONS have the
@@ -288,7 +283,7 @@ java_print_value_fields (struct type *type, const gdb_byte *valaddr,
 	{
 	  int boffset;
 	  struct type *baseclass = check_typedef (TYPE_BASECLASS (type, i));
-	  const char *basename = TYPE_NAME (baseclass);
+	  char *basename = TYPE_NAME (baseclass);
 	  const gdb_byte *base_valaddr;
 
 	  if (BASETYPE_VIA_VIRTUAL (type, i))
@@ -330,7 +325,7 @@ java_print_value_fields (struct type *type, const gdb_byte *valaddr,
 	  /* If requested, skip printing of static fields.  */
 	  if (field_is_static (&TYPE_FIELD (type, i)))
 	    {
-	      const char *name = TYPE_FIELD_NAME (type, i);
+	      char *name = TYPE_FIELD_NAME (type, i);
 
 	      if (!options->static_field_print)
 		continue;
@@ -361,17 +356,36 @@ java_print_value_fields (struct type *type, const gdb_byte *valaddr,
 	    {
 	      wrap_here (n_spaces (2 + 2 * recurse));
 	    }
+	  if (options->inspect_it)
+	    {
+	      if (TYPE_CODE (TYPE_FIELD_TYPE (type, i)) == TYPE_CODE_PTR)
+		fputs_filtered ("\"( ptr \"", stream);
+	      else
+		fputs_filtered ("\"( nodef \"", stream);
+	      if (field_is_static (&TYPE_FIELD (type, i)))
+		fputs_filtered ("static ", stream);
+	      fprintf_symbol_filtered (stream, TYPE_FIELD_NAME (type, i),
+				       language_cplus,
+				       DMGL_PARAMS | DMGL_ANSI);
+	      fputs_filtered ("\" \"", stream);
+	      fprintf_symbol_filtered (stream, TYPE_FIELD_NAME (type, i),
+				       language_cplus,
+				       DMGL_PARAMS | DMGL_ANSI);
+	      fputs_filtered ("\") \"", stream);
+	    }
+	  else
+	    {
+	      annotate_field_begin (TYPE_FIELD_TYPE (type, i));
 
-	  annotate_field_begin (TYPE_FIELD_TYPE (type, i));
-
-	  if (field_is_static (&TYPE_FIELD (type, i)))
-	    fputs_filtered ("static ", stream);
-	  fprintf_symbol_filtered (stream, TYPE_FIELD_NAME (type, i),
-				   language_cplus,
-				   DMGL_PARAMS | DMGL_ANSI);
-	  annotate_field_name_end ();
-	  fputs_filtered (": ", stream);
-	  annotate_field_value ();
+	      if (field_is_static (&TYPE_FIELD (type, i)))
+		fputs_filtered ("static ", stream);
+	      fprintf_symbol_filtered (stream, TYPE_FIELD_NAME (type, i),
+				       language_cplus,
+				       DMGL_PARAMS | DMGL_ANSI);
+	      annotate_field_name_end ();
+	      fputs_filtered (": ", stream);
+	      annotate_field_value ();
+	    }
 
 	  if (!field_is_static (&TYPE_FIELD (type, i))
 	      && TYPE_FIELD_PACKED (type, i))
@@ -461,9 +475,10 @@ java_print_value_fields (struct type *type, const gdb_byte *valaddr,
 }
 
 /* See val_print for a description of the various parameters of this
-   function; they are identical.  */
+   function; they are identical.  The semantics of the return value is
+   also identical to val_print.  */
 
-void
+int
 java_val_print (struct type *type, const gdb_byte *valaddr,
 		int embedded_offset, CORE_ADDR address,
 		struct ui_file *stream, int recurse,
@@ -471,6 +486,7 @@ java_val_print (struct type *type, const gdb_byte *valaddr,
 		const struct value_print_options *options)
 {
   struct gdbarch *gdbarch = get_type_arch (type);
+  unsigned int i = 0;	/* Number of characters printed.  */
   struct type *target_type;
   CORE_ADDR addr;
 
@@ -484,19 +500,35 @@ java_val_print (struct type *type, const gdb_byte *valaddr,
 				      val, options, 0, stream);
 	  break;
 	}
+#if 0
+      if (options->vtblprint && cp_is_vtbl_ptr_type (type))
+	{
+	  /* Print the unmangled name if desired.  */
+	  /* Print vtable entry - we only get here if we ARE using
+	     -fvtable_thunks.  (Otherwise, look under TYPE_CODE_STRUCT.)  */
+	  /* Extract an address, assume that it is unsigned.  */
+	  print_address_demangle
+	    (gdbarch,
+	     extract_unsigned_integer (valaddr + embedded_offset,
+				       TYPE_LENGTH (type)),
+	     stream, demangle);
+	  break;
+	}
+#endif
       addr = unpack_pointer (type, valaddr + embedded_offset);
       if (addr == 0)
 	{
 	  fputs_filtered ("null", stream);
-	  return;
+	  return i;
 	}
       target_type = check_typedef (TYPE_TARGET_TYPE (type));
 
       if (TYPE_CODE (target_type) == TYPE_CODE_FUNC)
 	{
 	  /* Try to print what function it points to.  */
-	  print_address_demangle (options, gdbarch, addr, stream, demangle);
-	  return;
+	  print_address_demangle (gdbarch, addr, stream, demangle);
+	  /* Return value is irrelevant except for string pointers.  */
+	  return (0);
 	}
 
       if (options->addressprint && options->format != 's')
@@ -505,7 +537,7 @@ java_val_print (struct type *type, const gdb_byte *valaddr,
 	  print_longest (stream, 'x', 0, (ULONGEST) addr);
 	}
 
-      return;
+      return i;
 
     case TYPE_CODE_CHAR:
     case TYPE_CODE_INT:
@@ -536,8 +568,9 @@ java_val_print (struct type *type, const gdb_byte *valaddr,
       break;
 
     default:
-      c_val_print (type, valaddr, embedded_offset, address, stream,
-		   recurse, val, options);
-      break;
+      return c_val_print (type, valaddr, embedded_offset, address, stream,
+			  recurse, val, options);
     }
+
+  return 0;
 }

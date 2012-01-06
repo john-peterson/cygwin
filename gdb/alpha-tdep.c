@@ -1,6 +1,6 @@
 /* Target-dependent code for the ALPHA architecture, for GDB, the GNU Debugger.
 
-   Copyright (C) 1993-2013 Free Software Foundation, Inc.
+   Copyright (C) 1993-2003, 2005-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -475,13 +475,14 @@ alpha_extract_return_value (struct type *valtype, struct regcache *regcache,
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  int length = TYPE_LENGTH (valtype);
   gdb_byte raw_buffer[ALPHA_REGISTER_SIZE];
   ULONGEST l;
 
   switch (TYPE_CODE (valtype))
     {
     case TYPE_CODE_FLT:
-      switch (TYPE_LENGTH (valtype))
+      switch (length)
 	{
 	case 4:
 	  regcache_cooked_read (regcache, ALPHA_FP0_REGNUM, raw_buffer);
@@ -504,7 +505,7 @@ alpha_extract_return_value (struct type *valtype, struct regcache *regcache,
       break;
 
     case TYPE_CODE_COMPLEX:
-      switch (TYPE_LENGTH (valtype))
+      switch (length)
 	{
 	case 8:
 	  /* ??? This isn't correct wrt the ABI, but it's what GCC does.  */
@@ -530,7 +531,7 @@ alpha_extract_return_value (struct type *valtype, struct regcache *regcache,
     default:
       /* Assume everything else degenerates to an integer.  */
       regcache_cooked_read_unsigned (regcache, ALPHA_V0_REGNUM, &l);
-      store_unsigned_integer (valbuf, TYPE_LENGTH (valtype), byte_order, l);
+      store_unsigned_integer (valbuf, length, byte_order, l);
       break;
     }
 }
@@ -543,13 +544,14 @@ alpha_store_return_value (struct type *valtype, struct regcache *regcache,
 			  const gdb_byte *valbuf)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  int length = TYPE_LENGTH (valtype);
   gdb_byte raw_buffer[ALPHA_REGISTER_SIZE];
   ULONGEST l;
 
   switch (TYPE_CODE (valtype))
     {
     case TYPE_CODE_FLT:
-      switch (TYPE_LENGTH (valtype))
+      switch (length)
 	{
 	case 4:
 	  alpha_lds (gdbarch, raw_buffer, valbuf);
@@ -573,7 +575,7 @@ alpha_store_return_value (struct type *valtype, struct regcache *regcache,
       break;
 
     case TYPE_CODE_COMPLEX:
-      switch (TYPE_LENGTH (valtype))
+      switch (length)
 	{
 	case 8:
 	  /* ??? This isn't correct wrt the ABI, but it's what GCC does.  */
@@ -601,7 +603,7 @@ alpha_store_return_value (struct type *valtype, struct regcache *regcache,
       /* Assume everything else degenerates to an integer.  */
       /* 32-bit values must be sign-extended to 64 bits
 	 even if the base data type is unsigned.  */
-      if (TYPE_LENGTH (valtype) == 4)
+      if (length == 4)
 	valtype = builtin_type (gdbarch)->builtin_int32;
       l = unpack_long (valtype, valbuf);
       regcache_cooked_write_unsigned (regcache, ALPHA_V0_REGNUM, l);
@@ -610,7 +612,7 @@ alpha_store_return_value (struct type *valtype, struct regcache *regcache,
 }
 
 static enum return_value_convention
-alpha_return_value (struct gdbarch *gdbarch, struct value *function,
+alpha_return_value (struct gdbarch *gdbarch, struct type *func_type,
 		    struct type *type, struct regcache *regcache,
 		    gdb_byte *readbuf, const gdb_byte *writebuf)
 {
@@ -769,7 +771,7 @@ static const int stq_c_opcode = 0x2f;
    is found, attempt to step through it.  A breakpoint is placed at the end of 
    the sequence.  */
 
-static int 
+int 
 alpha_deal_with_atomic_sequence (struct frame_info *frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
@@ -997,7 +999,7 @@ alpha_sigtramp_frame_sniffer (const struct frame_unwind *self,
 {
   struct gdbarch *gdbarch = get_frame_arch (this_frame);
   CORE_ADDR pc = get_frame_pc (this_frame);
-  const char *name;
+  char *name;
 
   /* NOTE: cagney/2004-04-30: Do not copy/clone this code.  Instead
      look at tramp-frame.h and other simplier per-architecture

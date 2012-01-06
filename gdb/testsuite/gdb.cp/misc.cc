@@ -1,6 +1,6 @@
 /* This testcase is part of GDB, the GNU debugger.
 
-   Copyright 1993-2013 Free Software Foundation, Inc.
+   Copyright 1993-2001, 2007-2012 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -568,6 +568,10 @@ void use_methods ()
 int
 main()
 {
+#ifdef usestubs
+  set_debug_traps();
+  breakpoint();
+#endif
   dummy();
   inheritance1 ();
   inheritance3 ();

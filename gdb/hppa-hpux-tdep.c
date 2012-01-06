@@ -1,6 +1,6 @@
 /* Target-dependent code for HP-UX on PA-RISC.
 
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002-2005, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -177,7 +177,7 @@ hppa64_hpux_in_solib_call_trampoline (struct gdbarch *gdbarch,
   struct minimal_symbol *minsym;
   asection *sec;
   CORE_ADDR addr;
-  int insn;
+  int insn, i;
 
   minsym = lookup_minimal_symbol_by_pc (pc);
   if (! minsym)
@@ -230,7 +230,7 @@ hppa64_hpux_in_solib_call_trampoline (struct gdbarch *gdbarch,
 
 static int
 hppa_hpux_in_solib_return_trampoline (struct gdbarch *gdbarch,
-				      CORE_ADDR pc, const char *name)
+				      CORE_ADDR pc, char *name)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   struct unwind_table_entry *u;
@@ -956,6 +956,7 @@ hppa64_hpux_search_dummy_call_sequence (struct gdbarch *gdbarch, CORE_ADDR pc,
   struct hppa_objfile_private *priv;
   CORE_ADDR addr;
   struct minimal_symbol *msym;
+  int i;
 
   sec = find_pc_section (pc);
   obj = sec->objfile;
@@ -978,10 +979,10 @@ hppa64_hpux_search_dummy_call_sequence (struct gdbarch *gdbarch, CORE_ADDR pc,
      scheme; try to read in blocks of code, and look for a "bve,n (rp)" 
      instruction.  These are likely to occur at the end of functions, so
      we only look at the last two instructions of each function.  */
-  ALL_OBJFILE_MSYMBOLS (obj, msym)
+  for (i = 0, msym = obj->msymbols; i < obj->minimal_symbol_count; i++, msym++)
     {
       CORE_ADDR begin, end;
-      const char *name;
+      char *name;
       gdb_byte buf[2 * HPPA_INSN_SIZE];
       int offset;
 
@@ -1086,6 +1087,7 @@ hppa_hpux_find_dummy_bpaddr (CORE_ADDR addr)
   struct unwind_table_entry *u;
   struct minimal_symbol *msym;
   CORE_ADDR func;
+  int i;
 
   sec = find_pc_section (addr);
   if (sec)
@@ -1105,7 +1107,9 @@ hppa_hpux_find_dummy_bpaddr (CORE_ADDR addr)
 	 work.  */
 
       find_pc_partial_function (addr, NULL, &func, NULL);
-      ALL_OBJFILE_MSYMBOLS (sec->objfile, msym)
+      for (i = 0, msym = sec->objfile->msymbols;
+      	   i < sec->objfile->minimal_symbol_count;
+	   i++, msym++)
 	{
 	  u = find_unwind_entry (SYMBOL_VALUE_ADDRESS (msym));
 	  if (func != SYMBOL_VALUE_ADDRESS (msym) 

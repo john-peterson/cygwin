@@ -1,4 +1,4 @@
-# Copyright 2009-2013 Free Software Foundation, Inc.
+# Copyright 2009, 2011-2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 # but to verify the correct output response to MI operations.
 #
 
-if ![supports_reverse] {
+if ![target_info exists gdb,can_reverse] {
     return
 }
 
@@ -39,20 +39,20 @@ if [mi_gdb_start] {
     continue
 }
 
-standard_testfile basics.c
-
-if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug}] != "" } {
+set testfile mi-reverse
+set srcfile basics.c
+set binfile ${objdir}/${subdir}/mi2-reverse
+if  { [gdb_compile "${srcdir}/${subdir}/${srcfile}" "${binfile}" executable {debug additional_flags=-DFAKEARGV}] != "" } {
      untested ${testfile}.exp
      return -1
 }
 
 mi_run_to_main
 
-if [supports_process_record] {
+if [target_info exists gdb,use_precord] {
     # Activate process record/replay
     if [mi_gdb_test "-interpreter-exec console record" \
-	    "=record-started,thread-group=\"i1\"\r\n\\^done" \
-	    "Turn on process record"] {
+	{\^done} "Turn on process record"] {
 	warning "Fail to activate process record/replay, tests in this group will not be performed.\n";
 	return -1
     }

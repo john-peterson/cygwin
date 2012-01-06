@@ -1,6 +1,7 @@
 /* Top level stuff for GDB, the GNU debugger.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999-2002, 2004-2005, 2007-2012 Free Software
+   Foundation, Inc.
 
    Written by Elena Zannoni <ezannoni@cygnus.com> of Cygnus Solutions.
 
@@ -35,7 +36,6 @@
 #include "observer.h"
 #include "continuations.h"
 #include "gdbcmd.h"		/* for dont_repeat() */
-#include "annotate.h"
 
 /* readline include files.  */
 #include "readline/readline.h"
@@ -58,6 +58,9 @@ static void handle_sigquit (int sig);
 static void handle_sighup (int sig);
 #endif
 static void handle_sigfpe (int sig);
+#if defined(SIGWINCH) && defined(SIGWINCH_HANDLER)
+static void handle_sigwinch (int sig);
+#endif
 
 /* Functions to be invoked by the event loop in response to
    signals.  */
@@ -123,16 +126,19 @@ int input_fd;
    handlers mark these functions as ready to be executed and the event
    loop, in a later iteration, calls them.  See the function
    invoke_async_signal_handler.  */
-static struct async_signal_handler *sigint_token;
+void *sigint_token;
 #ifdef SIGHUP
-static struct async_signal_handler *sighup_token;
+void *sighup_token;
 #endif
 #ifdef SIGQUIT
-static struct async_signal_handler *sigquit_token;
+void *sigquit_token;
 #endif
-static struct async_signal_handler *sigfpe_token;
+void *sigfpe_token;
+#if defined(SIGWINCH) && defined(SIGWINCH_HANDLER)
+void *sigwinch_token;
+#endif
 #ifdef STOP_SIGNAL
-static struct async_signal_handler *sigtstp_token;
+void *sigtstp_token;
 #endif
 
 /* Structure to save a partially entered command.  This is used when
@@ -231,8 +237,6 @@ display_gdb_prompt (char *new_prompt)
 {
   char *actual_gdb_prompt = NULL;
   struct cleanup *old_chain;
-
-  annotate_display_prompt ();
 
   /* Reset the nesting depth used when trace-commands is set.  */
   reset_command_nest_depth ();
@@ -411,7 +415,7 @@ command_handler (char *command)
   int stdin_is_tty = ISATTY (stdin);
   struct cleanup *stat_chain;
 
-  clear_quit_flag ();
+  quit_flag = 0;
   if (instream == stdin && stdin_is_tty)
     reinitialize_more_filter ();
 
@@ -453,6 +457,8 @@ command_line_handler (char *rl)
   char *p;
   char *p1;
   char *nline;
+  char got_eof = 0;
+
   int repeat = (instream == stdin);
 
   if (annotation_level > 1 && instream == stdin)
@@ -497,6 +503,7 @@ command_line_handler (char *rl)
      and exit from gdb.  */
   if (!rl || rl == (char *) EOF)
     {
+      got_eof = 1;
       command_handler (0);
       return;			/* Lint.  */
     }
@@ -762,11 +769,22 @@ async_init_signals (void)
   sigfpe_token =
     create_async_signal_handler (async_float_handler, NULL);
 
+#if defined(SIGWINCH) && defined(SIGWINCH_HANDLER)
+  signal (SIGWINCH, handle_sigwinch);
+  sigwinch_token =
+    create_async_signal_handler (SIGWINCH_HANDLER, NULL);
+#endif
 #ifdef STOP_SIGNAL
   sigtstp_token =
     create_async_signal_handler (async_stop_sig, NULL);
 #endif
 
+}
+
+void
+mark_async_signal_handler_wrapper (void *token)
+{
+  mark_async_signal_handler ((struct async_signal_handler *) token);
 }
 
 /* Tell the event loop what to do if SIGINT is received.
@@ -781,7 +799,7 @@ handle_sigint (int sig)
      set quit_flag to 1 here.  Then if QUIT is called before we get to
      the event loop, we will unwind as expected.  */
 
-  set_quit_flag ();
+  quit_flag = 1;
 
   /* If immediate_quit is set, we go ahead and process the SIGINT right
      away, even if we usually would defer this to the event loop.  The
@@ -810,9 +828,10 @@ async_request_quit (gdb_client_data arg)
   /* If the quit_flag has gotten reset back to 0 by the time we get
      back here, that means that an exception was thrown to unwind the
      current command before we got back to the event loop.  So there
-     is no reason to call quit again here.  */
+     is no reason to call quit again here, unless immediate_quit is
+     set.  */
 
-  if (check_quit_flag ())
+  if (quit_flag || immediate_quit)
     quit ();
 }
 
@@ -822,7 +841,7 @@ async_request_quit (gdb_client_data arg)
 static void
 handle_sigquit (int sig)
 {
-  mark_async_signal_handler (sigquit_token);
+  mark_async_signal_handler_wrapper (sigquit_token);
   signal (sig, handle_sigquit);
 }
 #endif
@@ -843,7 +862,7 @@ async_do_nothing (gdb_client_data arg)
 static void
 handle_sighup (int sig)
 {
-  mark_async_signal_handler (sighup_token);
+  mark_async_signal_handler_wrapper (sighup_token);
   signal (sig, handle_sighup);
 }
 
@@ -879,7 +898,7 @@ async_disconnect (gdb_client_data arg)
 void
 handle_stop_sig (int sig)
 {
-  mark_async_signal_handler (sigtstp_token);
+  mark_async_signal_handler_wrapper (sigtstp_token);
   signal (sig, handle_stop_sig);
 }
 
@@ -919,7 +938,7 @@ async_stop_sig (gdb_client_data arg)
 static void
 handle_sigfpe (int sig)
 {
-  mark_async_signal_handler (sigfpe_token);
+  mark_async_signal_handler_wrapper (sigfpe_token);
   signal (sig, handle_sigfpe);
 }
 
@@ -931,6 +950,17 @@ async_float_handler (gdb_client_data arg)
      divide by zero causes this, so "float" is a misnomer.  */
   error (_("Erroneous arithmetic operation."));
 }
+
+/* Tell the event loop what to do if SIGWINCH is received.
+   See event-signal.c.  */
+#if defined(SIGWINCH) && defined(SIGWINCH_HANDLER)
+static void
+handle_sigwinch (int sig)
+{
+  mark_async_signal_handler_wrapper (sigwinch_token);
+  signal (sig, handle_sigwinch);
+}
+#endif
 
 
 /* Called by do_setshow_command.  */

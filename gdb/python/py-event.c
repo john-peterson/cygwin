@@ -1,6 +1,6 @@
 /* Python interface to inferior events.
 
-   Copyright (C) 2009-2013 Free Software Foundation, Inc.
+   Copyright (C) 2009-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,14 +17,13 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include "defs.h"
 #include "py-event.h"
 
 void
 evpy_dealloc (PyObject *self)
 {
   Py_XDECREF (((event_object *) self)->dict);
-  Py_TYPE (self)->tp_free (self);
+  self->ob_type->tp_free (self);
 }
 
 PyObject *
@@ -49,8 +48,7 @@ create_event_object (PyTypeObject *py_type)
 
 /* Add the attribute ATTR to the event object EVENT.  In
    python this attribute will be accessible by the name NAME.
-   returns 0 if the operation succeeds and -1 otherwise.  This
-   function acquires a new reference to ATTR.  */
+   returns 0 if the operation succeeds and -1 otherwise.  */
 
 int
 evpy_add_attribute (PyObject *event, char *name, PyObject *attr)
@@ -134,16 +132,10 @@ evpy_emit_event (PyObject *event,
   return -1;
 }
 
-static PyGetSetDef event_object_getset[] =
-{
-  { "__dict__", gdb_py_generic_dict, NULL,
-    "The __dict__ for this event.", &event_object_type },
-  { NULL }
-};
-
 PyTypeObject event_object_type =
 {
-  PyVarObject_HEAD_INIT (NULL, 0)
+  PyObject_HEAD_INIT (NULL)
+  0,                                          /* ob_size */
   "gdb.Event",                                /* tp_name */
   sizeof (event_object),                      /* tp_basicsize */
   0,                                          /* tp_itemsize */
@@ -172,7 +164,7 @@ PyTypeObject event_object_type =
   0,                                          /* tp_iternext */
   0,                                          /* tp_methods */
   0,                                          /* tp_members */
-  event_object_getset,			      /* tp_getset */
+  0,                                          /* tp_getset */
   0,                                          /* tp_base */
   0,                                          /* tp_dict */
   0,                                          /* tp_descr_get */

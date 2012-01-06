@@ -1,5 +1,5 @@
 /* Thread management interface, for the remote server for GDB.
-   Copyright (C) 2002-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004-2012 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -28,7 +28,6 @@ static int thread_db_use_events;
 
 #include "gdb_proc_service.h"
 #include "gdb_thread_db.h"
-#include "gdb_vecs.h"
 
 #ifndef USE_LIBTHREAD_DB_DIRECTLY
 #include <dlfcn.h>
@@ -406,7 +405,7 @@ static void
 thread_db_find_new_threads (void)
 {
   td_err_e err;
-  ptid_t ptid = current_ptid;
+  ptid_t ptid = ((struct inferior_list_entry *) current_inferior)->id;
   struct thread_db *thread_db = current_process ()->private->thread_db;
   int loop, iteration;
 
@@ -742,31 +741,39 @@ try_thread_db_load_from_dir (const char *dir, size_t dir_len)
 static int
 thread_db_load_search (void)
 {
-  VEC (char_ptr) *dir_vec;
-  char *this_dir;
-  int i, rc = 0;
+  const char *search_path;
+  int rc = 0;
 
   if (libthread_db_search_path == NULL)
     libthread_db_search_path = xstrdup (LIBTHREAD_DB_SEARCH_PATH);
 
-  dir_vec = dirnames_to_char_ptr_vec (libthread_db_search_path);
-
-  for (i = 0; VEC_iterate (char_ptr, dir_vec, i, this_dir); ++i)
+  search_path = libthread_db_search_path;
+  while (*search_path)
     {
-      const int pdir_len = sizeof ("$pdir") - 1;
+      const char *end = strchr (search_path, ':');
+      const char *this_dir = search_path;
       size_t this_dir_len;
 
-      this_dir_len = strlen (this_dir);
+      if (end)
+	{
+	  this_dir_len = end - search_path;
+	  search_path += this_dir_len + 1;
+	}
+      else
+	{
+	  this_dir_len = strlen (this_dir);
+	  search_path += this_dir_len;
+	}
 
-      if (strncmp (this_dir, "$pdir", pdir_len) == 0
-	  && (this_dir[pdir_len] == '\0'
-	      || this_dir[pdir_len] == '/'))
+      if (this_dir_len == sizeof ("$pdir") - 1
+	  && strncmp (this_dir, "$pdir", this_dir_len) == 0)
 	{
 	  /* We don't maintain a list of loaded libraries so we don't know
 	     where libpthread lives.  We *could* fetch the info, but we don't
 	     do that yet.  Ignore it.  */
 	}
-      else if (strcmp (this_dir, "$sdir") == 0)
+      else if (this_dir_len == sizeof ("$sdir") - 1
+	       && strncmp (this_dir, "$sdir", this_dir_len) == 0)
 	{
 	  if (try_thread_db_load_from_sdir ())
 	    {
@@ -784,7 +791,6 @@ thread_db_load_search (void)
 	}
     }
 
-  free_char_ptr_vec (dir_vec);
   if (debug_threads)
     fprintf (stderr, "thread_db_load_search returning %d\n", rc);
   return rc;

@@ -1,6 +1,6 @@
 /* gdb commands implemented in Python
 
-   Copyright (C) 2008-2013 Free Software Foundation, Inc.
+   Copyright (C) 2008-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -35,7 +35,7 @@ struct cmdpy_completer
   /* Python symbol name.  */
   char *name;
   /* Completion function.  */
-  completer_ftype *completer;
+  char **(*completer) (struct cmd_list_element *, char *, char *);
 };
 
 static struct cmdpy_completer completers[] =
@@ -206,12 +206,12 @@ cmdpy_function (struct cmd_list_element *command, char *args, int from_tty)
 
 /* Called by gdb for command completion.  */
 
-static VEC (char_ptr) *
+static char **
 cmdpy_completer (struct cmd_list_element *command, char *text, char *word)
 {
   cmdpy_object *obj = (cmdpy_object *) get_cmd_context (command);
   PyObject *textobj, *wordobj, *resultobj = NULL;
-  VEC (char_ptr) *result = NULL;
+  char **result = NULL;
   struct cleanup *cleanup;
 
   cleanup = ensure_python_env (get_current_arch (), current_language);
@@ -253,10 +253,10 @@ cmdpy_completer (struct cmd_list_element *command, char *text, char *word)
       if (len < 0)
 	goto done;
 
+      result = (char **) xmalloc ((len + 1) * sizeof (char *));
       for (i = out = 0; i < len; ++i)
 	{
 	  PyObject *elt = PySequence_GetItem (resultobj, i);
-	  char *item;
 
 	  if (elt == NULL || ! gdbpy_is_string (elt))
 	    {
@@ -264,15 +264,16 @@ cmdpy_completer (struct cmd_list_element *command, char *text, char *word)
 	      PyErr_Clear ();
 	      continue;
 	    }
-	  item = python_string_to_host_string (elt);
-	  if (item == NULL)
+	  result[out] = python_string_to_host_string (elt);
+	  if (result[out] == NULL)
 	    {
 	      /* Skip problem elements.  */
 	      PyErr_Clear ();
 	      continue;
 	    }
-	  VEC_safe_push (char_ptr, result, item);
+	  ++out;
 	}
+      result[out] = NULL;
     }
   else if (PyInt_Check (resultobj))
     {
@@ -435,7 +436,7 @@ cmdpy_init (PyObject *self, PyObject *args, PyObject *kw)
       && cmdtype != class_files && cmdtype != class_support
       && cmdtype != class_info && cmdtype != class_breakpoint
       && cmdtype != class_trace && cmdtype != class_obscure
-      && cmdtype != class_maintenance && cmdtype != class_user)
+      && cmdtype != class_maintenance)
     {
       PyErr_Format (PyExc_RuntimeError, _("Invalid command class argument."));
       return -1;
@@ -577,8 +578,7 @@ gdbpy_initialize_commands (void)
       || PyModule_AddIntConstant (gdb_module, "COMMAND_OBSCURE",
 				  class_obscure) < 0
       || PyModule_AddIntConstant (gdb_module, "COMMAND_MAINTENANCE",
-				  class_maintenance) < 0
-      || PyModule_AddIntConstant (gdb_module, "COMMAND_USER", class_user) < 0)
+				  class_maintenance) < 0)
     return;
 
   for (i = 0; i < N_COMPLETERS; ++i)
@@ -607,7 +607,8 @@ static PyMethodDef cmdpy_object_methods[] =
 
 static PyTypeObject cmdpy_object_type =
 {
-  PyVarObject_HEAD_INIT (NULL, 0)
+  PyObject_HEAD_INIT (NULL)
+  0,				  /*ob_size*/
   "gdb.Command",		  /*tp_name*/
   sizeof (cmdpy_object),	  /*tp_basicsize*/
   0,				  /*tp_itemsize*/

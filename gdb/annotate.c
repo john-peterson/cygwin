@@ -1,5 +1,6 @@
 /* Annotation routines for GDB.
-   Copyright (C) 1986-2013 Free Software Foundation, Inc.
+   Copyright (C) 1986, 1989-1992, 1994-1996, 1998-2000, 2007-2012 Free
+   Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,7 +24,6 @@
 #include "gdbtypes.h"
 #include "breakpoint.h"
 #include "observer.h"
-#include "inferior.h"
 
 
 /* Prototypes for local functions.  */
@@ -38,22 +38,7 @@ static void breakpoint_changed (struct breakpoint *b);
 void (*deprecated_annotate_signalled_hook) (void);
 void (*deprecated_annotate_signal_hook) (void);
 
-/* Booleans indicating whether we've emitted certain notifications.
-   Used to suppress useless repeated notifications until the next time
-   we're ready to accept more commands.  Reset whenever a prompt is
-   displayed.  */
-static int frames_invalid_emitted;
-static int breakpoints_invalid_emitted;
-
-/* True if the target can async, and a synchronous execution command
-   is not in progress.  If true, input is accepted, so don't suppress
-   annotations.  */
-
-static int
-async_background_execution_p (void)
-{
-  return (target_can_async_p () && !sync_execution);
-}
+static int ignore_count_changed = 0;
 
 static void
 print_value_flags (struct type *t)
@@ -63,18 +48,30 @@ print_value_flags (struct type *t)
   else
     printf_filtered (("-"));
 }
-
-static void
-annotate_breakpoints_invalid (void)
+
+void
+breakpoints_changed (void)
 {
-  if (annotation_level == 2
-      && (!breakpoints_invalid_emitted
-	  || async_background_execution_p ()))
+  if (annotation_level == 2)
     {
       target_terminal_ours ();
       printf_unfiltered (("\n\032\032breakpoints-invalid\n"));
-      breakpoints_invalid_emitted = 1;
+      if (ignore_count_changed)
+	ignore_count_changed = 0;   /* Avoid multiple break annotations.  */
     }
+}
+
+/* The GUI needs to be informed of ignore_count changes, but we don't
+   want to provide successive multiple breakpoints-invalid messages
+   that are all caused by the fact that the ignore count is changing
+   (which could keep the GUI very busy).  One is enough, after the
+   target actually "stops".  */
+
+void
+annotate_ignore_count_change (void)
+{
+  if (annotation_level > 1)
+    ignore_count_changed = 1;
 }
 
 void
@@ -110,6 +107,11 @@ annotate_stopped (void)
 {
   if (annotation_level > 1)
     printf_filtered (("\n\032\032stopped\n"));
+  if (annotation_level > 1 && ignore_count_changed)
+    {
+      ignore_count_changed = 0;
+      breakpoints_changed ();
+    }
 }
 
 void
@@ -205,13 +207,10 @@ annotate_breakpoints_table_end (void)
 void
 annotate_frames_invalid (void)
 {
-  if (annotation_level == 2
-      && (!frames_invalid_emitted
-	  || async_background_execution_p ()))
+  if (annotation_level == 2)
     {
       target_terminal_ours ();
       printf_unfiltered (("\n\032\032frames-invalid\n"));
-      frames_invalid_emitted = 1;
     }
 }
 
@@ -561,30 +560,18 @@ annotate_array_section_end (void)
     printf_filtered (("\n\032\032array-section-end\n"));
 }
 
-/* Called when GDB is about to display the prompt.  Used to reset
-   annotation suppression whenever we're ready to accept new
-   frontend/user commands.  */
-
-void
-annotate_display_prompt (void)
-{
-  frames_invalid_emitted = 0;
-  breakpoints_invalid_emitted = 0;
-}
-
 static void
 breakpoint_changed (struct breakpoint *b)
 {
-  if (b->number <= 0)
-    return;
-
-  annotate_breakpoints_invalid ();
+  breakpoints_changed ();
 }
 
 void
 _initialize_annotate (void)
 {
-  observer_attach_breakpoint_created (breakpoint_changed);
-  observer_attach_breakpoint_deleted (breakpoint_changed);
-  observer_attach_breakpoint_modified (breakpoint_changed);
+  if (annotation_level == 2)
+    {
+      observer_attach_breakpoint_deleted (breakpoint_changed);
+      observer_attach_breakpoint_modified (breakpoint_changed);
+    }
 }

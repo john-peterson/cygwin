@@ -1,6 +1,6 @@
 /* Very simple "bfd" target, for GDB, the GNU debugger.
 
-   Copyright (C) 2003-2013 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2005, 2007-2012 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,7 +21,6 @@
 #include "target.h"
 #include "bfd-target.h"
 #include "exec.h"
-#include "gdb_bfd.h"
 
 /* The object that is stored in the target_ops->to_data field has this
    type.  */
@@ -71,7 +70,7 @@ target_bfd_xclose (struct target_ops *t, int quitting)
 {
   struct target_bfd_data *data = t->to_data;
 
-  gdb_bfd_unref (data->bfd);
+  bfd_close (data->bfd);
   xfree (data->table.sections);
   xfree (data);
   xfree (t);
@@ -85,7 +84,6 @@ target_bfd_reopen (struct bfd *abfd)
 
   data = XZALLOC (struct target_bfd_data);
   data->bfd = abfd;
-  gdb_bfd_ref (abfd);
   build_section_table (abfd, &data->table.sections, &data->table.sections_end);
 
   t = XZALLOC (struct target_ops);
