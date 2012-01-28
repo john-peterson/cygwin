@@ -1,6 +1,6 @@
 /* BFD back-end for HP PA-RISC ELF files.
    Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
    Free Software Foundation, Inc.
 
    Original code by
@@ -10,7 +10,7 @@
    Largely rewritten by Alan Modra <alan@linuxcare.com.au>
    Naming cleanup by Carlos O'Donell <carlos@systemhalted.org>
    TLS support written by Randolph Chung <tausq@debian.org>
-
+ 
    This file is part of BFD, the Binary File Descriptor library.
 
    This program is free software; you can redistribute it and/or modify
@@ -124,20 +124,20 @@
    Structure/Variable         		Prefix
    elf_link_hash_table			"etab"
    elf_link_hash_entry			"eh"
-
+   
    elf32_hppa_link_hash_table		"htab"
    elf32_hppa_link_hash_entry		"hh"
 
    bfd_hash_table			"btab"
    bfd_hash_entry			"bh"
-
+   
    bfd_hash_table containing stubs	"bstab"
    elf32_hppa_stub_hash_entry		"hsh"
 
    elf32_hppa_dyn_reloc_entry		"hdh"
-
+   
    Always remember to use GNU Coding Style. */
-
+					  
 #define PLT_ENTRY_SIZE 8
 #define GOT_ENTRY_SIZE 4
 #define ELF_DYNAMIC_INTERPRETER "/lib/ld.so.1"
@@ -1005,14 +1005,14 @@ elf32_hppa_create_dynamic_sections (bfd *abfd, struct bfd_link_info *info)
   if (! _bfd_elf_create_dynamic_sections (abfd, info))
     return FALSE;
 
-  htab->splt = bfd_get_linker_section (abfd, ".plt");
-  htab->srelplt = bfd_get_linker_section (abfd, ".rela.plt");
+  htab->splt = bfd_get_section_by_name (abfd, ".plt");
+  htab->srelplt = bfd_get_section_by_name (abfd, ".rela.plt");
 
-  htab->sgot = bfd_get_linker_section (abfd, ".got");
-  htab->srelgot = bfd_get_linker_section (abfd, ".rela.got");
+  htab->sgot = bfd_get_section_by_name (abfd, ".got");
+  htab->srelgot = bfd_get_section_by_name (abfd, ".rela.got");
 
-  htab->sdynbss = bfd_get_linker_section (abfd, ".dynbss");
-  htab->srelbss = bfd_get_linker_section (abfd, ".rela.bss");
+  htab->sdynbss = bfd_get_section_by_name (abfd, ".dynbss");
+  htab->srelbss = bfd_get_section_by_name (abfd, ".rela.bss");
 
   /* hppa-linux needs _GLOBAL_OFFSET_TABLE_ to be visible from the main
      application, because __canonicalize_funcptr_for_compare needs it.  */
@@ -1110,7 +1110,7 @@ hppa32_elf_local_refcounts (bfd *abfd)
 {
   Elf_Internal_Shdr *symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
   bfd_signed_vma *local_refcounts;
-
+                  
   local_refcounts = elf_local_got_refcounts (abfd);
   if (local_refcounts == NULL)
     {
@@ -1378,7 +1378,7 @@ elf32_hppa_check_relocs (bfd *abfd,
 	      else
 	        {
 	          bfd_signed_vma *local_got_refcounts;
-
+		  
 	          /* This is a global offset table entry for a local symbol.  */
 	          local_got_refcounts = hppa32_elf_local_refcounts (abfd);
 	          if (local_got_refcounts == NULL)
@@ -1898,6 +1898,13 @@ elf32_hppa_adjust_dynamic_symbol (struct bfd_link_info *info,
 	}
     }
 
+  if (eh->size == 0)
+    {
+      (*_bfd_error_handler) (_("dynamic variable `%s' is zero size"),
+			     eh->root.root.string);
+      return TRUE;
+    }
+
   /* We must allocate the symbol in our .dynbss section, which will
      become part of the .bss section of the executable.  There will be
      an entry for this symbol in the .dynsym section.  The dynamic
@@ -1915,7 +1922,7 @@ elf32_hppa_adjust_dynamic_symbol (struct bfd_link_info *info,
   /* We must generate a COPY reloc to tell the dynamic linker to
      copy the initial value out of the dynamic object and into the
      runtime process image.  */
-  if ((eh->root.u.def.section->flags & SEC_ALLOC) != 0 && eh->size != 0)
+  if ((eh->root.u.def.section->flags & SEC_ALLOC) != 0)
     {
       htab->srelbss->size += sizeof (Elf32_External_Rela);
       eh->needs_copy = 1;
@@ -1965,7 +1972,7 @@ allocate_plt_static (struct elf_link_hash_entry *eh, void *inf)
 	     means that the plt entry is only used by a plabel.
 	     We'll be using a normal plt entry for this symbol, so
 	     clear the plabel indicator.  */
-
+	  
 	  hh->plabel = 0;
 	}
       else if (hh->plabel)
@@ -2013,7 +2020,7 @@ allocate_dynrelocs (struct elf_link_hash_entry *eh, void *inf)
     return FALSE;
 
   hh = hppa_elf_hash_entry (eh);
-
+  
   if (htab->etab.dynamic_sections_created
       && eh->plt.offset != (bfd_vma) -1
       && !hh->plabel
@@ -2114,7 +2121,7 @@ allocate_dynrelocs (struct elf_link_hash_entry *eh, void *inf)
       /* For the non-shared case, discard space for relocs against
 	 symbols which turn out to need copy relocs or are not
 	 dynamic.  */
-
+      
       if (!eh->non_got_ref
 	  && ((ELIMINATE_COPY_RELOCS
 	       && eh->def_dynamic
@@ -2225,7 +2232,7 @@ elf32_hppa_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
       /* Set the contents of the .interp section to the interpreter.  */
       if (info->executable)
 	{
-	  sec = bfd_get_linker_section (dynobj, ".interp");
+	  sec = bfd_get_section_by_name (dynobj, ".interp");
 	  if (sec == NULL)
 	    abort ();
 	  sec->size = sizeof ELF_DYNAMIC_INTERPRETER;
@@ -2301,7 +2308,7 @@ elf32_hppa_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
 		sec->size += 2 * GOT_ENTRY_SIZE;
 	      else if ((*local_tls_type & GOT_TLS_GD) == GOT_TLS_GD)
 		sec->size += GOT_ENTRY_SIZE;
-	      if (info->shared)
+	      if (info->shared) 
 	        {
 		  srel->size += sizeof (Elf32_External_Rela);
 		  if ((*local_tls_type & (GOT_TLS_GD | GOT_TLS_IE)) == (GOT_TLS_GD | GOT_TLS_IE))
@@ -2342,10 +2349,10 @@ elf32_hppa_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
 	    }
 	}
     }
-
+  
   if (htab->tls_ldm_got.refcount > 0)
     {
-      /* Allocate 2 got entries and 1 dynamic reloc for
+      /* Allocate 2 got entries and 1 dynamic reloc for 
          R_PARISC_TLS_DTPMOD32 relocs.  */
       htab->tls_ldm_got.offset = htab->sgot->size;
       htab->sgot->size += (GOT_ENTRY_SIZE * 2);
@@ -3220,7 +3227,7 @@ elf32_hppa_build_stubs (struct bfd_link_info *info)
 }
 
 /* Return the base vma address which should be subtracted from the real
-   address when resolving a dtpoff relocation.
+   address when resolving a dtpoff relocation.  
    This is PT_TLS segment p_vaddr.  */
 
 static bfd_vma
@@ -3242,9 +3249,9 @@ tpoff (struct bfd_link_info *info, bfd_vma address)
   /* If tls_sec is NULL, we should have signalled an error already.  */
   if (htab->tls_sec == NULL)
     return 0;
-  /* hppa TLS ABI is variant I and static TLS block start just after
+  /* hppa TLS ABI is variant I and static TLS block start just after 
      tcbhead structure which has 2 pointer fields.  */
-  return (address - htab->tls_sec->vma
+  return (address - htab->tls_sec->vma 
 	  + align_power ((bfd_vma) 8, htab->tls_sec->alignment_power));
 }
 
@@ -3323,7 +3330,7 @@ final_link_relocate (asection *input_section,
   bfd_signed_vma addend = rela->r_addend;
   bfd_vma location;
   struct elf32_hppa_stub_hash_entry *hsh = NULL;
-  int val;
+  int val;  
 
   if (r_type == R_PARISC_NONE)
     return bfd_reloc_ok;
@@ -3342,16 +3349,10 @@ final_link_relocate (asection *input_section,
       switch (r_type)
 	{
 	  case R_PARISC_DLTIND21L:
-	  case R_PARISC_TLS_GD21L:
-	  case R_PARISC_TLS_LDM21L:
-	  case R_PARISC_TLS_IE21L:
 	    r_type = R_PARISC_DPREL21L;
 	    break;
 
 	  case R_PARISC_DLTIND14R:
-	  case R_PARISC_TLS_GD14R:
-	  case R_PARISC_TLS_LDM14R:
-	  case R_PARISC_TLS_IE14R:
 	    r_type = R_PARISC_DPREL14R;
 	    break;
 
@@ -3417,48 +3418,53 @@ final_link_relocate (asection *input_section,
     case R_PARISC_DPREL21L:
     case R_PARISC_DPREL14R:
     case R_PARISC_DPREL14F:
+    case R_PARISC_TLS_GD21L:
+    case R_PARISC_TLS_LDM21L:
+    case R_PARISC_TLS_IE21L:
       /* Convert instructions that use the linkage table pointer (r19) to
 	 instructions that use the global data pointer (dp).  This is the
 	 most efficient way of using PIC code in an incomplete executable,
 	 but the user must follow the standard runtime conventions for
 	 accessing data for this to work.  */
-      if (orig_r_type != r_type)
+      if (orig_r_type == R_PARISC_DLTIND21L
+	  || (!info->shared
+	      && (r_type == R_PARISC_TLS_GD21L
+		  || r_type == R_PARISC_TLS_LDM21L
+		  || r_type == R_PARISC_TLS_IE21L)))
 	{
-	  if (r_type == R_PARISC_DPREL21L)
-	    {
-	      /* GCC sometimes uses a register other than r19 for the
-		 operation, so we must convert any addil instruction
-		 that uses this relocation.  */
-	      if ((insn & 0xfc000000) == ((int) OP_ADDIL << 26))
-		insn = ADDIL_DP;
-	      else
-		/* We must have a ldil instruction.  It's too hard to find
-		   and convert the associated add instruction, so issue an
-		   error.  */
-		(*_bfd_error_handler)
-		  (_("%B(%A+0x%lx): %s fixup for insn 0x%x is not supported in a non-shared link"),
-		   input_bfd,
-		   input_section,
-		   (long) offset,
-		   howto->name,
-		   insn);
-	    }
-	  else if (r_type == R_PARISC_DPREL14F)
-	    {
-	      /* This must be a format 1 load/store.  Change the base
-		 register to dp.  */
-	      insn = (insn & 0xfc1ffff) | (27 << 21);
-	    }
+	  /* Convert addil instructions if the original reloc was a
+	     DLTIND21L.  GCC sometimes uses a register other than r19 for
+	     the operation, so we must convert any addil instruction
+	     that uses this relocation.  */
+	  if ((insn & 0xfc000000) == ((int) OP_ADDIL << 26))
+	    insn = ADDIL_DP;
+	  else
+	    /* We must have a ldil instruction.  It's too hard to find
+	       and convert the associated add instruction, so issue an
+	       error.  */
+	    (*_bfd_error_handler)
+	      (_("%B(%A+0x%lx): %s fixup for insn 0x%x is not supported in a non-shared link"),
+	       input_bfd,
+	       input_section,
+	       (long) offset,
+	       howto->name,
+	       insn);
+	}
+      else if (orig_r_type == R_PARISC_DLTIND14F)
+	{
+	  /* This must be a format 1 load/store.  Change the base
+	     register to dp.  */
+	  insn = (insn & 0xfc1ffff) | (27 << 21);
 	}
 
-      /* For all the DP relative relocations, we need to examine the symbol's
-	 section.  If it has no section or if it's a code section, then
-	 "data pointer relative" makes no sense.  In that case we don't
-	 adjust the "value", and for 21 bit addil instructions, we change the
-	 source addend register from %dp to %r0.  This situation commonly
-	 arises for undefined weak symbols and when a variable's "constness"
-	 is declared differently from the way the variable is defined.  For
-	 instance: "extern int foo" with foo defined as "const int foo".  */
+    /* For all the DP relative relocations, we need to examine the symbol's
+       section.  If it has no section or if it's a code section, then
+       "data pointer relative" makes no sense.  In that case we don't
+       adjust the "value", and for 21 bit addil instructions, we change the
+       source addend register from %dp to %r0.  This situation commonly
+       arises for undefined weak symbols and when a variable's "constness"
+       is declared differently from the way the variable is defined.  For
+       instance: "extern int foo" with foo defined as "const int foo".  */
       if (sym_sec == NULL || (sym_sec->flags & SEC_CODE) != 0)
 	{
 	  if ((insn & ((0x3f << 26) | (0x1f << 21)))
@@ -3475,9 +3481,6 @@ final_link_relocate (asection *input_section,
     case R_PARISC_DLTIND21L:
     case R_PARISC_DLTIND14R:
     case R_PARISC_DLTIND14F:
-    case R_PARISC_TLS_GD21L:
-    case R_PARISC_TLS_LDM21L:
-    case R_PARISC_TLS_IE21L:
     case R_PARISC_TLS_GD14R:
     case R_PARISC_TLS_LDM14R:
     case R_PARISC_TLS_IE14R:
@@ -3734,10 +3737,10 @@ elf32_hppa_relocate_section (bfd *output_bfd,
 	  hh = hppa_elf_hash_entry (eh);
 	}
 
-      if (sym_sec != NULL && discarded_section (sym_sec))
+      if (sym_sec != NULL && elf_discarded_section (sym_sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					 rela, 1, relend,
-					 elf_hppa_howto_table + r_type, 0,
+					 rela, relend,
+					 elf_hppa_howto_table + r_type,
 					 contents);
 
       if (info->relocatable)
@@ -4002,7 +4005,7 @@ elf32_hppa_relocate_section (bfd *output_bfd,
 		      || outrel.r_offset == (bfd_vma) -2);
 	      outrel.r_offset += (input_section->output_offset
 				  + input_section->output_section->vma);
-
+	      	      
 	      if (skip)
 		{
 		  memset (&outrel, 0, sizeof (outrel));
@@ -4064,12 +4067,12 @@ elf32_hppa_relocate_section (bfd *output_bfd,
 	      bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
 	    }
 	  break;
-
+	  
 	case R_PARISC_TLS_LDM21L:
 	case R_PARISC_TLS_LDM14R:
 	  {
 	    bfd_vma off;
-
+	
 	    off = htab->tls_ldm_got.offset;
 	    if (off & 1)
 	      off &= ~1;
@@ -4078,12 +4081,12 @@ elf32_hppa_relocate_section (bfd *output_bfd,
 		Elf_Internal_Rela outrel;
 		bfd_byte *loc;
 
-		outrel.r_offset = (off
+		outrel.r_offset = (off 
 				   + htab->sgot->output_section->vma
 				   + htab->sgot->output_offset);
 		outrel.r_addend = 0;
 		outrel.r_info = ELF32_R_INFO (0, R_PARISC_TLS_DTPMOD32);
-		loc = htab->srelgot->contents;
+		loc = htab->srelgot->contents; 
 		loc += htab->srelgot->reloc_count++ * sizeof (Elf32_External_Rela);
 
 		bfd_elf32_swap_reloca_out (output_bfd, &outrel, loc);
@@ -4155,7 +4158,7 @@ elf32_hppa_relocate_section (bfd *output_bfd,
 			|| hh->eh.root.type != bfd_link_hash_undefweak))
 		  {
 		    need_relocs = TRUE;
-		    loc = htab->srelgot->contents;
+		    loc = htab->srelgot->contents; 
 		    /* FIXME (CAO): Should this be reloc_count++ ? */
 		    loc += htab->srelgot->reloc_count * sizeof (Elf32_External_Rela);
 		  }
@@ -4442,7 +4445,9 @@ elf32_hppa_finish_dynamic_symbol (bfd *output_bfd,
     }
 
   /* Mark _DYNAMIC and _GLOBAL_OFFSET_TABLE_ as absolute.  */
-  if (eh == htab->etab.hdynamic || eh == htab->etab.hgot)
+  if (eh_name (eh)[0] == '_'
+      && (strcmp (eh_name (eh), "_DYNAMIC") == 0
+	  || eh == htab->etab.hgot))
     {
       sym->st_shndx = SHN_ABS;
     }
@@ -4504,7 +4509,7 @@ elf32_hppa_finish_dynamic_sections (bfd *output_bfd,
   if (sgot != NULL && bfd_is_abs_section (sgot->output_section))
     return FALSE;
 
-  sdyn = bfd_get_linker_section (dynobj, ".dynamic");
+  sdyn = bfd_get_section_by_name (dynobj, ".dynamic");
 
   if (htab->etab.dynamic_sections_created)
     {
