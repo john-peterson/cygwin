@@ -1,5 +1,5 @@
 /* OpenRISC-specific support for 32-bit ELF.
-   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2010, 2012
+   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007
    Free Software Foundation, Inc.
    Contributed by Johan Rydberg, jrydberg@opencores.org
 
@@ -375,7 +375,7 @@ openrisc_elf_relocate_section (bfd *output_bfd,
 
       if (sec != NULL && discarded_section (sec))
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
-					 rel, 1, relend, howto, 0, contents);
+					 rel, relend, howto, contents);
 
       if (info->relocatable)
 	continue;

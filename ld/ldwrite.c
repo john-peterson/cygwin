@@ -183,7 +183,6 @@ build_link_order (lang_statement_union_type *statement)
 	  default:
 	    abort ();
 	  }
-	link_order->u.data.size = link_order->size;
       }
       break;
 
@@ -338,7 +337,7 @@ clone_section (bfd *abfd, asection *s, const char *name, int *count)
 {
   char *tname;
   char *sname;
-  unsigned int len;
+  unsigned int len;	
   asection *n;
   struct bfd_link_hash_entry *h;
 
