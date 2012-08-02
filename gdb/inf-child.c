@@ -1,7 +1,8 @@
 /* Default child (native) target interface, for GDB when running under
    Unix.
 
-   Copyright (C) 1988-2013 Free Software Foundation, Inc.
+   Copyright (C) 1988-1996, 1998-2002, 2004-2005, 2007-2012 Free
+   Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -345,7 +346,7 @@ inf_child_fileio_readlink (const char *filename, int *target_errno)
   /* We support readlink only on systems that also provide a compile-time
      maximum path length (MAXPATHLEN), at least for now.  */
 #if defined (HAVE_READLINK) && defined (MAXPATHLEN)
-  char buf[MAXPATHLEN - 1];
+  char buf[MAXPATHLEN];
   int len;
   char *ret;
 
