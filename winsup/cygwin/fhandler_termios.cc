@@ -1,7 +1,7 @@
 /* fhandler_termios.cc
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2008, 2009,
+   2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -114,23 +114,14 @@ fhandler_pty_master::tcgetpgrp ()
   return tc ()->pgid;
 }
 
-static inline bool
-is_flush_sig (int sig)
-{
-  return sig == SIGINT || sig == SIGQUIT || sig == SIGTSTP;
-}
-
 void
 tty_min::kill_pgrp (int sig)
 {
   bool killself = false;
-  if (is_flush_sig (sig) && cygheap->ctty)
-    cygheap->ctty->sigflush ();
   winpids pids ((DWORD) PID_MAP_RW);
   siginfo_t si = {0};
   si.si_signo = sig;
   si.si_code = SI_KERNEL;
-
   for (unsigned i = 0; i < pids.npids; i++)
     {
       _pinfo *p = pids[i];
@@ -172,7 +163,7 @@ tty_min::is_orphaned_process_group (int pgid)
 bg_check_types
 fhandler_termios::bg_check (int sig)
 {
-  if (!myself->pgid || !tc () || tc ()->getpgid () == myself->pgid ||
+  if (!myself->pgid || tc ()->getpgid () == myself->pgid ||
 	myself->ctty != tc ()->ntty ||
 	((sig == SIGTTOU) && !(tc ()->ti.c_lflag & TOSTOP)))
     return bg_ok;
@@ -248,6 +239,26 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
 
       paranoid_printf ("char %0c", c);
 
+      /* Check for special chars */
+
+      if (c == '\r')
+	{
+	  if (ti.c_iflag & IGNCR)
+	    continue;
+	  if (ti.c_iflag & ICRNL)
+	    {
+	      c = '\n';
+	      set_input_done (iscanon);
+	    }
+	}
+      else if (c == '\n')
+	{
+	  if (ti.c_iflag & INLCR)
+	    c = '\r';
+	  else
+	    set_input_done (iscanon);
+	}
+
       if (ti.c_iflag & ISTRIP)
 	c &= 0x7f;
       if (ti.c_lflag & ISIG)
@@ -275,43 +286,27 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
 	  if (CCEQ (ti.c_cc[VSTOP], c))
 	    {
 	      if (!tc ()->output_stopped)
-		tc ()->output_stopped = true;
+		{
+		  tc ()->output_stopped = 1;
+		  acquire_output_mutex (INFINITE);
+		}
 	      continue;
 	    }
 	  else if (CCEQ (ti.c_cc[VSTART], c))
 	    {
     restart_output:
-	      tc ()->output_stopped = false;
+	      tc ()->output_stopped = 0;
+	      release_output_mutex ();
 	      continue;
 	    }
 	  else if ((ti.c_iflag & IXANY) && tc ()->output_stopped)
 	    goto restart_output;
-	}
-      /* Check for special chars */
-
-      if (c == '\r')
-	{
-	  if (ti.c_iflag & IGNCR)
-	    continue;
-	  if (ti.c_iflag & ICRNL)
-	    {
-	      c = '\n';
-	      set_input_done (iscanon);
-	    }
-	}
-      else if (c == '\n')
-	{
-	  if (ti.c_iflag & INLCR)
-	    c = '\r';
-	  else
-	    set_input_done (iscanon);
 	}
       if (iscanon && ti.c_lflag & IEXTEN && CCEQ (ti.c_cc[VDISCARD], c))
 	{
 	  ti.c_lflag ^= FLUSHO;
 	  continue;
 	}
-
       if (!iscanon)
 	/* nothing */;
       else if (CCEQ (ti.c_cc[VERASE], c))
@@ -392,8 +387,8 @@ fhandler_termios::line_edit (const char *rptr, int nread, termios& ti)
   return ret;
 }
 
-_off64_t
-fhandler_termios::lseek (_off64_t, int)
+off_t
+fhandler_termios::lseek (off_t, int)
 {
   set_errno (ESPIPE);
   return -1;
@@ -405,9 +400,8 @@ fhandler_termios::sigflush ()
   /* FIXME: Checking get_ttyp() for NULL is not right since it should not
      be NULL while this is alive.  However, we can conceivably close a
      ctty while exiting and that will zero this. */
-  if ((!have_execed || have_execed_cygwin) && tc ()
-      && (tc ()->getpgid () == myself->pgid)
-      && !(tc ()->ti.c_lflag & NOFLSH))
+  if ((!have_execed || have_execed_cygwin) && get_ttyp ()
+      && !(get_ttyp ()->ti.c_lflag & NOFLSH))
     tcflush (TCIFLUSH);
 }
 

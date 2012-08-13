@@ -1,7 +1,7 @@
 /* sys/cygwin.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
+   2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -188,9 +188,6 @@ typedef enum
 #define CW_LST_MNT_OPTS CW_LST_MNT_OPTS
 #define CW_STRERROR CW_STRERROR
 #define CW_CVT_ENV_TO_WINENV CW_CVT_ENV_TO_WINENV
-#define CW_ALLOC_DRIVE_MAP CW_ALLOC_DRIVE_MAP
-#define CW_MAP_DRIVE_MAP CW_MAP_DRIVE_MAP
-#define CW_FREE_DRIVE_MAP CW_FREE_DRIVE_MAP
 
 /* Token type for CW_SET_EXTERNAL_TOKEN */
 enum
@@ -335,11 +332,11 @@ extern void cygwin_premain3 (int, char **, struct per_process *);
 #define EXTERNAL_PINFO_VERSION_32_LP  2
 #define EXTERNAL_PINFO_VERSION EXTERNAL_PINFO_VERSION_32_LP
 
-#ifndef _SYS_TYPES_H
-typedef unsigned short __uid16_t;
-typedef unsigned short __gid16_t;
-typedef unsigned long __uid32_t;
-typedef unsigned long __gid32_t;
+#ifndef __uid_t_defined
+typedef __uint16_t __uid16_t;
+typedef __uint16_t __gid16_t;
+typedef __uint32_t uid_t;
+typedef __uint32_t gid_t;
 #endif
 
 struct external_pinfo
@@ -367,8 +364,8 @@ struct external_pinfo
   DWORD process_state;
 
   /* Only available if version >= EXTERNAL_PINFO_VERSION_32_BIT */
-  __uid32_t uid32;
-  __gid32_t gid32;
+  uid_t uid32;
+  gid_t gid32;
 
   /* Only available if version >= EXTERNAL_PINFO_VERSION_32_LP */
   char *progname_long;

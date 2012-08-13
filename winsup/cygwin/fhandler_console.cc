@@ -1,7 +1,7 @@
 /* fhandler_console.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -216,7 +216,7 @@ fhandler_console::setup ()
 tty_min *
 tty_list::get_cttyp ()
 {
-  _dev_t n = myself->ctty;
+  dev_t n = myself->ctty;
   if (iscons_dev (n))
     return fhandler_console::shared_console_info ?
       &fhandler_console::shared_console_info->tty_min_state : NULL;
@@ -591,7 +591,7 @@ fhandler_console::read (void *pv, size_t& buflen)
 
 		    if (dev_state.ext_mouse_mode6 /* distinguish release */
 			&& mouse_event.dwButtonState < dev_state.dwLastButtonState)
-			mode6_term = 'm';
+		        mode6_term = 'm';
 
 		    dev_state.last_button_code = b;
 
@@ -646,7 +646,7 @@ fhandler_console::read (void *pv, size_t& buflen)
 
 		    __small_sprintf (tmp, "\033[M%c", b + ' ');
 		    nread = 4;
-		    /* the neat nested encoding function of mintty
+		    /* the neat nested encoding function of mintty 
 		       does not compile in g++, so let's unfold it: */
 		    if (xcode < 0x80)
 		      tmp [nread++] = xcode;
@@ -692,9 +692,9 @@ fhandler_console::read (void *pv, size_t& buflen)
 	  if (dev_state.use_focus)
 	    {
 	      if (input_rec.Event.FocusEvent.bSetFocus)
-		__small_sprintf (tmp, "\033[I");
+	        __small_sprintf (tmp, "\033[I");
 	      else
-		__small_sprintf (tmp, "\033[O");
+	        __small_sprintf (tmp, "\033[O");
 
 	      toadd = tmp;
 	      nread = 3;
@@ -1510,31 +1510,6 @@ fhandler_console::char_command (char c)
 	   }
        dev_state.set_color (get_output_handle ());
       break;
-    case 'q': /* Set cursor style (DECSCUSR) */
-      if (dev_state.saw_space)
-	{
-	    CONSOLE_CURSOR_INFO console_cursor_info;
-	    GetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-	    switch (dev_state.args_[0])
-	      {
-		case 0: /* blinking block */
-		case 1: /* blinking block (default) */
-		case 2: /* steady block */
-		  console_cursor_info.dwSize = 100;
-		  SetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-		  break;
-		case 3: /* blinking underline */
-		case 4: /* steady underline */
-		  console_cursor_info.dwSize = 10;	/* or Windows default 25? */
-		  SetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-		  break;
-		default: /* use value as percentage */
-		  console_cursor_info.dwSize = dev_state.args_[0];
-		  SetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-		  break;
-	      }
-	}
-      break;
     case 'h':
     case 'l':
       if (!dev_state.saw_question_mark)
@@ -1550,17 +1525,6 @@ fhandler_console::char_command (char c)
 	}
       switch (dev_state.args_[0])
 	{
-	case 25: /* Show/Hide Cursor (DECTCEM) */
-	  {
-	    CONSOLE_CURSOR_INFO console_cursor_info;
-	    GetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-	    if (c == 'h')
-	      console_cursor_info.bVisible = TRUE;
-	    else
-	      console_cursor_info.bVisible = FALSE;
-	    SetConsoleCursorInfo (get_output_handle (), & console_cursor_info);
-	    break;
-	  }
 	case 47:   /* Save/Restore screen */
 	  if (c == 'h') /* save */
 	    {
@@ -1788,7 +1752,7 @@ fhandler_console::char_command (char c)
 	  __small_sprintf (buf, "\033[%d;%dR", y + 1, x + 1);
 	  puts_readahead (buf);
 	  break;
-      default:
+    default:
 	  goto bad_escape;
 	}
       break;
@@ -2062,7 +2026,6 @@ fhandler_console::write (const void *vsrc, size_t len)
 	      dev_state.state_ = gotsquare;
 	      dev_state.saw_question_mark = false;
 	      dev_state.saw_greater_than_sign = false;
-	      dev_state.saw_space = false;
 	      for (dev_state.nargs_ = 0; dev_state.nargs_ < MAXARGS; dev_state.nargs_++)
 		dev_state.args_[dev_state.nargs_] = 0;
 	      dev_state.nargs_ = 0;
@@ -2128,12 +2091,6 @@ fhandler_console::write (const void *vsrc, size_t len)
 	      dev_state.nargs_++;
 	      if (dev_state.nargs_ >= MAXARGS)
 		dev_state.nargs_--;
-	    }
-	  else if (*src == ' ')
-	    {
-	      src++;
-	      dev_state.saw_space = true;
-	      dev_state.state_ = gotcommand;
 	    }
 	  else
 	    {

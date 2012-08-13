@@ -1,7 +1,7 @@
 /* path.h: path data structures
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -18,7 +18,7 @@ details. */
 #include <fcntl.h>
 #include <alloca.h>
 
-extern inline bool
+inline bool
 has_attribute (DWORD attributes, DWORD attribs_to_test)
 {
   return attributes != INVALID_FILE_ATTRIBUTES
@@ -70,7 +70,6 @@ enum path_types
   PATH_EXEC		= MOUNT_EXEC,
   PATH_NOTEXEC		= MOUNT_NOTEXEC,
   PATH_CYGWIN_EXEC	= MOUNT_CYGWIN_EXEC,
-  PATH_SPARSE		= MOUNT_SPARSE,
   PATH_RO		= MOUNT_RO,
   PATH_NOACL		= MOUNT_NOACL,
   PATH_NOPOSIX		= MOUNT_NOPOSIX,
@@ -153,12 +152,7 @@ class path_conv
   ULONG objcaseinsensitive () const {return caseinsensitive;}
   bool has_acls () const {return !(path_flags & PATH_NOACL) && fs.has_acls (); }
   bool hasgood_inode () const {return !(path_flags & PATH_IHASH); }
-  bool isgood_inode (__ino64_t ino) const;
-  bool support_sparse () const
-  {
-    return (path_flags & PATH_SPARSE)
-	   && (fs_flags () & FILE_SUPPORTS_SPARSE_FILES);
-  }
+  bool isgood_inode (ino_t ino) const;
   int has_symlinks () const {return path_flags & PATH_HAS_SYMLINKS;}
   int has_dos_filenames_only () const {return path_flags & PATH_DOS;}
   int has_buggy_open () const {return fs.has_buggy_open ();}
@@ -215,10 +209,10 @@ class path_conv
   void set_has_symlinks () {path_flags |= PATH_HAS_SYMLINKS;}
   void set_exec (int x = 1) {path_flags |= x ? PATH_EXEC : PATH_NOTEXEC;}
 
-  void __reg3 check (const UNICODE_STRING *upath, unsigned opt = PC_SYM_FOLLOW,
-	      const suffix_info *suffixes = NULL);
-  void __reg3 check (const char *src, unsigned opt = PC_SYM_FOLLOW,
-	      const suffix_info *suffixes = NULL);
+  void check (const UNICODE_STRING *upath, unsigned opt = PC_SYM_FOLLOW,
+	      const suffix_info *suffixes = NULL) __attribute__ ((regparm(3)));
+  void check (const char *src, unsigned opt = PC_SYM_FOLLOW,
+	      const suffix_info *suffixes = NULL) __attribute__ ((regparm(3)));
 
   path_conv (const device& in_dev)
   : fileattr (INVALID_FILE_ATTRIBUTES), wide_path (NULL), path (NULL),
@@ -348,8 +342,8 @@ class path_conv
   short get_unitn () const {return dev.get_minor ();}
   DWORD file_attributes () const {return fileattr;}
   void file_attributes (DWORD new_attr) {fileattr = new_attr;}
-  DWORD fs_flags () const {return fs.flags ();}
-  DWORD fs_name_len () const {return fs.name_len ();}
+  DWORD fs_flags () {return fs.flags ();}
+  DWORD fs_name_len () {return fs.name_len ();}
   bool fs_got_fs () const { return fs.got_fs (); }
   bool fs_is_fat () const {return fs.is_fat ();}
   bool fs_is_ntfs () const {return fs.is_ntfs ();}
@@ -362,7 +356,6 @@ class path_conv
   bool fs_is_cifs () const {return fs.is_cifs ();}
   bool fs_is_nwfs () const {return fs.is_nwfs ();}
   bool fs_is_ncfsd () const {return fs.is_ncfsd ();}
-  fs_info_type fs_type () const {return fs.what_fs ();}
   ULONG fs_serial_number () const {return fs.serial_number ();}
   inline const char *set_path (const char *p)
   {
@@ -380,11 +373,11 @@ class path_conv
   void reset_conv_handle () { conv_handle.set (NULL); }
   void close_conv_handle () { conv_handle.close (); }
 
-  __ino64_t get_ino_by_handle (HANDLE h);
+  ino_t get_ino_by_handle (HANDLE h);
 #if 0 /* obsolete, method still exists in fhandler_disk_file.cc */
   unsigned __stdcall ndisk_links (DWORD);
 #endif
-  void __reg2 set_normalized_path (const char *);
+  void set_normalized_path (const char *) __attribute__ ((regparm (2)));
   DWORD get_symlink_length () { return symlink_length; };
  private:
   char *modifiable_path () {return (char *) path;}
@@ -407,10 +400,11 @@ enum fe_types
   FE_CWD = 4,		/* Search CWD for program */
   FE_DLL = 8		/* Search for DLLs, not executables. */
 };
-const char *__reg3 find_exec (const char *name, path_conv& buf,
+const char *__stdcall find_exec (const char *name, path_conv& buf,
 				 const char *winenv = "PATH=",
 				 unsigned opt = FE_NADA,
-				 const char **known_suffix = NULL);
+				 const char **known_suffix = NULL)
+  __attribute__ ((regparm(3)));
 
 /* Common macros for checking for invalid path names */
 #define isdrive(s) (isalpha (*(s)) && (s)[1] == ':')
@@ -425,17 +419,17 @@ has_exec_chars (const char *buf, int len)
 	  (buf[0] == 'M' && buf[1] == 'Z'));
 }
 
-int __reg3 pathmatch (const char *path1, const char *path2, bool caseinsensitive);
-int __reg3 pathnmatch (const char *path1, const char *path2, int len, bool caseinsensitive);
-bool __reg2 has_dot_last_component (const char *dir, bool test_dot_dot);
+int pathmatch (const char *path1, const char *path2, bool caseinsensitive) __attribute__ ((regparm (3)));
+int pathnmatch (const char *path1, const char *path2, int len, bool caseinsensitive) __attribute__ ((regparm (3)));
+bool has_dot_last_component (const char *dir, bool test_dot_dot) __attribute__ ((regparm (2)));
 
-int __reg3 path_prefix_p (const char *path1, const char *path2, int len1,
-		   bool caseinsensitive);
+int path_prefix_p (const char *path1, const char *path2, int len1,
+		   bool caseinsensitive) __attribute__ ((regparm (3)));
 
 NTSTATUS file_get_fnoi (HANDLE, bool, struct _FILE_NETWORK_OPEN_INFORMATION *);
 int normalize_win32_path (const char *, char *, char *&);
 int normalize_posix_path (const char *, char *, char *&);
-PUNICODE_STRING __reg3 get_nt_native_path (const char *, UNICODE_STRING&, bool);
+PUNICODE_STRING get_nt_native_path (const char *, UNICODE_STRING&, bool) __attribute__ ((regparm (3)));
 
 /* FIXME: Move to own include file eventually */
 

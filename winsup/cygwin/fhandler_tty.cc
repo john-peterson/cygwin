@@ -1,7 +1,7 @@
 /* fhandler_tty.cc
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -67,7 +67,7 @@ bytes_available (DWORD& n, HANDLE h)
       termios_printf ("PeekNamedPipe(%p) failed, %E", h);
       n = 0;
     }
-  debug_only_printf ("n %u, nleft %u, navail %u", n, nleft, navail);
+  debug_only_printf ("n %u, nleft %u, navail %u");
   return succeeded;
 }
 
@@ -91,7 +91,7 @@ static int osi;
 
 void
 fhandler_pty_master::flush_to_slave ()
-{
+{ 
   if (get_readahead_valid () && !(get_ttyp ()->ti.c_lflag & ICANON))
     accept_input ();
 }
@@ -281,7 +281,7 @@ fhandler_pty_master::process_slave_output (char *buf, size_t len, int pktmode_on
 	      goto out;
 	    }
 	  pthread_testcancel ();
-	  if (cygwait (NULL, 10, cw_sig_eintr) == WAIT_SIGNALED
+	  if (cancelable_wait (NULL, 10, cw_sig_eintr) == WAIT_SIGNALED
 	      && !_my_tls.call_signal_handler ())
 	    {
 	      set_errno (EINTR);
@@ -645,16 +645,14 @@ fhandler_pty_slave::write (const void *ptr, size_t len)
 
   push_process_state process_state (PID_TTYOU);
 
+  acquire_output_mutex (INFINITE);
+
   while (len)
     {
       n = MIN (OUT_BUFFER_SIZE, len);
       char *buf = (char *)ptr;
       ptr = (char *) ptr + n;
       len -= n;
-
-      while (tc ()->output_stopped)
-	cygwait (10);
-      acquire_output_mutex (INFINITE);
 
       /* Previous write may have set write_error to != 0.  Check it here.
 	 This is less than optimal, but the alternative slows down pty
@@ -663,14 +661,10 @@ fhandler_pty_slave::write (const void *ptr, size_t len)
 	{
 	  set_errno (get_ttyp ()->write_error);
 	  towrite = (DWORD) -1;
-	  get_ttyp ()->write_error = 0;
-	  release_output_mutex ();
 	  break;
 	}
 
-      BOOL res = WriteFile (get_output_handle (), buf, n, &n, NULL);
-      release_output_mutex ();
-      if (!res)
+      if (WriteFile (get_output_handle (), buf, n, &n, NULL) == FALSE)
 	{
 	  DWORD err = GetLastError ();
 	  termios_printf ("WriteFile failed, %E");
@@ -686,6 +680,7 @@ fhandler_pty_slave::write (const void *ptr, size_t len)
 	  break;
 	}
     }
+  release_output_mutex ();
   return towrite;
 }
 
@@ -1053,7 +1048,7 @@ fhandler_pty_slave::ioctl (unsigned int cmd, void *arg)
 	{
 	  get_ttyp ()->arg.winsize = *(struct winsize *) arg;
 	  get_ttyp ()->winsize = *(struct winsize *) arg;
-	  get_ttyp ()->kill_pgrp (SIGWINCH);
+	  killsys (-get_ttyp ()->getpgid (), SIGWINCH);
 	}
       break;
     }
@@ -1071,8 +1066,8 @@ out:
   return retval;
 }
 
-int __reg2
-fhandler_pty_slave::fstat (struct __stat64 *st)
+int __stdcall
+fhandler_pty_slave::fstat (struct stat *st)
 {
   fhandler_base::fstat (st);
 
@@ -1161,8 +1156,8 @@ fhandler_pty_slave::fchmod (mode_t mode)
   int ret = -1;
   bool to_close = false;
   security_descriptor sd;
-  __uid32_t uid;
-  __gid32_t gid;
+  uid_t uid;
+  gid_t gid;
 
   if (!input_available_event)
     {
@@ -1182,13 +1177,13 @@ errout:
 }
 
 int __stdcall
-fhandler_pty_slave::fchown (__uid32_t uid, __gid32_t gid)
+fhandler_pty_slave::fchown (uid_t uid, gid_t gid)
 {
   int ret = -1;
   bool to_close = false;
   mode_t mode = 0;
-  __uid32_t o_uid;
-  __gid32_t o_gid;
+  uid_t o_uid;
+  gid_t o_gid;
   security_descriptor sd;
 
   if (uid == ILLEGAL_UID && gid == ILLEGAL_GID)
@@ -1251,8 +1246,8 @@ fhandler_pty_master::open_setup (int flags)
   report_tty_counts (this, buf, "");
 }
 
-_off64_t
-fhandler_pty_common::lseek (_off64_t, int)
+off_t
+fhandler_pty_common::lseek (off_t, int)
 {
   set_errno (ESPIPE);
   return -1;
@@ -1425,7 +1420,7 @@ fhandler_pty_master::ioctl (unsigned int cmd, void *arg)
 	  || get_ttyp ()->winsize.ws_col != ((struct winsize *) arg)->ws_col)
 	{
 	  get_ttyp ()->winsize = *(struct winsize *) arg;
-	  get_ttyp ()->kill_pgrp (SIGWINCH);
+	  killsys (-get_ttyp ()->getpgid (), SIGWINCH);
 	}
       break;
     case TIOCGPGRP:
@@ -1486,6 +1481,10 @@ fhandler_pty_slave::fixup_after_exec ()
   if (!close_on_exec ())
     fixup_after_fork (NULL);
 }
+
+#ifndef __MINGW64_VERSION_MAJOR
+extern "C" BOOL WINAPI GetNamedPipeClientProcessId (HANDLE, PULONG);
+#endif
 
 /* This thread function handles the master control pipe.  It waits for a
    client to connect.  Then it checks if the client process has permissions

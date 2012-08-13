@@ -1,7 +1,7 @@
 /* path.cc: path support.
 
      Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-     2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+     2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
   This file is part of Cygwin.
 
@@ -341,7 +341,8 @@ path_conv::add_ext_from_sym (symlink_info &sym)
     }
 }
 
-static void __reg2 mkrelpath (char *dst, bool caseinsensitive);
+static void __stdcall mkrelpath (char *dst, bool caseinsensitive)
+  __attribute__ ((regparm (2)));
 
 static void __stdcall
 mkrelpath (char *path, bool caseinsensitive)
@@ -891,7 +892,7 @@ is_virtual_symlink:
 	  else if (isdev_dev (dev))
 	    {
 	      /* If we're looking for a file below /dev, which doesn't exist,
-		 make sure that the device type is converted to FH_FS, so that
+	         make sure that the device type is converted to FH_FS, so that
 		 subsequent code handles the file correctly.
 		 Unless /dev itself doesn't exist on disk.  In that case /dev
 		 is handled as virtual filesystem, and virtual filesystems are
@@ -2817,8 +2818,8 @@ readlink (const char *path, char *buf, size_t buflen)
    done during the opendir call and the hash or the filename within
    the directory.  FIXME: Not bullet-proof. */
 /* Cygwin internal */
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, PUNICODE_STRING name)
+ino_t __stdcall
+hash_path_name (ino_t hash, PUNICODE_STRING name)
 {
   if (name->Length == 0)
     return hash;
@@ -2831,20 +2832,20 @@ hash_path_name (__ino64_t hash, PUNICODE_STRING name)
   return hash;
 }
 
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, PCWSTR name)
+ino_t __stdcall
+hash_path_name (ino_t hash, PCWSTR name)
 {
   UNICODE_STRING uname;
   RtlInitUnicodeString (&uname, name);
   return hash_path_name (hash, &uname);
 }
 
-__ino64_t __stdcall
-hash_path_name (__ino64_t hash, const char *name)
+ino_t __stdcall
+hash_path_name (ino_t hash, const char *name)
 {
   UNICODE_STRING uname;
   RtlCreateUnicodeStringFromAsciiz (&uname, name);
-  __ino64_t ret = hash_path_name (hash, &uname);
+  ino_t ret = hash_path_name (hash, &uname);
   RtlFreeUnicodeString (&uname);
   return ret;
 }
@@ -2875,7 +2876,7 @@ get_current_dir_name (void)
 {
   const char *pwd = getenv ("PWD");
   char *cwd = getcwd (NULL, 0);
-  struct __stat64 pwdbuf, cwdbuf;
+  struct stat pwdbuf, cwdbuf;
 
   if (pwd && strcmp (pwd, cwd) != 0
       && stat64 (pwd, &pwdbuf) == 0
@@ -3703,7 +3704,7 @@ find_fast_cwd_pointer ()
   if (movedi[0] == 0x8b && movedi[1] == 0xff)	/* mov edi,edi -> W8 */
     {
       /* Windows 8 CP 32 bit (after a Windows Update?) does not call
-	 RtlEnterCriticalSection.  For some reason the function manipulates
+         RtlEnterCriticalSection.  For some reason the function manipulates
 	 the FastPebLock manually, kind of like RtlEnterCriticalSection has
 	 been converted to an inline function.
 

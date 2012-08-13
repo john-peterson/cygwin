@@ -1,6 +1,6 @@
 /* Posix dirent.h for WIN32.
 
-   Copyright 2001, 2002, 2003, 2005, 2006, 2007, 2008, 2010, 2012 Red Hat, Inc.
+   Copyright 2001, 2002, 2003, 2005, 2006, 2007, 2010, 2012 Red Hat, Inc.
 
    This software is a copyrighted work licensed under the terms of the
    Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -21,7 +21,7 @@
 struct dirent
 {
   long __d_version;			/* Used internally */
-  __ino64_t d_ino;
+  ino_t d_ino;
   unsigned char d_type;
   unsigned char __d_unused1[3];
   __uint32_t __d_internal1;
@@ -40,7 +40,7 @@ typedef struct __DIR
   unsigned long __d_cookie;
   struct dirent *__d_dirent;
   char *__d_dirname;			/* directory name with trailing '*' */
-  long __d_position;			/* used by telldir/seekdir */
+  __int32_t __d_position;			/* used by telldir/seekdir */
   int __d_fd;
   unsigned __d_internal;
   void *__handle;

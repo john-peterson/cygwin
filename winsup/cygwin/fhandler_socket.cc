@@ -1,7 +1,7 @@
 /* fhandler_socket.cc. See fhandler.h for a description of the fhandler classes.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -125,7 +125,7 @@ get_inet_addr (const struct sockaddr *in, int inlen,
 	     some greedy Win32 application.  Therefore we should never wait
 	     endlessly without checking for signals and thread cancel event. */
 	  pthread_testcancel ();
-	  if (cygwait (NULL, cw_nowait, cw_sig_eintr) == WAIT_SIGNALED
+	  if (cancelable_wait (NULL, cw_nowait, cw_sig_eintr) == WAIT_SIGNALED
 	      && !_my_tls.call_signal_handler ())
 	    {
 	      set_errno (EINTR);
@@ -313,7 +313,7 @@ fhandler_socket::af_local_send_secret ()
 bool
 fhandler_socket::af_local_recv_cred ()
 {
-  struct ucred out = { (pid_t) 0, (__uid32_t) -1, (__gid32_t) -1 };
+  struct ucred out = { (pid_t) 0, (uid_t) -1, (gid_t) -1 };
   int rest = sizeof out;
   char *ptr = (char *) &out;
   while (rest > 0)
@@ -406,8 +406,8 @@ fhandler_socket::af_local_set_cred ()
   sec_uid = geteuid32 ();
   sec_gid = getegid32 ();
   sec_peer_pid = (pid_t) 0;
-  sec_peer_uid = (__uid32_t) -1;
-  sec_peer_gid = (__gid32_t) -1;
+  sec_peer_uid = (uid_t) -1;
+  sec_peer_gid = (gid_t) -1;
 }
 
 void
@@ -802,8 +802,8 @@ fhandler_socket::dup (fhandler_base *child, int flags)
   return -1;
 }
 
-int __reg2
-fhandler_socket::fstat (struct __stat64 *buf)
+int __stdcall
+fhandler_socket::fstat (struct stat *buf)
 {
   int res;
   if (get_device () == FH_UNIX)
@@ -821,7 +821,7 @@ fhandler_socket::fstat (struct __stat64 *buf)
       if (!res)
 	{
 	  buf->st_dev = 0;
-	  buf->st_ino = (__ino64_t) ((DWORD) get_handle ());
+	  buf->st_ino = (ino_t) ((DWORD) get_handle ());
 	  buf->st_mode = S_IFSOCK | S_IRWXU | S_IRWXG | S_IRWXO;
 	  buf->st_size = 0;
 	}
@@ -857,7 +857,7 @@ fhandler_socket::fchmod (mode_t mode)
 }
 
 int
-fhandler_socket::fchown (__uid32_t uid, __gid32_t gid)
+fhandler_socket::fchown (uid_t uid, gid_t gid)
 {
   if (get_device () == FH_UNIX)
     {
@@ -1348,6 +1348,17 @@ fhandler_socket::readv (const struct iovec *const iov, const int iovcnt,
   WSAMSG wsamsg = { NULL, 0, wsabuf, iovcnt, { 0,  NULL}, 0 };
   return recv_internal (&wsamsg, false);
 }
+
+extern "C" {
+#ifndef __MINGW64_VERSION_MAJOR
+#define WSAID_WSARECVMSG \
+	  {0xf689d7c8,0x6f1f,0x436b,{0x8a,0x53,0xe5,0x4f,0xe3,0x51,0xc3,0x22}};
+typedef int (WSAAPI *LPFN_WSARECVMSG)(SOCKET,LPWSAMSG,LPDWORD,LPWSAOVERLAPPED,
+				      LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+#endif
+int WSAAPI WSASendMsg(SOCKET,LPWSAMSG,DWORD,LPDWORD, LPWSAOVERLAPPED,
+		      LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+};
 
 /* There's no DLL which exports the symbol WSARecvMsg.  One has to call
    WSAIoctl as below to fetch the function pointer.  Why on earth did the
@@ -2060,7 +2071,7 @@ fhandler_socket::set_peer_sun_path (const char *path)
 }
 
 int
-fhandler_socket::getpeereid (pid_t *pid, __uid32_t *euid, __gid32_t *egid)
+fhandler_socket::getpeereid (pid_t *pid, uid_t *euid, gid_t *egid)
 {
   if (get_addr_family () != AF_LOCAL || get_socket_type () != SOCK_STREAM)
     {

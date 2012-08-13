@@ -1,7 +1,6 @@
 /* cygtls.h
 
-   Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-   Red Hat, Inc.
+   Copyright 2003, 2004, 2005, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
@@ -78,8 +77,6 @@ struct _local_storage
   /*
      Needed for the group functions
    */
-  struct __group16 grp;
-  char *namearray[2];
   int grp_pos;
 
   /* dlfcn.cc */
@@ -178,7 +175,7 @@ public:
     char __dontuse[8 * ((sizeof(struct _reent) + 4) / 8)];
   };
   /**/
-  void (*func) /*gentls_offsets*/(int, siginfo_t *, void *)/*gentls_offsets*/;
+  void (*func) /*gentls_offsets*/(int)/*gentls_offsets*/;
   int saved_errno;
   int sa_flags;
   sigset_t oldmask;
@@ -188,7 +185,7 @@ public:
   sigset_t sigwait_mask;
   siginfo_t *sigwait_info;
   HANDLE signal_arrived;
-  bool will_wait_for_signal;
+  bool signal_waiting;
   struct ucontext thread_context;
   DWORD thread_id;
   siginfo_t infodata;
@@ -208,55 +205,54 @@ public:
   void init_thread (void *, DWORD (*) (void *, void *));
   static void call (DWORD (*) (void *, void *), void *);
   void remove (DWORD);
-  void push (__stack_t addr) {*stackptr++ = (__stack_t) addr;}
-  __stack_t __reg1 pop ();
+  void push (__stack_t) __attribute__ ((regparm (2)));
+  __stack_t pop () __attribute__ ((regparm (1)));
   __stack_t retaddr () {return stackptr[-1];}
   bool isinitialized () const
   {
     return initialized == CYGTLS_INITIALIZED;
   }
-  bool __reg3 interrupt_now (CONTEXT *, siginfo_t&, void *, struct sigaction&);
-  void __reg3 interrupt_setup (siginfo_t&, void *, struct sigaction&);
+  bool interrupt_now (CONTEXT *, int, void *, struct sigaction&)
+    __attribute__((regparm(3)));
+  void __stdcall interrupt_setup (int sig, void *handler,
+				  struct sigaction& siga)
+    __attribute__((regparm(3)));
 
   bool inside_kernel (CONTEXT *);
-  void __reg2 copy_context (CONTEXT *);
-  void __reg2 signal_debugger (int);
+  void signal_exit (int) __attribute__ ((noreturn, regparm(2)));
+  void copy_context (CONTEXT *) __attribute__ ((regparm(2)));
+  void signal_debugger (int) __attribute__ ((regparm(2)));
 
 #ifdef CYGTLS_HANDLE
-  operator HANDLE () const {return tid ? tid->win32_obj_id : NULL;}
+  operator HANDLE () const {return tid->win32_obj_id;}
 #endif
-  int __reg1 call_signal_handler ();
-  void __reg1 remove_wq (DWORD);
-  void __reg1 fixup_after_fork ();
-  void __reg1 lock ();
-  void __reg1 unlock ();
-  bool __reg1 locked ();
-  HANDLE get_signal_arrived (bool wait_for_lock = true)
-  {
-    if (!signal_arrived)
-      {
-	if (wait_for_lock)
-	  lock ();
-	if (!signal_arrived)
-	  signal_arrived = CreateEvent (&sec_none_nih, false, false, NULL);
-	if (wait_for_lock)
-	  unlock ();
-      }
-    return signal_arrived;
-  }
+  void set_siginfo (struct sigpacket *) __attribute__ ((regparm (3)));
+  int call_signal_handler () __attribute__ ((regparm (1)));
+  void remove_wq (DWORD) __attribute__ ((regparm (1)));
+  void fixup_after_fork () __attribute__ ((regparm (1)));
+  void lock () __attribute__ ((regparm (1)));
+  void unlock () __attribute__ ((regparm (1)));
+  bool locked () __attribute__ ((regparm (1)));
   void set_signal_arrived (bool setit, HANDLE& h)
   {
     if (!setit)
-      will_wait_for_signal = false;
+      signal_waiting = false;
     else
       {
-	h = get_signal_arrived ();
-	will_wait_for_signal = true;
+	if (!signal_arrived)
+	  signal_arrived = CreateEvent (&sec_none_nih, false, false, NULL);
+	h = signal_arrived;
+	signal_waiting = true;
       }
   }
-  void reset_signal_arrived () { will_wait_for_signal = false; }
+  void reset_signal_arrived ()
+  {
+    if (signal_arrived)
+      ResetEvent (signal_arrived);
+    signal_waiting = false;
+  }
 private:
-  void __reg3 call2 (DWORD (*) (void *, void *), void *, void *);
+  void call2 (DWORD (*) (void *, void *), void *, void *) __attribute__ ((regparm (3)));
   /*gentls_offsets*/
 };
 #pragma pack(pop)
@@ -328,7 +324,7 @@ public:
   set_signal_arrived (bool setit, HANDLE& h) { _my_tls.set_signal_arrived (setit, h); }
   set_signal_arrived (HANDLE& h) { _my_tls.set_signal_arrived (true, h); }
 
-  operator int () const {return _my_tls.will_wait_for_signal;}
+  operator int () const {return _my_tls.signal_waiting;}
   ~set_signal_arrived () { _my_tls.reset_signal_arrived (); }
 };
 

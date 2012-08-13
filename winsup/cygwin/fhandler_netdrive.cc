@@ -1,6 +1,6 @@
 /* fhandler_netdrive.cc: fhandler for // and //MACHINE handling
 
-   Copyright 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2013 Red Hat, Inc.
+   Copyright 2005, 2006, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -174,8 +174,8 @@ fhandler_netdrive::fhandler_netdrive ():
 {
 }
 
-int __reg2
-fhandler_netdrive::fstat (struct __stat64 *buf)
+int
+fhandler_netdrive::fstat (struct stat *buf)
 {
   const char *path = get_name ();
   debug_printf ("fstat (%s)", path);

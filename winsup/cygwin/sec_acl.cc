@@ -1,7 +1,7 @@
 /* sec_acl.cc: Sun compatible ACL functions.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
    Written by Corinna Vinschen <corinna@vinschen.de>
 
@@ -26,7 +26,7 @@ details. */
 #include "tls_pbuf.h"
 
 static int
-searchace (__aclent32_t *aclp, int nentries, int type, __uid32_t id = ILLEGAL_UID)
+searchace (__aclent32_t *aclp, int nentries, int type, uid_t id = ILLEGAL_UID)
 {
   int i;
 
@@ -93,7 +93,7 @@ setacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp,
 
   cygsid sid;
   struct passwd *pw;
-  struct __group32 *gr;
+  struct group *gr;
   int pos;
 
   RtlCreateAcl (acl, ACL_MAXIMUM_SIZE, ACL_REVISION);
@@ -281,8 +281,8 @@ getacl (HANDLE handle, path_conv &pc, int nentries, __aclent32_t *aclbufp)
   cygpsid group_sid;
   NTSTATUS status;
   BOOLEAN dummy;
-  __uid32_t uid;
-  __gid32_t gid;
+  uid_t uid;
+  gid_t gid;
 
   status = RtlGetOwnerSecurityDescriptor (sd, (PSID *) &owner_sid, &dummy);
   if (!NT_SUCCESS (status))
@@ -861,7 +861,7 @@ aclfromtext32 (char *acltextp, int *)
 		      return NULL;
 		    }
 		  lacl[pos].a_id = pw->pw_uid;
-		  c = strchrnul (c, ':');
+		  c = strechr (c, ':');
 		}
 	      else if (isdigit (*c))
 		lacl[pos].a_id = strtol (c, &c, 10);
@@ -882,14 +882,14 @@ aclfromtext32 (char *acltextp, int *)
 	      c += 5;
 	      if (isalpha (*c))
 		{
-		  struct __group32 *gr = internal_getgrnam (c);
+		  struct group *gr = internal_getgrnam (c);
 		  if (!gr)
 		    {
 		      set_errno (EINVAL);
 		      return NULL;
 		    }
 		  lacl[pos].a_id = gr->gr_gid;
-		  c = strchrnul (c, ':');
+		  c = strechr (c, ':');
 		}
 	      else if (isdigit (*c))
 		lacl[pos].a_id = strtol (c, &c, 10);

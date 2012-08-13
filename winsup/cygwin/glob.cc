@@ -105,8 +105,6 @@ __FBSDID("$FreeBSD: src/lib/libc/gen/glob.c,v 1.28 2010/05/12 17:44:00 gordon Ex
 #define getuid()	getuid32 ()
 #define issetugid()	(cygheap->user.issetuid ())
 
-#define stat __stat64
-
 #define CCHAR(c)	(ignore_case_with_glob ? towlower (CHAR (c)) : CHAR (c))
 #define Cchar(c)	(ignore_case_with_glob ? towlower (c) : (c))
 #endif
@@ -178,7 +176,7 @@ static int	 glob1(Char *, glob_t *, size_t *);
 static int	 glob2(Char *, Char *, Char *, Char *, glob_t *, size_t *);
 static int	 glob3(Char *, Char *, Char *, Char *, Char *, glob_t *, size_t *);
 static int	 globextend(const Char *, glob_t *, size_t *);
-static const Char *
+static const Char *	
 		 globtilde(const Char *, Char *, size_t, glob_t *);
 static int	 globexp1(const Char *, glob_t *, size_t *);
 static int	 globexp2(const Char *, const Char *, glob_t *, int *, size_t *);
@@ -399,8 +397,8 @@ globtilde(const Char *pattern, Char *patbuf, size_t patbuf_len, glob_t *pglob)
 	if (*pattern != TILDE || !(pglob->gl_flags & GLOB_TILDE))
 		return pattern;
 
-	/*
-	 * Copy up to the end of the string or /
+	/* 
+	 * Copy up to the end of the string or / 
 	 */
 	eb = &patbuf[patbuf_len - 1];
 	for (p = pattern + 1, h = (char *) patbuf;
@@ -858,8 +856,11 @@ g_opendir(Char *str, glob_t *pglob)
 	return(opendir(buf));
 }
 
+#ifdef __x86_64__
+#define CYGWIN_gl_stat(sfptr) ((*pglob->sfptr) (buf, sb))
+#else
 static void
-stat32_to_stat64 (struct __stat32 *src, struct __stat64 *dst)
+stat32_to_stat64 (struct __stat32 *src, struct stat *dst)
 {
   dst->st_dev = src->st_dev;
   dst->st_ino = src->st_ino;
@@ -882,10 +883,11 @@ stat32_to_stat64 (struct __stat32 *src, struct __stat64 *dst)
      struct __stat32 lsb;						 \
      if (CYGWIN_VERSION_CHECK_FOR_USING_BIG_TYPES)			 \
        ret = (*pglob->sfptr) (buf, sb);					 \
-     else  if (!(ret = (*pglob->sfptr) (buf, (struct __stat64 *) &lsb))) \
+     else  if (!(ret = (*pglob->sfptr) (buf, (struct stat *) &lsb))) \
        stat32_to_stat64 (&lsb, sb);					 \
      ret;								 \
   })
+#endif
 
 static int
 g_lstat(Char *fn, struct stat *sb, glob_t *pglob)

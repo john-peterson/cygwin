@@ -1,8 +1,8 @@
 /* fhandler_tape.cc.  See fhandler.h for a description of the fhandler
    classes.
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-   2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
+   2008, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,8 +15,12 @@ details. */
 #include <stdlib.h>
 #include <sys/mtio.h>
 #include <sys/param.h>
+#ifdef __MINGW64_VERSION_MAJOR
 #include <devioctl.h>
 #include <ntddstor.h>
+#else
+#include <ddk/ntddstor.h>
+#endif
 #include "security.h"
 #include "path.h"
 #include "fhandler.h"
@@ -1146,7 +1150,7 @@ fhandler_dev_tape::_lock (bool cancelable)
   /* O_NONBLOCK is only valid in a read or write call.  Only those are
      cancelable. */
   DWORD timeout = cancelable && is_nonblocking () ? 0 : INFINITE;
-  switch (cygwait (mt_mtx, timeout, cw_sig | cw_cancel | cw_cancel_self))
+  switch (cancelable_wait (mt_mtx, timeout, cw_sig | cw_cancel | cw_cancel_self))
     {
     case WAIT_OBJECT_0:
       return true;
@@ -1210,9 +1214,9 @@ fhandler_dev_tape::open (int flags, mode_t)
       if (!(flags & O_DIRECT))
 	{
 	  devbufsiz = mt.drive (driveno ())->dp ()->MaximumBlockSize;
-	  devbufalign = 1;
-	  devbufalloc = devbuf = new char [devbufsiz];
+	  devbuf = new char [devbufsiz];
 	}
+      devbufstart = devbufend = 0;
     }
   else
     ReleaseMutex (mt_mtx);
@@ -1354,13 +1358,13 @@ fhandler_dev_tape::raw_write (const void *ptr, size_t len)
   return unlock (ret ? -1 : (int) len);
 }
 
-_off64_t
-fhandler_dev_tape::lseek (_off64_t offset, int whence)
+off_t
+fhandler_dev_tape::lseek (off_t offset, int whence)
 {
   struct mtop op;
   struct mtpos pos;
   DWORD block_size;
-  _off64_t ret = ILLEGAL_SEEK;
+  off_t ret = ILLEGAL_SEEK;
 
   lock (ILLEGAL_SEEK);
 
@@ -1417,8 +1421,8 @@ out:
   return unlock (ret);
 }
 
-int __reg2
-fhandler_dev_tape::fstat (struct __stat64 *buf)
+int
+fhandler_dev_tape::fstat (struct stat *buf)
 {
   int ret;
 

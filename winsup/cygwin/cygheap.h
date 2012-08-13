@@ -1,7 +1,7 @@
 /* cygheap.h: Cygwin heap manager.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+   2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -97,11 +97,11 @@ class cygheap_user
   cygsid effec_cygsid;  /* buffer for user's SID */
   cygsid saved_cygsid;  /* Remains intact even after impersonation */
 public:
-  __uid32_t saved_uid;     /* Remains intact even after impersonation */
-  __gid32_t saved_gid;     /* Ditto */
-  __uid32_t real_uid;      /* Remains intact on seteuid, replaced by setuid */
-  __gid32_t real_gid;      /* Ditto */
-  user_groups groups;      /* Primary and supp SIDs */
+  uid_t saved_uid;      /* Remains intact even after impersonation */
+  gid_t saved_gid;      /* Ditto */
+  uid_t real_uid;       /* Remains intact on seteuid, replaced by setuid */
+  gid_t real_gid;       /* Ditto */
+  user_groups groups;   /* Primary and supp SIDs */
 
   /* token is needed if set(e)uid should be called. It can be set by a call
      to `set_impersonation_token()'. */
@@ -198,7 +198,8 @@ public:
     return effec_cygsid.string (buf);
   }
 
-  const char __reg3 *test_uid (char *&, const char *, size_t);
+  const char *test_uid (char *&, const char *, size_t)
+    __attribute__ ((regparm (3)));
 };
 
 /* cwd cache stuff.  */
@@ -395,10 +396,10 @@ struct init_cygheap: public mini_cygheap
   hook_chain hooks;
   void close_ctty ();
   void init_installation_root ();
-  void __reg1 init_tls_list ();;
-  void __reg2 add_tls (_cygtls *);
-  void __reg3 remove_tls (_cygtls *, DWORD);
-  _cygtls __reg2 *find_tls (int);
+  void init_tls_list () __attribute__ ((regparm (1)));;
+  void add_tls (_cygtls *) __attribute__ ((regparm (2)));
+  void remove_tls (_cygtls *, DWORD) __attribute__ ((regparm (3)));
+  _cygtls *find_tls (int) __attribute__ ((regparm (2)));
 };
 
 

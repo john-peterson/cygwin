@@ -1,7 +1,7 @@
 /* net.cc: network-related routines.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -15,7 +15,7 @@ details. */
 #define USE_SYS_TYPES_FD_SET
 #define __WSA_ERR_MACROS_DEFINED
 /* FIXME: Collision with different declarations of if_nametoindex and
-	  if_indextoname functions in iphlpapi.h since Vista.
+          if_indextoname functions in iphlpapi.h since Vista.
    TODO:  Convert if_nametoindex to cygwin_if_nametoindex and call
 	  system functions on Vista and later. */
 #define _INC_NETIOAPI
@@ -903,7 +903,7 @@ cygwin_getsockopt (int fd, int level, int optname, void *optval,
 }
 
 extern "C" int
-getpeereid (int fd, __uid32_t *euid, __gid32_t *egid)
+getpeereid (int fd, uid_t *euid, gid_t *egid)
 {
   fhandler_socket *fh = get (fd);
   if (fh)
@@ -1525,6 +1525,69 @@ getdomainname (char *domain, size_t len)
 
 /* Fill out an ifconf struct. */
 
+#ifndef __MINGW64_VERSION_MAJOR
+
+/* Vista/Longhorn: unicast address has additional OnLinkPrefixLength member. */
+typedef struct _IP_ADAPTER_UNICAST_ADDRESS_LH {
+    _ANONYMOUS_UNION union {
+	ULONGLONG Alignment;
+	_ANONYMOUS_UNION struct {
+	    ULONG Length;
+	    DWORD Flags;
+	} DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME;
+    struct _IP_ADAPTER_UNICAST_ADDRESS_VISTA *Next;
+    SOCKET_ADDRESS Address;
+    IP_PREFIX_ORIGIN PrefixOrigin;
+    IP_SUFFIX_ORIGIN SuffixOrigin;
+    IP_DAD_STATE DadState;
+    ULONG ValidLifetime;
+    ULONG PreferredLifetime;
+    ULONG LeaseLifetime;
+    unsigned char OnLinkPrefixLength;
+} IP_ADAPTER_UNICAST_ADDRESS_LH, *PIP_ADAPTER_UNICAST_ADDRESS_LH;
+
+/* Vista/Longhorn: IP_ADAPTER_ADDRESSES has a lot more info.  We pick only
+   what we need for now. */
+typedef struct _IP_ADAPTER_ADDRESSES_LH {
+  _ANONYMOUS_UNION union {
+    ULONGLONG Alignment;
+    _ANONYMOUS_STRUCT struct {
+      ULONG Length;
+      DWORD IfIndex;
+    } DUMMYSTRUCTNAME;
+  } DUMMYUNIONNAME;
+  struct _IP_ADAPTER_ADDRESSES* Next;
+  PCHAR AdapterName;
+  PIP_ADAPTER_UNICAST_ADDRESS FirstUnicastAddress;
+  PIP_ADAPTER_ANYCAST_ADDRESS FirstAnycastAddress;
+  PIP_ADAPTER_MULTICAST_ADDRESS FirstMulticastAddress;
+  PIP_ADAPTER_DNS_SERVER_ADDRESS FirstDnsServerAddress;
+  PWCHAR DnsSuffix;
+  PWCHAR Description;
+  PWCHAR FriendlyName;
+  BYTE PhysicalAddress[MAX_ADAPTER_ADDRESS_LENGTH];
+  DWORD PhysicalAddressLength;
+  DWORD Flags;
+  DWORD Mtu;
+  DWORD IfType;
+  IF_OPER_STATUS OperStatus;
+  DWORD Ipv6IfIndex;
+  DWORD ZoneIndices[16];
+  PIP_ADAPTER_PREFIX FirstPrefix;
+
+  ULONG64 TransmitLinkSpeed;
+  ULONG64 ReceiveLinkSpeed;
+  PVOID FirstWinsServerAddress;
+  PVOID FirstGatewayAddress;
+  ULONG Ipv4Metric;
+  ULONG Ipv6Metric;
+} IP_ADAPTER_ADDRESSES_LH,*PIP_ADAPTER_ADDRESSES_LH;
+
+#define SIO_GET_INTERFACE_LIST  _IOR('t', 127, u_long)
+
+#endif /* !__MINGW64_VERSION_MAJOR */
+
 #ifndef IN_LOOPBACK
 #define IN_LOOPBACK(a)	((((long int) (a)) & 0xff000000) == 0x7f000000)
 #endif
@@ -1633,7 +1696,9 @@ get_adapters_addresses (PIP_ADAPTER_ADDRESSES *pa_ret, ULONG family)
 	 area.  So, if we're running in a pthread with such a stack, we call
 	 GetAdaptersAddresses in a child thread with an OS-allocated stack.
 	 The OS allocates stacks bottom up, so chances are good that the new
-	 stack will be located in the lower address area. */
+	 stack will be located in the lower address area.
+	 FIXME: The problem is fixed in W8CP, but needs testing before W8 goes
+		gold. */
       HANDLE thr = CreateThread (NULL, 0, call_gaa, &param, 0, NULL);
       if (!thr)
 	{

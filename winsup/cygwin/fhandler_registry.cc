@@ -1,7 +1,7 @@
 /* fhandler_registry.cc: fhandler for /proc/registry virtual filesystem
 
-   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-   2013 Red Hat, Inc.
+   Copyright 2002, 2003, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+   2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -29,8 +29,8 @@ details. */
  * the bottom 16 bits are the absolute position and the top 15 bits
  * make up the value index if we are enuerating values.
  */
-static const _off_t REG_ENUM_VALUES_MASK = 0x8000000;
-static const _off_t REG_POSITION_MASK = 0xffff;
+static const __int32_t REG_ENUM_VALUES_MASK = 0x8000000;
+static const __int32_t REG_POSITION_MASK = 0xffff;
 
 /* These key paths are used below whenever we return key information.
    The problem is UAC virtualization when running an admin account with
@@ -76,6 +76,13 @@ static const HKEY registry_keys[] =
 };
 
 static const int ROOT_KEY_COUNT = sizeof (registry_keys) / sizeof (HKEY);
+
+#ifndef __MINGW64_VERSION_MAJOR
+extern "C" {
+  LONG WINAPI RegOpenUserClassesRoot (HANDLE, DWORD, REGSAM, PHKEY);
+  LONG WINAPI RegOpenCurrentUser (REGSAM, PHKEY);
+};
+#endif
 
 /* Make sure to access the correct per-user HKCR and HKCU hives, even if
    the current user is only impersonated in another user's session. */
@@ -461,8 +468,8 @@ fhandler_proc ()
   prefix_len = sizeof ("registry") - 1;
 }
 
-int __reg2
-fhandler_registry::fstat (struct __stat64 *buf)
+int
+fhandler_registry::fstat (struct stat *buf)
 {
   fhandler_base::fstat (buf);
   buf->st_mode &= ~_IFMT & NO_W;
@@ -551,8 +558,8 @@ fhandler_registry::fstat (struct __stat64 *buf)
 		  else
 		    buf->st_size = dwSize;
 		}
-	      __uid32_t uid;
-	      __gid32_t gid;
+	      uid_t uid;
+	      gid_t gid;
 	      if (get_reg_attribute (hKey, &buf->st_mode, &uid, &gid) == 0)
 		{
 		  buf->st_uid = uid;

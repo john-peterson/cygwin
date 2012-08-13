@@ -1,6 +1,6 @@
 /* posix_ipc.cc: POSIX IPC API for Cygwin.
 
-   Copyright 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -119,7 +119,7 @@ ipc_mutex_init (HANDLE *pmtx, const char *name)
 static int
 ipc_mutex_lock (HANDLE mtx)
 {
-  switch (cygwait (mtx, cw_infinite, cw_sig_eintr | cw_cancel | cw_cancel_self))
+  switch (cancelable_wait (mtx, cw_infinite, cw_sig_eintr | cw_cancel | cw_cancel_self))
     {
     case WAIT_OBJECT_0:
     case WAIT_ABANDONED_0:
@@ -284,7 +284,7 @@ ipc_cond_close (HANDLE evt)
 
 class ipc_flock
 {
-  struct __flock64 fl;
+  struct flock fl;
 
 public:
   ipc_flock () { memset (&fl, 0, sizeof fl); }
@@ -385,19 +385,19 @@ struct mq_info
 
 struct mq_attr defattr = { 0, 10, 8192, 0 };	/* Linux defaults. */
 
-extern "C" _off64_t lseek64 (int, _off64_t, int);
-extern "C" void *mmap64 (void *, size_t, int, int, int, _off64_t);
+extern "C" off_t lseek64 (int, off_t, int);
+extern "C" void *mmap64 (void *, size_t, int, int, int, off_t);
 
 extern "C" mqd_t
 mq_open (const char *name, int oflag, ...)
 {
   int i, fd = -1, nonblock, created;
   long msgsize, index;
-  _off64_t filesize = 0;
+  off_t filesize = 0;
   va_list ap;
   mode_t mode;
   int8_t *mptr;
-  struct __stat64 statbuff;
+  struct stat statbuff;
   struct mq_hdr *mqhdr;
   struct msg_hdr *msghdr;
   struct mq_attr *attr;
@@ -1028,7 +1028,7 @@ sem_open (const char *name, int oflag, ...)
   va_list ap;
   mode_t mode = 0;
   unsigned int value = 0;
-  struct __stat64 statbuff;
+  struct stat statbuff;
   sem_t *sem = SEM_FAILED;
   sem_finfo sf;
   bool wasopen = false;
@@ -1150,7 +1150,7 @@ _sem_close (sem_t *sem, bool do_close)
   if (semaphore::getinternal (sem, &fd, &sf.hash, &sf.luid, &sf.value) == -1)
     return -1;
   if (!file.lock (fd, sizeof sf)
-      && lseek64 (fd, 0LL, SEEK_SET) != (_off64_t) -1
+      && lseek64 (fd, 0LL, SEEK_SET) != (off_t) -1
       && write (fd, &sf, sizeof sf) == sizeof sf)
     ret = do_close ? semaphore::close (sem) : 0;
 

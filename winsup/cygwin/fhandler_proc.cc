@@ -1,7 +1,6 @@
 /* fhandler_proc.cc: fhandler for /proc virtual filesystem
 
-   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2013
-   Red Hat, Inc.
+   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -36,19 +35,19 @@ details. */
 #define _COMPILING_NEWLIB
 #include <dirent.h>
 
-static _off64_t format_proc_loadavg (void *, char *&);
-static _off64_t format_proc_meminfo (void *, char *&);
-static _off64_t format_proc_stat (void *, char *&);
-static _off64_t format_proc_version (void *, char *&);
-static _off64_t format_proc_uptime (void *, char *&);
-static _off64_t format_proc_cpuinfo (void *, char *&);
-static _off64_t format_proc_partitions (void *, char *&);
-static _off64_t format_proc_self (void *, char *&);
-static _off64_t format_proc_mounts (void *, char *&);
-static _off64_t format_proc_filesystems (void *, char *&);
-static _off64_t format_proc_swaps (void *, char *&);
-static _off64_t format_proc_devices (void *, char *&);
-static _off64_t format_proc_misc (void *, char *&);
+static off_t format_proc_loadavg (void *, char *&);
+static off_t format_proc_meminfo (void *, char *&);
+static off_t format_proc_stat (void *, char *&);
+static off_t format_proc_version (void *, char *&);
+static off_t format_proc_uptime (void *, char *&);
+static off_t format_proc_cpuinfo (void *, char *&);
+static off_t format_proc_partitions (void *, char *&);
+static off_t format_proc_self (void *, char *&);
+static off_t format_proc_mounts (void *, char *&);
+static off_t format_proc_filesystems (void *, char *&);
+static off_t format_proc_swaps (void *, char *&);
+static off_t format_proc_devices (void *, char *&);
+static off_t format_proc_misc (void *, char *&);
 
 /* names of objects in /proc */
 static const virt_tab_t proc_tab[] = {
@@ -184,8 +183,8 @@ fhandler_proc::fhandler_proc ():
 {
 }
 
-int __reg2
-fhandler_proc::fstat (struct __stat64 *buf)
+int
+fhandler_proc::fstat (struct stat *buf)
 {
   const char *path = get_name ();
   debug_printf ("fstat (%s)", path);
@@ -393,7 +392,7 @@ fhandler_proc::fill_filebuf ()
   return false;
 }
 
-static _off64_t
+static off_t
 format_proc_version (void *, char *&destbuf)
 {
   tmp_pathbuf tp;
@@ -411,7 +410,7 @@ format_proc_version (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_loadavg (void *, char *&destbuf)
 {
   extern int get_process_state (DWORD dwProcessId);
@@ -431,7 +430,7 @@ format_proc_loadavg (void *, char *&destbuf)
 				    0, 0, 0, 0, 0, 0, running, pids.npids);
 }
 
-static _off64_t
+static off_t
 format_proc_meminfo (void *, char *&destbuf)
 {
   unsigned long long mem_total, mem_free, swap_total, swap_free;
@@ -457,7 +456,7 @@ format_proc_meminfo (void *, char *&destbuf)
 			   swap_total >> 10, swap_free >> 10);
 }
 
-static _off64_t
+static off_t
 format_proc_uptime (void *, char *&destbuf)
 {
   unsigned long long uptime = 0ULL, idle_time = 0ULL;
@@ -490,7 +489,7 @@ format_proc_uptime (void *, char *&destbuf)
 			  idle_time / 100, long (idle_time % 100));
 }
 
-static _off64_t
+static off_t
 format_proc_stat (void *, char *&destbuf)
 {
   unsigned long pages_in = 0UL, pages_out = 0UL, interrupt_count = 0UL,
@@ -588,7 +587,7 @@ format_proc_stat (void *, char *&destbuf)
 
 #define print(x) { bufptr = stpcpy (bufptr, (x)); }
 
-static _off64_t
+static off_t
 format_proc_cpuinfo (void *, char *&destbuf)
 {
   DWORD orig_affinity_mask;
@@ -1078,7 +1077,7 @@ format_proc_cpuinfo (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_partitions (void *, char *&destbuf)
 {
   OBJECT_ATTRIBUTES attr;
@@ -1244,21 +1243,21 @@ format_proc_partitions (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_self (void *, char *&destbuf)
 {
   destbuf = (char *) crealloc_abort (destbuf, 16);
   return __small_sprintf (destbuf, "%d", getpid ());
 }
 
-static _off64_t
+static off_t
 format_proc_mounts (void *, char *&destbuf)
 {
   destbuf = (char *) crealloc_abort (destbuf, sizeof ("self/mounts"));
   return __small_sprintf (destbuf, "self/mounts");
 }
 
-static _off64_t
+static off_t
 format_proc_filesystems (void *, char *&destbuf)
 {
   tmp_pathbuf tp;
@@ -1276,7 +1275,7 @@ format_proc_filesystems (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_swaps (void *, char *&destbuf)
 {
   unsigned long long total = 0ULL, used = 0ULL;
@@ -1338,7 +1337,7 @@ format_proc_swaps (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_devices (void *, char *&destbuf)
 {
   tmp_pathbuf tp;
@@ -1382,7 +1381,7 @@ format_proc_devices (void *, char *&destbuf)
   return bufptr - buf;
 }
 
-static _off64_t
+static off_t
 format_proc_misc (void *, char *&destbuf)
 {
   tmp_pathbuf tp;

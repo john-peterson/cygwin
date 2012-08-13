@@ -1,7 +1,7 @@
 /* fhandler.cc.  See console.cc for fhandler_console functions.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -388,7 +388,7 @@ fhandler_base::fhaccess (int flags, bool effective)
       return res;
     }
 
-  struct __stat64 st;
+  struct stat st;
   if (fstat (&st))
     goto done;
 
@@ -817,17 +817,15 @@ ssize_t __stdcall
 fhandler_base::write (const void *ptr, size_t len)
 {
   int res;
+  IO_STATUS_BLOCK io;
+  FILE_POSITION_INFORMATION fpi;
+  FILE_STANDARD_INFORMATION fsi;
 
   if (did_lseek ())
     {
-      IO_STATUS_BLOCK io;
-      FILE_POSITION_INFORMATION fpi;
-      FILE_STANDARD_INFORMATION fsi;
-
       did_lseek (false); /* don't do it again */
 
       if (!(get_flags () & O_APPEND)
-	  && !has_attribute (FILE_ATTRIBUTE_SPARSE_FILE)
 	  && NT_SUCCESS (NtQueryInformationFile (get_output_handle (),
 						 &io, &fsi, sizeof fsi,
 						 FileStandardInformation))
@@ -835,7 +833,8 @@ fhandler_base::write (const void *ptr, size_t len)
 						 &io, &fpi, sizeof fpi,
 						 FilePositionInformation))
 	  && fpi.CurrentByteOffset.QuadPart
-	     >= fsi.EndOfFile.QuadPart + (128 * 1024))
+	     >= fsi.EndOfFile.QuadPart + (128 * 1024)
+	  && (pc.fs_flags () & FILE_SUPPORTS_SPARSE_FILES))
 	{
 	  /* If the file system supports sparse files and the application
 	     is writing after a long seek beyond EOF, convert the file to
@@ -843,9 +842,6 @@ fhandler_base::write (const void *ptr, size_t len)
 	  NTSTATUS status;
 	  status = NtFsControlFile (get_output_handle (), NULL, NULL, NULL,
 				    &io, FSCTL_SET_SPARSE, NULL, 0, NULL, 0);
-	  if (NT_SUCCESS (status))
-	    pc.file_attributes (pc.file_attributes ()
-				| FILE_ATTRIBUTE_SPARSE_FILE);
 	  debug_printf ("%p = NtFsControlFile(%S, FSCTL_SET_SPARSE)",
 			status, pc.get_nt_native_path ());
 	}
@@ -1018,8 +1014,8 @@ fhandler_base::writev (const struct iovec *const iov, const int iovcnt,
   return ret;
 }
 
-_off64_t
-fhandler_base::lseek (_off64_t offset, int whence)
+off_t
+fhandler_base::lseek (off_t offset, int whence)
 {
   NTSTATUS status;
   IO_STATUS_BLOCK io;
@@ -1071,12 +1067,11 @@ fhandler_base::lseek (_off64_t offset, int whence)
       __seterrno_from_nt_status (status);
       return -1;
     }
-  _off64_t res = fpi.CurrentByteOffset.QuadPart;
+  off_t res = fpi.CurrentByteOffset.QuadPart;
 
   /* When next we write(), we will check to see if *this* seek went beyond
      the end of the file and if so, potentially sparsify the file. */
-  if (pc.support_sparse ())
-    did_lseek (true);
+  did_lseek (true);
 
   /* If this was a SEEK_CUR with offset 0, we still might have
      readahead that we have to take into account when calculating
@@ -1088,14 +1083,14 @@ fhandler_base::lseek (_off64_t offset, int whence)
 }
 
 ssize_t __stdcall
-fhandler_base::pread (void *, size_t, _off64_t)
+fhandler_base::pread (void *, size_t, off_t)
 {
   set_errno (ESPIPE);
   return -1;
 }
 
 ssize_t __stdcall
-fhandler_base::pwrite (void *, size_t, _off64_t)
+fhandler_base::pwrite (void *, size_t, off_t)
 {
   set_errno (ESPIPE);
   return -1;
@@ -1227,7 +1222,7 @@ fhandler_base_overlapped::close ()
   else
     {
      /* Cancelling seems to be necessary for cases where a reader is
-	 still executing when a signal handler performs a close.  */
+         still executing when a signal handler performs a close.  */
       if (!writer)
 	CancelIo (get_io_handle ());
       destroy_overlapped ();
@@ -1263,14 +1258,14 @@ fhandler_base::ioctl (unsigned int cmd, void *buf)
 }
 
 int
-fhandler_base::lock (int, struct __flock64 *)
+fhandler_base::lock (int, struct flock *)
 {
   set_errno (EINVAL);
   return -1;
 }
 
-int __reg2
-fhandler_base::fstat (struct __stat64 *buf)
+int __stdcall
+fhandler_base::fstat (struct stat *buf)
 {
   if (is_fs_special ())
     return fstat_fs (buf);
@@ -1679,7 +1674,7 @@ fhandler_base::fchmod (mode_t mode)
 }
 
 int
-fhandler_base::fchown (__uid32_t uid, __gid32_t gid)
+fhandler_base::fchown (uid_t uid, gid_t gid)
 {
   if (pc.is_fs_special ())
     return ((fhandler_disk_file *) this)->fhandler_disk_file::fchown (uid, gid);
@@ -1745,14 +1740,14 @@ fhandler_base::fsetxattr (const char *name, const void *value, size_t size,
 }
 
 int
-fhandler_base::fadvise (_off64_t offset, _off64_t length, int advice)
+fhandler_base::fadvise (off_t offset, off_t length, int advice)
 {
   set_errno (EINVAL);
   return -1;
 }
 
 int
-fhandler_base::ftruncate (_off64_t length, bool allow_truncate)
+fhandler_base::ftruncate (off_t length, bool allow_truncate)
 {
   set_errno (EINVAL);
   return -1;
@@ -1872,7 +1867,7 @@ fhandler_base::fpathconf (int v)
 
 /* Overlapped I/O */
 
-int __reg1
+int __stdcall __attribute__ ((regparm (1)))
 fhandler_base_overlapped::setup_overlapped ()
 {
   OVERLAPPED *ov = get_overlapped_buffer ();
@@ -1883,7 +1878,7 @@ fhandler_base_overlapped::setup_overlapped ()
   return ov->hEvent ? 0 : -1;
 }
 
-void __reg1
+void __stdcall __attribute__ ((regparm (1)))
 fhandler_base_overlapped::destroy_overlapped ()
 {
   OVERLAPPED *ov = get_overlapped ();
@@ -1897,7 +1892,7 @@ fhandler_base_overlapped::destroy_overlapped ()
   get_overlapped () = NULL;
 }
 
-bool __reg1
+bool __stdcall __attribute__ ((regparm (1)))
 fhandler_base_overlapped::has_ongoing_io ()
 {
   if (!io_pending)
@@ -1911,7 +1906,7 @@ fhandler_base_overlapped::has_ongoing_io ()
   return false;
 }
 
-fhandler_base_overlapped::wait_return __reg3
+fhandler_base_overlapped::wait_return __stdcall __attribute__ ((regparm (3)))
 fhandler_base_overlapped::wait_overlapped (bool inres, bool writing, DWORD *bytes, bool nonblocking, DWORD len)
 {
   if (!get_overlapped ())
@@ -2019,7 +2014,7 @@ fhandler_base_overlapped::wait_overlapped (bool inres, bool writing, DWORD *byte
   return res;
 }
 
-void __reg3
+void __stdcall __attribute__ ((regparm (3)))
 fhandler_base_overlapped::raw_read (void *ptr, size_t& len)
 {
   DWORD nbytes;
@@ -2044,7 +2039,7 @@ fhandler_base_overlapped::raw_read (void *ptr, size_t& len)
   len = (size_t) nbytes;
 }
 
-ssize_t __reg3
+ssize_t __stdcall __attribute__ ((regparm (3)))
 fhandler_base_overlapped::raw_write (const void *ptr, size_t len)
 {
   size_t nbytes;

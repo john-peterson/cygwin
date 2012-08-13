@@ -1,7 +1,7 @@
 /* fhandler_raw.cc.  See fhandler.h for a description of the fhandler classes.
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2011,
-   2012, 2013 Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2011
+   Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -11,10 +11,8 @@
 
 #include "winsup.h"
 
-#include <unistd.h>
 #include <cygwin/rdevio.h>
 #include <sys/mtio.h>
-#include <sys/param.h>
 #include "cygerrno.h"
 #include "path.h"
 #include "fhandler.h"
@@ -23,8 +21,7 @@
 /* fhandler_dev_raw */
 
 fhandler_dev_raw::fhandler_dev_raw ()
-  : fhandler_base (),
-    status ()
+  : fhandler_base (), status ()
 {
   need_fork_fixup (true);
 }
@@ -32,11 +29,11 @@ fhandler_dev_raw::fhandler_dev_raw ()
 fhandler_dev_raw::~fhandler_dev_raw ()
 {
   if (devbufsiz > 1L)
-    delete [] devbufalloc;
+    delete [] devbuf;
 }
 
-int __reg2
-fhandler_dev_raw::fstat (struct __stat64 *buf)
+int __stdcall
+fhandler_dev_raw::fstat (struct stat *buf)
 {
   debug_printf ("here");
 
@@ -62,7 +59,7 @@ int
 fhandler_dev_raw::open (int flags, mode_t)
 {
   /* Check for illegal flags. */
-  if (get_major () != DEV_TAPE_MAJOR && (flags & O_APPEND))
+  if (get_major () != DEV_TAPE_MAJOR && (flags & (O_APPEND | O_EXCL)))
     {
       set_errno (EINVAL);
       return 0;
@@ -77,6 +74,8 @@ fhandler_dev_raw::open (int flags, mode_t)
     flags = ((flags & ~O_WRONLY) | O_RDWR);
 
   int res = fhandler_base::open (flags, 0);
+  if (res && devbufsiz > 1L)
+    devbuf = new char [devbufsiz];
 
   return res;
 }
@@ -91,12 +90,7 @@ fhandler_dev_raw::dup (fhandler_base *child, int flags)
       fhandler_dev_raw *fhc = (fhandler_dev_raw *) child;
 
       if (devbufsiz > 1L)
-	{
-	  /* Create sector-aligned buffer */
-	  fhc->devbufalloc = new char [devbufsiz + devbufalign];
-	  fhc->devbuf = (char *) roundup2 ((uintptr_t) fhc->devbufalloc,
-					   devbufalign);
-	}
+	fhc->devbuf = new char [devbufsiz];
       fhc->devbufstart = 0;
       fhc->devbufend = 0;
       fhc->lastblk_to_read (false);
@@ -118,11 +112,7 @@ fhandler_dev_raw::fixup_after_exec ()
   if (!close_on_exec ())
     {
       if (devbufsiz > 1L)
-	{
-	  /* Create sector-aligned buffer */
-	  devbufalloc = new char [devbufsiz + devbufalign];
-	  devbuf = (char *) roundup2 ((uintptr_t) devbufalloc, devbufalign);
-	}
+	devbuf = new char [devbufsiz];
       devbufstart = 0;
       devbufend = 0;
       lastblk_to_read (false);
@@ -152,32 +142,36 @@ fhandler_dev_raw::ioctl (unsigned int cmd, void *buf)
 		mop.mt_count = op->rd_parm;
 		ret = ioctl (MTIOCTOP, &mop);
 	      }
-	    else if ((op->rd_parm <= 1 && get_major () != DEV_TAPE_MAJOR)
-		     || (op->rd_parm > 1 && (op->rd_parm % devbufalign))
+	    else if ((devbuf && ((op->rd_parm <= 1 && (devbufend - devbufstart))
+				 || op->rd_parm < devbufend - devbufstart))
+		     || (op->rd_parm > 1 && (op->rd_parm % 512))
 		     || (get_flags () & O_DIRECT))
-	      /* The conditions for a valid parameter are:
-		 - The new size is either 0 or 1, both indicating unbuffered
-		   I/O, and the device is a tape device.
-		 - Or, the new buffersize must be a multiple of the
-		   required buffer alignment.
+	      /* The conditions for a *valid* parameter are these:
+		 - If there's still data in the current buffer, it must
+		   fit in the new buffer.
+		 - The new size is either 0 or 1, both indicating unbufferd
+		   I/O, or the new buffersize must be a multiple of 512.
 		 - In the O_DIRECT case, the whole request is invalid. */
 	      ret = ERROR_INVALID_PARAMETER;
 	    else if (!devbuf || op->rd_parm != devbufsiz)
 	      {
 		char *buf = NULL;
-		_off64_t curpos = lseek (0, SEEK_CUR);
-
 		if (op->rd_parm > 1L)
-		  buf = new char [op->rd_parm + devbufalign];
+		  buf = new char [op->rd_parm];
+		if (buf && devbufsiz > 1L)
+		  {
+		    memcpy (buf, devbuf + devbufstart, devbufend - devbufstart);
+		    devbufend -= devbufstart;
+		  }
+		else
+		  devbufend = 0;
 
 		if (devbufsiz > 1L)
-		  delete [] devbufalloc;
+		  delete [] devbuf;
 
-		devbufalloc = buf;
-		devbuf = (char *) roundup2 ((uintptr_t) buf, devbufalign);
+		devbufstart = 0;
+		devbuf = buf;
 		devbufsiz = op->rd_parm ?: 1L;
-		devbufstart = devbufend = 0;
-		lseek (curpos, SEEK_SET);
 	      }
 	    break;
 	  default:

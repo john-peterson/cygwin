@@ -22,10 +22,10 @@ struct vmspace {
 struct proc {
   pid_t cygpid;
   DWORD winpid;
-  __uid32_t uid;
-  __gid32_t gid;
+  uid_t uid;
+  gid_t gid;
   int gidcnt;
-  __gid32_t *gidlist;
+  gid_t *gidlist;
   bool is_admin;
   struct vmspace *p_vmspace;
   HANDLE signal_arrived;
@@ -33,7 +33,7 @@ struct proc {
 
 #ifdef __INSIDE_CYGWIN__
 #include "sigproc.h"
-extern inline void
+inline void
 ipc_set_proc_info (proc &blk)
 {
   blk.cygpid = getpid ();

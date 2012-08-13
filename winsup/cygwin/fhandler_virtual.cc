@@ -1,7 +1,6 @@
 /* fhandler_virtual.cc: base fhandler class for virtual filesystems
 
-   Copyright 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
-   Red Hat, Inc.
+   Copyright 2002, 2003, 2004, 2005, 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -126,15 +125,15 @@ fhandler_virtual::closedir (DIR * dir)
   return 0;
 }
 
-_off64_t
-fhandler_virtual::lseek (_off64_t offset, int whence)
+off_t
+fhandler_virtual::lseek (off_t offset, int whence)
 {
   /*
    * On Linux, when you lseek within a /proc file,
    * the contents of the file are updated.
    */
   if (!fill_filebuf ())
-    return (_off64_t) -1;
+    return (off_t) -1;
   switch (whence)
     {
     case SEEK_SET:
@@ -148,7 +147,7 @@ fhandler_virtual::lseek (_off64_t offset, int whence)
       break;
     default:
       set_errno (EINVAL);
-      return (_off64_t) -1;
+      return (off_t) -1;
     }
   return position;
 }
@@ -246,7 +245,7 @@ fhandler_virtual::fchmod (mode_t mode)
 }
 
 int
-fhandler_virtual::fchown (__uid32_t uid, __gid32_t gid)
+fhandler_virtual::fchown (uid_t uid, gid_t gid)
 {
   /* Same as on Linux. */
   set_errno (EPERM);

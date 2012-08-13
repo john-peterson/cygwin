@@ -1,7 +1,6 @@
 /* cygwin/socket.h
 
-   Copyright 1999, 2000, 2001, 2002, 2003, 2005, 2006, 2007, 2009, 2010, 2012
-   Red Hat, Inc.
+   Copyright 1999, 2000, 2001, 2005, 2006, 2007, 2009, 2010, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -55,8 +54,8 @@ struct sockaddr_storage {
 
 struct ucred {
   pid_t			pid;
-  __uid32_t		uid;
-  __gid32_t		gid;
+  uid_t			uid;
+  gid_t			gid;
 };
 
 struct linger {

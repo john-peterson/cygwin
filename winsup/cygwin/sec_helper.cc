@@ -1,7 +1,7 @@
 /* sec_helper.cc: NT security helper functions
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009,
+   2010, 2011, 2012 Red Hat, Inc.
 
    Written by Corinna Vinschen <corinna@vinschen.de>
 
@@ -24,6 +24,10 @@ details. */
 #include "cygheap.h"
 #include "pwdgrp.h"
 #include "ntdll.h"
+
+#ifndef __MINGW64_VERSION_MAJOR
+#define SECURITY_NT_NON_UNIQUE SECURITY_NT_NON_UNIQUE_RID
+#endif
 
 /* General purpose security attribute objects for global use. */
 SECURITY_ATTRIBUTES NO_COPY sec_none;
@@ -87,15 +91,15 @@ cygpsid::operator== (const char *nsidstr) const
   return psid == nsid;
 }
 
-__uid32_t
+uid_t
 cygpsid::get_id (BOOL search_grp, int *type)
 {
     /* First try to get SID from group, then passwd */
-  __uid32_t id = ILLEGAL_UID;
+  uid_t id = ILLEGAL_UID;
 
   if (search_grp)
     {
-      struct __group32 *gr;
+      struct group *gr;
       if (cygheap->user.groups.pgsid == psid)
 	id = myself->gid;
       else if ((gr = internal_getgrsid (*this)))
@@ -205,7 +209,7 @@ cygsid::getfrompw (const struct passwd *pw)
 }
 
 BOOL
-cygsid::getfromgr (const struct __group32 *gr)
+cygsid::getfromgr (const struct group *gr)
 {
   char *sp = (gr && gr->gr_passwd) ? gr->gr_passwd : NULL;
   return (*this = sp) != NULL;
@@ -254,10 +258,10 @@ cygsidlist::add (const PSID nsi, bool well_known)
 }
 
 bool
-get_sids_info (cygpsid owner_sid, cygpsid group_sid, __uid32_t * uidret, __gid32_t * gidret)
+get_sids_info (cygpsid owner_sid, cygpsid group_sid, uid_t * uidret, gid_t * gidret)
 {
   struct passwd *pw;
-  struct __group32 *gr = NULL;
+  struct group *gr = NULL;
   bool ret = false;
 
   owner_sid.debug_print ("get_sids_info: owner SID =");
@@ -374,7 +378,11 @@ static const struct {
   { SE_CREATE_GLOBAL_NAME,		false },
   { SE_TRUSTED_CREDMAN_ACCESS_NAME,	false },
   { SE_RELABEL_NAME,			true  },
+#ifndef __MINGW64_VERSION_MAJOR
+  { SE_INCREASE_WORKING_SET_NAME,	false },
+#else
   { SE_INC_WORKING_SET_NAME,		false },
+#endif
   { SE_TIME_ZONE_NAME,			true  },
   { SE_CREATE_SYMBOLIC_LINK_NAME,	true  }
 };
@@ -587,7 +595,7 @@ _recycler_sd (void *buf, bool users, bool dir)
 {
   NTSTATUS status;
   PISECURITY_DESCRIPTOR psd = (PISECURITY_DESCRIPTOR) buf;
-
+  
   if (!psd)
     return NULL;
   RtlCreateSecurityDescriptor (psd, SECURITY_DESCRIPTOR_REVISION);
@@ -606,7 +614,7 @@ _recycler_sd (void *buf, bool users, bool dir)
 			    dir ? CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE
 				: NO_INHERITANCE,
 			    FILE_ALL_ACCESS, well_known_system_sid);
-  if (users)
+  if (users)	
     RtlAddAccessAllowedAceEx (dacl, ACL_REVISION, NO_PROPAGATE_INHERIT_ACE,
 			      FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
 			      | FILE_APPEND_DATA | FILE_WRITE_ATTRIBUTES,

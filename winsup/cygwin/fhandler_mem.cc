@@ -1,7 +1,7 @@
 /* fhandler_mem.cc.  See fhandler.h for a description of the fhandler classes.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2010, 2011,
-   2012, 2013 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009,
+   2010, 2011, 2012 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -207,8 +207,8 @@ fhandler_dev_mem::read (void *ptr, size_t& ulen)
   pos += ulen;
 }
 
-_off64_t
-fhandler_dev_mem::lseek (_off64_t offset, int whence)
+off_t
+fhandler_dev_mem::lseek (off_t offset, int whence)
 {
   switch (whence)
     {
@@ -239,8 +239,8 @@ fhandler_dev_mem::lseek (_off64_t offset, int whence)
   return pos;
 }
 
-int __reg2
-fhandler_dev_mem::fstat (struct __stat64 *buf)
+int
+fhandler_dev_mem::fstat (struct stat *buf)
 {
   fhandler_base::fstat (buf);
   buf->st_blksize = wincap.page_size ();
