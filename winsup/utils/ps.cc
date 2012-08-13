@@ -1,7 +1,7 @@
 /* ps.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -294,7 +294,7 @@ main (int argc, char *argv[])
 	/* nothing to do */;
       else if (p->version >= EXTERNAL_PINFO_VERSION_32_BIT)
 	{
-	  if (p->uid32 != (__uid32_t) uid)
+	  if (p->uid32 != uid)
 	    continue;
 	}
       else if (p->uid != uid)
