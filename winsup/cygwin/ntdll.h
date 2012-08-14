@@ -1,7 +1,7 @@
 /* ntdll.h.  Contains ntdll specific stuff not defined elsewhere.
 
-   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -11,8 +11,11 @@
 
 #pragma once
 
-#include <ntstatus.h>
-
+#ifndef __MINGW64_VERSION_MAJOR
+# include <ddk/ntstatus.h>
+#else
+# include <ntstatus.h>
+#endif
 /* custom status code: */
 #define STATUS_ILLEGAL_DLL_PSEUDO_RELOCATION ((NTSTATUS) 0xe0000269)
 
@@ -240,7 +243,9 @@ typedef struct _FILE_ID_BOTH_DIR_INFORMATION
   WCHAR  FileName[1];
 } FILE_ID_BOTH_DIR_INFORMATION, *PFILE_ID_BOTH_DIR_INFORMATION;
 
+#ifndef __MINGW64_VERSION_MAJOR
 typedef ULONG KAFFINITY;
+#endif
 
 typedef enum _SYSTEM_INFORMATION_CLASS
 {
@@ -970,6 +975,14 @@ typedef struct _FILE_MAILSLOT_SET_INFORMATION
 
 typedef VOID NTAPI (*PIO_APC_ROUTINE)(PVOID, PIO_STATUS_BLOCK, ULONG);
 
+#ifndef __MINGW64_VERSION_MAJOR
+typedef enum _EVENT_TYPE
+{
+  NotificationEvent = 0,
+  SynchronizationEvent
+} EVENT_TYPE, *PEVENT_TYPE;
+#endif
+
 typedef struct _EVENT_BASIC_INFORMATION
 {
   EVENT_TYPE EventType;
@@ -1035,11 +1048,21 @@ typedef struct _KEY_VALUE_PARTIAL_INFORMATION
   UCHAR Data[1];
 } KEY_VALUE_PARTIAL_INFORMATION, *PKEY_VALUE_PARTIAL_INFORMATION;
 
+#ifndef __MINGW64_VERSION_MAJOR
+typedef enum _TIMER_TYPE
+{
+  NotificationTimer,
+  SynchronisationTimer
+} TIMER_TYPE, *PTIMER_TYPE;
+#endif
+
+#ifdef __MINGW64_VERSION_MAJOR
 typedef enum _SECTION_INHERIT
 {
   ViewShare = 1,
   ViewUnmap = 2
 } SECTION_INHERIT;
+#endif
 
 typedef VOID (APIENTRY *PTIMER_APC_ROUTINE)(PVOID, ULONG, ULONG);
 

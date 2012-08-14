@@ -1,7 +1,7 @@
 /* thread.h: Locking and threading module definitions
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007, 2008, 2009,
-   2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2007,
+   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -60,7 +60,7 @@ public:
   void lock ()
   {
     if (InterlockedIncrement (&lock_counter) != 1)
-      cygwait (win32_obj_id, cw_infinite, cw_sig);
+      cancelable_wait (win32_obj_id, cw_infinite, cw_sig);
   }
 
   void unlock ()
@@ -119,20 +119,18 @@ List_insert (list_node *&head, list_node *node)
     return;
   do
     node->next = head;
-  while (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					    node, node->next) != node->next);
+  while (InterlockedCompareExchangePointer (&head, node, node->next) != node->next);
 }
 
 template <class list_node> inline void
-List_remove (fast_mutex &mx, list_node *&head, list_node *node)
+List_remove (fast_mutex &mx, list_node *&head, list_node const *node)
 {
   if (!node)
     return;
   mx.lock ();
   if (head)
     {
-      if (InterlockedCompareExchangePointer ((PVOID volatile *) &head,
-					     node->next, node) != node)
+      if (InterlockedCompareExchangePointer (&head, node->next, node) != node)
 	{
 	  list_node *cur = head;
 
@@ -555,7 +553,6 @@ public:
     struct RWLOCK_READER *next;
     pthread_t thread;
     unsigned long n;
-    RWLOCK_READER (): next (NULL), thread (pthread::self ()), n (0) {}
   } *readers;
   fast_mutex readers_mx;
 
@@ -584,9 +581,9 @@ public:
 private:
   static List<pthread_rwlock> rwlocks;
 
-  RWLOCK_READER *add_reader ();
+  void add_reader (struct RWLOCK_READER *rd);
   void remove_reader (struct RWLOCK_READER *rd);
-  struct RWLOCK_READER *lookup_reader ();
+  struct RWLOCK_READER *lookup_reader (pthread_t thread);
 
   void release ()
   {
