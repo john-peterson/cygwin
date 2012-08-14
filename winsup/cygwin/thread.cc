@@ -1,7 +1,7 @@
 /* thread.cc: Locking and threading module functions
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -575,17 +575,17 @@ pthread::cancel ()
       GetThreadContext (win32_obj_id, &context);
       /* The OS is not foolproof in terms of asynchronous thread cancellation
 	 and tends to hang infinitely if we change the instruction pointer.
-	 So just don't cancel asynchronously if the thread is currently
+         So just don't cancel asynchronously if the thread is currently
 	 executing Windows code.  Rely on deferred cancellation in this case. */
       if (!cygtls->inside_kernel (&context))
-	{
-	  context.Eip = (DWORD) pthread::static_cancel_self;
-	  SetThreadContext (win32_obj_id, &context);
-	}
+        {
+          context.Eip = (DWORD) pthread::static_cancel_self;
+          SetThreadContext (win32_obj_id, &context);
+        }
     }
   mutex.unlock ();
   /* See above.  For instance, a thread which waits for a semaphore in sem_wait
-     will call cygwait which in turn calls WFMO.  While this WFMO call
+     will call cancelable_wait which in turn calls WFMO.  While this WFMO call
      is cancelable by setting the thread's cancel_event object, the OS
      apparently refuses to set the thread's context and continues to wait for
      the WFMO conditions.  This is *not* reflected in the return value of
@@ -1228,7 +1228,7 @@ pthread_cond::wait (pthread_mutex_t mutex, PLARGE_INTEGER timeout)
   ++mutex->condwaits;
   mutex->unlock ();
 
-  rv = cygwait (sem_wait, timeout, cw_cancel | cw_sig_eintr);
+  rv = cancelable_wait (sem_wait, timeout, cw_cancel | cw_sig_eintr);
 
   mtx_out.lock ();
 
@@ -1377,16 +1377,24 @@ pthread_rwlock::rdlock ()
 {
   int result = 0;
   struct RWLOCK_READER *reader;
+  pthread_t self = pthread::self ();
 
   mtx.lock ();
 
-  reader = lookup_reader ();
+  reader = lookup_reader (self);
   if (reader)
     {
       if (reader->n < ULONG_MAX)
 	++reader->n;
       else
 	errno = EAGAIN;
+      goto DONE;
+    }
+
+  reader = new struct RWLOCK_READER;
+  if (!reader)
+    {
+      result = EAGAIN;
       goto DONE;
     }
 
@@ -1401,13 +1409,9 @@ pthread_rwlock::rdlock ()
       pthread_cleanup_pop (0);
     }
 
-  if ((reader = add_reader ()))
-    ++reader->n;
-  else
-    {
-      result = EAGAIN;
-      goto DONE;
-    }
+  reader->thread = self;
+  reader->n = 1;
+  add_reader (reader);
 
  DONE:
   mtx.unlock ();
@@ -1419,18 +1423,25 @@ int
 pthread_rwlock::tryrdlock ()
 {
   int result = 0;
+  pthread_t self = pthread::self ();
 
   mtx.lock ();
 
-  if (writer || waiting_writers)
+  if (writer || waiting_writers || lookup_reader (self))
     result = EBUSY;
   else
     {
-      RWLOCK_READER *reader = lookup_reader ();
-      if (!reader)
-	reader = add_reader ();
+      struct RWLOCK_READER *reader;
+
+      reader = lookup_reader (self);
       if (reader && reader->n < ULONG_MAX)
 	++reader->n;
+      else if ((reader = new struct RWLOCK_READER))
+	{
+	  reader->thread = self;
+	  reader->n = 1;
+	  add_reader (reader);
+	}
       else
 	result = EAGAIN;
     }
@@ -1448,7 +1459,7 @@ pthread_rwlock::wrlock ()
 
   mtx.lock ();
 
-  if (writer ==  self || lookup_reader ())
+  if (writer == self || lookup_reader (self))
     {
       result = EDEADLK;
       goto DONE;
@@ -1495,12 +1506,13 @@ int
 pthread_rwlock::unlock ()
 {
   int result = 0;
+  pthread_t self = pthread::self ();
 
   mtx.lock ();
 
   if (writer)
     {
-      if (writer != pthread::self ())
+      if (writer != self)
 	{
 	  result = EPERM;
 	  goto DONE;
@@ -1510,7 +1522,7 @@ pthread_rwlock::unlock ()
     }
   else
     {
-      struct RWLOCK_READER *reader = lookup_reader ();
+      struct RWLOCK_READER *reader = lookup_reader (self);
 
       if (!reader)
 	{
@@ -1532,13 +1544,10 @@ pthread_rwlock::unlock ()
   return result;
 }
 
-pthread_rwlock::RWLOCK_READER *
-pthread_rwlock::add_reader ()
+void
+pthread_rwlock::add_reader (struct RWLOCK_READER *rd)
 {
-  RWLOCK_READER *rd = new RWLOCK_READER;
-  if (rd)
-    List_insert (readers, rd);
-  return rd;
+  List_insert (readers, rd);
 }
 
 void
@@ -1548,10 +1557,9 @@ pthread_rwlock::remove_reader (struct RWLOCK_READER *rd)
 }
 
 struct pthread_rwlock::RWLOCK_READER *
-pthread_rwlock::lookup_reader ()
+pthread_rwlock::lookup_reader (pthread_t thread)
 {
   readers_mx.lock ();
-  pthread_t thread = pthread::self ();
 
   struct RWLOCK_READER *cur = readers;
 
@@ -1736,7 +1744,7 @@ pthread_mutex::lock ()
 	   || !pthread::equal (owner, self))
     {
       /* FIXME: no cancel? */
-      cygwait (win32_obj_id, cw_infinite, cw_sig);
+      cancelable_wait (win32_obj_id, cw_infinite, cw_sig);
       set_owner (self);
     }
   else
@@ -1770,7 +1778,7 @@ pthread_mutex::unlock ()
     {
       owner = (pthread_t) _unlocked_mutex;
 #ifdef DEBUGGING
-      tid = 0;		// thread-id
+      tid = 0;
 #endif
       if (InterlockedDecrement ((long *) &lock_counter))
 	::SetEvent (win32_obj_id); // Another thread is waiting
@@ -1877,7 +1885,7 @@ pthread_spinlock::lock ()
 	  LARGE_INTEGER timeout;
 	  timeout.QuadPart = -10000LL;
 	  /* FIXME: no cancel? */
-	  cygwait (win32_obj_id, &timeout, cw_sig);
+	  cancelable_wait (win32_obj_id, &timeout, cw_sig);
 	}
     }
   while (result == -1);
@@ -1897,7 +1905,7 @@ pthread_spinlock::unlock ()
     {
       owner = (pthread_t) _unlocked_mutex;
 #ifdef DEBUGGING
-      tid = 0;		// thread-id
+      tid = 0;
 #endif
       InterlockedExchange ((long *) &lock_counter, 0);
       ::SetEvent (win32_obj_id);
@@ -2356,7 +2364,7 @@ pthread::join (pthread_t *thread, void **return_val)
       (*thread)->attr.joinable = PTHREAD_CREATE_DETACHED;
       (*thread)->mutex.unlock ();
 
-      switch (cygwait ((*thread)->win32_obj_id, cw_infinite, cw_sig | cw_cancel))
+      switch (cancelable_wait ((*thread)->win32_obj_id, cw_infinite, cw_sig | cw_cancel))
 	{
 	case WAIT_OBJECT_0:
 	  if (return_val)
@@ -3468,7 +3476,7 @@ semaphore::_timedwait (const struct timespec *abstime)
   timeout.QuadPart = abstime->tv_sec * NSPERSEC
 		     + (abstime->tv_nsec + 99) / 100 + FACTOR;
 
-  switch (cygwait (win32_obj_id, &timeout, cw_cancel | cw_cancel_self | cw_sig_eintr))
+  switch (cancelable_wait (win32_obj_id, &timeout, cw_cancel | cw_cancel_self | cw_sig_eintr))
     {
     case WAIT_OBJECT_0:
       currentvalue--;
@@ -3480,7 +3488,7 @@ semaphore::_timedwait (const struct timespec *abstime)
       set_errno (ETIMEDOUT);
       return -1;
     default:
-      pthread_printf ("cygwait failed. %E");
+      pthread_printf ("cancelable_wait failed. %E");
       __seterrno ();
       return -1;
     }
@@ -3490,7 +3498,7 @@ semaphore::_timedwait (const struct timespec *abstime)
 int
 semaphore::_wait ()
 {
-  switch (cygwait (win32_obj_id, cw_infinite, cw_cancel | cw_cancel_self | cw_sig_eintr))
+  switch (cancelable_wait (win32_obj_id, cw_infinite, cw_cancel | cw_cancel_self | cw_sig_eintr))
     {
     case WAIT_OBJECT_0:
       currentvalue--;
@@ -3499,7 +3507,7 @@ semaphore::_wait ()
       set_errno (EINTR);
       return -1;
     default:
-      pthread_printf ("cygwait failed. %E");
+      pthread_printf ("cancelable_wait failed. %E");
       break;
     }
   return 0;
