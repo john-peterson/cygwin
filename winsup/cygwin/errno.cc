@@ -1,7 +1,7 @@
 /* errno.cc: errno-related functions
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2008, 2009, 2010, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -103,7 +103,7 @@ static NO_COPY struct
   X (IO_DEVICE,			EIO),
   X (IO_INCOMPLETE,		EAGAIN),
   X (IO_PENDING,		EAGAIN),
-  X (LOCK_VIOLATION,		EBUSY),
+  X (LOCK_VIOLATION,		EACCES),
   X (MAX_THRDS_REACHED,		EAGAIN),
   X (META_EXPANSION_TOO_LONG,	EINVAL),
   X (MOD_NOT_FOUND,		ENOENT),
@@ -140,7 +140,6 @@ static NO_COPY struct
   X (PIPE_LISTENING,		ECOMM),
   X (PIPE_NOT_CONNECTED,	ECOMM),
   X (POSSIBLE_DEADLOCK,		EDEADLOCK),
-  X (PRIVILEGE_NOT_HELD,	EPERM),
   X (PROCESS_ABORTED,		EFAULT),
   X (PROC_NOT_FOUND,		ESRCH),
   X (REM_NOT_LIST,		ENONET),
@@ -151,13 +150,14 @@ static NO_COPY struct
   X (SHARING_VIOLATION,		EBUSY),
   X (SIGNAL_PENDING,		EBUSY),
   X (SIGNAL_REFUSED,		EIO),
-  X (SXS_CANT_GEN_ACTCTX,	ELIBBAD),
   X (THREAD_1_INACTIVE,		EINVAL),
   X (TOO_MANY_LINKS,		EMLINK),
   X (TOO_MANY_OPEN_FILES,	EMFILE),
   X (WAIT_NO_CHILDREN,		ECHILD),
   X (WORKING_SET_QUOTA,		EAGAIN),
   X (WRITE_PROTECT,		EROFS),
+  X (PRIVILEGE_NOT_HELD,	EPERM),
+  X (SXS_CANT_GEN_ACTCTX,	ELIBBAD),
   { 0, NULL, 0}
 };
 
@@ -313,7 +313,7 @@ const char *_sys_errlist[] NO_COPY_INIT =
 int NO_COPY_INIT _sys_nerr = sizeof (_sys_errlist) / sizeof (_sys_errlist[0]);
 };
 
-int __reg2
+int __stdcall
 geterrno_from_win_error (DWORD code, int deferrno)
 {
   for (int i = 0; errmap[i].w != 0; ++i)
@@ -330,14 +330,14 @@ geterrno_from_win_error (DWORD code, int deferrno)
 
 /* seterrno_from_win_error: Given a Windows error code, set errno
    as appropriate. */
-void __reg3
+void __stdcall
 seterrno_from_win_error (const char *file, int line, DWORD code)
 {
   syscall_printf ("%s:%d windows error %d", file, line, code);
   errno = _impure_ptr->_errno =  geterrno_from_win_error (code, EACCES);
 }
 
-int __reg2
+int __stdcall
 geterrno_from_nt_status (NTSTATUS status, int deferrno)
 {
   return geterrno_from_win_error (RtlNtStatusToDosError (status));
@@ -345,7 +345,7 @@ geterrno_from_nt_status (NTSTATUS status, int deferrno)
 
 /* seterrno_from_nt_status: Given a NT status code, set errno
    as appropriate. */
-void __reg3
+void __stdcall
 seterrno_from_nt_status (const char *file, int line, NTSTATUS status)
 {
   DWORD code = RtlNtStatusToDosError (status);
@@ -356,7 +356,7 @@ seterrno_from_nt_status (const char *file, int line, NTSTATUS status)
 }
 
 /* seterrno: Set `errno' based on GetLastError (). */
-void __reg2
+void __stdcall
 seterrno (const char *file, int line)
 {
   seterrno_from_win_error (file, line, GetLastError ());

@@ -1,7 +1,7 @@
 /* mount.cc: mount handling.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -97,11 +97,11 @@ win32_device_name (const char *src_path, char *win32_path, device& dev)
 #define SAMBA_EXTENDED_INFO_VERSION_STRING_LENGTH 28
 #pragma pack(push,4)
 struct smb_extended_info {
-  DWORD		samba_magic;		/* Always SAMBA_EXTENDED_INFO_MAGIC */
-  DWORD		samba_version;		/* Major/Minor/Release/Revision */
-  DWORD		samba_subversion;	/* Prerelease/RC/Vendor patch */
+  DWORD         samba_magic;             /* Always SAMBA_EXTENDED_INFO_MAGIC */
+  DWORD         samba_version;           /* Major/Minor/Release/Revision */
+  DWORD         samba_subversion;        /* Prerelease/RC/Vendor patch */
   LARGE_INTEGER samba_gitcommitdate;
-  char		samba_version_string[SAMBA_EXTENDED_INFO_VERSION_STRING_LENGTH];
+  char          samba_version_string[SAMBA_EXTENDED_INFO_VERSION_STRING_LENGTH];
 };
 #pragma pack(pop)
 
@@ -1028,7 +1028,6 @@ struct opt
   {"override", MOUNT_OVERRIDE, 0},
   {"posix=0", MOUNT_NOPOSIX, 0},
   {"posix=1", MOUNT_NOPOSIX, 1},
-  {"sparse", MOUNT_SPARSE, 0},
   {"text", MOUNT_BINARY, 1},
   {"user", MOUNT_SYSTEM, 1}
 };
@@ -1667,9 +1666,6 @@ fillout_mntent (const char *native_path, const char *posix_path, unsigned flags)
 
   if (flags & MOUNT_NOPOSIX)
     strcat (_my_tls.locals.mnt_opts, (char *) ",posix=0");
-
-  if (flags & MOUNT_SPARSE)
-    strcat (_my_tls.locals.mnt_opts, (char *) ",sparse");
 
   if (!(flags & MOUNT_SYSTEM))		/* user mount */
     strcat (_my_tls.locals.mnt_opts, (char *) ",user");
