@@ -15,24 +15,6 @@
 
 @SET_MAKE@
 
-#
-#   Copyright 2012 Free Software Foundation
-#
-# This file is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program; see the file COPYING3.  If not see
-# <http://www.gnu.org/licenses/>.
-#
-
 
 
 VPATH = @srcdir@
@@ -72,7 +54,6 @@ am__aclocal_m4_deps = $(top_srcdir)/../bfd/acinclude.m4 \
 	$(top_srcdir)/../config/override.m4 \
 	$(top_srcdir)/../config/po.m4 \
 	$(top_srcdir)/../config/progtest.m4 \
-	$(top_srcdir)/../config/warnings.m4 \
 	$(top_srcdir)/../libtool.m4 $(top_srcdir)/../ltoptions.m4 \
 	$(top_srcdir)/../ltsugar.m4 $(top_srcdir)/../ltversion.m4 \
 	$(top_srcdir)/../lt~obsolete.m4 $(top_srcdir)/configure.in
@@ -214,7 +195,6 @@ MSGMERGE = @MSGMERGE@
 NM = @NM@
 NMEDIT = @NMEDIT@
 NO_WERROR = @NO_WERROR@
-NO_WMISSING_FIELD_INITIALIZERS = @NO_WMISSING_FIELD_INITIALIZERS@
 OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
@@ -461,7 +441,6 @@ TARGET_LIBOPCODES_CFILES = \
 	mep-dis.c \
 	mep-ibld.c \
 	mep-opc.c \
-	metag-dis.c \
 	microblaze-dis.c \
 	micromips-opc.c \
 	mips-dis.c \
@@ -533,7 +512,7 @@ TARGET_LIBOPCODES_CFILES = \
 	xstormy16-opc.c \
 	xtensa-dis.c \
 	xgate-dis.c \
-	xgate-opc.c \
+ 	xgate-opc.c \
 	z80-dis.c \
 	z8k-dis.c
 
@@ -858,7 +837,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mep-dis.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mep-ibld.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mep-opc.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/metag-dis.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/microblaze-dis.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/micromips-opc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mips-dis.Plo@am__quote@
@@ -1427,15 +1405,6 @@ ia64-opc.lo: $(srcdir)/ia64-asmtab.c
 
 $(srcdir)/rl78-decode.c: @MAINT@ $(srcdir)/rl78-decode.opc opc2c$(EXEEXT_FOR_BUILD)
 	./opc2c$(EXEEXT_FOR_BUILD) $(srcdir)/rl78-decode.opc > $(srcdir)/rl78-decode.c
-
-micromips-opc.lo: micromips-opc.c
-	$(LTCOMPILE) $(NO_WMISSING_FIELD_INITIALIZERS) -c -o $@ $<
-
-mips-opc.lo: mips-opc.c
-	$(LTCOMPILE) $(NO_WMISSING_FIELD_INITIALIZERS) -c -o $@ $<
-
-mips16-opc.lo: mips16-opc.c
-	$(LTCOMPILE) $(NO_WMISSING_FIELD_INITIALIZERS) -c -o $@ $<
 
 $(srcdir)/rx-decode.c: @MAINT@ $(srcdir)/rx-decode.opc opc2c$(EXEEXT_FOR_BUILD)
 	./opc2c$(EXEEXT_FOR_BUILD) $(srcdir)/rx-decode.opc > $(srcdir)/rx-decode.c

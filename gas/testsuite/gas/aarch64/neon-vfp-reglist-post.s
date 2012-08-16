@@ -2,7 +2,7 @@
 	# ARMv8 tests to test neon register 
 	# lists syntax.
 	.text
-	.arch armv8-a
+	.arch armv8
 
 	# Post-index multiple elements
 

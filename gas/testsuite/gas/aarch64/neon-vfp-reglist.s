@@ -20,7 +20,7 @@
 	.endm
 
 	.text
-	.arch armv8-a
+	.arch armv8
 
 	ldnstn_reg_list type="8B", inst="ld" index="" rep=""
 	ldnstn_reg_list type="8B", inst="st" index="" rep=""

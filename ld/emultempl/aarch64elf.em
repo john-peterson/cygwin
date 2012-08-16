@@ -39,7 +39,6 @@ gld${EMULATION_NAME}_before_parse (void)
 #endif /* not TARGET_ */
   input_flags.dynamic = ${DYNAMIC_LINK-TRUE};
   config.has_shared = `if test -n "$GENERATE_SHLIB_SCRIPT" ; then echo TRUE ; else echo FALSE ; fi`;
-  config.separate_code = `if test "x${SEPARATE_CODE}" = xyes ; then echo TRUE ; else echo FALSE ; fi`;
 }
 
 static void

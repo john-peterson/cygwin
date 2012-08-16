@@ -20,5 +20,3 @@
 	mov	wsp, #0x33030000
 
 .set u16, 0xfff0
-
-	ldr	x0, [x0, #257]
