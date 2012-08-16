@@ -1,7 +1,7 @@
 /* cygcheck.cc
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-   2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
    This file is part of Cygwin.
 
@@ -22,10 +22,12 @@
 #include "path.h"
 #include "wide_path.h"
 #include <getopt.h>
-#include "../cygwin/include/cygwin/version.h"
-#include "../cygwin/include/sys/cygwin.h"
-#include "../cygwin/include/mntent.h"
-#include "../cygwin/cygprops.h"
+#include "cygwin/include/cygwin/version.h"
+#include "cygwin/include/sys/cygwin.h"
+#define _NOMNTENT_MACROS
+#include "cygwin/include/mntent.h"
+#include "cygwin/cygprops.h"
+#include "cygwin/include/cygwin/version.h"
 #undef cygwin_internal
 #include "loadlib.h"
 
@@ -1432,20 +1434,17 @@ dump_sysinfo ()
 	  BOOL (WINAPI *GetProductInfo) (DWORD, DWORD, DWORD, DWORD, PDWORD) =
 		  (BOOL (WINAPI *)(DWORD, DWORD, DWORD, DWORD, PDWORD))
 		  GetProcAddress (k32, "GetProductInfo");
-	  switch (osversion.dwMinorVersion)
+	  if (osversion.dwMinorVersion == 0)
+	    strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
+			    ? "Vista" : "2008");
+	  else if (osversion.dwMinorVersion == 1)
+	    strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
+			    ? "7" : "2008 R2");
+	  else if (osversion.dwMinorVersion == 2)
 	    {
-	    case 0:
 	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "Vista" : "2008");
-	      break;
-	    case 1:
-	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "7" : "2008 R2");
-	      break;
-	    default:
-	      strcpy (osname, osversion.wProductType == VER_NT_WORKSTATION
-			      ? "8" : "2012");
-	      break;
+			      ? "8" : "Server 2012");
+	      strcat (osname, " (not yet supported!)");
 	    }
 	  DWORD prod;
 	  if (GetProductInfo (osversion.dwMajorVersion,
@@ -1455,8 +1454,8 @@ dump_sysinfo ()
 			      &prod))
 	    {
 #define       PRODUCT_UNLICENSED 0xabcdabcd
-#ifndef PRODUCT_PROFESSIONAL_WMC
-#define       PRODUCT_PROFESSIONAL_WMC 0x00000067
+#ifndef PRODUCT_ULTIMATE_E
+#define       PRODUCT_ULTIMATE_E 0x00000047
 #endif
 	      const char *products[] =
 		{
@@ -1485,7 +1484,7 @@ dump_sysinfo ()
  /* 0x00000016 */ " Storage Server Workgroup",
  /* 0x00000017 */ " Storage Server Enterprise",
  /* 0x00000018 */ " for Windows Essential Server Solutions",
- /* 0x00000019 */ " Small Business Server Premium",
+ /* 0x00000019 */ "",
  /* 0x0000001a */ " Home Premium N",
  /* 0x0000001b */ " Enterprise N",
  /* 0x0000001c */ " Ultimate N",
@@ -1503,28 +1502,28 @@ dump_sysinfo ()
  /* 0x00000028 */ " Server Standard Core without Hyper-V",
  /* 0x00000029 */ " Server Enterprise Core without Hyper-V",
  /* 0x0000002a */ " Hyper-V Server",
- /* 0x0000002b */ " Storage Server Express Core",
- /* 0x0000002c */ " Storage Server Standard Core",
- /* 0x0000002d */ " Storage Server Workgroup Core",
- /* 0x0000002e */ " Storage Server Enterprise Core",
+ /* 0x0000002b */ "",
+ /* 0x0000002c */ "",
+ /* 0x0000002d */ "",
+ /* 0x0000002e */ "",
  /* 0x0000002f */ " Starter N",
  /* 0x00000030 */ " Professional",
  /* 0x00000031 */ " Professional N",
- /* 0x00000032 */ " Small Business Server 2011 Essentials"
- /* 0x00000033 */ " Server For SB Solutions",
- /* 0x00000034 */ " Server Solutions Premium",
- /* 0x00000035 */ " Server Solutions Premium Core",
- /* 0x00000036 */ " Server For SB Solutions EM", /* per MSDN, 2012-09-01 */
- /* 0x00000037 */ " Server For SB Solutions EM", /* per MSDN, 2012-09-01 */
+ /* 0x00000032 */ " Home Server 2011",
+ /* 0x00000033 */ "",
+ /* 0x00000034 */ "",
+ /* 0x00000035 */ "",
+ /* 0x00000036 */ "",
+ /* 0x00000037 */ "",
  /* 0x00000038 */ " Multipoint Server",
  /* 0x00000039 */ "",
  /* 0x0000003a */ "",
- /* 0x0000003b */ " Essential Server Solution Management",
- /* 0x0000003c */ " Essential Server Solution Additional",
- /* 0x0000003d */ " Essential Server Solution Management SVC",
- /* 0x0000003e */ " Essential Server Solution Additional SVC",
- /* 0x0000003f */ " Small Business Server Premium Core",
- /* 0x00000040 */ " Server Hyper Core V",
+ /* 0x0000003b */ "",
+ /* 0x0000003c */ "",
+ /* 0x0000003d */ "",
+ /* 0x0000003e */ "",
+ /* 0x0000003f */ "",
+ /* 0x00000040 */ "",
  /* 0x00000041 */ "",
  /* 0x00000042 */ " Starter E",
  /* 0x00000043 */ " Home Basic E",
@@ -1532,42 +1531,10 @@ dump_sysinfo ()
  /* 0x00000045 */ " Professional E",
  /* 0x00000046 */ " Enterprise E",
  /* 0x00000047 */ " Ultimate E"
- /* 0x00000048 */ " Server Enterprise (Evaluation inst.)",
- /* 0x00000049 */ "",
- /* 0x0000004a */ "",
- /* 0x0000004b */ "",
- /* 0x0000004c */ " MultiPoint Server Standard",
- /* 0x0000004d */ " MultiPoint Server Premium",
- /* 0x0000004e */ "",
- /* 0x0000004f */ " Server Standard (Evaluation inst.)",
- /* 0x00000050 */ " Server Datacenter (Evaluation inst.)",
- /* 0x00000051 */ "",
- /* 0x00000052 */ "",
- /* 0x00000053 */ "",
- /* 0x00000054 */ " Enterprise N (Evaluation inst.)",
- /* 0x00000055 */ "",
- /* 0x00000056 */ "",
- /* 0x00000057 */ "",
- /* 0x00000058 */ "",
- /* 0x00000059 */ "",
- /* 0x0000005a */ "",
- /* 0x0000005b */ "",
- /* 0x0000005c */ "",
- /* 0x0000005d */ "",
- /* 0x0000005e */ "",
- /* 0x0000005f */ " Storage Server Workgroup (Evaluation inst.)",
- /* 0x00000060 */ " Storage Server Standard (Evaluation inst.)",
- /* 0x00000061 */ "",
- /* 0x00000062 */ " N",			/* "8 N" */
- /* 0x00000063 */ " China",		/* "8 China" */
- /* 0x00000064 */ " Single Language",	/* "8 Single Language" */
- /* 0x00000065 */ "",			/* "8" */
- /* 0x00000066 */ "",
- /* 0x00000067 */ " Professional with Media Center"
 		};
 	      if (prod == PRODUCT_UNLICENSED)
 		strcat (osname, "Unlicensed");
-	      else if (prod > PRODUCT_PROFESSIONAL_WMC)
+	      else if (prod > PRODUCT_ULTIMATE_E)
 		strcat (osname, "");
 	      else
 		strcat (osname, products[prod]);

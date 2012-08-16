@@ -1,6 +1,6 @@
 /* dump_setup.cc
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2008, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 2001, 2002, 2003, 2004, 2005, 2008, 2010 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -20,10 +20,28 @@ details. */
 			   ntstatus.h for extended status codes below. */
 #include <windows.h>
 #undef WIN32_NO_STATUS
-#include <winternl.h>
-#include <ntstatus.h>
+#ifndef __MINGW64_VERSION_MAJOR
+# include <ddk/ntapi.h>
+# include <ddk/winddk.h>
+#else
+# include <winternl.h>
+# include <ntstatus.h>
+#endif
 #include "path.h"
-#include <zlib.h>
+#if 0
+#include "zlib.h"
+#endif
+
+/* Temporary workaround for older Mingw header files on Fedora 17. */
+#ifndef NT_SUCCESS
+#define NT_SUCCESS(status) ((NTSTATUS) (status) >= 0)
+#endif
+
+#ifndef ZLIB_VERSION
+typedef void * gzFile;
+#define gzgets(fp, buf, size) ({0;})
+#define gzclose(fp) ({0;})
+#endif
 
 static int package_len = 20;
 static unsigned int version_len = 10;
