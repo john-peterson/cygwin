@@ -1,6 +1,6 @@
 /* Implementation of the GDB variable objects API.
 
-   Copyright (C) 1999-2013 Free Software Foundation, Inc.
+   Copyright (C) 1999-2012 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@ typedef int PyObject;
 
 /* Non-zero if we want to see trace of varobj level stuff.  */
 
-unsigned int varobjdebug = 0;
+int varobjdebug = 0;
 static void
 show_varobjdebug (struct ui_file *file, int from_tty,
 		  struct cmd_list_element *c, const char *value)
@@ -84,7 +84,7 @@ struct varobj_root
   struct expression *exp;
 
   /* Block for which this expression is valid.  */
-  const struct block *valid_block;
+  struct block *valid_block;
 
   /* The frame for this expression.  This field is set iff valid_block is
      not NULL.  */
@@ -675,9 +675,7 @@ varobj_create (char *objname,
 	}
 
       /* Don't allow variables to be created for types.  */
-      if (var->root->exp->elts[0].opcode == OP_TYPE
-	  || var->root->exp->elts[0].opcode == OP_TYPEOF
-	  || var->root->exp->elts[0].opcode == OP_DECLTYPE)
+      if (var->root->exp->elts[0].opcode == OP_TYPE)
 	{
 	  do_cleanups (old_chain);
 	  fprintf_unfiltered (gdb_stderr, "Attempt to use a type name"
@@ -1969,6 +1967,7 @@ varobj_value_has_mutated (struct varobj *var, struct value *new_value,
 VEC(varobj_update_result) *
 varobj_update (struct varobj **varp, int explicit)
 {
+  int changed = 0;
   int type_changed = 0;
   int i;
   struct value *new;
@@ -2909,10 +2908,12 @@ value_get_print_value (struct value *value, enum varobj_display_formats format,
 		       string_print.  Otherwise just return the extracted
 		       string as a value.  */
 
-		    char *s = python_string_to_target_string (output);
+		    PyObject *py_str
+		      = python_string_to_target_python_string (output);
 
-		    if (s)
+		    if (py_str)
 		      {
+			char *s = PyString_AsString (py_str);
 			char *hint;
 
 			hint = gdbpy_get_display_hint (value_formatter);
@@ -2923,10 +2924,10 @@ value_get_print_value (struct value *value, enum varobj_display_formats format,
 			    xfree (hint);
 			  }
 
-			len = strlen (s);
+			len = PyString_Size (py_str);
 			thevalue = xmemdup (s, len + 1, len + 1);
 			type = builtin_type (gdbarch)->builtin_char;
-			xfree (s);
+			Py_DECREF (py_str);
 
 			if (!string_print)
 			  {
@@ -4170,27 +4171,28 @@ _initialize_varobj (void)
   varobj_table = xmalloc (sizeof_table);
   memset (varobj_table, 0, sizeof_table);
 
-  add_setshow_zuinteger_cmd ("debugvarobj", class_maintenance,
-			     &varobjdebug,
-			     _("Set varobj debugging."),
-			     _("Show varobj debugging."),
-			     _("When non-zero, varobj debugging is enabled."),
-			     NULL, show_varobjdebug,
-			     &setlist, &showlist);
+  add_setshow_zinteger_cmd ("debugvarobj", class_maintenance,
+			    &varobjdebug,
+			    _("Set varobj debugging."),
+			    _("Show varobj debugging."),
+			    _("When non-zero, varobj debugging is enabled."),
+			    NULL, show_varobjdebug,
+			    &setlist, &showlist);
 }
 
 /* Invalidate varobj VAR if it is tied to locals and re-create it if it is
-   defined on globals.  It is a helper for varobj_invalidate.
-
-   This function is called after changing the symbol file, in this case the
-   pointers to "struct type" stored by the varobj are no longer valid.  All
-   varobj must be either re-evaluated, or marked as invalid here.  */
+   defined on globals.  It is a helper for varobj_invalidate.  */
 
 static void
 varobj_invalidate_iter (struct varobj *var, void *unused)
 {
-  /* global and floating var must be re-evaluated.  */
-  if (var->root->floating || var->root->valid_block == NULL)
+  /* Floating varobjs are reparsed on each stop, so we don't care if the
+     presently parsed expression refers to something that's gone.  */
+  if (var->root->floating)
+    return;
+
+  /* global var must be re-evaluated.  */     
+  if (var->root->valid_block == NULL)
     {
       struct varobj *tmp_var;
 
