@@ -1,7 +1,7 @@
 /* sigproc.h
 
-   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2009, 2010,
-   2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
+   2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -24,8 +24,8 @@ enum
   __SIGFLUSHFAST    = -(NSIG + 6),
   __SIGHOLD	    = -(NSIG + 7),
   __SIGNOHOLD	    = -(NSIG + 8),
-  __SIGSETPGRP	    = -(NSIG + 9),
-  __SIGTHREADEXIT   = -(NSIG + 10)
+  __SIGEXIT	    = -(NSIG + 9),
+  __SIGSETPGRP	    = -(NSIG + 10)
 };
 #endif
 
@@ -47,7 +47,7 @@ struct sigpacket
 {
   siginfo_t si;
   pid_t pid;
-  class _cygtls *sigtls;
+  class _cygtls *tls;
   sigset_t *mask;
   union
   {
@@ -55,33 +55,36 @@ struct sigpacket
     HANDLE thread_handle;
     struct sigpacket *next;
   };
-  int __reg1 process ();
-  int __reg3 setup_handler (void *, struct sigaction&, _cygtls *);
+  int __stdcall process () __attribute__ ((regparm (1)));
 };
 
-void __reg1 sig_dispatch_pending (bool fast = false);
-void __reg2 set_signal_mask (sigset_t&, sigset_t);
-int __reg3 handle_sigprocmask (int sig, const sigset_t *set,
-				  sigset_t *oldset, sigset_t& opmask);
+void __stdcall sig_dispatch_pending (bool fast = false)
+  __attribute__ ((regparm (1)));
+void set_signal_mask (sigset_t&, sigset_t) __attribute__ ((regparm (2)));
+int __stdcall handle_sigprocmask (int sig, const sigset_t *set,
+				  sigset_t *oldset, sigset_t& opmask)
+  __attribute__ ((regparm (3)));
 
-void __reg1 sig_clear (int);
-void __reg1 sig_set_pending (int);
+void __stdcall sig_clear (int) __attribute__ ((regparm (1)));
+void __stdcall sig_set_pending (int) __attribute__ ((regparm (1)));
 int __stdcall handle_sigsuspend (sigset_t);
 
-int __reg2 proc_subproc (DWORD, DWORD);
+int __stdcall proc_subproc (DWORD, DWORD) __attribute__ ((regparm (2)));
 
 class _pinfo;
 void __stdcall proc_terminate ();
 void __stdcall sigproc_init ();
-bool __reg1 pid_exists (pid_t);
-int __reg3 sig_send (_pinfo *, siginfo_t&, class _cygtls * = NULL);
-int __reg3 sig_send (_pinfo *, int, class _cygtls * = NULL);
+#ifdef __INSIDE_CYGWIN__
+void __stdcall sigproc_terminate (enum exit_states);
+#endif
+bool __stdcall pid_exists (pid_t) __attribute__ ((regparm(1)));
+int __stdcall sig_send (_pinfo *, siginfo_t&, class _cygtls *tls = NULL) __attribute__ ((regparm (3)));
+int __stdcall sig_send (_pinfo *, int) __attribute__ ((regparm (2)));
 void __stdcall signal_fixup_after_exec ();
 void __stdcall sigalloc ();
 
 int kill_pgrp (pid_t, siginfo_t&);
-void __reg1 exit_thread (DWORD) __attribute__ ((noreturn));
-void __reg1 setup_signal_exit (int);
+int killsys (pid_t, int);
 
 extern "C" void sigdelayed ();
 

@@ -1,7 +1,7 @@
 /* pinfo.cc: process table support
 
-   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -21,6 +21,7 @@ details. */
 #include "pinfo.h"
 #include "perprocess.h"
 #include "environ.h"
+#include <assert.h>
 #include "ntdll.h"
 #include "shared_info.h"
 #include "cygheap.h"
@@ -175,16 +176,18 @@ pinfo::maybe_set_exit_code_from_windows ()
 void
 pinfo::exit (DWORD n)
 {
-  debug_only_printf ("winpid %d, exit %d", GetCurrentProcessId (), n);
-  proc_terminate ();
+  minimal_printf ("winpid %d, exit %d", GetCurrentProcessId (), n);
+  sigproc_terminate (ES_FINAL);
   lock_process until_exit (true);
   cygthread::terminate ();
 
   if (n != EXITCODE_NOSET)
     self->exitcode = EXITCODE_SET | n;/* We're really exiting.  Record the UNIX exit code. */
   else
-    maybe_set_exit_code_from_windows ();	/* may block */
-  exit_state = ES_FINAL;
+    {
+      exit_state = ES_EXEC_EXIT;
+      maybe_set_exit_code_from_windows ();
+    }
 
   if (myself->ctty > 0 && !iscons_dev (myself->ctty))
     {
@@ -240,6 +243,7 @@ pinfo::init (pid_t n, DWORD flag, HANDLE h0)
       return;
     }
 
+  void *mapaddr;
   int createit = flag & (PID_IN_USE | PID_EXECED);
   DWORD access = FILE_MAP_READ
 		 | (flag & (PID_IN_USE | PID_EXECED | PID_MAP_RW)
@@ -281,9 +285,13 @@ pinfo::init (pid_t n, DWORD flag, HANDLE h0)
 	  if (exit_state)
 	    return;
 
-	  if (GetLastError () == ERROR_INVALID_HANDLE)
-	    api_fatal ("MapViewOfFileEx h0 %p, i %d failed, %E", h0, i);
-
+	  switch (GetLastError ())
+	    {
+	    case ERROR_INVALID_HANDLE:
+	      api_fatal ("MapViewOfFileEx h0 %p, i %d failed, %E", h0, i);
+	    case ERROR_INVALID_ADDRESS:
+	      mapaddr = NULL;
+	    }
 	  debug_printf ("MapViewOfFileEx h0 %p, i %d failed, %E", h0, i);
 	  yield ();
 	  continue;
@@ -291,21 +299,12 @@ pinfo::init (pid_t n, DWORD flag, HANDLE h0)
 
       bool created = shloc != SH_JUSTOPEN;
 
-      /* Detect situation where a transitional memory block is being retrieved.
-	 If the block has been allocated with PINFO_REDIR_SIZE but not yet
-	 updated with a PID_EXECED state then we'll retry.  */
-      MEMORY_BASIC_INFORMATION mbi;
-      if (!created && procinfo->exists ()
-	  && VirtualQuery (procinfo, &mbi, sizeof (mbi))
-	  && mbi.RegionSize < sizeof (_pinfo))
-	goto loop;
-
       if (!created && createit && (procinfo->process_state & PID_REAPED))
 	{
 	  memset (procinfo, 0, sizeof (*procinfo));
 	  created = true;	/* Lie that we created this - just reuse old
 				   shared memory */
-	}
+	} 
 
       if ((procinfo->process_state & PID_REAPED)
 	  || ((procinfo->process_state & PID_INITIALIZING) && (flag & PID_NOREDIR)
@@ -317,6 +316,7 @@ pinfo::init (pid_t n, DWORD flag, HANDLE h0)
 
       if (procinfo->process_state & PID_EXECED)
 	{
+	  assert (i == 0);
 	  pid_t realpid = procinfo->pid;
 	  debug_printf ("execed process windows pid %d, cygwin pid %d", n, realpid);
 	  if (realpid == n)
@@ -488,7 +488,7 @@ _pinfo::set_ctty (fhandler_termios *fh, int flags)
 bool __stdcall
 _pinfo::exists ()
 {
-  return this && process_state && !(process_state & (PID_EXITED | PID_REAPED | PID_EXECED));
+  return this && !(process_state & (PID_EXITED | PID_REAPED | PID_EXECED));
 }
 
 bool
@@ -513,7 +513,7 @@ commune_process (void *arg)
   if (process_sync)		// FIXME: this test shouldn't be necessary
     ProtectHandle (process_sync);
 
-  lock_process now;
+  lock_process now ();
   if (si._si_commune._si_code & PICOM_EXTRASTR)
     si._si_commune._si_str = (char *) (&si + 1);
 

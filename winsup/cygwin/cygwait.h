@@ -28,8 +28,9 @@ extern LARGE_INTEGER cw_nowait_storage;
 
 const unsigned cw_std_mask = cw_cancel | cw_cancel_self | cw_sig;
 
-DWORD __reg3 cygwait (HANDLE, PLARGE_INTEGER timeout,
-		       unsigned = cw_std_mask);
+DWORD cygwait (HANDLE, PLARGE_INTEGER timeout,
+		       unsigned = cw_std_mask)
+  __attribute__ ((regparm (3)));
 
 extern inline DWORD __attribute__ ((always_inline))
 cygwait (HANDLE h, DWORD howlong, unsigned mask)

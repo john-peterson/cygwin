@@ -1,7 +1,7 @@
 /* exceptions.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -39,9 +39,13 @@ char debugger_command[2 * NT_MAX_PATH + 20];
 
 static BOOL WINAPI ctrl_c_handler (DWORD);
 
+/* This is set to indicate that we have already exited.  */
+
+static NO_COPY int exit_already = 0;
+
 NO_COPY static struct
 {
-  NTSTATUS code;
+  unsigned int code;
   const char *name;
 } status_info[] =
 {
@@ -161,8 +165,8 @@ open_stackdumpfile ()
 
 /* Utilities for dumping the stack, etc.  */
 
-void
-cygwin_exception::dump_exception ()
+static void
+dump_exception (EXCEPTION_RECORD *e,  CONTEXT *in)
 {
   const char *exception_name = NULL;
 
@@ -170,7 +174,7 @@ cygwin_exception::dump_exception ()
     {
       for (int i = 0; status_info[i].name; i++)
 	{
-	  if (status_info[i].code == (NTSTATUS) e->ExceptionCode)
+	  if (status_info[i].code == e->ExceptionCode)
 	    {
 	      exception_name = status_info[i].name;
 	      break;
@@ -179,15 +183,15 @@ cygwin_exception::dump_exception ()
     }
 
   if (exception_name)
-    small_printf ("Exception: %s at eip=%08x\r\n", exception_name, ctx->Eip);
+    small_printf ("Exception: %s at eip=%08x\r\n", exception_name, in->Eip);
   else
-    small_printf ("Signal %d at eip=%08x\r\n", e->ExceptionCode, ctx->Eip);
+    small_printf ("Signal %d at eip=%08x\r\n", e->ExceptionCode, in->Eip);
   small_printf ("eax=%08x ebx=%08x ecx=%08x edx=%08x esi=%08x edi=%08x\r\n",
-		ctx->Eax, ctx->Ebx, ctx->Ecx, ctx->Edx, ctx->Esi, ctx->Edi);
+		in->Eax, in->Ebx, in->Ecx, in->Edx, in->Esi, in->Edi);
   small_printf ("ebp=%08x esp=%08x program=%W, pid %u, thread %s\r\n",
-		ctx->Ebp, ctx->Esp, myself->progname, myself->pid, cygthread::name ());
+		in->Ebp, in->Esp, myself->progname, myself->pid, cygthread::name ());
   small_printf ("cs=%04x ds=%04x es=%04x fs=%04x gs=%04x ss=%04x\r\n",
-		ctx->SegCs, ctx->SegDs, ctx->SegEs, ctx->SegFs, ctx->SegGs, ctx->SegSs);
+		in->SegCs, in->SegDs, in->SegEs, in->SegFs, in->SegGs, in->SegSs);
 }
 
 /* A class for manipulating the stack. */
@@ -271,7 +275,7 @@ stack_info::walk ()
 }
 
 void
-cygwin_exception::dumpstack ()
+stackdump (DWORD ebp, PCONTEXT in, EXCEPTION_RECORD *e)
 {
   static bool already_dumped;
 
@@ -281,11 +285,11 @@ cygwin_exception::dumpstack ()
   open_stackdumpfile ();
 
   if (e)
-    dump_exception ();
+    dump_exception (e, in);
 
   int i;
 
-  thestack.init (ebp, 1, !ctx);	/* Initialize from the input CONTEXT */
+  thestack.init (ebp, 1, !in);	/* Initialize from the input CONTEXT */
   small_printf ("Stack trace:\r\nFrame     Function  Args\r\n");
   for (i = 0; i < 16 && thestack++; i++)
     {
@@ -347,8 +351,7 @@ cygwin_stackdump ()
   CONTEXT c;
   c.ContextFlags = CONTEXT_FULL;
   GetThreadContext (GetCurrentThread (), &c);
-  cygwin_exception exc (c.Ebp);
-  exc.dumpstack ();
+  stackdump (c.Ebp);
 }
 
 #define TIME_TO_WAIT_FOR_DEBUGGER 10000
@@ -441,7 +444,7 @@ try_to_debug (bool waitloop)
 }
 
 extern "C" void WINAPI RtlUnwind (void *, void *, PEXCEPTION_RECORD, void *);
-static void __reg3 rtl_unwind (exception_list *, PEXCEPTION_RECORD) __attribute__ ((noinline, ));
+static void __stdcall rtl_unwind (exception_list *, PEXCEPTION_RECORD) __attribute__ ((noinline, regparm (3)));
 void __stdcall
 rtl_unwind (exception_list *frame, PEXCEPTION_RECORD e)
 {
@@ -478,12 +481,12 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
       return 0;
     }
 
-  /* If we're exiting, don't do anything here.  Returning 1
+  /* If we've already exited, don't do anything here.  Returning 1
      tells Windows to keep looking for an exception handler.  */
-  if (exit_state || e->ExceptionFlags)
+  if (exit_already || e->ExceptionFlags)
     return 1;
 
-  siginfo_t si = {};
+  siginfo_t si = {0};
   si.si_code = SI_KERNEL;
   /* Coerce win32 value to posix value.  */
   switch (e->ExceptionCode)
@@ -593,11 +596,16 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
       return 1;
     }
 
-  if (me.andreas)
-    me.andreas->leave ();	/* Return from a "san" caught fault */
-
   debug_printf ("In cygwin_except_handler exception %p at %p sp %p", e->ExceptionCode, in->Eip, in->Esp);
   debug_printf ("In cygwin_except_handler signal %d at %p", si.si_signo, in->Eip);
+
+  bool masked = !!(me.sigmask & SIGTOMASK (si.si_signo));
+  if (masked)
+    syscall_printf ("signal %d, masked %p", si.si_signo,
+		    global_sigs[si.si_signo].sa_mask);
+
+  debug_printf ("In cygwin_except_handler calling %p",
+		 global_sigs[si.si_signo].sa_handler);
 
   DWORD *ebp = (DWORD *) in->Esp;
   for (DWORD *bpend = (DWORD *) __builtin_frame_address (0); ebp > bpend; ebp--)
@@ -607,6 +615,9 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
 	break;
       }
 
+  if (me.andreas)
+    me.andreas->leave ();	/* Return from a "san" caught fault */
+
   me.copy_context (in);
 
   /* Temporarily replace windows top level SEH with our own handler.
@@ -614,38 +625,64 @@ exception::handle (EXCEPTION_RECORD *e, exception_list *frame, CONTEXT *in, void
      will be removed automatically after our exception handler returns. */
   _except_list->handler = handle;
 
-  /* Another exception could happen while tracing or while exiting.
-     Only do this once.  */
-  if (recursed++)
-    api_fatal ("Error while dumping state (probably corrupted stack)");
-  else if (!try_to_debug (0))
-    rtl_unwind (frame, e);
-  else
+  if (masked
+      || &me == _sig_tls
+      || !cygwin_finished_initializing
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_DFL
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_IGN
+      || (void *) global_sigs[si.si_signo].sa_handler == (void *) SIG_ERR)
     {
-      debugging = true;
-      return 0;
+      /* Print the exception to the console */
+      if (!myself->cygstarted)
+	for (int i = 0; status_info[i].name; i++)
+	  if (status_info[i].code == e->ExceptionCode)
+	    {
+	      system_printf ("Exception: %s", status_info[i].name);
+	      break;
+	    }
+
+      /* Another exception could happen while tracing or while exiting.
+	 Only do this once.  */
+      if (recursed++)
+	system_printf ("Error while dumping state (probably corrupted stack)");
+      else
+	{
+	  if (try_to_debug (0))
+	    {
+	      debugging = true;
+	      return 0;
+	    }
+
+	  rtl_unwind (frame, e);
+	  if (cygheap->rlim_core > 0UL)
+	    stackdump ((DWORD) ebp, in, e);
+	}
+
+      if ((NTSTATUS) e->ExceptionCode == STATUS_ACCESS_VIOLATION)
+	{
+	  int error_code = 0;
+	  if (si.si_code == SEGV_ACCERR)	/* Address present */
+	    error_code |= 1;
+	  if (e->ExceptionInformation[0])	/* Write access */
+	    error_code |= 2;
+	  if (!me.inside_kernel (in))		/* User space */
+	    error_code |= 4;
+	  klog (LOG_INFO, "%s[%d]: segfault at %08x rip %08x rsp %08x error %d",
+			  __progname, myself->pid,
+			  e->ExceptionInformation[1], in->Eip, in->Esp,
+			  error_code);
+	}
+
+      /* Flag signal + core dump */
+      me.signal_exit ((cygheap->rlim_core > 0UL ? 0x80 : 0) | si.si_signo);
     }
 
-  /* FIXME: Probably should be handled in sigpacket::process */
-  if ((NTSTATUS) e->ExceptionCode == STATUS_ACCESS_VIOLATION)
-    {
-      int error_code = 0;
-      if (si.si_code == SEGV_ACCERR)	/* Address present */
-	error_code |= 1;
-      if (e->ExceptionInformation[0])	/* Write access */
-	error_code |= 2;
-      if (!me.inside_kernel (in))	/* User space */
-	error_code |= 4;
-      klog (LOG_INFO, "%s[%d]: segfault at %08x rip %08x rsp %08x error %d",
-		      __progname, myself->pid, e->ExceptionInformation[1],
-		      in->Eip, in->Esp, error_code);
-    }
-
-  cygwin_exception exc ((DWORD) ebp, in, e);
-  si.si_cyg = (void *) &exc;
-  si.si_addr = (void *) in->Eip;
+  si.si_addr =  (si.si_signo == SIGSEGV || si.si_signo == SIGBUS
+		 ? (void *) e->ExceptionInformation[1]
+		 : (void *) in->Eip);
+  si.si_errno = si.si_pid = si.si_uid = 0;
   me.incyg++;
-  sig_send (NULL, si, &me);	/* Signal myself */
+  sig_send (NULL, si, &me);	// Signal myself
   me.incyg--;
   e->ExceptionFlags = 0;
   return 0;
@@ -688,7 +725,7 @@ extern DWORD exec_exit;		// Possible exit value for exec
 
 extern "C" {
 static void
-sig_handle_tty_stop (int sig, siginfo_t *, void *)
+sig_handle_tty_stop (int sig)
 {
   _my_tls.incyg = 1;
   /* Silently ignore attempts to suspend if there is no accommodating
@@ -706,7 +743,6 @@ sig_handle_tty_stop (int sig, siginfo_t *, void *)
       switch (res)
 	{
 	case WAIT_SIGNALED:
-	  _my_tls.sig = 0;
 	  myself->stopsig = SIGCONT;
 	  myself->alert_parent (SIGCONT);
 	  break;
@@ -720,7 +756,7 @@ sig_handle_tty_stop (int sig, siginfo_t *, void *)
 } /* end extern "C" */
 
 bool
-_cygtls::interrupt_now (CONTEXT *cx, siginfo_t& si, void *handler,
+_cygtls::interrupt_now (CONTEXT *cx, int sig, void *handler,
 			struct sigaction& siga)
 {
   bool interrupted;
@@ -734,7 +770,7 @@ _cygtls::interrupt_now (CONTEXT *cx, siginfo_t& si, void *handler,
   else
     {
       push ((__stack_t) cx->Eip);
-      interrupt_setup (si, handler, siga);
+      interrupt_setup (sig, handler, siga);
       cx->Eip = pop ();
       SetThreadContext (*this, cx); /* Restart the thread in a new location */
       interrupted = true;
@@ -743,12 +779,12 @@ _cygtls::interrupt_now (CONTEXT *cx, siginfo_t& si, void *handler,
 }
 
 void __stdcall
-_cygtls::interrupt_setup (siginfo_t& si, void *handler, struct sigaction& siga)
+_cygtls::interrupt_setup (int sig, void *handler, struct sigaction& siga)
 {
   push ((__stack_t) sigdelayed);
   deltamask = siga.sa_mask & ~SIG_NONMASKABLE;
   sa_flags = siga.sa_flags;
-  func = (void (*) (int, siginfo_t *, void *)) handler;
+  func = (void (*) (int)) handler;
   if (siga.sa_flags & SA_RESETHAND)
     siga.sa_handler = SIG_DFL;
   saved_errno = -1;		// Flag: no errno to save
@@ -758,15 +794,17 @@ _cygtls::interrupt_setup (siginfo_t& si, void *handler, struct sigaction& siga)
       myself->process_state |= PID_STOPPED;
     }
 
-  infodata = si;
-  this->sig = si.si_signo;		// Should always be last thing set to avoid a race
+  this->sig = sig;			// Should always be last thing set to avoid a race
 
   if (incyg)
-    SetEvent (get_signal_arrived (false));
+    {
+      if (!signal_arrived)
+	create_signal_arrived ();
+      SetEvent (signal_arrived);
+    }
 
-  if (!have_execed)
-    proc_subproc (PROC_CLEARWAIT, 1);
-  sigproc_printf ("armed signal_arrived %p, signal %d", signal_arrived, si.si_signo);
+  proc_subproc (PROC_CLEARWAIT, 1);
+  sigproc_printf ("armed signal_arrived %p, signal %d", signal_arrived, sig);
 }
 
 extern "C" void __stdcall
@@ -776,8 +814,10 @@ set_sig_errno (int e)
   _my_tls.saved_errno = e;
 }
 
-int
-sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
+static int setup_handler (int, void *, struct sigaction&, _cygtls *tls)
+  __attribute__((regparm(3)));
+static int
+setup_handler (int sig, void *handler, struct sigaction& siga, _cygtls *tls)
 {
   CONTEXT cx;
   bool interrupted = false;
@@ -785,13 +825,9 @@ sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
   if (tls->sig)
     {
       sigproc_printf ("trying to send signal %d but signal %d already armed",
-		      si.si_signo, tls->sig);
+		      sig, tls->sig);
       goto out;
     }
-
-  while (in_forkee)
-    yield ();		/* Won't be able to send signals until we're finished
-			   processing fork().  */
 
   for (int n = 0; n < CALL_HANDLER_RETRY_OUTER; n++)
     {
@@ -802,7 +838,7 @@ sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
 	    {
 	      sigproc_printf ("controlled interrupt. stackptr %p, stack %p, stackptr[-1] %p",
 			      tls->stackptr, tls->stack, tls->stackptr[-1]);
-	      tls->interrupt_setup (si, handler, siga);
+	      tls->interrupt_setup (sig, handler, siga);
 	      interrupted = true;
 	      tls->unlock ();
 	      goto out;
@@ -810,34 +846,30 @@ sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
 
 	  DWORD res;
 	  HANDLE hth = (HANDLE) *tls;
-	  if (!hth)
-	    sigproc_printf ("thread handle NULL, not set up yet?");
-	  else
+
+	  /* Suspend the thread which will receive the signal.
+	     If one of these conditions is not true we loop.
+	     If the thread is already suspended (which can occur when a program
+	     has called SuspendThread on itself) then just queue the signal. */
+
+	  sigproc_printf ("suspending thread, tls %p, _main_tls %p", tls, _main_tls);
+	  res = SuspendThread (hth);
+	  /* Just set pending if thread is already suspended */
+	  if (res)
 	    {
-	      /* Suspend the thread which will receive the signal.
-		 If one of these conditions is not true we loop.
-		 If the thread is already suspended (which can occur when a program
-		 has called SuspendThread on itself) then just queue the signal. */
-
-	      sigproc_printf ("suspending thread, tls %p, _main_tls %p", tls, _main_tls);
-	      res = SuspendThread (hth);
-	      /* Just set pending if thread is already suspended */
-	      if (res)
-		{
-		  ResumeThread (hth);
-		  goto out;
-		}
-	      cx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
-	      if (!GetThreadContext (hth, &cx))
-		sigproc_printf ("couldn't get context of thread, %E");
-	      else
-		interrupted = tls->interrupt_now (&cx, si, handler, siga);
-
-	      tls->unlock ();
 	      ResumeThread (hth);
-	      if (interrupted)
-		goto out;
+	      goto out;
 	    }
+	  cx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+	  if (!GetThreadContext (hth, &cx))
+	    sigproc_printf ("couldn't get context of thread, %E");
+	  else
+	    interrupted = tls->interrupt_now (&cx, sig, handler, siga);
+
+	  tls->unlock ();
+	  ResumeThread (hth);
+	  if (interrupted)
+	    goto out;
 
 	  sigproc_printf ("couldn't interrupt.  trying again.");
 	  yield ();
@@ -848,7 +880,7 @@ sigpacket::setup_handler (void *handler, struct sigaction& siga, _cygtls *tls)
     }
 
 out:
-  sigproc_printf ("signal %d %sdelivered", si.si_signo, interrupted ? "" : "not ");
+  sigproc_printf ("signal %d %sdelivered", sig, interrupted ? "" : "not ");
   return interrupted;
 }
 
@@ -878,6 +910,14 @@ static BOOL WINAPI
 ctrl_c_handler (DWORD type)
 {
   static bool saw_close;
+
+  if (!cygwin_finished_initializing)
+    {
+      if (myself->cygstarted)	/* Was this process created by a cygwin process? */
+	return TRUE;		/* Yes.  Let the parent eventually handle CTRL-C issues. */
+      debug_printf ("exiting with status %p", STATUS_CONTROL_C_EXIT);
+      ExitProcess (STATUS_CONTROL_C_EXIT);
+    }
 
   /* Remove early or we could overthrow the threadlist in cygheap.
      Deleting this line causes ash to SEGV if CTRL-C is hit repeatedly.
@@ -925,7 +965,7 @@ ctrl_c_handler (DWORD type)
 	     list goad.  */
 	  if (global_sigs[SIGHUP].sa_handler != SIG_DFL)
 	    {
-	      sig_send (myself, SIGHUP);
+	      sig_send (myself_nowait, SIGHUP);
 	      return TRUE;
 	    }
 	  return FALSE;
@@ -956,7 +996,7 @@ ctrl_c_handler (DWORD type)
 	  && t->ti.c_cc[VINTR] == 3 && t->ti.c_cc[VQUIT] == 3)
 	sig = SIGQUIT;
       t->last_ctrl_c = GetTickCount ();
-      t->kill_pgrp (sig);
+      killsys (-myself->pid, sig);
       t->last_ctrl_c = GetTickCount ();
       return TRUE;
     }
@@ -1078,53 +1118,6 @@ set_signal_mask (sigset_t& setmask, sigset_t newmask)
     sig_dispatch_pending (true);
 }
 
-/* Exit due to a signal.  Should only be called from the signal thread.  */
-extern "C" {
-static void
-signal_exit (int sig, siginfo_t *si)
-{
-  debug_printf ("exiting due to signal %d", sig);
-  exit_state = ES_SIGNAL_EXIT;
-
-  if (cygheap->rlim_core > 0UL)
-    switch (sig)
-      {
-      case SIGABRT:
-      case SIGBUS:
-      case SIGFPE:
-      case SIGILL:
-      case SIGQUIT:
-      case SIGSEGV:
-      case SIGSYS:
-      case SIGTRAP:
-      case SIGXCPU:
-      case SIGXFSZ:
-	if (try_to_debug ())
-	  break;
-	if (si->si_code != SI_USER && si->si_cyg)
-	  ((cygwin_exception *) si->si_cyg)->dumpstack ();
-	else
-	  {
-	    cygwin_exception exc (_my_tls.thread_context.ebp);
-	    exc.dumpstack ();
-	  }
-	break;
-      }
-
-  lock_process until_exit (true);
-
-  if (have_execed || exit_state > ES_PROCESS_LOCKED)
-    myself.exit (sig);
-
-  /* Starve other threads in a vain attempt to stop them from doing something
-     stupid. */
-  SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_TIME_CRITICAL);
-
-  sigproc_printf ("about to call do_exit (%x)", sig);
-  do_exit (sig);
-}
-} /* extern "C" */
-
 int __stdcall
 sigpacket::process ()
 {
@@ -1145,6 +1138,19 @@ sigpacket::process ()
       sig_clear (SIGTTOU);
     }
 
+  switch (si.si_signo)
+    {
+    case SIGINT:
+    case SIGQUIT:
+    case SIGSTOP:
+    case SIGTSTP:
+      if (cygheap->ctty)
+	cygheap->ctty->sigflush ();
+      break;
+    default:
+      break;
+    }
+
   int rc = 1;
 
   sigproc_printf ("signal %d processing", si.si_signo);
@@ -1152,24 +1158,22 @@ sigpacket::process ()
 
   myself->rusage_self.ru_nsignals++;
 
-  _cygtls *tls;
-  if (sigtls)
-    {
-      tls = sigtls;
-      sigproc_printf ("using sigtls %p", sigtls);
-    }
-  else
-    {
-      tls = cygheap->find_tls (si.si_signo);
-      sigproc_printf ("using tls %p", tls);
-    }
-
-  void *handler = have_execed ? NULL : (void *) thissig.sa_handler;
-
+  void *handler = (void *) thissig.sa_handler;
   if (handler == SIG_IGN)
     {
       sigproc_printf ("signal %d ignored", si.si_signo);
       goto done;
+    }
+
+  if (have_execed)
+    handler = NULL;
+
+  if (tls)
+    sigproc_printf ("using tls %p", tls);
+  else
+    {
+      tls = cygheap->find_tls (si.si_signo);
+      sigproc_printf ("using tls %p", tls);
     }
 
   if (si.si_signo == SIGKILL)
@@ -1219,53 +1223,33 @@ sigpacket::process ()
 stop:
   handler = (void *) sig_handle_tty_stop;
   thissig = dummy;
-  goto dosig;
-
-exit_sig:
-  handler = (void *) signal_exit;
-  thissig.sa_flags |= SA_SIGINFO;
-  if (si.si_signo == SIGKILL)
-    goto dispatch_sig;
 
 dosig:
   if (ISSTATE (myself, PID_STOPPED) && !continue_now)
-    {
       rc = -1;		/* No signals delivered if stopped */
-      goto done;
-    }
-
-dispatch_sig:
-  /* Do stuff for gdb */
-  if (si.si_code == SI_USER || !si.si_cyg)
+  else
     {
-      CONTEXT c;
-      c.ContextFlags = CONTEXT_FULL;
-      GetThreadContext (hMainThread, &c);
-      _my_tls.copy_context (&c);
-
-      /* Tell gdb that we got a signal. Presumably, gdb already noticed this
-         if we hit an exception.  */
-      _my_tls.signal_debugger (si.si_signo);
+      tls->set_siginfo (this);
+      /* Dispatch to the appropriate function. */
+      sigproc_printf ("signal %d, signal handler %p", si.si_signo, handler);
+      rc = setup_handler (si.si_signo, handler, thissig, tls);
+      continue_now = false;
     }
-  if (have_execed)
-    {
-      sigproc_printf ("terminating captive process");
-      TerminateProcess (ch_spawn, sigExeced = si.si_signo);
-    }
-  /* Dispatch to the appropriate function. */
-  sigproc_printf ("signal %d, signal handler %p", si.si_signo, handler);
-  rc = setup_handler (handler, thissig, tls);
-  continue_now = false;
 
 done:
   if (continue_now)
-    {
-      tls->sig = SIGCONT;
-      SetEvent (tls->signal_arrived);
-    }
+    SetEvent (tls->signal_arrived);
   sigproc_printf ("returning %d", rc);
   return rc;
 
+exit_sig:
+  tls->signal_exit (si.si_signo);	/* never returns */
+}
+
+void
+events_terminate ()
+{
+  exit_already = 1;
 }
 
 int
@@ -1288,23 +1272,28 @@ _cygtls::call_signal_handler ()
 
       debug_only_printf ("dealing with signal %d", sig);
       this_sa_flags = sa_flags;
-
-      /* Save information locally on stack to pass to handler. */
       int thissig = sig;
-      siginfo_t thissi = infodata;
-      void (*thisfunc) (int, siginfo_t *, void *) = func;
+      void (*thisfunc) (int) = func;
 
       sigset_t this_oldmask = set_process_mask_delta ();
       int this_errno = saved_errno;
-      sig = 0;		/* Flag that we can accept another signal */
+      sig = 0;
       reset_signal_arrived ();
-      unlock ();	/* unlock signal stack */
-
-      incyg = false;
-      /* no ucontext_t information provided yet, so third arg is NULL */
-      thisfunc (thissig, &thissi, NULL);
+      unlock ();	// make sure synchronized
+      if (!(this_sa_flags & SA_SIGINFO))
+	{
+	  incyg = false;
+	  thisfunc (thissig);
+	}
+      else
+	{
+	  siginfo_t thissi = infodata;
+	  void (*sigact) (int, siginfo_t *, void *) = (void (*) (int, siginfo_t *, void *)) thisfunc;
+	  /* no ucontext_t information provided yet */
+	  incyg = false;
+	  sigact (thissig, &thissi, NULL);
+	}
       incyg = true;
-
       set_signal_mask (_my_tls.sigmask, this_oldmask);
       if (this_errno >= 0)
 	set_errno (this_errno);
