@@ -45,7 +45,6 @@
 #include "regcache.h"
 #include "arch-utils.h"
 #include "psymtab.h"
-#include <ctype.h>
 
 /* tcl header files includes varargs.h unless HAS_STDARG is defined,
    but gdb uses stdarg.h, so make sure HAS_STDARG is defined.  */
@@ -87,6 +86,10 @@
          cygwin_conv_to_win32_path (from, to)
 #   define CW_SET_DOS_FILE_WARNING -1	/* no-op this for older Cygwin */
 # endif
+#endif
+
+#ifdef HAVE_CTYPE_H
+#include <ctype.h>		/* for isprint() */
 #endif
 
 #ifdef _WIN32
@@ -595,7 +598,7 @@ gdb_stop (ClientData clientData, Tcl_Interp *interp,
       if (target_ignore != (void (*) (void)) current_target.to_stop)
 	target_stop (gdbtk_get_ptid ());
       else
-	set_quit_flag ();		/* hope something sees this */
+	quit_flag = 1;		/* hope something sees this */
     }
 
   return TCL_OK;
@@ -965,7 +968,7 @@ gdb_load_info (ClientData clientData, Tcl_Interp *interp,
       gdbtk_set_result (interp, "Open of %s failed", filename);
       return TCL_ERROR;
     }
-  old_cleanups = make_cleanup_bfd_unref (loadfile_bfd);
+  old_cleanups = make_cleanup_bfd_close (loadfile_bfd);
 
   if (!bfd_check_format (loadfile_bfd, bfd_object))
     {

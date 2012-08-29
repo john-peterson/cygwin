@@ -1,42 +1,7 @@
-2012-11-21  Pierre Muller  <muller@sourceware.org>
+2012-08-29  Kevin Buettner  <kevinb@redhat.com>
 
-	* generic/gdbtk-register.c (register_changed_p): Adapt to
-	function name change from frame_register_read to
-	deprecated_frame_register_read.
-
-2012-11-16  Keith Seitz  <keiths@redhat.com>
-
-	From Pierre Muller  <muller@sourceware.org>
-	Adapt to change in gdb/configure.ac
-	Don't check for ctype.h, time.h.
-	* generic/gdbtk-cmds.c: Don't use HAVE_CTYPE_H.
-
-2012-11-10  Keith Seitz  <keiths@redhat.com>
-
-	* generic/gdbtk-bp.c (breakpoint_notify): Fix logic error
-	when detecting breakpoint types to be handled.
-
-2012-11-10  Keith Seitz  <keiths@redhat.com>
-
-	* generic/gdbtk-bp.c (breakpoint_notify): Handle tracepoints, too.
-	(tracepoint_notify): Remove.
-	(gdbtk_create_tracepoint): Remove.
-	(gdbtk_delete_tracepoint): Remove.
-	(gdbtk_modify_tracepoint): Remove.
-	* generic/gdbtk-hooks.c: Remove deleted function extern declarations.
-	(gdbtk_add_hooks): Remove tracepoint observers.
-
-2012-10-24  Keith Seitz  <keiths@redhat.com>
-
-	* generic/gdbtk-hooks.c (gdbtk_memory_changed): Update for
-	API changes.
-
-2012-10-10  Keith Seitz  <keiths@redhat.com>
-
-	* generic/gdbtk-hooks.c (gdbtk_memory_changed): Change LEN
-	from int to ssize_t to match changes in the API.
-	(x_event): Use set_quit_flag to set the quit_flag.
-	* generic/gdbtk-cmds.c (gdb_stop): Likewise.
+	* generic/gdbtk-cmds.c (gdb_load_info): Revert change
+	regarding make_cleanup_bfd_unref for the gdb 7.5 branch.
 
 2012-08-08  Roland Schwingel  <roland.schwingel@onevision.com>
 
