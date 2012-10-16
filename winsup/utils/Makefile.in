@@ -1,6 +1,6 @@
 # Makefile for Cygwin utilities
-# Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-# 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+# Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+# 2005, 2006, 2007, 2008, 2009, 2010 Red Hat, Inc.
 
 # This file is part of Cygwin.
 
@@ -8,31 +8,10 @@
 # Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 # details.
 
+SHELL:=@SHELL@
+
 srcdir:=@srcdir@
-target_builddir:=@target_builddir@
-winsup_srcdir:=@winsup_srcdir@
-configure_args=@configure_args@
-
-export CC:=@CC@
-export CXX:=@CXX@
-
-CFLAGS:=@CFLAGS@
-CXXFLAGS:=@CXXFLAGS@
-override CXXFLAGS+=-fno-exceptions -fno-rtti
-
-include ${srcdir}/../Makefile.common
-
-cygwin_build:=${target_builddir}/winsup/cygwin
-
-cygwin_headers:=@cygwin_headers@
-
-# environment variables used by ccwrap
-export CCWRAP_HEADERS:=. ${srcdir} $(call justdir,${cygwin_headers})
-export CCWRAP_SYSTEM_HEADERS:=${cygwin_headers} @newlib_headers@
-export CCWRAP_DIRAFTER_HEADERS:=@windows_headers@
-
-WINDOWS_LIBDIR:=@windows_libdir@
-
+VPATH:=@srcdir@
 prefix:=@prefix@
 exec_prefix:=@exec_prefix@
 
@@ -46,13 +25,27 @@ override INSTALL_DATA:=@INSTALL_DATA@
 EXEEXT:=@EXEEXT@
 EXEEXT_FOR_BUILD:=@EXEEXT_FOR_BUILD@
 
+CC:=@CC@
+CC_FOR_TARGET:=$(CC)
+CXX:=@CXX@
+HOST_CPU=@HOST_CPU@
+CXX_FOR_TARGET:=$(CXX)
+
+CFLAGS:=@CFLAGS@
+CXXFLAGS:=@CXXFLAGS@
+override CXXFLAGS+=-fno-exceptions -fno-rtti -DHAVE_DECL_GETOPT=0
+
+include $(srcdir)/../Makefile.common
+
+.SUFFIXES:
+.NOEXPORT:
 .PHONY: all install clean realclean warn_dumper warn_cygcheck_zlib
 
-LDLIBS := -lnetapi32 -ladvapi32 -lkernel32 -luser32
-CYGWIN_LDFLAGS := -static-libgcc -static-libstdc++ -Wl,--enable-auto-import -L${WINDOWS_LIBDIR} $(LDLIBS)
-DEP_LDLIBS := $(cygwin_build)/libcygwin.a
+ALL_LDLIBS     := -lnetapi32 -ladvapi32 -lkernel32 -luser32
+ALL_LDFLAGS    := -static-libgcc -Wl,--enable-auto-import -B$(newlib_build)/libc $(LDFLAGS) $(ALL_LDLIBS)
+ALL_DEP_LDLIBS := $(cygwin_build)/libcygwin.a
 
-MINGW_CXX      := @MINGW_CXX@
+MINGW_CXX        := ${srcdir}/mingw ${HOST_CPU} ${CXX} -I${updir}
 
 # List all binaries to be linked in Cygwin mode.  Each binary on this list
 # must have a corresponding .o of the same name.
@@ -67,50 +60,53 @@ MINGW_BINS := ${addsuffix .exe,cygcheck cygwin-console-helper ldh strace}
 # list will will be compiled in Cygwin mode implicitly, so there is no
 # need for a CYGWIN_OBJS.
 MINGW_OBJS := bloda.o cygcheck.o dump_setup.o ldh.o path.o strace.o
-MINGW_LDFLAGS:=-L${WINDOWS_LIBDIR} -static-libgcc -static-libstdc++
-
-CYGCHECK_OBJS:=cygcheck.o bloda.o path.o dump_setup.o
-ZLIB:=-Wl,-dn,-lz,-dy
-
-.PHONY: all
-all:
 
 # If a binary should link in any objects besides the .o with the same
 # name as the binary, then list those here.
 strace.exe: path.o
-cygcheck.exe: cygcheck.o bloda.o path.o dump_setup.o
+cygcheck.exe: bloda.o path.o dump_setup.o
 
 path-mount.o: path.cc
-	${COMPILE.cc} -c -DFSTAB_ONLY -o $@ $<
+	$(CXX) -c $(CXXFLAGS) -DFSTAB_ONLY -I$(updir) $< -o $@
 mount.exe: path-mount.o
 
 # Provide any necessary per-target variable overrides.
-
-cygcheck.exe: MINGW_LDFLAGS += ${ZLIB} -lpsapi -lntdll
-cygcheck.exe: ${CYGCHECK_OBJS}
-
-cygpath.o: CXXFLAGS += -fno-threadsafe-statics
-cygpath.exe: CYGWIN_LDFLAGS += -luserenv -lntdll
-ps.exe: CYGWIN_LDFLAGS += -lpsapi -lntdll
+cygcheck.exe: MINGW_LDFLAGS += -lpsapi -lntdll
+cygpath.exe: ALL_LDFLAGS += -lcygwin -luserenv -lntdll
+cygpath.exe: CXXFLAGS += -fno-threadsafe-statics
+ps.exe: ALL_LDFLAGS += -lcygwin -lpsapi -lntdll
 strace.exe: MINGW_LDFLAGS += -lntdll
 
-ldd.exe:CYGWIN_LDFLAGS += -lpsapi
-pldd.exe: CYGWIN_LDFLAGS += -lpsapi
+ldd.exe: ALL_LDFLAGS += -lpsapi
+pldd.exe: ALL_LDFLAGS += -lpsapi
 
-ldh.exe: MINGW_LDFLAGS += -nostdlib -lkernel32
+ldh.exe: MINGW_LDFLAGS := -nostdlib -lkernel32
 
 # Check for dumper's requirements and enable it if found.
-libbfd   := $(call libname,libbfd.a)
-build_dumper := $(shell test -r "$(libbfd)" && echo 1)
-
+LIBICONV := @libiconv@
+libbfd   := ${shell $(CC) -B$(bupdir2)/bfd/ --print-file-name=libbfd.a}
+libintl  := ${shell $(CC) -B$(bupdir2)/intl/ --print-file-name=libintl.a}
+bfdlink	 := $(shell ${CC} -xc /dev/null -o /dev/null -c -B${bupdir2}/bfd/ -include bfd.h 2>&1)
+build_dumper := ${shell test -r $(libbfd) -a -r $(libintl) -a -n "$(LIBICONV)" -a -z "${bfdlink}" && echo 1}
 ifdef build_dumper
 CYGWIN_BINS += dumper.exe
-dumper.o module_info.o parse_pe.o: CXXFLAGS += -I$(top_srcdir)/include
+dumper.o module_info.o parse_pe.o: CXXFLAGS += -I$(bupdir2)/bfd -I$(updir1)/include
 dumper.o parse_pe.o: dumper.h
 dumper.exe: module_info.o parse_pe.o
-dumper.exe: CYGWIN_LDFLAGS += -lbfd -lintl -liconv -liberty ${ZLIB}
+dumper.exe: ALL_LDFLAGS += ${libbfd} ${libintl} -L$(bupdir1)/libiberty $(LIBICONV) -liberty -lz
 else
 all: warn_dumper
+endif
+
+# Check for availability of a MinGW libz and enable for cygcheck.
+libz:=${shell x=$$(${MINGW_CXX} --print-file-name=libz.a); cd $$(dirname $$x); dir=$$(pwd); case "$$dir" in *mingw*) echo $$dir/libz.a ;; esac}
+ifdef libz
+zlib_h  := -include ${patsubst %/lib/mingw/libz.a,%/include/zlib.h,${patsubst %/lib/libz.a,%/include/zlib.h,$(libz)}}
+zconf_h := ${patsubst %/zlib.h,%/zconf.h,$(zlib_h)}
+dump_setup.o: MINGW_CXXFLAGS += $(zconf_h) $(zlib_h)
+cygcheck.exe: MINGW_LDFLAGS += $(libz)
+else
+all: warn_cygcheck_zlib
 endif
 
 all: Makefile $(CYGWIN_BINS) $(MINGW_BINS)
@@ -131,40 +127,46 @@ check: testsuite.exe ; $(<D)/$(<F)
 # the rest of this file contains generic rules
 
 # how to compile a MinGW object
-${MINGW_OBJS}: override CXX:=${MINGW_CXX}
-${MINGW_OBJS}: CCWRAP_HEADERS:=${srcdir}
-${MINGW_OBJS}: CCWRAP_SYSTEM_HEADERS:=
-# ${MINGW_OBJS}: CCWRAP_DIRAFTER_HEADERS:=
 $(MINGW_OBJS): %.o: %.cc
-	c++wrap -c -o $@ ${CXXFLAGS} $(MINGW_CXXFLAGS) $<
+ifdef VERBOSE
+	$(MINGW_CXX) $c -o $(@D)/$(basename $@)$o $(MINGW_CXXFLAGS) $<
+else
+	@echo $(MINGW_CXX) $c $(MINGW_CXXFLAGS) ... $(*F).cc;\
+	$(MINGW_CXX) $c -o $(@D)/$(basename $@)$o $(MINGW_CXXFLAGS) $<
+endif
 
 # how to link a MinGW binary
 $(MINGW_BINS): %.exe: %.o
+ifdef VERBOSE
 	$(MINGW_CXX) $(MINGW_CXXFLAGS) -o $@ ${filter %.o,$^} $(MINGW_LDFLAGS)
+else
+	@echo $(MINGW_CXX) -o $@ ${filter %.o,$^} ${filter-out -B%, $(MINGW_CXXFLAGS) $(MINGW_LDFLAGS)};\
+	$(MINGW_CXX) $(MINGW_CXXFLAGS) -o $@ ${filter %.o,$^} $(MINGW_LDFLAGS)
+endif
 
 # how to link a Cygwin binary
 $(CYGWIN_BINS): %.exe: %.o
-	${CXX} -o $@ $(filter %.o,$^) -B${cygwin_build}/ ${LDFLAGS} ${CYGWIN_LDFLAGS}
+ifdef VERBOSE
+	$(CXX) -o $@ ${filter %.o,$^} -B$(cygwin_build)/ $(ALL_LDFLAGS)
+else
+	@echo $(CXX) -o $@ ${filter %.o,$^} ... ${filter-out -B%, $(ALL_LDFLAGS)};\
+	$(CXX) -o $@ ${filter %.o,$^} -B$(cygwin_build)/ $(ALL_LDFLAGS)
+endif
 
 # note: how to compile a Cygwin object is covered by the pattern rule in Makefile.common
 
 # these dependencies ensure that the required in-tree libs are built first
-$(MINGW_BINS): $(DEP_LDLIBS)
-$(CYGWIN_BINS): $(DEP_LDLIBS)
+$(MINGW_BINS): $(ALL_DEP_LDLIBS)
+$(CYGWIN_BINS): $(ALL_DEP_LDLIBS)
 
-cygcheck.o cygpath.o module_info.o path.o ps.o regtool.o strace.o: loadlib.h
-
-.PHONY: clean
 clean:
 	rm -f *.o $(CYGWIN_BINS) $(MINGW_BINS) path-testsuite.cc testsuite.exe
 
-.PHONY: realclean
 realclean: clean
 	rm -f Makefile config.cache
 
-.PHONY: install
 install: all
-	/bin/mkdir -p ${DESTDIR}${bindir}
+	$(SHELL) $(updir1)/mkinstalldirs $(DESTDIR)$(bindir)
 	for i in $(CYGWIN_BINS) ${filter-out testsuite.exe,$(MINGW_BINS)} ; do \
 	  n=`echo $$i | sed '$(program_transform_name)'`; \
 	  $(INSTALL_PROGRAM) $$i $(DESTDIR)$(bindir)/$$n; \
@@ -173,7 +175,6 @@ install: all
 $(cygwin_build)/libcygwin.a: $(cygwin_build)/Makefile
 	@$(MAKE) -C $(@D) $(@F)
 
-.PHONY: warn_dumper
 warn_dumper:
 	@echo '*** Not building dumper.exe since some required libraries or'
 	@echo '*** or headers are missing.  Potential candidates are:'
@@ -182,5 +183,5 @@ warn_dumper:
 	@echo '*** sources from sourceware.org.  Then, configure and build these'
 	@echo '*** libraries.  Otherwise, you can safely ignore this warning.'
 
-Makefile: Makefile.in config.status
-	/bin/sh ./config.status
+warn_cygcheck_zlib:
+	@echo '*** Building cygcheck without package content checking due to missing mingw libz.a.'
