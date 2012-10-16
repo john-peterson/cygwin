@@ -1,7 +1,7 @@
 /* spawn.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -389,7 +389,7 @@ child_info_spawn::worker (const char *prog_arg, const char *const *argv,
       goto out;
     }
 
-  if (ac == 3 && argv[1][0] == '/' && tolower (argv[1][1]) == 'c' &&
+  if (ac == 3 && argv[1][0] == '/' && argv[1][1] == 'c' &&
       (iscmd (argv[0], "command.com") || iscmd (argv[0], "cmd.exe")))
     {
       real_path.check (prog_arg);

@@ -1,7 +1,7 @@
 /* globals.cc - Define global variables here.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -35,7 +35,6 @@ enum exit_states
 {
   ES_NOT_EXITING = 0,
   ES_EXIT_STARTING,
-  ES_SIGNAL_EXIT,
   ES_PROCESS_LOCKED,
   ES_EVENTS_TERMINATE,
   ES_SIGNAL,
@@ -43,6 +42,7 @@ enum exit_states
   ES_THREADTERM,
   ES_HUP_PGRP,
   ES_HUP_SID,
+  ES_EXEC_EXIT,
   ES_TTY_TERMINATE,
   ES_FINAL
 };

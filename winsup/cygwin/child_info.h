@@ -35,7 +35,7 @@ enum child_status
 #define EXEC_MAGIC_SIZE sizeof(child_info)
 
 /* Change this value if you get a message indicating that it is out-of-sync. */
-#define CURR_CHILD_INFO_MAGIC 0xb7de78e6U
+#define CURR_CHILD_INFO_MAGIC 0xf1378eabU
 
 #define NPROCS	256
 
@@ -76,8 +76,8 @@ public:
   ~child_info ();
   void refresh_cygheap () { cygheap_max = ::cygheap_max; }
   void ready (bool);
-  bool __reg3 sync (int, HANDLE&, DWORD);
-  DWORD __reg2 proc_retry (HANDLE);
+  bool sync (int, HANDLE&, DWORD) __attribute__ ((regparm (3)));
+  DWORD proc_retry (HANDLE) __attribute__ ((regparm (2)));
   bool isstraced () const {return !!(flag & _CI_STRACED);}
   bool iscygwin () const {return !!(flag & _CI_ISCYGWIN);}
   bool saw_ctrl_c () const {return !!(flag & _CI_SAW_CTRL_C);}
@@ -106,7 +106,7 @@ public:
 			// user stack
   char filler[4];
   child_info_fork ();
-  void __reg1 handle_fork ();;
+  void handle_fork () __attribute__ ((regparm (1)));;
   bool abort (const char *fmt = NULL, ...);
   void alloc_stack ();
   void alloc_stack_hard_way (volatile char *);
@@ -131,6 +131,7 @@ public:
 
 class child_info_spawn: public child_info
 {
+  muto *lock;
   HANDLE hExeced;
   HANDLE ev;
 public:
@@ -146,7 +147,7 @@ public:
   void reattach_children ();
   void *operator new (size_t, void *p) __attribute__ ((nothrow)) {return p;}
   void set (child_info_types ci, bool b) { new (this) child_info_spawn (ci, b);}
-  void __reg1 handle_spawn ();
+  void handle_spawn () __attribute__ ((regparm (1)));
   bool set_saw_ctrl_c ()
   {
     if (!has_execed ())
@@ -176,8 +177,8 @@ public:
   bool get_parent_handle ();
   bool has_execed_cygwin () const { return iscygwin () && has_execed (); }
   operator HANDLE& () {return hExeced;}
-  int __reg3 worker (const char *, const char *const *, const char *const [], int,
-	      int = -1, int = -1);;
+  int worker (const char *, const char *const *, const char *const [], int,
+	      int = -1, int = -1) __attribute__ ((regparm (3)));;
 };
 
 extern child_info_spawn ch_spawn;
