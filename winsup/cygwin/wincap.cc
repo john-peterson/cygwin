@@ -1,8 +1,8 @@
 /* wincap.cc -- figure out on which OS we're running. Set the
 		capability class to the appropriate values.
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,
-   2012 Red Hat, Inc.
+   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -399,10 +399,14 @@ wincapc::init ()
     }
 
   ((wincaps *)caps)->is_server = (version.wProductType != VER_NT_WORKSTATION);
+#ifdef __x86_64__
+  wow64 = 0;
+#else
   if (NT_SUCCESS (NtQueryInformationProcess (NtCurrentProcess (),
 					     ProcessWow64Information,
 					     &wow64, sizeof wow64, NULL))
       && !wow64)
+#endif
     {
       ((wincaps *)caps)->needs_count_in_si_lpres2 = false;
       ((wincaps *)caps)->has_restricted_stack_args = false;
