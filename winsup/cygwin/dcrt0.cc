@@ -1,7 +1,7 @@
 /* dcrt0.cc -- essentially the main() for the Cygwin dll
 
    Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012, 2013 Red Hat, Inc.
+   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -162,7 +162,7 @@ quoted (char *cmd, int winshell)
     {
       char *p;
       strcpy (cmd, cmd + 1);
-      if (*(p = strchrnul (cmd, quote)))
+      if (*(p = strechr (cmd, quote)))
 	strcpy (p, p + 1);
       return p;
     }
@@ -320,11 +320,7 @@ build_argv (char *cmd, char **&argv, int &argc, int winshell)
 	    /* Skip over characters until the closing quote */
 	    {
 	      sawquote = cmd;
-	      /* Handle quoting.  Only strip off quotes if the parent is
-		 a Cygwin process, or if the word starts with a '@'.
-		 In this case, the insert_file function needs an unquoted
-		 DOS filename and globbing isn't performed anyway. */
-	      cmd = quoted (cmd, winshell && argc > 0 && *word != '@');
+	      cmd = quoted (cmd, winshell && argc > 0);
 	    }
 	  if (issep (*cmd))	// End of argument if space
 	    break;
@@ -458,8 +454,12 @@ getstack (volatile char * volatile p)
 void
 child_info_fork::alloc_stack ()
 {
-  volatile char * volatile esp;
-  __asm__ volatile ("movl %%esp,%0": "=r" (esp));
+  volatile char * volatile stackp;
+#ifdef __x86_64__
+  __asm__ volatile ("movq %%rsp,%0": "=r" (stackp));
+#else
+  __asm__ volatile ("movl %%esp,%0": "=r" (stackp));
+#endif
   /* Make sure not to try a hard allocation if we have been forked off from
      the main thread of a Cygwin process which has been started from a 64 bit
      parent.  In that case the _tlsbase of the forked child is not the same
@@ -471,12 +471,12 @@ child_info_fork::alloc_stack ()
       && (!wincap.is_wow64 ()
       	  || stacktop < (char *) NtCurrentTeb ()->DeallocationStack
 	  || stackbottom > _tlsbase))
-    alloc_stack_hard_way (esp);
+    alloc_stack_hard_way (stackp);
   else
     {
       char *st = (char *) stacktop - 4096;
       while (_tlstop >= st)
-	esp = getstack (esp);
+	stackp = getstack (stackp);
       stackaddr = 0;
       /* This only affects forked children of a process started from a native
 	 64 bit process, but it doesn't hurt to do it unconditionally.  Fix
@@ -546,8 +546,8 @@ get_cygwin_startup_info ()
       if ((res->intro & OPROC_MAGIC_MASK) == OPROC_MAGIC_GENERIC)
 	multiple_cygwin_problem ("proc intro", res->intro, 0);
       else if (res->cygheap != (void *) &_cygheap_start)
-	multiple_cygwin_problem ("cygheap base", (DWORD) res->cygheap,
-				 (DWORD) &_cygheap_start);
+	multiple_cygwin_problem ("cygheap base", (uintptr_t) res->cygheap,
+				 (uintptr_t) &_cygheap_start);
 
       unsigned should_be_cb = 0;
       switch (res->type)
@@ -563,7 +563,8 @@ get_cygwin_startup_info ()
 	    if (should_be_cb != res->cb)
 	      multiple_cygwin_problem ("proc size", res->cb, should_be_cb);
 	    else if (sizeof (fhandler_union) != res->fhandler_union_cb)
-	      multiple_cygwin_problem ("fhandler size", res->fhandler_union_cb, sizeof (fhandler_union));
+	      multiple_cygwin_problem ("fhandler size", res->fhandler_union_cb,
+				       sizeof (fhandler_union));
 	    if (res->isstraced ())
 	      {
 		while (!being_debugged ())
@@ -788,29 +789,6 @@ dll_crt0_0 ()
   debug_printf ("finished dll_crt0_0 initialization");
 }
 
-static inline void
-main_thread_sinit ()
-{
-  __sinit (_impure_ptr);
-  /* At this point, _impure_ptr == _global_impure_ptr == _GLOBAL_REENT is
-     initialized, but _REENT == _my_tls.local_clib doesn't know about it.
-     It has been copied over from _GLOBAL_REENT in _cygtls::init_thread
-     *before* the initialization took place.
-
-     As soon as the main thread calls a stdio function, this would be
-     rectified.  But if another thread calls a stdio function on
-     stdin/out/err before the main thread does, all the required
-     initialization of stdin/out/err will be done, but _REENT->__sdidinit
-     is *still* 0.  This in turn will result in a call to __sinit in the
-     wrong spot.  The input or output buffer will be NULLed and nothing is
-     read or written in the first stdio function call in the main thread.
-
-     To fix this issue we have to copy over the relevant part of _GLOBAL_REENT
-     to _REENT here again. */
-  _REENT->__sdidinit = -1;
-  _REENT->__cleanup = _GLOBAL_REENT->__cleanup;
-}
-
 /* Take over from libc's crt0.o and start the application. Note the
    various special cases when Cygwin DLL is being runtime loaded (as
    opposed to being link-time loaded by Cygwin apps) from a non
@@ -819,8 +797,6 @@ void
 dll_crt0_1 (void *)
 {
   extern void initial_setlocale ();
-
-  _my_tls.incyg++;
 
   if (dynamically_loaded)
     sigproc_init ();
@@ -891,12 +867,10 @@ dll_crt0_1 (void *)
 	  _tlstop = (char *) fork_info->stacktop;
 	}
 
-      /* Not resetting _my_tls.incyg here because presumably fork will overwrite
-	 it with the value of the forker and all will be good.   */
       longjmp (fork_info->jmp, true);
     }
 
-  main_thread_sinit ();
+  __sinit (_impure_ptr);
 
 #ifdef DEBUGGING
   {
@@ -991,13 +965,7 @@ dll_crt0_1 (void *)
   /* Per POSIX set the default application locale back to "C". */
   _setlocale_r (_REENT, LC_CTYPE, "C");
 
-  if (!user_data->main)
-    {
-      /* Handle any signals which may have arrived */
-      _my_tls.call_signal_handler ();
-      _my_tls.incyg--;	/* Not in Cygwin anymore */
-    }
-  else
+  if (user_data->main)
     {
       /* Create a copy of Cygwin's version of __argv so that, if the user makes
 	 a change to an element of argv[] it does not affect Cygwin's argv.
@@ -1008,9 +976,6 @@ dll_crt0_1 (void *)
       char **oav = __argv;
       while ((*nav++ = *oav++) != NULL)
 	continue;
-      /* Handle any signals which may have arrived */
-      _my_tls.call_signal_handler ();
-      _my_tls.incyg--;	/* Not in Cygwin anymore */
       cygwin_exit (user_data->main (__argc, newargv, *user_data->envptr));
     }
   __asm__ ("				\n\
@@ -1039,10 +1004,17 @@ _dll_crt0 ()
       	{
 	  /* 2nd half of the stack move.  Set stack pointer to new address.
 	     Set frame pointer to 0. */
+#ifdef __x86_64__
+	  __asm__ ("\n\
+		   movq  %[ADDR], %%rsp \n\
+		   xorq  %%rbp, %%rbp   \n"
+		   : : [ADDR] "r" (stackaddr));
+#else
 	  __asm__ ("\n\
 		   movl  %[ADDR], %%esp \n\
 		   xorl  %%ebp, %%ebp   \n"
 		   : : [ADDR] "r" (stackaddr));
+#endif
 	  /* Now we're back on the original stack.  Free up space taken by the
 	     former main thread stack and set DeallocationStack correctly. */
 	  VirtualFree (NtCurrentTeb ()->DeallocationStack, 0, MEM_RELEASE);
@@ -1134,7 +1106,10 @@ do_exit (int status)
   lock_process until_exit (true);
 
   if (exit_state < ES_EVENTS_TERMINATE)
-    exit_state = ES_EVENTS_TERMINATE;
+    {
+      exit_state = ES_EVENTS_TERMINATE;
+      events_terminate ();
+    }
 
   if (exit_state < ES_SIGNAL)
     {
@@ -1245,7 +1220,7 @@ api_fatal (const char *fmt, ...)
 }
 
 void
-multiple_cygwin_problem (const char *what, unsigned magic_version, unsigned version)
+multiple_cygwin_problem (const char *what, uintptr_t magic_version, uintptr_t version)
 {
   if (_cygwin_testing && (strstr (what, "proc") || strstr (what, "cygheap")))
     {
