@@ -1,7 +1,7 @@
 /* dll_init.h
 
-   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2008, 2009, 2010,
-   2011, 2012 Red Hat, Inc.
+   Copyright 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -129,12 +129,12 @@ struct pefile
 {
   IMAGE_DOS_HEADER dos_hdr;
 
-  char* rva (long offset) { return (char*) this + offset; }
-  PIMAGE_NT_HEADERS32 pe_hdr () { return (PIMAGE_NT_HEADERS32) rva (dos_hdr.e_lfanew); }
-  PIMAGE_OPTIONAL_HEADER32 optional_hdr () { return &pe_hdr ()->OptionalHeader; }
+  char* rva (ptrdiff_t offset) { return (char*) this + offset; }
+  PIMAGE_NT_HEADERS pe_hdr () { return (PIMAGE_NT_HEADERS) rva (dos_hdr.e_lfanew); }
+  PIMAGE_OPTIONAL_HEADER optional_hdr () { return &pe_hdr ()->OptionalHeader; }
   PIMAGE_DATA_DIRECTORY idata_dir (DWORD which)
   {
-    PIMAGE_OPTIONAL_HEADER32 oh = optional_hdr ();
+    PIMAGE_OPTIONAL_HEADER oh = optional_hdr ();
     return (which < oh->NumberOfRvaAndSizes)? oh->DataDirectory + which : 0;
   }
 };
