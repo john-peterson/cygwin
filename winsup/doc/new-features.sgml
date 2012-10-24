@@ -1,41 +1,5 @@
 <sect1 id="ov-new1.7"><title>What's new and what changed in Cygwin 1.7</title>
 
-<sect2 id="ov-new1.7.18"><title>What's new and what changed from 1.7.17 to 1.7.18</title>
-
-<itemizedlist mark="bullet">
-
-<listitem><para>Added Windows console cursor appearance support.</para>
-
-  <itemizedlist mark="bullet">
-
-  <listitem><para>
-  Show/Hide Cursor mode (DECTCEM): "ESC[?25h" / "ESC[?25l"
-  </para></listitem>
-
-  <listitem><para>
-  Set cursor style (DECSCUSR): "ESC[n q" (note the space before the q);
-  where n is 0, 1, 2 for block cursor, 3, 4 for underline cursor (all
-  disregarding blinking mode), or > 4 to set the cursor height to a
-  percentage of the cell height.
-  </para></listitem>
-
-  </itemizedlist>
-
-</listitem>
-
-<listitem><para>
-For performance reasons, Cygwin does not try to create sparse files
-automatically anymore, unless you use the new "sparse" mount option.
-</para></listitem>
-
-<listitem><para>
-New API: cfsetspeed.
-</para></listitem>
-
-</itemizedlist>
-
-</sect2>
-
 <sect2 id="ov-new1.7.17"><title>What's new and what changed from 1.7.16 to 1.7.17</title>
 
 <itemizedlist mark="bullet">
