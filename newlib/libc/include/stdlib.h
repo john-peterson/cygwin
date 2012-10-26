@@ -12,7 +12,6 @@
 
 #define __need_size_t
 #define __need_wchar_t
-#define __need_NULL
 #include <stddef.h>
 
 #include <sys/reent.h>
@@ -45,6 +44,10 @@ typedef struct
   long long int quot; /* quotient */
   long long int rem; /* remainder */
 } lldiv_t;
+#endif
+
+#ifndef NULL
+#define NULL 0
 #endif
 
 #define EXIT_FAILURE 1

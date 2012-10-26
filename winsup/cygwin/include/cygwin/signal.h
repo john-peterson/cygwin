@@ -1,7 +1,6 @@
 /* signal.h
 
-  Copyright 2003, 2004, 2005, 2006, 2007, 2008, 2010, 2011, 2012, 2013
-  Red Hat, Inc.
+  Copyright 2004, 2005, 2006, 2011 Red Hat, Inc.
 
   This file is part of Cygwin.
 
@@ -90,19 +89,6 @@ struct _sigcommune
   };
 };
 
-#define __SI_PAD_SIZE 32
-#ifdef __INSIDE_CYGWIN__
-# ifndef max
-#   define max(a,b) (((a) > (b)) ? (a) : (b))
-# endif /*max*/
-# define __uint32_size(__x) (max(sizeof (__x) / sizeof (uint32_t), 1))
-
-/* This padding represents the elements of the last struct in siginfo_t,
-   aligning the elements to the end to avoid conflicts with other struct
-   members. */
-# define __SI_CYG_PAD (__SI_PAD_SIZE - __uint32_size (void *))
-#endif /*__INSIDE_CYGWIN__*/
-
 typedef struct
 {
   int si_signo;				/* signal number */
@@ -113,21 +99,26 @@ typedef struct
 
   __extension__ union
   {
-    __uint32_t __pad[__SI_PAD_SIZE];	/* plan for future growth */
+    __uint32_t __pad[32];		/* plan for future growth */
     struct _sigcommune _si_commune;	/* cygwin ipc */
-    __extension__ struct
+    __extension__ union
     {
-      __extension__ union
+      /* timers */
+      struct
       {
-	sigval_t si_sigval;		/* signal value */
-	sigval_t si_value;		/* signal value */
-      };
-      __extension__ struct
-      {
-	timer_t si_tid;			/* timer id */
-	unsigned int si_overrun;	/* overrun count */
+	union
+	{
+	  struct
+	  {
+	    timer_t si_tid;		/* timer id */
+	    unsigned int si_overrun;	/* overrun count */
+	  };
+	  sigval_t si_sigval;		/* signal value */
+	  sigval_t si_value;		/* signal value */
+	};
       };
     };
+
     /* SIGCHLD */
     __extension__ struct
     {
@@ -136,17 +127,8 @@ typedef struct
       clock_t si_stime;			/* system time */
     };
 
-    void *si_addr;			/* faulting address for core dumping
-					   signals */
-    /* Cygwin internal fields */
-#ifdef __INSIDE_CYGWIN__
-    __extension__ struct 
-    {
-      __uint32_t __pad2[__SI_CYG_PAD];	/* Locate at end of struct */
-      void *si_cyg;			/* pointer to block containing
-					   cygwin-special info */
-    };
-#endif /*__INSIDE_CYGWIN__*/
+    /* core dumping signals */
+    void *si_addr;			/* faulting address */
   };
 } siginfo_t;
 #pragma pack(pop)
