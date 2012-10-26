@@ -1,6 +1,6 @@
 /* string.h: Extra string defs
 
-   Copyright 2001, 2002, 2003, 2007, 2008, 2011, 2012 Red Hat, Inc.
+   Copyright 2001, 2007, 2008, 2011 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -17,10 +17,10 @@ details. */
 extern "C" {
 #endif
 
-#undef strchrnul
-#define strchrnul cygwin_strchrnul
+#undef strechr
+#define strechr cygwin_strechr
 static inline __stdcall char *
-strchrnul (const char *s, int c)
+strechr (const char *s, int c)
 {
   while (*s != (char) c && *s != 0)
     ++s;
