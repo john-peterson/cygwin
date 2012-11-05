@@ -1,7 +1,7 @@
 /* sys/termios.h
 
-   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-   2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2006,
+   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -345,7 +345,6 @@ speed_t cfgetispeed(const struct termios *);
 speed_t cfgetospeed(const struct termios *);
 int cfsetispeed (struct termios *, speed_t);
 int cfsetospeed (struct termios *, speed_t);
-int cfsetspeed (struct termios *, speed_t);
 
 #ifdef __cplusplus
 }
