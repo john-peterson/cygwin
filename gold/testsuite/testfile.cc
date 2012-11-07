@@ -72,14 +72,15 @@ class Target_test : public Sized_target<size, big_endian>
   { ERROR("call to Target_test::scan_relocatable_relocs"); }
 
   void
-  relocate_relocs(const Relocate_info<size, big_endian>*,
-		  unsigned int, const unsigned char*, size_t,
-		  Output_section*, typename elfcpp::Elf_types<size>::Elf_Off,
-                  const Relocatable_relocs*, unsigned char*,
-		  typename elfcpp::Elf_types<size>::Elf_Addr,
-		  section_size_type, unsigned char*,
-		  section_size_type)
-  { ERROR("call to Target_test::relocate_relocs"); }
+  relocate_for_relocatable(const Relocate_info<size, big_endian>*,
+			   unsigned int, const unsigned char*, size_t,
+                           Output_section*,
+                           typename elfcpp::Elf_types<size>::Elf_Off,
+                           const Relocatable_relocs*, unsigned char*,
+			   typename elfcpp::Elf_types<size>::Elf_Addr,
+			   section_size_type, unsigned char*,
+			   section_size_type)
+  { ERROR("call to Target_test::relocate_for_relocatable"); }
 
   static const Target::Target_info test_target_info;
 };
