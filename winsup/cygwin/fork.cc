@@ -1,6 +1,6 @@
 /* fork.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2004, 2005, 2006,
    2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
@@ -117,7 +117,7 @@ child_info::prefork (bool detached)
   if (!detached)
     {
       if (!CreatePipe (&rd_proc_pipe, &wr_proc_pipe, &sec_none_nih, 16))
-	api_fatal ("prefork: couldn't create pipe process tracker, %E");
+	api_fatal ("prefork: couldn't create pipe process tracker%E");
 
       if (!SetHandleInformation (wr_proc_pipe, HANDLE_FLAG_INHERIT,
 				 HANDLE_FLAG_INHERIT))
@@ -598,14 +598,18 @@ fork ()
 
     ischild = !!setjmp (grouped.ch.jmp);
 
-    volatile char * volatile esp;
-    __asm__ volatile ("movl %%esp,%0": "=r" (esp));
+    volatile char * volatile stackp;
+#ifdef __x86_64__
+    __asm__ volatile ("movq %%rsp,%0": "=r" (stackp));
+#else
+    __asm__ volatile ("movl %%esp,%0": "=r" (stackp));
+#endif
 
     if (!ischild)
-      res = grouped.parent (esp);
+      res = grouped.parent (stackp);
     else
       {
-	res = grouped.child (esp);
+	res = grouped.child (stackp);
 	in_forkee = false;
 	ischild = true;	/* might have been reset by fork mem copy */
       }
@@ -664,12 +668,12 @@ child_copy (HANDLE hp, bool write, ...)
     {
       char *low = va_arg (args, char *);
       char *high = va_arg (args, char *);
-      DWORD todo = high - low;
+      SIZE_T todo = high - low;
       char *here;
 
       for (here = low; here < high; here += todo)
 	{
-	  DWORD done = 0;
+	  SIZE_T done = 0;
 	  if (here + todo > high)
 	    todo = high - here;
 	  int res;

@@ -1,6 +1,6 @@
 /* kernel32.cc: Win32 replacement functions.
 
-   Copyright 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 2008, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -310,7 +310,7 @@ CreateFileMappingW (HANDLE hFile, LPSECURITY_ATTRIBUTES lpAttributes,
   ULONG attribs = flProtect & (SEC_COMMIT | SEC_IMAGE | SEC_NOCACHE
 			       | SEC_RESERVE);
   LARGE_INTEGER size = {{ LowPart  : dwMaximumSizeLow,
-			  HighPart : dwMaximumSizeHigh }};
+			  HighPart : (LONG) dwMaximumSizeHigh }};
   PLARGE_INTEGER psize = size.QuadPart ? &size : NULL;
 
   if (prot & (PAGE_READWRITE | PAGE_WRITECOPY
