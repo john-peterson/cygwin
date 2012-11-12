@@ -1,7 +1,7 @@
 /* wincap.h: Header for OS capability class.
 
-   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,
-   2012 Red Hat, Inc.
+   Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+   2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -53,7 +53,7 @@ class wincapc
   SYSTEM_INFO      system_info;
   OSVERSIONINFOEX  version;
   char             osnam[40];
-  ULONG            wow64;
+  ULONG_PTR        wow64;
   void             *caps;
 
 public:
@@ -64,7 +64,7 @@ public:
   const DWORD allocation_granularity () const
 			      { return system_info.dwAllocationGranularity; }
   const char *osname () const { return osnam; }
-  const bool is_wow64 () const { return wow64; }
+  const bool is_wow64 () const { return !!wow64; }
 
 #define IMPLEMENT(cap) cap() const { return ((wincaps *) this->caps)->cap; }
 
