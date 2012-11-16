@@ -1,4 +1,4 @@
-# Copyright 2012-2013 Free Software Foundation, Inc.
+# Copyright 2012 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@ standard_testfile .c
 set opts {debug}
 
 if [build_executable $testfile.exp $testfile $srcfile $opts] {
-    return -1
+    return -1;
 }
 
 mi_delete_breakpoints
