@@ -1,7 +1,7 @@
 /* shared.cc: shared data area support.
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2008, 2009, 2010, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -116,7 +116,7 @@ shared_name (WCHAR *ret_buf, const WCHAR *str, int num)
 }
 
 #define page_const (65535)
-#define pround(n) (((size_t) (n) + page_const) & ~page_const)
+#define pround(n) ((ptrdiff_t)(((n) + page_const) & ~page_const))
 
 /* The order in offsets is so that the constant blocks shared_info
    and user_info are right below the cygwin DLL, then the pinfo block

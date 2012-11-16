@@ -1,7 +1,7 @@
 /* syslog.cc
 
-   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-   2007, 2008, 2009, 2011, 2012 Red Hat, Inc.
+   Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+   2006, 2007, 2009, 2011, 2012 Red Hat, Inc.
 
 This file is part of Cygwin.
 
@@ -249,7 +249,7 @@ connect_syslogd ()
 }
 
 static int
-try_connect_syslogd (int priority, const char *msg, int len)
+try_connect_syslogd (int priority, const char *msg, size_t len)
 {
   ssize_t ret = -1;
 
@@ -402,7 +402,7 @@ vsyslog (int priority, const char *message, va_list ap)
 
     }
   char *total_msg = pass.get_message ();
-  int len = strlen (total_msg);
+  size_t len = strlen (total_msg);
   if (len != 0 && (total_msg[len - 1] == '\n'))
     total_msg[--len] = '\0';
 
