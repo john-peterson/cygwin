@@ -43,9 +43,9 @@ segment_executable (struct elf_segment_map *seg)
 }
 
 /* Determine if this segment is eligible to receive the file and program
-   headers.  It must be read-only, non-executable, and have contents.
-   Its first section must start far enough past the page boundary to
-   allow space for the headers.  */
+   headers.  It must be non-executable and have contents.  Its first
+   section must start far enough past the page boundary to allow space
+   for the headers.  */
 static bfd_boolean
 segment_eligible_for_headers (struct elf_segment_map *seg,
                               bfd_vma maxpagesize, bfd_vma sizeof_headers)
@@ -56,7 +56,7 @@ segment_eligible_for_headers (struct elf_segment_map *seg,
     return FALSE;
   for (i = 0; i < seg->count; ++i)
     {
-      if ((seg->sections[i]->flags & (SEC_CODE|SEC_READONLY)) != SEC_READONLY)
+      if (seg->sections[i]->flags & SEC_CODE)
         return FALSE;
       if (seg->sections[i]->flags & SEC_HAS_CONTENTS)
         any_contents = TRUE;
@@ -75,7 +75,7 @@ nacl_modify_segment_map (bfd *abfd, struct bfd_link_info *info)
   struct elf_segment_map **first_load = NULL;
   struct elf_segment_map **last_load = NULL;
   bfd_boolean moved_headers = FALSE;
-  int sizeof_headers = info == NULL ? 0 : bfd_sizeof_headers (abfd, info);
+  int sizeof_headers = bfd_sizeof_headers (abfd, info);
   bfd_vma maxpagesize = get_elf_backend_data (abfd)->maxpagesize;
 
   if (info != NULL && info->user_phdrs)
@@ -149,7 +149,8 @@ nacl_modify_segment_map (bfd *abfd, struct bfd_link_info *info)
    proper order for the ELF rule that they must appear in ascending address
    order.  So find the two segments we swapped before, and swap them back.  */
 bfd_boolean
-nacl_modify_program_headers (bfd *abfd, struct bfd_link_info *info)
+nacl_modify_program_headers (bfd *abfd,
+                             struct bfd_link_info *info ATTRIBUTE_UNUSED)
 {
   struct elf_segment_map **m = &elf_tdata (abfd)->segment_map;
   Elf_Internal_Phdr *phdr = elf_tdata (abfd)->phdr;
