@@ -400,7 +400,7 @@ adjust_identity_info (struct proc *p)
   p->gid = cygwin_internal (CW_GET_GID_FROM_SID, pgrp->PrimaryGroup);
   free (pgrp);
   if (p->gid == (gid_t)-1)
-    log (LOG_WARNING,"WARNING: Group not found in /etc/group! Using gid -1!");
+    log (LOG_WARNING,"WARNING: Group not found in /etc/passwd! Using gid -1!");
 
   /* Generate gid list from token group's SID list.  Also look if the token
      has an enabled admin group SID.  That means, the process has admin
@@ -655,7 +655,7 @@ tunable_param_init (const char *config_file, bool force)
 }
 
 void
-tunable_int_fetch (const char *name, long *tunable_target)
+tunable_int_fetch (const char *name, int32_t *tunable_target)
 {
   tun_struct *s;
   for (s = &tunable_params[0]; s->name; ++s)
