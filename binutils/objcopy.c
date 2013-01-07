@@ -102,7 +102,7 @@ enum strip_action
   };
 
 /* Which symbols to remove.  */
-static enum strip_action strip_symbols = STRIP_UNDEF;
+static enum strip_action strip_symbols;
 
 enum locals_action
   {
@@ -690,8 +690,6 @@ parse_flags (const char *s)
       PARSE_FLAG ("rom", SEC_ROM);
       PARSE_FLAG ("share", SEC_COFF_SHARED);
       PARSE_FLAG ("contents", SEC_HAS_CONTENTS);
-      PARSE_FLAG ("merge", SEC_MERGE);
-      PARSE_FLAG ("strings", SEC_STRINGS);
 #undef PARSE_FLAG
       else
 	{
@@ -702,7 +700,7 @@ parse_flags (const char *s)
 	  copy[len] = '\0';
 	  non_fatal (_("unrecognized section flag `%s'"), copy);
 	  fatal (_("supported flags: %s"),
-		 "alloc, load, noload, readonly, debug, code, data, rom, share, contents, merge, strings");
+		 "alloc, load, noload, readonly, debug, code, data, rom, share, contents");
 	}
 
       s = snext;
@@ -1004,13 +1002,7 @@ is_strip_section_1 (bfd *abfd ATTRIBUTE_UNUSED, asection *sec)
 	  || strip_symbols == STRIP_ALL
 	  || discard_locals == LOCALS_ALL
 	  || convert_debugging)
-	{
-	  /* By default we don't want to strip .reloc section.
-	     This section has for pe-coff special meaning.   See
-	     pe-dll.c file in ld, and peXXigen.c in bfd for details.  */
-	  if (strcmp (bfd_get_section_name (abfd, sec), ".reloc") != 0)
-	    return TRUE;
-	}
+	return TRUE;
 
       if (strip_symbols == STRIP_DWO)
 	return is_dwo_section (abfd, sec);
@@ -2850,11 +2842,7 @@ copy_section (bfd *ibfd, sec_ptr isection, void *obfdarg)
 
 	  for (; from < end; from += interleave)
 	    for (i = 0; i < copy_width; i++)
-	      {
-		if (&from[i] >= end)
-		  break;
-		*to++ = from[i];
-	      }
+	      *to++ = from[i];
 
 	  size = (size + interleave - 1 - copy_byte) / interleave * copy_width;
 	  osection->lma /= interleave;
@@ -3455,7 +3443,6 @@ copy_main (int argc, char *argv[])
 	  break;
 
 	case OPTION_ADD_GNU_DEBUGLINK:
-	  long_section_names = ENABLE ;
 	  gnu_debuglink_filename = optarg;
 	  break;
 
