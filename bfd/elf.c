@@ -1,8 +1,7 @@
 /* ELF executable support for BFD.
 
    Copyright 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-   2013
+   2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
    Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -546,9 +545,9 @@ setup_group (bfd *abfd, Elf_Internal_Shdr *hdr, asection *newsect)
       shnum = elf_numsections (abfd);
       num_group = 0;
 
-#define IS_VALID_GROUP_SECTION_HEADER(shdr, minsize)	\
+#define IS_VALID_GROUP_SECTION_HEADER(shdr)		\
 	(   (shdr)->sh_type == SHT_GROUP		\
-	 && (shdr)->sh_size >= minsize			\
+	 && (shdr)->sh_size >= (2 * GRP_ENTRY_SIZE)	\
 	 && (shdr)->sh_entsize == GRP_ENTRY_SIZE	\
 	 && ((shdr)->sh_size % GRP_ENTRY_SIZE) == 0)
 
@@ -556,7 +555,7 @@ setup_group (bfd *abfd, Elf_Internal_Shdr *hdr, asection *newsect)
 	{
 	  Elf_Internal_Shdr *shdr = elf_elfsections (abfd)[i];
 
-	  if (IS_VALID_GROUP_SECTION_HEADER (shdr, 2 * GRP_ENTRY_SIZE))
+	  if (IS_VALID_GROUP_SECTION_HEADER (shdr))
 	    num_group += 1;
 	}
 
@@ -582,7 +581,7 @@ setup_group (bfd *abfd, Elf_Internal_Shdr *hdr, asection *newsect)
 	    {
 	      Elf_Internal_Shdr *shdr = elf_elfsections (abfd)[i];
 
-	      if (IS_VALID_GROUP_SECTION_HEADER (shdr, 2 * GRP_ENTRY_SIZE))
+	      if (IS_VALID_GROUP_SECTION_HEADER (shdr))
 		{
 		  unsigned char *src;
 		  Elf_Internal_Group *dest;
@@ -1910,7 +1909,7 @@ bfd_section_from_shdr (bfd *abfd, unsigned int shindex)
       return TRUE;
 
     case SHT_GROUP:
-      if (! IS_VALID_GROUP_SECTION_HEADER (hdr, GRP_ENTRY_SIZE))
+      if (! IS_VALID_GROUP_SECTION_HEADER (hdr))
 	return FALSE;
       if (!_bfd_elf_make_section_from_shdr (abfd, hdr, name, shindex))
 	return FALSE;
@@ -2062,9 +2061,6 @@ static const struct bfd_elf_special_section special_sections_d[] =
 {
   { STRING_COMMA_LEN (".data"),         -2, SHT_PROGBITS, SHF_ALLOC + SHF_WRITE },
   { STRING_COMMA_LEN (".data1"),         0, SHT_PROGBITS, SHF_ALLOC + SHF_WRITE },
-  /* There are more DWARF sections than these, but they needn't be added here
-     unless you have to cope with broken compilers that don't emit section
-     attributes or you want to help the user writing assembler.  */
   { STRING_COMMA_LEN (".debug"),         0, SHT_PROGBITS, 0 },
   { STRING_COMMA_LEN (".debug_line"),    0, SHT_PROGBITS, 0 },
   { STRING_COMMA_LEN (".debug_info"),    0, SHT_PROGBITS, 0 },
@@ -4142,14 +4138,7 @@ _bfd_elf_map_sections_to_segments (bfd *abfd, struct bfd_link_info *info)
 	  m->next = NULL;
 	  m->p_type = PT_GNU_STACK;
 	  m->p_flags = elf_tdata (abfd)->stack_flags;
-	  m->p_align = bed->stack_align;
 	  m->p_flags_valid = 1;
-	  m->p_align_valid = m->p_align != 0;
-	  if (info->stacksize > 0)
-	    {
-	      m->p_size = info->stacksize;
-	      m->p_size_valid = 1;
-	    }
 
 	  *pm = m;
 	  pm = &m->next;
@@ -5030,11 +5019,6 @@ assign_file_positions_for_non_load_sections (bfd *abfd,
 	      memset (p, 0, sizeof *p);
 	      p->p_type = PT_NULL;
 	    }
-	}
-      else if (p->p_type == PT_GNU_STACK)
-	{
-	  if (m->p_size_valid)
-	    p->p_memsz = m->p_size;
 	}
       else if (m->count != 0)
 	{
@@ -6180,15 +6164,12 @@ copy_elf_program_header (bfd *ibfd, bfd *obfd)
       map->p_align_valid = 1;
       map->p_vaddr_offset = 0;
 
-      if (map->p_type == PT_GNU_RELRO
-	  || map->p_type == PT_GNU_STACK)
+      if (map->p_type == PT_GNU_RELRO)
 	{
 	  /* The PT_GNU_RELRO segment may contain the first a few
 	     bytes in the .got.plt section even if the whole .got.plt
 	     section isn't in the PT_GNU_RELRO segment.  We won't
-	     change the size of the PT_GNU_RELRO segment.
-	     Similarly, PT_GNU_STACK size is significant on uclinux
-	     systems.    */
+	     change the size of the PT_GNU_RELRO segment.  */
 	  map->p_size = segment->p_memsz;
 	  map->p_size_valid = 1;
 	}
@@ -7385,7 +7366,7 @@ error_return_verdef:
       Elf_Internal_Verdef *iverdef;
       Elf_Internal_Verdaux *iverdaux;
 
-      iverdef = &elf_tdata (abfd)->verdef[freeidx - 1];
+      iverdef = &elf_tdata (abfd)->verdef[freeidx - 1];;
 
       iverdef->vd_version = VER_DEF_CURRENT;
       iverdef->vd_flags = 0;
@@ -8163,24 +8144,6 @@ elfcore_grok_arm_vfp (bfd *abfd, Elf_Internal_Note *note)
   return elfcore_make_note_pseudosection (abfd, ".reg-arm-vfp", note);
 }
 
-static bfd_boolean
-elfcore_grok_aarch_tls (bfd *abfd, Elf_Internal_Note *note)
-{
-  return elfcore_make_note_pseudosection (abfd, ".reg-aarch-tls", note);
-}
-
-static bfd_boolean
-elfcore_grok_aarch_hw_break (bfd *abfd, Elf_Internal_Note *note)
-{
-  return elfcore_make_note_pseudosection (abfd, ".reg-aarch-hw-break", note);
-}
-
-static bfd_boolean
-elfcore_grok_aarch_hw_watch (bfd *abfd, Elf_Internal_Note *note)
-{
-  return elfcore_make_note_pseudosection (abfd, ".reg-aarch-hw-watch", note);
-}
-
 #if defined (HAVE_PRPSINFO_T)
 typedef prpsinfo_t   elfcore_psinfo_t;
 #if defined (HAVE_PRPSINFO32_T)		/* Sparc64 cross Sparc32 */
@@ -8621,27 +8584,6 @@ elfcore_grok_note (bfd *abfd, Elf_Internal_Note *note)
       else
 	return TRUE;
 
-    case NT_ARM_TLS:
-      if (note->namesz == 6
-	  && strcmp (note->namedata, "LINUX") == 0)
-	return elfcore_grok_aarch_tls (abfd, note);
-      else
-	return TRUE;
-
-    case NT_ARM_HW_BREAK:
-      if (note->namesz == 6
-	  && strcmp (note->namedata, "LINUX") == 0)
-	return elfcore_grok_aarch_hw_break (abfd, note);
-      else
-	return TRUE;
-
-    case NT_ARM_HW_WATCH:
-      if (note->namesz == 6
-	  && strcmp (note->namedata, "LINUX") == 0)
-	return elfcore_grok_aarch_hw_watch (abfd, note);
-      else
-	return TRUE;
-
     case NT_PRPSINFO:
     case NT_PSINFO:
       if (bed->elf_backend_grok_psinfo)
@@ -8666,14 +8608,6 @@ elfcore_grok_note (bfd *abfd, Elf_Internal_Note *note)
 
 	return TRUE;
       }
-
-    case NT_FILE:
-      return elfcore_make_note_pseudosection (abfd, ".note.linuxcore.file",
-					      note);
-
-    case NT_SIGINFO:
-      return elfcore_make_note_pseudosection (abfd, ".note.linuxcore.siginfo",
-					      note);
     }
 }
 
@@ -9446,42 +9380,6 @@ elfcore_write_arm_vfp (bfd *abfd,
 }
 
 char *
-elfcore_write_aarch_tls (bfd *abfd,
-		       char *buf,
-		       int *bufsiz,
-		       const void *aarch_tls,
-		       int size)
-{
-  char *note_name = "LINUX";
-  return elfcore_write_note (abfd, buf, bufsiz,
-			     note_name, NT_ARM_TLS, aarch_tls, size);
-}
-
-char *
-elfcore_write_aarch_hw_break (bfd *abfd,
-			    char *buf,
-			    int *bufsiz,
-			    const void *aarch_hw_break,
-			    int size)
-{
-  char *note_name = "LINUX";
-  return elfcore_write_note (abfd, buf, bufsiz,
-			     note_name, NT_ARM_HW_BREAK, aarch_hw_break, size);
-}
-
-char *
-elfcore_write_aarch_hw_watch (bfd *abfd,
-			    char *buf,
-			    int *bufsiz,
-			    const void *aarch_hw_watch,
-			    int size)
-{
-  char *note_name = "LINUX";
-  return elfcore_write_note (abfd, buf, bufsiz,
-			     note_name, NT_ARM_HW_WATCH, aarch_hw_watch, size);
-}
-
-char *
 elfcore_write_register_note (bfd *abfd,
 			     char *buf,
 			     int *bufsiz,
@@ -9517,12 +9415,6 @@ elfcore_write_register_note (bfd *abfd,
     return elfcore_write_s390_system_call (abfd, buf, bufsiz, data, size);
   if (strcmp (section, ".reg-arm-vfp") == 0)
     return elfcore_write_arm_vfp (abfd, buf, bufsiz, data, size);
-  if (strcmp (section, ".reg-aarch-tls") == 0)
-    return elfcore_write_aarch_tls (abfd, buf, bufsiz, data, size);
-  if (strcmp (section, ".reg-aarch-hw-break") == 0)
-    return elfcore_write_aarch_hw_break (abfd, buf, bufsiz, data, size);
-  if (strcmp (section, ".reg-aarch-hw-watch") == 0)
-    return elfcore_write_aarch_hw_watch (abfd, buf, bufsiz, data, size);
   return NULL;
 }
 
